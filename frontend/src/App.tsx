@@ -1,9 +1,12 @@
-// frontend/src/App.tsx
 import ProjectList from './components/ProjectList/ProjectList'
 import ChatPanel from './components/Chat/ChatPanel'
-import DocPreview from './components/DocPreview/DocPreview'
+import DocList from './components/DocList/DocList'
+import ReviewMode from './components/ReviewMode/ReviewMode'
+import { useReview } from './stores/review'
 
 export default function App() {
+  const { activeDocId } = useReview()
+  if (activeDocId) return <ReviewMode />
   return (
     <div className="grid grid-cols-[260px_1fr_360px] h-full bg-canvas text-fg-primary">
       <aside className="border-r border-subtle">
@@ -13,7 +16,7 @@ export default function App() {
         <ChatPanel />
       </main>
       <aside className="border-l border-subtle">
-        <DocPreview />
+        <DocList />
       </aside>
     </div>
   )
