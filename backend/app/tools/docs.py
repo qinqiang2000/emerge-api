@@ -82,3 +82,33 @@ async def read_doc(workspace: Path, project_id: str, doc_id: str) -> bytes:
     meta_p = doc_meta_path(workspace, project_id, doc_id)
     meta = json.loads(meta_p.read_text())
     return doc_path(workspace, project_id, doc_id, meta["ext"]).read_bytes()
+
+
+async def pdf_render_page(
+    workspace: Path,
+    project_id: str,
+    doc_id: str,
+    *,
+    page: int,
+    dpi: int = 150,
+) -> Path:
+    """Render PDF page as PNG cached under docs/_render/{doc_id}_p{n}.png."""
+    import fitz  # PyMuPDF
+
+    meta = json.loads(doc_meta_path(workspace, project_id, doc_id).read_text())
+    if meta["ext"] != "pdf":
+        raise ValueError(f"doc {doc_id} is not a pdf")
+    src = doc_path(workspace, project_id, doc_id, meta["ext"])
+
+    cache_dir = docs_dir(workspace, project_id) / "_render"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out = cache_dir / f"{doc_id}_p{page}.png"
+    if out.exists():
+        return out
+
+    with fitz.open(src) as pdf:
+        if page < 1 or page > pdf.page_count:
+            raise ValueError(f"page {page} out of range (1..{pdf.page_count})")
+        pix = pdf[page - 1].get_pixmap(dpi=dpi)
+        atomic_write_bytes(out, pix.tobytes("png"))
+    return out
