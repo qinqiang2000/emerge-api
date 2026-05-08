@@ -7,10 +7,13 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     SystemMessage,
     TextBlock,
     ThinkingBlock,
+    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -23,18 +26,28 @@ from app.skills import load_skill
 from app.tools import build_emerge_mcp
 
 
-# Tool-spec patterns disallowed by the SDK CLI's permission system.
-# These map to the `disallowed_tools` option (which takes CLI tool-spec strings,
-# not a separate "permissions" dict).
-_DISALLOWED_TOOLS = [
-    "Read(.env)",
-    "Read(.env.*)",
-    "Read(/secrets/**)",
-    "Read(/*.pem)",
-    "Read(/*.key)",
-    "Bash(printenv)",
-    "Bash(export)",
-]
+# Strict allowlist: the agent may ONLY call our emerge MCP tools. The
+# `allowed_tools` SDK option is NOT enforced when permission_mode='auto', so we
+# additionally install a `can_use_tool` callback that hard-denies anything not
+# matching this prefix (Bash/Read/Edit/Write/Skill/Task/Web*/foreign MCPs).
+_EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
+
+
+async def _emerge_only_permission(
+    tool_name: str,
+    _input: dict[str, Any],
+    _ctx: ToolPermissionContext,
+) -> PermissionResultAllow | PermissionResultDeny:
+    """Hard allowlist gate. Only emerge MCP tools may run."""
+    if tool_name.startswith(_EMERGE_TOOL_PREFIX):
+        return PermissionResultAllow()
+    return PermissionResultDeny(
+        message=(
+            f"Tool {tool_name!r} is not available. "
+            f"emerge restricts the agent to {_EMERGE_TOOL_PREFIX}* tools only."
+        ),
+        interrupt=False,
+    )
 
 
 class ChatService:
@@ -62,7 +75,17 @@ class ChatService:
             system_prompt=self.system_prompt,
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
-            disallowed_tools=list(_DISALLOWED_TOOLS),
+            # Do NOT inherit user/project/local Claude Code settings — that's how
+            # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
+            # SessionStart hooks were leaking into the chat stream.
+            setting_sources=[],
+            # Strict allowlist via can_use_tool callback: only emerge MCP tools.
+            # `permission_mode='default'` makes the SDK actually consult the hook
+            # before each tool invocation. `allowed_tools=...` alone is NOT
+            # enforced under auto mode — keep both for clarity / defense in depth.
+            permission_mode="default",
+            can_use_tool=_emerge_only_permission,
+            allowed_tools=[f"{_EMERGE_TOOL_PREFIX}*"],
             max_turns=20,
         )
 
@@ -130,8 +153,9 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
             if isinstance(block, TextBlock):
                 out.append(("agent_text", {"text": block.text}))
             elif isinstance(block, ThinkingBlock):
-                # Surface thinking as a distinct event; UI can hide if desired.
-                out.append(("agent_thinking", {"text": block.thinking}))
+                # Drop — model's internal reasoning. Re-enable as `agent_thinking`
+                # behind a UI toggle if we ever want a "show thinking" mode.
+                continue
             elif isinstance(block, ToolUseBlock):
                 out.append(
                     (
@@ -159,17 +183,9 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
                     )
                 )
             else:
-                # ServerToolUseBlock / ServerToolResultBlock / unknown — emit a
-                # generic event so the UI can show *something* instead of dropping.
-                out.append(
-                    (
-                        "agent_text",
-                        {
-                            "text": "",
-                            "raw_class": type(block).__name__,
-                        },
-                    )
-                )
+                # ServerToolUseBlock / ServerToolResultBlock / unknown — drop
+                # silently rather than dump raw class names into the chat.
+                continue
         return out
 
     if isinstance(message, UserMessage):
@@ -192,24 +208,25 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
         return out
 
     if isinstance(message, SystemMessage):
-        out.append(("system", {"subtype": message.subtype, "data": message.data}))
+        # init / hook_started / hook_response — internal SDK noise, not chat content.
         return out
 
     if isinstance(message, ResultMessage):
-        out.append(
-            (
-                "result",
-                {
-                    "subtype": message.subtype,
-                    "is_error": message.is_error,
-                    "num_turns": message.num_turns,
-                    "stop_reason": message.stop_reason,
-                    "duration_ms": message.duration_ms,
-                },
+        # Only surface results when the run errored — successful turn already
+        # reflected in the closing `turn_end` event.
+        if message.is_error:
+            out.append(
+                (
+                    "error",
+                    {
+                        "error_code": message.subtype or "agent_failure",
+                        "error_message_en": (
+                            f"{message.subtype} after {message.num_turns} turns"
+                        ),
+                    },
+                )
             )
-        )
         return out
 
-    # Unknown message type — emit a debug event so we don't lose it.
-    out.append(("agent_text", {"text": "", "raw_class": type(message).__name__}))
+    # Unknown message type — drop silently.
     return out
