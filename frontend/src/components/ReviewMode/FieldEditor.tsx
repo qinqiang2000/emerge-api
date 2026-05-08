@@ -1,4 +1,4 @@
-import { type ChangeEvent, useState } from 'react'
+import type { ChangeEvent } from 'react'
 
 interface SchemaField {
   name: string
@@ -15,39 +15,6 @@ interface Props {
   saving: boolean
 }
 
-function FieldInput({
-  field,
-  initial,
-  onChange,
-}: {
-  field: SchemaField
-  initial: string
-  onChange: (name: string, value: string) => void
-}) {
-  const [local, setLocal] = useState(initial)
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
-    setLocal(e.target.value)
-    onChange(field.name, e.target.value)
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={`f-${field.name}`} className="font-mono text-xs text-fg-secondary">
-        {field.name} <span className="text-fg-muted">({field.type})</span>
-      </label>
-      <input
-        id={`f-${field.name}`}
-        type="text"
-        value={local}
-        onChange={handleChange}
-        className="bg-surface border border-subtle px-2 py-1 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-accent-primary"
-      />
-      {field.description && (
-        <span className="text-xs text-fg-muted leading-tight">{field.description}</span>
-      )}
-    </div>
-  )
-}
-
 export default function FieldEditor({ schema, values, onChange, onSave, saving }: Props) {
   return (
     <div className="flex flex-col h-full">
@@ -57,9 +24,23 @@ export default function FieldEditor({ schema, values, onChange, onSave, saving }
       <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
         {schema.map((f) => {
           const current = values[f.name]
-          const initial = current == null ? '' : String(current)
+          const display = current == null ? '' : String(current)
           return (
-            <FieldInput key={f.name} field={f} initial={initial} onChange={onChange} />
+            <div key={f.name} className="flex flex-col gap-1">
+              <label htmlFor={`f-${f.name}`} className="font-mono text-xs text-fg-secondary">
+                {f.name} <span className="text-fg-muted">({f.type})</span>
+              </label>
+              <input
+                id={`f-${f.name}`}
+                type="text"
+                value={display}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(f.name, e.target.value)}
+                className="bg-surface border border-subtle px-2 py-1 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-accent-primary"
+              />
+              {f.description && (
+                <span className="text-xs text-fg-muted leading-tight">{f.description}</span>
+              )}
+            </div>
           )
         })}
       </div>
