@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import chat as chat_route
+from app.api.routes import upload as upload_route
 
 
 app = FastAPI(title="emerge", version="0.0.1")
@@ -14,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_route.router)
+app.include_router(upload_route.router)
 
 
 @app.get("/healthz")
