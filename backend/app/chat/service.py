@@ -170,18 +170,13 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
                     )
                 )
             elif isinstance(block, ToolResultBlock):
-                out.append(
-                    (
-                        "tool_call",
-                        {
-                            "tool_use_id": block.tool_use_id,
-                            "tool_name": None,
-                            "tool_input": None,
-                            "tool_result": block.content,
-                            "ok": not bool(block.is_error),
-                        },
-                    )
-                )
+                # Drop — the corresponding ToolUseBlock has already been streamed
+                # as a tool_call card. The result content is consumed by the
+                # model on the next turn; rendering an empty card with no
+                # tool_name just produces a blank "(no content)" button in the
+                # UI. M2's ToolCallCard rework can fold result back into the
+                # original card via tool_use_id pairing.
+                continue
             else:
                 # ServerToolUseBlock / ServerToolResultBlock / unknown — drop
                 # silently rather than dump raw class names into the chat.
@@ -189,22 +184,10 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
         return out
 
     if isinstance(message, UserMessage):
-        # The SDK echoes back tool results as UserMessage with tool_use_result.
-        if message.tool_use_result is not None:
-            out.append(
-                (
-                    "tool_call",
-                    {
-                        "tool_use_id": None,
-                        "tool_name": None,
-                        "tool_input": None,
-                        "tool_result": message.tool_use_result,
-                        "ok": True,
-                    },
-                )
-            )
-            return out
-        # Otherwise it's a re-emit of user text — skip (we already logged it).
+        # SDK echoes back tool results as UserMessage with tool_use_result, AND
+        # re-emits the original user text. We skip both: the tool_use was
+        # already shown via AssistantMessage.ToolUseBlock, and the user text was
+        # already logged at chat_turn entry.
         return out
 
     if isinstance(message, SystemMessage):
