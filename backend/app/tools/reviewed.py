@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -28,3 +29,27 @@ async def save_reviewed(
     async with project_lock(workspace, project_id):
         reviewed_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(reviewed_path(workspace, project_id, doc_id), payload)
+
+
+async def list_reviewed(workspace: Path, project_id: str) -> list[dict[str, Any]]:
+    """List all reviewed examples for a project as `[{doc_id, entities, ...}]`."""
+    rd = reviewed_dir(workspace, project_id)
+    if not rd.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for p in sorted(rd.glob("*.json")):
+        blob = json.loads(p.read_text())
+        out.append({"doc_id": p.stem, **blob})
+    return out
+
+
+async def get_reviewed(
+    workspace: Path,
+    project_id: str,
+    doc_id: str,
+) -> Optional[dict[str, Any]]:
+    """Return the reviewed payload for a doc or None if not yet reviewed."""
+    p = reviewed_path(workspace, project_id, doc_id)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text())
