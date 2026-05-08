@@ -1,0 +1,13 @@
+/* frontend/src/index.css */
+@import './theme/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-body, Lora, Georgia, serif);
+}
