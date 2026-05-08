@@ -79,3 +79,31 @@ def test_tool_result_err() -> None:
     assert r.data is None
     assert r.error is not None
     assert r.error.error_code == "x"
+
+
+from app.schemas.extraction import ExtractionOutput
+
+
+def test_extraction_output_minimal() -> None:
+    o = ExtractionOutput(entities=[{"document_type": "invoice"}])
+    assert o.entities == [{"document_type": "invoice"}]
+    assert o.evidence is None
+
+
+def test_extraction_output_with_evidence() -> None:
+    o = ExtractionOutput(
+        entities=[{"document_type": "invoice", "invoice_no": "INV-1"}],
+        evidence=[{"document_type": 1, "invoice_no": 1}],
+    )
+    assert o.evidence == [{"document_type": 1, "invoice_no": 1}]
+
+
+def test_extraction_evidence_must_match_entities_length() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ExtractionOutput(
+            entities=[{"a": "x"}, {"a": "y"}],
+            evidence=[{"a": 1}],
+        )
