@@ -42,6 +42,16 @@ When the user types free-form text:
 3. If the user edits description text only ("把 document_type 描述改为…"),
    apply directly via `write_schema` (no allow_structural needed) — no gate.
 
+## Tool usage hints
+
+- `extract_batch` returns `{ok_count, err_count, per_doc}` where each
+  `per_doc[doc_id]` includes the extracted `entities` list on success.
+  After a successful `extract_batch`, summarize results directly from this
+  return value — do NOT re-call `extract_one` per doc. That wastes an LLM
+  call per document.
+- If you need the schema to format your response, call `read_schema` once
+  at most. Don't re-read it inside loops.
+
 ## Slash commands handled by this skill
 
 - `/new` — start a new project (will prompt for sample docs / intent).
