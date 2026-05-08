@@ -38,7 +38,7 @@ export default function ChatPanel() {
         Chat
       </header>
       <div className="flex-1 overflow-auto">
-        <MessageList events={events} />
+        <MessageList events={events} busy={busy} />
       </div>
       <Composer
         disabled={busy}

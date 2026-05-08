@@ -30,9 +30,10 @@ export const useChat = create<State>((set, get) => ({
           attachments,
         }),
       })) {
-        const e: ChatEvent = mapSse(ev.event, ev.data)
-        if (e.type === 'turn_end') break
-        set(s => ({ events: [...s.events, e] }))
+        const mapped = mapSse(ev.event, ev.data)
+        if (mapped === null) continue   // ignored event (user_acknowledged etc.)
+        if (mapped.type === 'turn_end') break
+        set(s => ({ events: [...s.events, mapped] }))
       }
     } finally {
       set({ busy: false })
@@ -40,7 +41,7 @@ export const useChat = create<State>((set, get) => ({
   },
 }))
 
-function mapSse(event: string, data: unknown): ChatEvent {
+function mapSse(event: string, data: unknown): ChatEvent | null {
   if (event === 'agent_text') return { type: 'agent_text', text: (data as { text: string }).text }
   if (event === 'tool_call') {
     const d = data as { tool_name: string; tool_input: unknown; tool_result: unknown; ok?: boolean }
@@ -57,6 +58,7 @@ function mapSse(event: string, data: unknown): ChatEvent {
     return { type: 'error', error_code: d.error_code, error_message_en: d.error_message_en }
   }
   if (event === 'turn_end') return { type: 'turn_end' }
-  // Unknown event types fall through as agent_text with raw stringification.
-  return { type: 'agent_text', text: typeof data === 'string' ? data : JSON.stringify(data) }
+  // user_acknowledged / system / unknown — ignored. Returning null lets
+  // future event types pass through silently rather than corrupt the chat.
+  return null
 }

@@ -2,9 +2,9 @@ import type { ChatEvent } from '../../types/chat'
 
 import ToolCallCard from './ToolCallCard'
 
-interface Props { events: ChatEvent[] }
+interface Props { events: ChatEvent[]; busy?: boolean }
 
-export default function MessageList({ events }: Props) {
+export default function MessageList({ events, busy }: Props) {
   return (
     <div className="px-4 py-3 space-y-3 font-body">
       {events.map((e, i) => {
@@ -26,6 +26,12 @@ export default function MessageList({ events }: Props) {
         }
         return null
       })}
+      {busy && (
+        <div className="text-fg-muted italic flex items-center gap-2" aria-live="polite">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-muted animate-pulse"></span>
+          agent is thinking…
+        </div>
+      )}
     </div>
   )
 }
