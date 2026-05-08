@@ -20,6 +20,11 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "extract_one",
         "extract_batch",
         "pdf_render_page",
+        # M2A additions
+        "save_reviewed",
+        "list_reviewed",
+        "get_reviewed",
+        "get_prediction",
     }
     assert expected.issubset(names), (expected - names, names)
 

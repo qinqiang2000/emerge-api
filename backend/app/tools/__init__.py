@@ -9,8 +9,11 @@ from app.provider.base import Provider
 from app.schemas.schema_field import SchemaField
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
+from app.tools import predictions as predictions_mod
 from app.tools import projects as projects_mod
+from app.tools import reviewed as reviewed_mod
 from app.tools import schema as schema_mod
+from app.schemas.reviewed import ReviewedSource
 
 
 def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
@@ -116,6 +119,59 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
         )
         return {"content": [{"type": "text", "text": str(summary)}]}
 
+    @tool(
+        "save_reviewed",
+        "Save a corrected extraction as ground truth for a doc.",
+        {
+            "project_id": str,
+            "doc_id": str,
+            "entities": list,
+            "source": str,  # "manual" | "feedback"
+            "notes": dict,  # optional; pass {} if none
+        },
+    )
+    async def t_save_reviewed(args: dict[str, Any]) -> dict[str, Any]:
+        await reviewed_mod.save_reviewed(
+            workspace,
+            args["project_id"],
+            args["doc_id"],
+            entities=args["entities"],
+            source=ReviewedSource(args.get("source", "manual")),
+            notes=args.get("notes") or None,
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "list_reviewed",
+        "List all reviewed examples in a project.",
+        {"project_id": str},
+    )
+    async def t_list_reviewed(args: dict[str, Any]) -> dict[str, Any]:
+        items = await reviewed_mod.list_reviewed(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": str(items)}]}
+
+    @tool(
+        "get_reviewed",
+        "Get the reviewed payload for one doc or null if not reviewed.",
+        {"project_id": str, "doc_id": str},
+    )
+    async def t_get_reviewed(args: dict[str, Any]) -> dict[str, Any]:
+        payload = await reviewed_mod.get_reviewed(
+            workspace, args["project_id"], args["doc_id"]
+        )
+        return {"content": [{"type": "text", "text": str(payload)}]}
+
+    @tool(
+        "get_prediction",
+        "Get the latest draft prediction for a doc or null if not extracted.",
+        {"project_id": str, "doc_id": str},
+    )
+    async def t_get_prediction(args: dict[str, Any]) -> dict[str, Any]:
+        payload = await predictions_mod.get_prediction(
+            workspace, args["project_id"], args["doc_id"]
+        )
+        return {"content": [{"type": "text", "text": str(payload)}]}
+
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",
@@ -130,5 +186,9 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
             t_write_schema,
             t_extract_one,
             t_extract_batch,
+            t_save_reviewed,
+            t_list_reviewed,
+            t_get_reviewed,
+            t_get_prediction,
         ],
     )
