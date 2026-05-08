@@ -1,0 +1,27 @@
+/* frontend/src/theme/tokens.css */
+:root {
+  --bg-canvas: #faf9f5;
+  --bg-surface: #ffffff;
+  --bg-subtle: #e8e6dc;
+  --fg-primary: #141413;
+  --fg-secondary: #6b6a64;
+  --fg-muted: #b0aea5;
+  --accent-primary: #d97757;
+  --accent-info: #6a9bcc;
+  --accent-success: #788c5d;
+  --accent-danger: #b53a2b;
+  --font-heading: 'Poppins', Arial, sans-serif;
+  --font-body: 'Lora', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-canvas: #141413;
+    --bg-surface: #1f1e1c;
+    --bg-subtle: #2a2926;
+    --fg-primary: #faf9f5;
+    --fg-secondary: #d4d2c9;
+    --fg-muted: #b0aea5;
+  }
+}
