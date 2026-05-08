@@ -45,18 +45,17 @@ def _build_response_schema(schema: list[SchemaField]) -> dict[str, Any]:
     if required:
         entity_schema["required"] = required
 
+    # `_evidence` is intentionally omitted from the formal response_schema:
+    # Gemini's OpenAPI-3.0 dialect rejects `additionalProperties` (which we'd need
+    # to allow arbitrary field names as evidence keys), and listing each schema
+    # field again as an explicit nullable integer doubles the schema for marginal
+    # value at this layer. The system prompt still instructs the model to emit
+    # `_evidence`; ExtractionOutput accepts it as Optional and validates length.
     return {
         "type": "object",
         "required": ["entities"],
         "properties": {
             "entities": {"type": "array", "items": entity_schema},
-            "_evidence": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": {"type": ["integer", "null"]},
-                },
-            },
         },
     }
 
@@ -153,8 +152,8 @@ async def extract_batch(
     async def _run_one(did: str) -> None:
         async with sem:
             try:
-                await extract_one(workspace, project_id, did, provider=provider, model_id=model_id)
-                per_doc[did] = {"ok": True}
+                payload = await extract_one(workspace, project_id, did, provider=provider, model_id=model_id)
+                per_doc[did] = {"ok": True, "entities": payload.get("entities", [])}
             except Exception as e:  # noqa: BLE001
                 per_doc[did] = {"ok": False, "error": str(e)}
 

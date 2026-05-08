@@ -71,6 +71,9 @@ async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: Async
     assert summary["ok_count"] == 2
     assert summary["err_count"] == 0
     assert set(summary["per_doc"].keys()) == {d1, d2}
+    # entities now bubble up so agent can summarize without re-calling extract_one
+    assert summary["per_doc"][d1]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
+    assert summary["per_doc"][d2]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
 
 
 async def test_extract_batch_records_per_doc_errors(workspace: Path, stub_provider: AsyncMock) -> None:
