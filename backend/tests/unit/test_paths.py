@@ -12,6 +12,8 @@ from app.workspace.paths import (
     chats_dir,
     keys_path,
     job_locks_dir,
+    reviewed_dir,
+    reviewed_path,
 )
 
 
@@ -57,3 +59,11 @@ def test_keys_path(workspace: Path) -> None:
 
 def test_job_locks_dir(workspace: Path) -> None:
     assert job_locks_dir(workspace) == workspace / "_job_locks"
+
+
+def test_reviewed_dir(workspace: Path) -> None:
+    assert reviewed_dir(workspace, "p_abc") == workspace / "p_abc" / "reviewed"
+
+
+def test_reviewed_path(workspace: Path) -> None:
+    assert reviewed_path(workspace, "p_abc", "d_xyz") == workspace / "p_abc" / "reviewed" / "d_xyz.json"

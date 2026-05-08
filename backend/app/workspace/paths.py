@@ -43,3 +43,11 @@ def keys_path(workspace: Path) -> Path:
 
 def job_locks_dir(workspace: Path) -> Path:
     return workspace / "_job_locks"
+
+
+def reviewed_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "reviewed"
+
+
+def reviewed_path(workspace: Path, project_id: str, doc_id: str) -> Path:
+    return reviewed_dir(workspace, project_id) / f"{doc_id}.json"
