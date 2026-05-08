@@ -58,3 +58,29 @@ def test_get_project_docs_400_on_bad_pid() -> None:
     client = TestClient(app)
     r = client.get("/lab/projects/p_INVALIDPATH/docs")
     assert r.status_code == 400
+
+
+async def test_get_project_schema(workspace: Path) -> None:
+    from app.tools.schema import write_schema
+    from app.schemas.schema_field import FieldType, SchemaField
+
+    pid = await create_project(workspace, name="x")
+    await write_schema(
+        workspace,
+        pid,
+        [SchemaField(name="invoice_no", type=FieldType.STRING, description="d")],
+        reason="seed",
+        allow_structural=True,
+    )
+    client = TestClient(app)
+    r = client.get(f"/lab/projects/{pid}/schema")
+    assert r.status_code == 200
+    fields = r.json()
+    assert len(fields) == 1
+    assert fields[0]["name"] == "invoice_no"
+
+
+def test_get_project_schema_400_on_bad_pid() -> None:
+    client = TestClient(app)
+    r = client.get("/lab/projects/p_INVALIDPATH/schema")
+    assert r.status_code == 400

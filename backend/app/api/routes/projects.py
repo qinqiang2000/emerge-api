@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.tools.docs import list_docs
 from app.tools.projects import list_projects
 from app.tools.reviewed import list_reviewed
-from app.workspace.paths import predictions_draft_dir, project_json_path
+from app.workspace.paths import predictions_draft_dir, project_json_path, schema_path
 
 
 router = APIRouter()
@@ -48,3 +48,13 @@ async def get_project_docs(project_id: str) -> list[dict]:
             "has_prediction": d["doc_id"] in pred_ids,
         })
     return out
+
+
+@router.get("/lab/projects/{project_id}/schema")
+async def get_project_schema(project_id: str) -> list[dict]:
+    safe_project_id(project_id)
+    settings = get_settings()
+    sp = schema_path(settings.workspace_root, project_id)
+    if not sp.exists():
+        raise HTTPException(status_code=404, detail="schema_not_found")
+    return json.loads(sp.read_text())
