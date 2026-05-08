@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -135,3 +136,29 @@ async def extract_one(
             payload,
         )
     return payload
+
+
+async def extract_batch(
+    workspace: Path,
+    project_id: str,
+    doc_ids: list[str],
+    *,
+    provider: Provider,
+    model_id: str | None = None,
+    concurrency: int = 4,
+) -> dict[str, Any]:
+    sem = asyncio.Semaphore(concurrency)
+    per_doc: dict[str, dict[str, Any]] = {}
+
+    async def _run_one(did: str) -> None:
+        async with sem:
+            try:
+                await extract_one(workspace, project_id, did, provider=provider, model_id=model_id)
+                per_doc[did] = {"ok": True}
+            except Exception as e:  # noqa: BLE001
+                per_doc[did] = {"ok": False, "error": str(e)}
+
+    await asyncio.gather(*(_run_one(d) for d in doc_ids))
+    ok = sum(1 for v in per_doc.values() if v["ok"])
+    err = sum(1 for v in per_doc.values() if not v["ok"])
+    return {"ok_count": ok, "err_count": err, "per_doc": per_doc}

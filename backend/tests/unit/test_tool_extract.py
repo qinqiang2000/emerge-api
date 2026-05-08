@@ -51,3 +51,37 @@ async def test_extract_one_invalid_json_returns_error(workspace: Path, stub_prov
 
     with pytest.raises(ValueError, match="entities"):
         await extract_one(workspace, pid, did, provider=stub_provider)
+
+
+from app.tools.extract import extract_batch
+
+
+async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: AsyncMock) -> None:
+    pid = await create_project(workspace, name="x")
+    pdf = _FIXTURE.read_bytes()
+    d1 = await upload_doc(workspace, pid, pdf, "a.pdf")
+    d2 = await upload_doc(workspace, pid, pdf, "b.pdf")
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"invoice_no": "X", "total_amount": 1.0}], "_evidence": [{"invoice_no": 1, "total_amount": 1}]}
+    )
+
+    summary = await extract_batch(workspace, pid, [d1, d2], provider=stub_provider, concurrency=2)
+    assert summary["ok_count"] == 2
+    assert summary["err_count"] == 0
+    assert set(summary["per_doc"].keys()) == {d1, d2}
+
+
+async def test_extract_batch_records_per_doc_errors(workspace: Path, stub_provider: AsyncMock) -> None:
+    pid = await create_project(workspace, name="x")
+    pdf = _FIXTURE.read_bytes()
+    d1 = await upload_doc(workspace, pid, pdf, "a.pdf")
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+
+    stub_provider.extract.side_effect = ValueError("boom")
+    summary = await extract_batch(workspace, pid, [d1], provider=stub_provider)
+    assert summary["ok_count"] == 0
+    assert summary["err_count"] == 1
+    assert summary["per_doc"][d1]["ok"] is False
+    assert "boom" in summary["per_doc"][d1]["error"]
