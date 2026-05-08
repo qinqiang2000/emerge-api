@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
+from app.api.routes._safety import safe_project_id
 from app.config import get_settings
 from app.tools.projects import list_projects
 from app.workspace.paths import project_json_path
@@ -18,6 +19,7 @@ async def get_projects() -> list[dict]:
 
 @router.get("/lab/projects/{project_id}")
 async def get_project(project_id: str) -> dict:
+    safe_project_id(project_id)
     settings = get_settings()
     pj = project_json_path(settings.workspace_root, project_id)
     if not pj.exists():

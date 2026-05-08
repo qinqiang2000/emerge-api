@@ -22,5 +22,5 @@ async def test_get_page_returns_png(workspace: Path) -> None:
 
 async def test_get_page_404_for_missing(workspace: Path) -> None:
     client = TestClient(app)
-    r = client.get("/lab/projects/p_x/docs/d_y/pages/1")
+    r = client.get("/lab/projects/p_doesnotexist/docs/d_doesnotexist/pages/1")
     assert r.status_code == 404
