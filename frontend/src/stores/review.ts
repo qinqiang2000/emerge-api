@@ -3,6 +3,7 @@ import { create } from 'zustand'
 
 import { getPrediction, getReviewed, saveReviewed } from '../lib/api'
 import type { ReviewedPayload } from '../types/review'
+import { useDocs } from './docs'
 
 type FieldsValue = Record<string, unknown>
 
@@ -70,6 +71,8 @@ export const useReview = create<State>((set, get) => ({
         source: 'manual',
       }
       await saveReviewed(activeProjectId, activeDocId, payload)
+      // refresh the doc-list status so the badge flips to "reviewed"
+      void useDocs.getState().refresh(activeProjectId)
       set({ saving: false })
     } catch (e: unknown) {
       set({ err: String(e), saving: false })
