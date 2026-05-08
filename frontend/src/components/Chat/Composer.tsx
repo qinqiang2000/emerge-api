@@ -5,7 +5,7 @@ import SlashMenu from './SlashMenu'
 interface Props {
   disabled: boolean
   pending: { filename: string }[]
-  onAttach: (files: { filename: string }[]) => void
+  onAttach: (files: File[]) => void
   onSubmit: (text: string) => void
 }
 
@@ -26,8 +26,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault()
     setDragOver(false)
-    const files = Array.from(e.dataTransfer.files).map(f => ({ filename: f.name }))
-    onAttach(files)
+    onAttach(Array.from(e.dataTransfer.files))
   }
 
   return (
