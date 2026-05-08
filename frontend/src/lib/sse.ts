@@ -12,7 +12,8 @@ export async function* streamSSE(url: string, init: RequestInit): AsyncGenerator
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
-    buf += decoder.decode(value, { stream: true })
+    // Normalise \r\n → \n so the parser handles both uvicorn (CRLF) and other servers (LF).
+    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
     let idx
     while ((idx = buf.indexOf('\n\n')) !== -1) {
       const block = buf.slice(0, idx)

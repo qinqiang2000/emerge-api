@@ -6,14 +6,24 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/lab': 'http://localhost:8000',
-      '/v1': 'http://localhost:8000',
-      '/healthz': 'http://localhost:8000',
+      '/lab': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/v1': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/healthz': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     globals: true,
+    exclude: ['**/node_modules/**', '**/tests/e2e/**'],
   },
 })
