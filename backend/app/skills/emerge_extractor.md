@@ -51,6 +51,14 @@ When the user types free-form text:
   call per document.
 - If you need the schema to format your response, call `read_schema` once
   at most. Don't re-read it inside loops.
+- After the user corrects a value (e.g. "buyer_name should be ACME Sdn Bhd"),
+  call `get_prediction` to load the latest draft, apply the correction in
+  memory, then call `save_reviewed` to persist it as ground truth. Don't
+  just acknowledge in chat without saving — the user expects their
+  correction to flow into the eval set.
+- `list_reviewed` tells you how many ground-truth examples exist in a
+  project. Use this when the user asks "how am I doing" or before
+  suggesting `/eval` (which needs ≥1 reviewed example to be useful).
 
 ## Slash commands handled by this skill
 
