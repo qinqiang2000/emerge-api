@@ -40,3 +40,37 @@ async def test_write_schema_allows_description_edit(workspace: Path) -> None:
     await write_schema(workspace, pid, [_f("a", description="new")], reason="edit text")
     got = await read_schema(workspace, pid)
     assert got[0].description == "new"
+
+
+from unittest.mock import AsyncMock
+
+from app.tools.schema import derive_schema
+from app.tools.docs import upload_doc
+from tests.conftest import make_provider_result
+
+
+async def test_derive_schema_calls_provider(workspace: Path, stub_provider: AsyncMock) -> None:
+    pid = await create_project(workspace, name="x")
+    pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
+    did = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+
+    stub_provider.extract.return_value = make_provider_result(
+        {
+            "fields": [
+                {"name": "invoice_no", "type": "string", "description": "Invoice number", "required": True},
+                {"name": "total_amount", "type": "number", "description": "Total amount", "required": True},
+            ]
+        }
+    )
+
+    fields = await derive_schema(
+        workspace,
+        pid,
+        sample_doc_ids=[did],
+        intent="extract core invoice info",
+        provider=stub_provider,
+    )
+    assert len(fields) == 2
+    names = {f.name for f in fields}
+    assert names == {"invoice_no", "total_amount"}
+    stub_provider.extract.assert_awaited_once()
