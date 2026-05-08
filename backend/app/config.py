@@ -11,8 +11,7 @@ class Settings(BaseSettings):
     )
 
     workspace_root: Path = Path("./workspace")
-    anthropic_api_key: str = ""
-    default_extract_model: str = "claude-sonnet-4-6"
+    default_extract_model: str = "gemini-2.0-flash"
     default_agent_model: str = "claude-sonnet-4-6"
     log_level: str = "INFO"
 

@@ -18,9 +18,10 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def env_isolation(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
-    """Point EMERGE_WORKSPACE_ROOT at the per-test workspace."""
+    """Point EMERGE_WORKSPACE_ROOT at the per-test workspace and stub auth."""
     monkeypatch.setenv("EMERGE_WORKSPACE_ROOT", str(workspace))
-    monkeypatch.setenv("EMERGE_ANTHROPIC_API_KEY", "sk-test-not-used")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-test-not-used")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-not-used")
 
 
 @pytest.fixture
