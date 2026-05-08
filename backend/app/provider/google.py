@@ -20,14 +20,25 @@ class GoogleProvider(Provider):
         self,
         *,
         api_key: str,
+        proxy: str | None = None,
         timeout: float = 120.0,
         retry_max_attempts: int = 3,
         retry_base_delay: float = 0.5,
     ) -> None:
         # Lazy import so test environments without google-genai still load the module.
         from google import genai
+        from google.genai.types import HttpOptions
 
-        self._client = genai.Client(api_key=api_key)
+        # trust_env=False so we don't accidentally inherit CLAUDE_PROXY (SOCKS5,
+        # intended for the Claude agent SDK only). If a Google-side proxy is needed,
+        # caller passes it explicitly via the `proxy` argument.
+        client_args: dict[str, Any] = {"trust_env": False}
+        if proxy:
+            client_args["proxy"] = proxy
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=HttpOptions(client_args=client_args, async_client_args=client_args),
+        )
         self._timeout = timeout
         self._retry_max = retry_max_attempts
         self._retry_base = retry_base_delay

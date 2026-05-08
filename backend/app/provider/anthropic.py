@@ -40,11 +40,13 @@ class AnthropicProvider(Provider):
         self,
         *,
         api_key: str,
+        proxy: str | None = None,
         timeout: float = 120.0,
         retry_max_attempts: int = 3,
         retry_base_delay: float = 0.5,
     ) -> None:
         self._api_key = api_key
+        self._proxy = proxy
         self._timeout = timeout
         self._retry_max = retry_max_attempts
         self._retry_base = retry_base_delay
@@ -86,7 +88,10 @@ class AnthropicProvider(Provider):
         }
 
         async def _call() -> ProviderResult:
-            async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
+            client_kwargs: dict[str, Any] = {"timeout": self._timeout, "trust_env": False}
+            if self._proxy:
+                client_kwargs["proxy"] = self._proxy
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.post(_API_URL, json=body, headers=headers)
                 if resp.status_code in (429, 502, 503, 504):
                     raise RetryableError(f"anthropic {resp.status_code}: {resp.text[:200]}")
