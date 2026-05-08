@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter
@@ -8,7 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.chat.service import ChatService
 from app.config import get_settings
-from app.provider.anthropic import AnthropicProvider
+from app.provider import get_provider_for_model
 
 
 router = APIRouter()
@@ -23,7 +24,12 @@ class ChatBody(BaseModel):
 
 def _get_chat_service() -> ChatService:
     settings = get_settings()
-    provider = AnthropicProvider(api_key=settings.anthropic_api_key)
+    # Apply optional proxy from CLAUDE_PROXY → HTTPS_PROXY/HTTP_PROXY (claude_agent_sdk picks up).
+    claude_proxy = os.getenv("CLAUDE_PROXY", "").strip()
+    if claude_proxy:
+        os.environ.setdefault("HTTPS_PROXY", claude_proxy)
+        os.environ.setdefault("HTTP_PROXY", claude_proxy)
+    provider = get_provider_for_model(settings.default_extract_model)
     return ChatService(
         workspace=settings.workspace_root,
         provider=provider,
