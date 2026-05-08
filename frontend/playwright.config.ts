@@ -10,8 +10,8 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'EMERGE_TEST_MODE=1 EMERGE_WORKSPACE_ROOT=./.tmp_workspace uv --directory ../backend run uvicorn app.main:app --port 8000',
-      url: 'http://localhost:8000/healthz',
+      command: 'EMERGE_TEST_MODE=1 EMERGE_WORKSPACE_ROOT=./.tmp_workspace uv --directory ../backend run uvicorn app.main:app --port 8080',
+      url: 'http://localhost:8080/healthz',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },
