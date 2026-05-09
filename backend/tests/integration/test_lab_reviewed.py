@@ -35,6 +35,21 @@ async def test_post_reviewed_with_notes(workspace: Path) -> None:
     assert "official: ACME Sdn Bhd" in saved
 
 
+async def test_post_reviewed_with_evidence(workspace: Path) -> None:
+    pid = await create_project(workspace, name="x")
+    client = TestClient(app)
+    body = {
+        "entities": [{"buyer_name": "ACME"}],
+        "source": "manual",
+        "_evidence": [{"buyer_name": 2}],
+    }
+    r = client.post(f"/lab/projects/{pid}/reviewed/d_aaaaaaaaaaaa", json=body)
+    assert r.status_code == 200
+    saved = (workspace / pid / "reviewed" / "d_aaaaaaaaaaaa.json").read_text()
+    assert '"_evidence"' in saved
+    assert '"buyer_name": 2' in saved
+
+
 async def test_get_reviewed_returns_payload(workspace: Path) -> None:
     pid = await create_project(workspace, name="x")
     client = TestClient(app)

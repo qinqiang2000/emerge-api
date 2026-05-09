@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.routes._safety import safe_doc_id, safe_project_id
 from app.config import get_settings
@@ -13,10 +13,11 @@ router = APIRouter()
 
 
 class ReviewedBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     entities: list[dict[str, Any]]
     source: ReviewedSource = ReviewedSource.MANUAL
     notes: Optional[dict[str, str]] = None
+    evidence: Optional[list[dict[str, Optional[int]]]] = Field(default=None, alias="_evidence")
 
 
 @router.post("/lab/projects/{project_id}/reviewed/{doc_id}")
@@ -35,6 +36,7 @@ async def post_reviewed(
         entities=body.entities,
         source=body.source,
         notes=body.notes,
+        evidence=body.evidence,
     )
     return {"ok": True}
 

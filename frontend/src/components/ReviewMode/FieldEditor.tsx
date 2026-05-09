@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 
 interface SchemaField {
   name: string
@@ -10,7 +10,7 @@ interface SchemaField {
 interface Props {
   schema: SchemaField[]
   values: Record<string, unknown>
-  onChange: (name: string, value: string) => void
+  onChange: (name: string, value: unknown) => void
   onSave: () => void
   saving: boolean
 }
@@ -24,12 +24,68 @@ export default function FieldEditor({ schema, values, onChange, onSave, saving }
       <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
         {schema.map((f) => {
           const current = values[f.name]
-          const display = current == null ? '' : String(current)
-          return (
-            <div key={f.name} className="flex flex-col gap-1">
-              <label htmlFor={`f-${f.name}`} className="font-mono text-xs text-fg-secondary">
-                {f.name} <span className="text-fg-muted">({f.type})</span>
-              </label>
+          const labelEl = (
+            <label htmlFor={`f-${f.name}`} className="font-mono text-xs text-fg-secondary">
+              {f.name} <span className="text-fg-muted">({f.type})</span>
+            </label>
+          )
+          let control: ReactNode
+
+          if (f.type === 'string' && f.enum && f.enum.length > 0) {
+            control = (
+              <div className="flex gap-2 flex-wrap">
+                {f.enum.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => onChange(f.name, opt)}
+                    className={
+                      'px-2 py-1 border text-xs rounded ' +
+                      (current === opt ? 'bg-accent-primary text-canvas border-transparent' : 'border-subtle hover:bg-subtle')
+                    }
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )
+          } else if (f.type === 'number') {
+            const display = current == null ? '' : String(current)
+            const num = typeof current === 'number' ? current : Number(current ?? 0)
+            control = (
+              <div className="flex items-center gap-2">
+                <button type="button" aria-label="-" onClick={() => onChange(f.name, num - 1)}
+                        className="px-2 py-1 border border-subtle font-mono">-</button>
+                <input
+                  id={`f-${f.name}`}
+                  type="text"
+                  value={display}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(f.name, e.target.value)}
+                  className="bg-surface border border-subtle px-2 py-1 font-mono text-sm w-32"
+                />
+                <button type="button" aria-label="+" onClick={() => onChange(f.name, num + 1)}
+                        className="px-2 py-1 border border-subtle font-mono">+</button>
+              </div>
+            )
+          } else if (f.type === 'boolean') {
+            const checked = !!current
+            control = (
+              <button
+                role="switch"
+                aria-label={f.name}
+                aria-checked={checked}
+                onClick={() => onChange(f.name, !checked)}
+                className={
+                  'inline-flex items-center w-10 h-5 rounded-full transition-colors ' +
+                  (checked ? 'bg-accent-success' : 'bg-subtle')
+                }
+              >
+                <span className={`inline-block w-4 h-4 rounded-full bg-canvas transform transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            )
+          } else {
+            const display = current == null ? '' : String(current)
+            control = (
               <input
                 id={`f-${f.name}`}
                 type="text"
@@ -37,6 +93,13 @@ export default function FieldEditor({ schema, values, onChange, onSave, saving }
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(f.name, e.target.value)}
                 className="bg-surface border border-subtle px-2 py-1 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-accent-primary"
               />
+            )
+          }
+
+          return (
+            <div key={f.name} className="flex flex-col gap-1">
+              {labelEl}
+              {control}
               {f.description && (
                 <span className="text-xs text-fg-muted leading-tight">{f.description}</span>
               )}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import FieldEditor from '../../src/components/ReviewMode/FieldEditor'
@@ -18,7 +18,7 @@ function Stateful({
   onSave = () => {},
 }: {
   initial: Record<string, unknown>
-  onChange?: (name: string, value: string) => void
+  onChange?: (name: string, value: unknown) => void
   saving?: boolean
   onSave?: () => void
 }) {
@@ -56,5 +56,52 @@ describe('FieldEditor', () => {
   it('disables save button when saving=true', () => {
     render(<Stateful initial={{}} saving={true} />)
     expect(screen.getByRole('button', { name: /saving/i })).toBeDisabled()
+  })
+})
+
+describe('FieldEditor type-derived controls', () => {
+  it('renders enum chips for an enum string field', () => {
+    const onChange = vi.fn()
+    render(<FieldEditor
+      schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['invoice', 'others'] }]}
+      values={{ doc_type: 'invoice' }}
+      onChange={onChange} onSave={() => {}} saving={false}
+    />)
+    expect(screen.getByRole('button', { name: 'invoice' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'others' })).toBeInTheDocument()
+  })
+
+  it('clicking an enum chip emits onChange', () => {
+    const onChange = vi.fn()
+    render(<FieldEditor
+      schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['a', 'b'] }]}
+      values={{ doc_type: 'a' }}
+      onChange={onChange} onSave={() => {}} saving={false}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: 'b' }))
+    expect(onChange).toHaveBeenCalledWith('doc_type', 'b')
+  })
+
+  it('renders number stepper for type=number', () => {
+    render(<FieldEditor
+      schema={[{ name: 'amount', type: 'number', description: 'd' }]}
+      values={{ amount: 100 }}
+      onChange={vi.fn()} onSave={() => {}} saving={false}
+    />)
+    expect(screen.getByRole('button', { name: '-' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+' })).toBeInTheDocument()
+  })
+
+  it('renders toggle for type=boolean', () => {
+    const onChange = vi.fn()
+    render(<FieldEditor
+      schema={[{ name: 'is_paid', type: 'boolean', description: 'd' }]}
+      values={{ is_paid: false }}
+      onChange={onChange} onSave={() => {}} saving={false}
+    />)
+    const toggle = screen.getByRole('switch', { name: /is_paid/i })
+    expect(toggle).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(onChange).toHaveBeenCalledWith('is_paid', true)
   })
 })

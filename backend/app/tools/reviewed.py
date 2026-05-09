@@ -18,12 +18,13 @@ async def save_reviewed(
     entities: list[dict[str, Any]],
     source: ReviewedSource = ReviewedSource.MANUAL,
     notes: Optional[dict[str, str]] = None,
+    evidence: Optional[list[dict[str, Optional[int]]]] = None,
 ) -> None:
     """Persist a corrected extraction as ground truth for a doc.
 
     Overwrites any existing reviewed file for the same (project, doc).
     """
-    payload = Reviewed(entities=entities, source=source, notes=notes).model_dump(
+    payload = Reviewed(entities=entities, source=source, notes=notes, evidence=evidence).model_dump(
         by_alias=True, exclude_none=True, mode="json"
     )
     async with project_lock(workspace, project_id):

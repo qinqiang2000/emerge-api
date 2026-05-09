@@ -29,7 +29,7 @@ def test_non_improve_keeps_extractor_only(workspace: Path, stub_provider: AsyncM
     svc = ChatService(workspace=workspace, provider=stub_provider, agent_model="claude-sonnet-4-6")
     text = _build_options_for(svc, "give me a status update")
     assert "emerge-extractor" in text
-    assert "emerge-autoresearch" not in text
+    assert "# emerge-autoresearch (loaded on /improve)" not in text
 
 
 def test_leading_space_or_slash_both_match_improve(workspace: Path, stub_provider: AsyncMock) -> None:

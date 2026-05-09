@@ -45,3 +45,24 @@ def test_reviewed_serializes_with_notes_alias() -> None:
     assert "_notes" in blob
     assert blob["_notes"] == {"a": "b"}
     assert "source" in blob
+
+
+def test_reviewed_round_trips_evidence() -> None:
+    from app.schemas.reviewed import Reviewed
+    blob = {
+        "entities": [{"x": "y"}],
+        "source": "manual",
+        "_evidence": [{"x": 2}],
+    }
+    r = Reviewed(**blob)
+    assert r.evidence == [{"x": 2}]
+    out = r.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert out["_evidence"] == [{"x": 2}]
+
+
+def test_reviewed_evidence_optional() -> None:
+    from app.schemas.reviewed import Reviewed
+    r = Reviewed(entities=[{"x": "y"}])
+    assert r.evidence is None
+    out = r.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert "_evidence" not in out

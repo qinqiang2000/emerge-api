@@ -22,3 +22,4 @@ class Reviewed(BaseModel):
     entities: list[dict[str, Any]]
     source: ReviewedSource = ReviewedSource.MANUAL
     notes: Optional[dict[str, str]] = Field(default=None, alias="_notes")
+    evidence: Optional[list[dict[str, Optional[int]]]] = Field(default=None, alias="_evidence")

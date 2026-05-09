@@ -20,6 +20,7 @@ export interface ReviewedPayload {
   entities: Record<string, unknown>[]
   source: 'manual' | 'feedback'
   _notes?: Record<string, string>
+  _evidence?: Record<string, number | null>[]
 }
 
 export function docStatus(d: DocSummary): DocStatus {
