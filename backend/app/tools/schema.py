@@ -95,15 +95,25 @@ _DERIVE_TOOL_SCHEMA = {
 }
 
 
+_SUPPORTED_EXTS = {"pdf", "png", "jpg", "jpeg"}
+
+
+def _bytes_to_block(data: bytes, ext: str) -> ContentBlock:
+    ext = ext.lower().lstrip(".")
+    if ext not in _SUPPORTED_EXTS:
+        raise ValueError(f"unsupported file extension: {ext!r}")
+    b64 = base64.b64encode(data).decode("ascii")
+    if ext == "pdf":
+        return DocumentBlock(media_type="application/pdf", data_b64=b64)
+    media_type = "image/png" if ext == "png" else "image/jpeg"
+    return ImageBlock(media_type=media_type, data_b64=b64)
+
+
 async def _doc_to_block(workspace: Path, project_id: str, doc_id: str) -> ContentBlock:
     import json as _json
     meta = _json.loads(doc_meta_path(workspace, project_id, doc_id).read_text())
     data = await read_doc(workspace, project_id, doc_id)
-    b64 = base64.b64encode(data).decode("ascii")
-    if meta["ext"] == "pdf":
-        return DocumentBlock(media_type="application/pdf", data_b64=b64)
-    media_type = "image/png" if meta["ext"] == "png" else "image/jpeg"
-    return ImageBlock(media_type=media_type, data_b64=b64)
+    return _bytes_to_block(data, meta["ext"])
 
 
 async def derive_schema(

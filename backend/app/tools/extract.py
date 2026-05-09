@@ -168,6 +168,37 @@ async def extract_one_with_schema(
     return parsed.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
+async def extract_bytes_with_schema(
+    *,
+    content: bytes,
+    filename: str,
+    schema: list[SchemaField],
+    provider: Provider,
+    model_id: str,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Extract from raw multipart bytes without writing the upload to workspace."""
+    if not schema:
+        raise ValueError("schema must be non-empty")
+    from app.tools.schema import _bytes_to_block
+
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+    block = _bytes_to_block(content, ext)
+    user_blocks: list[ContentBlock] = [
+        TextBlock(text=_build_field_instructions(schema)),
+        block,
+    ]
+    result = await provider.extract(
+        model_id=model_id,
+        system_prompt=_EXTRACT_SYSTEM,
+        user_content=user_blocks,
+        response_schema=_build_response_schema(schema),
+        params=params or {"temperature": 0.0},
+    )
+    parsed = ExtractionOutput(**result.raw_json)
+    return parsed.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+
 async def extract_batch(
     workspace: Path,
     project_id: str,
