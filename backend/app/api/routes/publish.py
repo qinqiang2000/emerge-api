@@ -138,3 +138,31 @@ async def v1_extract(
     except Exception:
         pass
     return out
+
+
+@router.get("/lab/projects/{project_id}/keys/meta")
+async def lab_keys_meta(project_id: str) -> dict:
+    try:
+        safe_project_id(project_id)
+    except Exception:
+        return _error(400, "invalid_project_id", "invalid project_id")
+    settings = get_settings()
+    store = get_keystore(settings.workspace_root)
+    store.reload_if_changed()
+    row = next(
+        (r for r in store._by_hash.values() if r.get("project_id") == project_id),
+        None,
+    )
+    if row is None:
+        return {
+            "project_id": project_id,
+            "key_hash_short": None,
+            "created_at": None,
+            "last_used": None,
+        }
+    return {
+        "project_id": project_id,
+        "key_hash_short": key_hash_short(row["hash"]),
+        "created_at": row["created_at"],
+        "last_used": row.get("last_used"),
+    }
