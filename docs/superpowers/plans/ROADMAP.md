@@ -14,7 +14,7 @@
 | **M2A** — reviewed examples + review mode UI | `2026-05-09-m2a-reviewed-examples.md` | ✅ shipped + dogfooded | `f85e929..8bc8b70` (24 commits) |
 | **M2B** — eval (score + /eval) | `2026-05-09-m2b-eval-score.md` | ✅ shipped | `bad20f5..b8b0811` (23 commits) |
 | **M2C** — autoresearch + /improve | `2026-05-09-m2c-autoresearch.md` | ✅ shipped | `361f30f..e87b0df` (23 commits, incl. T21 smoke fixes) |
-| **M3** — publish + prod fast-path + API key | _plan TBD_ | ⏳ after M2C | — |
+| **M3** — publish + prod fast-path + API key | `2026-05-09-m3-publish.md` | ✅ shipped + dogfooded | `adf7ef9..e03b5b2` (16 commits, T17 smoke ran live `/publish v1`+`v2` on `us-invoice`, no commits) |
 | **M4** — polish + dark mode + export bundle | _plan TBD_ | ⏳ last before merge | — |
 
 ## What each milestone delivers
@@ -61,11 +61,12 @@
 
 These don't fit a milestone but should be tracked:
 
-- **Multi-entity docs** — `score()` and review-mode FieldEditor only handle `entities[0]`. M2C may surface this; M3 publish must too.
+- **Multi-entity docs** — `score()` and review-mode FieldEditor only handle `entities[0]`. Still open after M3 (scope-cut per design discussion); M4 should land the `score()` / `readiness` fix and the FieldEditor multi-row UI together.
 - **`_evidence` round-trip** on review save — `Reviewed` model drops it. M2C (`_source_page` click-to-page) will need a decision.
 - **`fetchSchema` in ReviewMode is a one-shot fetch** — M2C autoresearch will mutate schema; review mode will see stale fields. Promote to a Zustand store with explicit invalidate.
 - **Cross-store refresh on agent tool events** — M2A patched `ChatPanel.onSubmit` to refresh `useDocs` + `useProjects`. Cleaner: emit a `tool_done` SSE event the stores subscribe to.
-- **`_keys.json` in-memory cache** — M3 prod fast-path needs lookup on hot path; load at startup + reload on `os.replace`.
+- **Audit log for `/v1/{pid}/extract` calls** — M3 only updates `last_used` per row. Deferred: per-call JSONL under `audit/{date}.jsonl` with hash prefix + ts + outcome. Useful once a project has multiple consumers.
+- **Workspace-wide flock for `_keys.json`** — M3 `issue_api_key` locks per-pid only; concurrent issuance for *different* pids races on the shared file. Single-user lab is fine; defer fix until multi-tenant.
 - **Markdown not rendered in chat** — agent responses contain `**bold**`, `| tables |`, `## headers` as raw text. Add a markdown renderer (e.g. `react-markdown`) to `AgentMessage` in M4 polish.
 - **"agent is thinking…" indicator exists but is subtle** — live region (aria-live="polite") shows during agent turns; input is disabled. Consider a more visible spinner or streaming dots for long-running tool calls (e.g. `score` on large projects).
 - **`useJob` is a single global Zustand store** — multiple `JobProgressCard`s in the same chat session collapse to one. Last `subscribe()` resets state and old SSE streams aren't aborted, so turn entries leak across runs (T21 smoke saw "turn 5" when only 3 turns actually ran). Refactor to per-jobId state (Map keyed by jobId) and abort the previous SSE on re-subscribe. M4 polish.
