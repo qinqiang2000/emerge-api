@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from app.provider.base import Provider, TextBlock
+from app.schemas.score import ScoreResult
 from app.schemas.schema_field import SchemaField
+from app.tools.extract import extract_one_with_schema
+from app.tools.score import score
+from app.workspace.paths import reviewed_dir
 
 
 PROPOSER_SYSTEM_PROMPT = """You are improving a JSON extraction schema for a document-extraction API.
@@ -169,3 +175,32 @@ async def propose_schema(
         proposed.append(SchemaField(**merged))
 
     return proposed, rationale
+
+
+async def score_with_schema(
+    *,
+    workspace: Path,
+    project_id: str,
+    schema: list[SchemaField],
+    provider: Provider,
+    model_id: str,
+) -> tuple[ScoreResult, dict[str, list[dict[str, Any]]]]:
+    """Run extract over each reviewed doc with `schema`, then score predictions
+    vs reviewed. Returns (ScoreResult, predictions_dict)."""
+    rdir = reviewed_dir(workspace, project_id)
+    reviewed: dict[str, list[dict[str, Any]]] = {}
+    if rdir.exists():
+        for p in sorted(rdir.glob("*.json")):
+            blob = json.loads(p.read_text())
+            reviewed[p.stem] = blob.get("entities", [])
+
+    predictions: dict[str, list[dict[str, Any]]] = {}
+    for doc_id in reviewed:
+        out = await extract_one_with_schema(
+            workspace, project_id, doc_id,
+            schema=schema, provider=provider, model_id=model_id,
+        )
+        predictions[doc_id] = out.get("entities", [])
+
+    result = score(schema, predictions, reviewed)
+    return result, predictions
