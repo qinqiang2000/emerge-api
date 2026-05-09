@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from app.jobs import autoresearch as ar
+from app.jobs.events import append_event_jsonl, now_iso_filename_safe
+from app.provider.base import Provider
+from app.schemas.job import JobEvent, JobInfo, JobStatus
+from app.schemas.schema_field import SchemaField
+from app.workspace.ids import new_job_id
+from app.workspace.paths import job_log_path, schema_path
+
+
+class JobNotFoundError(KeyError):
+    pass
+
+
+class UnknownSkillError(ValueError):
+    pass
+
+
+@dataclass
+class _JobHandle:
+    info: JobInfo
+    task: asyncio.Task[Any]
+    pause_event: asyncio.Event = field(default_factory=asyncio.Event)
+    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+class JobRunner:
+    """Process-wide registry of running jobs.
+
+    For now there is no concurrency cap (single-user lab tool); the loop's
+    extract calls naturally pace it. Crash recovery is M3 territory."""
+
+    def __init__(self, *, workspace: Path, provider: Provider, model_id: str) -> None:
+        self.workspace = workspace
+        self.provider = provider
+        self.model_id = model_id
+        self._jobs: dict[str, _JobHandle] = {}
+        self._lock = asyncio.Lock()
+
+    async def start(
+        self, *, skill: str, project_id: str, params: dict[str, Any],
+    ) -> str:
+        if skill != "autoresearch":
+            raise UnknownSkillError(f"unknown skill: {skill!r}")
+        initial_schema = [
+            SchemaField(**f) for f in json.loads(schema_path(self.workspace, project_id).read_text())
+        ]
+        if not initial_schema:
+            raise ValueError("project has empty schema; nothing to autoresearch")
+        job_id = new_job_id()
+        info = JobInfo(
+            job_id=job_id, project_id=project_id, skill=skill,
+            status=JobStatus.PENDING, params=params,
+            created_at=now_iso_filename_safe(),
+        )
+        pause_event = asyncio.Event()
+        cancel_event = asyncio.Event()
+        log_path = job_log_path(self.workspace, project_id, job_id)
+
+        async def emit(ev: JobEvent) -> None:
+            await append_event_jsonl(log_path, ev)
+            data = ev.model_dump(mode="json")
+            if ev.type == "turn":
+                handle.info.latest_turn = int(data.get("turn", handle.info.latest_turn))
+                if data.get("saved"):
+                    handle.info.best_turn = handle.info.latest_turn
+                    handle.info.best_macro_f1 = float(data["macro_f1"])
+            elif ev.type == "paused":
+                handle.info.status = JobStatus.PAUSED
+            elif ev.type == "resumed":
+                handle.info.status = JobStatus.RUNNING
+
+        async def _run() -> JobInfo:
+            handle.info.status = JobStatus.RUNNING
+            try:
+                ar_params = ar.AutoresearchParams(
+                    max_turn=int(params.get("max_turn", 30)),
+                    early_stop_no_improvement=int(params.get("early_stop_no_improvement", 5)),
+                )
+                final = await ar.run_autoresearch_loop(
+                    workspace=self.workspace, project_id=project_id, job_id=job_id,
+                    initial_schema=initial_schema,
+                    provider=self.provider, model_id=self.model_id,
+                    params=ar_params, emit=emit,
+                    cancel_event=cancel_event, pause_event=pause_event,
+                )
+                handle.info.status = final.status
+                handle.info.best_turn = final.best_turn
+                handle.info.best_macro_f1 = final.best_macro_f1
+                return handle.info
+            except Exception as exc:
+                handle.info.status = JobStatus.ERROR
+                handle.info.error_code = "autoresearch_failure"
+                handle.info.error_message_en = str(exc)
+                await append_event_jsonl(
+                    log_path,
+                    JobEvent(type="ended", ts=now_iso_filename_safe(),
+                             reason="error", error=str(exc)),
+                )
+                return handle.info
+
+        task = asyncio.create_task(_run(), name=f"job:{job_id}")
+        handle = _JobHandle(info=info, task=task,
+                            pause_event=pause_event, cancel_event=cancel_event)
+        async with self._lock:
+            self._jobs[job_id] = handle
+        return job_id
+
+    async def get(self, job_id: str) -> JobInfo:
+        handle = self._jobs.get(job_id)
+        if handle is None:
+            raise JobNotFoundError(job_id)
+        return handle.info
+
+    async def wait(self, job_id: str, *, timeout: float | None = None) -> JobInfo:
+        handle = self._jobs.get(job_id)
+        if handle is None:
+            raise JobNotFoundError(job_id)
+        await asyncio.wait_for(handle.task, timeout=timeout)
+        return handle.info
+
+    async def pause(self, job_id: str) -> None:
+        handle = self._jobs.get(job_id)
+        if handle is None:
+            raise JobNotFoundError(job_id)
+        handle.pause_event.set()
+
+    async def resume(self, job_id: str) -> None:
+        handle = self._jobs.get(job_id)
+        if handle is None:
+            raise JobNotFoundError(job_id)
+        handle.pause_event.clear()
+        handle.info.status = JobStatus.RUNNING
+
+    async def cancel(self, job_id: str) -> None:
+        handle = self._jobs.get(job_id)
+        if handle is None:
+            raise JobNotFoundError(job_id)
+        handle.cancel_event.set()
+        handle.pause_event.clear()
