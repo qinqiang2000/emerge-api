@@ -33,6 +33,20 @@ from app.tools import build_emerge_mcp
 # matching this prefix (Bash/Read/Edit/Write/Skill/Task/Web*/foreign MCPs).
 _EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
 
+# All Claude Agent SDK built-in tool names. permission_mode='default' does NOT
+# consult the can_use_tool callback for these — only an explicit disallowed_tools
+# entry actually prevents invocation. Empirically verified during M5 dogfood
+# (chat c_1c32d12a2747 had Glob calls returning workspace paths despite the
+# can_use_tool callback being installed).
+_SDK_BUILT_IN_TOOLS = [
+    "Bash", "BashOutput", "KillBash",
+    "Edit", "MultiEdit", "Read", "Write", "NotebookEdit",
+    "Grep", "Glob",
+    "WebFetch", "WebSearch",
+    "Task", "TodoWrite", "ExitPlanMode",
+    "ToolSearch",
+]
+
 
 async def _emerge_only_permission(
     tool_name: str,
@@ -98,13 +112,18 @@ class ChatService:
             # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
             # SessionStart hooks were leaking into the chat stream.
             setting_sources=[],
-            # Strict allowlist via can_use_tool callback: only emerge MCP tools.
-            # `permission_mode='default'` makes the SDK actually consult the hook
-            # before each tool invocation. `allowed_tools=...` alone is NOT
-            # enforced under auto mode — keep both for clarity / defense in depth.
+            # Defense in depth:
+            #   1. disallowed_tools — load-bearing. Empirically (M5 dogfood) the
+            #      can_use_tool callback below is NOT consulted for SDK built-ins
+            #      under permission_mode='default'. Explicit denial is the only
+            #      reliable knob.
+            #   2. can_use_tool — backstop for any name that isn't an emerge MCP
+            #      tool and isn't in disallowed_tools either.
+            #   3. allowed_tools — advisory for the SDK's own bookkeeping.
             permission_mode="default",
             can_use_tool=_emerge_only_permission,
             allowed_tools=[f"{_EMERGE_TOOL_PREFIX}*"],
+            disallowed_tools=_SDK_BUILT_IN_TOOLS,
             max_turns=20,
         )
 
