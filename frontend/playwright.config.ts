@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:5172',
     // Bypass any system HTTP proxy for localhost — required for SSE streaming.
     launchOptions: { args: ['--proxy-server=direct://'] },
   },
@@ -16,8 +16,8 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'npm run dev',
-      url: 'http://localhost:5173',
+      command: 'npm run dev -- --port 5172',
+      url: 'http://localhost:5172',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },

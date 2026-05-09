@@ -28,5 +28,5 @@ test('open a doc, edit a field, save, badge flips to reviewed', async ({ page })
   await page.getByRole('button', { name: /back/i }).click()
 
   // doc list shows "reviewed" badge now
-  await expect(page.getByText('reviewed')).toBeVisible()
+  await expect(page.getByRole('button', { name: /sample\.pdf reviewed/ })).toBeVisible()
 })
