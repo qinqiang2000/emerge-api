@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
+from app.jobs.events import now_iso_filename_safe
 from app.provider.base import Provider, TextBlock
+from app.schemas.job import JobEvent, JobInfo, JobStatus
 from app.schemas.score import ScoreResult
 from app.schemas.schema_field import SchemaField
 from app.tools.extract import extract_one_with_schema
 from app.tools.score import score
+from app.workspace.atomic import atomic_write_json
+from app.workspace.paths import candidate_dir, candidate_turn_path
 from app.workspace.paths import reviewed_dir
 
 
@@ -204,3 +210,192 @@ async def score_with_schema(
 
     result = score(schema, predictions, reviewed)
     return result, predictions
+
+
+@dataclass
+class AutoresearchParams:
+    max_turn: int = 30
+    early_stop_no_improvement: int = 5
+
+
+EmitFn = Callable[[JobEvent], Awaitable[None]]
+
+
+def _save_candidate_turn(
+    *,
+    workspace: Path,
+    project_id: str,
+    job_id: str,
+    turn: int,
+    schema: list[SchemaField],
+    score_result: ScoreResult,
+    predictions: dict[str, list[dict[str, Any]]],
+    rationale: str,
+    parent_turn: int | None,
+) -> Path:
+    candidate_dir(workspace, project_id, job_id).mkdir(parents=True, exist_ok=True)
+    target = candidate_turn_path(workspace, project_id, job_id, turn)
+    payload = {
+        "turn": turn,
+        "parent_turn": parent_turn,
+        "schema": [f.model_dump(mode="json") for f in schema],
+        "rationale": rationale,
+        "macro_f1": score_result.macro_f1,
+        "per_field": [fs.model_dump(mode="json") for fs in score_result.per_field],
+        "predictions": predictions,
+        "ts": score_result.ts,
+    }
+    atomic_write_json(target, payload)
+    return target
+
+
+async def run_autoresearch_loop(
+    *,
+    workspace: Path,
+    project_id: str,
+    job_id: str,
+    initial_schema: list[SchemaField],
+    provider: Provider,
+    model_id: str,
+    params: AutoresearchParams,
+    emit: EmitFn,
+    cancel_event: asyncio.Event,
+    pause_event: asyncio.Event,
+) -> JobInfo:
+    """The autoresearch loop. Returns final JobInfo with best_turn / best_macro_f1.
+
+    Caller is responsible for persisting the JobInfo to its in-memory registry;
+    per-event JSONL persistence is the caller's job too (via `emit`)."""
+    info = JobInfo(
+        job_id=job_id, project_id=project_id, skill="autoresearch",
+        status=JobStatus.RUNNING, params={
+            "max_turn": params.max_turn,
+            "early_stop_no_improvement": params.early_stop_no_improvement,
+        },
+        created_at=now_iso_filename_safe(),
+    )
+    await emit(JobEvent(type="started", ts=now_iso_filename_safe(),
+                        job_id=job_id, project_id=project_id))
+
+    if cancel_event.is_set():
+        await emit(JobEvent(type="ended", ts=now_iso_filename_safe(), reason="cancelled",
+                            best_turn=None, best_macro_f1=None))
+        info.status = JobStatus.CANCELLED
+        return info
+
+    baseline, baseline_predictions = await score_with_schema(
+        workspace=workspace, project_id=project_id, schema=initial_schema,
+        provider=provider, model_id=model_id,
+    )
+    _save_candidate_turn(
+        workspace=workspace, project_id=project_id, job_id=job_id, turn=0,
+        schema=initial_schema, score_result=baseline, predictions=baseline_predictions,
+        rationale="baseline", parent_turn=None,
+    )
+    await emit(JobEvent(
+        type="turn", ts=now_iso_filename_safe(), turn=0,
+        macro_f1=baseline.macro_f1,
+        per_field=[fs.model_dump(mode="json") for fs in baseline.per_field],
+        saved=True,
+    ))
+
+    best_macro_f1 = baseline.macro_f1
+    best_turn = 0
+    no_improvement = 0
+    current_schema = initial_schema
+
+    for turn in range(1, params.max_turn + 1):
+        if pause_event.is_set():
+            await emit(JobEvent(type="paused", ts=now_iso_filename_safe(), turn=turn))
+            while pause_event.is_set() and not cancel_event.is_set():
+                await asyncio.sleep(0.05)
+            if not cancel_event.is_set():
+                await emit(JobEvent(type="resumed", ts=now_iso_filename_safe(), turn=turn))
+        if cancel_event.is_set():
+            await emit(JobEvent(type="ended", ts=now_iso_filename_safe(), reason="cancelled",
+                                best_turn=best_turn, best_macro_f1=best_macro_f1))
+            info.status = JobStatus.CANCELLED
+            info.best_turn = best_turn
+            info.best_macro_f1 = best_macro_f1
+            return info
+
+        reviewed_blob, notes_blob = _load_reviewed_with_notes(workspace, project_id)
+
+        try:
+            proposed, rationale = await propose_schema(
+                provider=provider, model_id=model_id, schema=current_schema,
+                reviewed=reviewed_blob, predictions=baseline_predictions,
+                per_field=[fs.model_dump(mode="json") for fs in baseline.per_field],
+                notes=notes_blob,
+            )
+        except ProposerStructuralChangeError as exc:
+            await emit(JobEvent(type="proposer_failed", ts=now_iso_filename_safe(),
+                                turn=turn, error=str(exc)))
+            no_improvement += 1
+            if no_improvement >= params.early_stop_no_improvement:
+                await emit(JobEvent(type="ended", ts=now_iso_filename_safe(),
+                                    reason="early_stop",
+                                    best_turn=best_turn, best_macro_f1=best_macro_f1))
+                info.status = JobStatus.DONE
+                info.best_turn = best_turn
+                info.best_macro_f1 = best_macro_f1
+                return info
+            continue
+
+        scored, predictions = await score_with_schema(
+            workspace=workspace, project_id=project_id, schema=proposed,
+            provider=provider, model_id=model_id,
+        )
+        improved = scored.macro_f1 > best_macro_f1
+        if improved:
+            _save_candidate_turn(
+                workspace=workspace, project_id=project_id, job_id=job_id, turn=turn,
+                schema=proposed, score_result=scored, predictions=predictions,
+                rationale=rationale, parent_turn=best_turn,
+            )
+            best_macro_f1 = scored.macro_f1
+            best_turn = turn
+            no_improvement = 0
+        else:
+            no_improvement += 1
+        await emit(JobEvent(
+            type="turn", ts=now_iso_filename_safe(), turn=turn,
+            macro_f1=scored.macro_f1,
+            per_field=[fs.model_dump(mode="json") for fs in scored.per_field],
+            saved=improved, rationale=rationale,
+        ))
+        current_schema = proposed
+        baseline = scored
+        baseline_predictions = predictions
+
+        if no_improvement >= params.early_stop_no_improvement:
+            await emit(JobEvent(type="ended", ts=now_iso_filename_safe(),
+                                reason="early_stop",
+                                best_turn=best_turn, best_macro_f1=best_macro_f1))
+            info.status = JobStatus.DONE
+            info.best_turn = best_turn
+            info.best_macro_f1 = best_macro_f1
+            return info
+
+    await emit(JobEvent(type="ended", ts=now_iso_filename_safe(), reason="max_turn",
+                        best_turn=best_turn, best_macro_f1=best_macro_f1))
+    info.status = JobStatus.DONE
+    info.best_turn = best_turn
+    info.best_macro_f1 = best_macro_f1
+    return info
+
+
+def _load_reviewed_with_notes(
+    workspace: Path, project_id: str,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, str]]]:
+    rdir = reviewed_dir(workspace, project_id)
+    reviewed: dict[str, list[dict[str, Any]]] = {}
+    notes: dict[str, dict[str, str]] = {}
+    if not rdir.exists():
+        return reviewed, notes
+    for p in sorted(rdir.glob("*.json")):
+        blob = json.loads(p.read_text())
+        reviewed[p.stem] = blob.get("entities", [])
+        if blob.get("_notes"):
+            notes[p.stem] = blob["_notes"]
+    return reviewed, notes
