@@ -1,6 +1,7 @@
 // frontend/src/components/ReviewMode/ReviewMode.tsx
 import { useEffect } from 'react'
 import { ChevronLeft } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { useReview } from '../../stores/review'
 import { useDocs } from '../../stores/docs'
@@ -12,7 +13,7 @@ import PdfViewer from './PdfViewer'
 export default function ReviewMode() {
   const { activeProjectId, activeDocId, entities, evidence, notes, setField, setNote, addEntity, removeEntity, goPage, save, close, saving, err } = useReview()
   const { byProject } = useDocs()
-  const schema = useSchema((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : []))
+  const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
 
   useEffect(() => {
