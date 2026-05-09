@@ -1,5 +1,5 @@
 // frontend/src/types/review.ts
-export type DocStatus = 'reviewed' | 'predicted' | 'pending'
+export type DocStatus = 'reviewed' | 'draft' | 'pending'
 
 export interface DocSummary {
   doc_id: string
@@ -24,6 +24,6 @@ export interface ReviewedPayload {
 
 export function docStatus(d: DocSummary): DocStatus {
   if (d.has_reviewed) return 'reviewed'
-  if (d.has_prediction) return 'predicted'
+  if (d.has_prediction) return 'draft'
   return 'pending'
 }
