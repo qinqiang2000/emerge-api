@@ -12,6 +12,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from app.api.routes import docs as docs_route
 from app.api.routes import eval as eval_route
+from app.api.routes import jobs as jobs_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
 from app.api.routes import reviewed as reviewed_route
@@ -43,6 +44,7 @@ app.include_router(docs_route.router)
 app.include_router(predictions_route.router)
 app.include_router(reviewed_route.router)
 app.include_router(eval_route.router)
+app.include_router(jobs_route.router)
 
 
 @app.get("/healthz")
