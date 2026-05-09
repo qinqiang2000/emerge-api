@@ -20,6 +20,7 @@ from claude_agent_sdk import (
 )
 
 from app.chat.log import append_event
+from app.chat.redactor import EventRedactor
 from app.chat.stream import sse_event
 from app.jobs import get_runner
 from app.provider.base import Provider
@@ -153,18 +154,22 @@ class ChatService:
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
         options = self._build_options(user_message)
+        redactor = EventRedactor()
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
                 async for message in client.receive_response():
                     for etype, payload in _events_from_message(message):
+                        redactor.observe(etype, payload)
+                        persist_payload = redactor.scrub_for_persist(etype, payload)
+                        sse_payload = redactor.scrub_for_sse(etype, payload)
                         await append_event(
                             self.workspace,
                             project_id,
                             chat_id,
-                            {"type": etype, **payload},
+                            {"type": etype, **persist_payload},
                         )
-                        yield sse_event(etype, payload)
+                        yield sse_event(etype, sse_payload)
         except Exception as e:  # noqa: BLE001
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
