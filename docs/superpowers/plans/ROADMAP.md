@@ -66,6 +66,8 @@ These don't fit a milestone but should be tracked:
 - **`fetchSchema` in ReviewMode is a one-shot fetch** — M2C autoresearch will mutate schema; review mode will see stale fields. Promote to a Zustand store with explicit invalidate.
 - **Cross-store refresh on agent tool events** — M2A patched `ChatPanel.onSubmit` to refresh `useDocs` + `useProjects`. Cleaner: emit a `tool_done` SSE event the stores subscribe to.
 - **`_keys.json` in-memory cache** — M3 prod fast-path needs lookup on hot path; load at startup + reload on `os.replace`.
+- **Markdown not rendered in chat** — agent responses contain `**bold**`, `| tables |`, `## headers` as raw text. Add a markdown renderer (e.g. `react-markdown`) to `AgentMessage` in M4 polish.
+- **"agent is thinking…" indicator exists but is subtle** — live region (aria-live="polite") shows during agent turns; input is disabled. Consider a more visible spinner or streaming dots for long-running tool calls (e.g. `score` on large projects).
 
 ## How to use this file
 

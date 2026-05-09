@@ -202,6 +202,30 @@ milestone (e.g. metrics) — wire it to the SSE stream instead.
 
 ---
 
+## 10. Messages starting with `/` are intercepted as Claude Code CLI slash commands
+
+**Where:** `backend/app/chat/service.py` — `chat_turn`, the `prompt` passed to `client.query()`
+
+**The trap:** `ClaudeSDKClient` runs the Claude Code CLI internally. The CLI treats
+any input starting with `/` as a slash command. `/eval`, `/review`, `/extract` etc.
+are all silently consumed by the CLI dispatcher with **no model response and no error**.
+Symptoms: SSE stream emits only `user_acknowledged` → `turn_end` with nothing in between;
+backend logs show `200 OK` with no errors; chat log only has the user line.
+
+**The fix:** prepend a leading space when the user message starts with `/`:
+
+```python
+prompt = f" {user_message}" if user_message.startswith("/") else user_message
+```
+
+A leading space bypasses CLI command dispatch. The model receives ` /eval` and treats
+it as plain text, matching the SKILL.md intent hints as expected.
+
+**Don't remove** the space prefix. The model is robust to leading whitespace; the
+CLI command dispatcher is not.
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code

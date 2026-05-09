@@ -106,10 +106,13 @@ class ChatService:
         )
         yield sse_event("user_acknowledged", {"text": user_message})
 
-        prompt = user_message
+        # Leading `/` is intercepted by the Claude Code CLI as a slash command
+        # and silently consumed with no model response. A leading space bypasses
+        # CLI command dispatch while remaining invisible to the model.
+        prompt = f" {user_message}" if user_message.startswith("/") else user_message
         if attachments:
             paths = ", ".join(a.get("filename", "?") for a in attachments)
-            prompt = f"{user_message}\n\n[attachments: {paths}]"
+            prompt = f"{prompt}\n\n[attachments: {paths}]"
 
         options = self._build_options()
         try:
