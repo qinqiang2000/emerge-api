@@ -2,6 +2,7 @@ import type { ChatEvent } from '../../types/chat'
 
 import JobProgressCard from './JobProgressCard'
 import ToolCallCard from './ToolCallCard'
+import KeyTrailCard from '../Publish/KeyTrailCard'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
@@ -16,6 +17,9 @@ export default function MessageList({ events, busy }: Props) {
           return <div key={i} className="text-fg-secondary"><b>agent:</b> {e.text}</div>
         }
         if (e.type === 'tool_call') {
+          if (e.tool_name === 'mcp__emerge_tools__issue_api_key') {
+            return <KeyTrailCard key={i} event={e} />
+          }
           if (e.tool_name === 'mcp__emerge_tools__start_job' && typeof e.tool_result === 'string' && e.tool_result.startsWith('j_')) {
             return <JobProgressCard key={i} jobId={e.tool_result} />
           }
