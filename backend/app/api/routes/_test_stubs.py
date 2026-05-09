@@ -27,6 +27,7 @@ _PUBLISH_STUB_KEY = "ek_stubbedkey0123456789ABCDEF01234"
 async def stub_chat(body: StubBody) -> EventSourceResponse:
     msg = body.user_message.lstrip()
     is_publish = msg.startswith("/publish")
+    is_extract = msg.startswith("/extract")
 
     async def gen_default():
         yield {"event": "user_acknowledged", "data": json.dumps({"text": body.user_message})}
@@ -120,4 +121,32 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         })}
         yield {"event": "turn_end", "data": json.dumps({})}
 
-    return EventSourceResponse(gen_publish() if is_publish else gen_default())
+    async def gen_extract():
+        yield {"event": "user_acknowledged", "data": json.dumps({"text": body.user_message})}
+        yield {"event": "agent_text", "data": json.dumps({
+            "text": "Running batch extract..."
+        })}
+        yield {"event": "tool_call", "data": json.dumps({
+            "tool_use_id": "tu_ext_list",
+            "tool_name": "mcp__emerge_tools__list_docs",
+            "tool_input": {"project_id": body.project_id},
+            "tool_result": "[{'doc_id':'d_a','filename':'a.pdf'},{'doc_id':'d_b','filename':'b.pdf'}]",
+            "ok": True,
+        })}
+        yield {"event": "tool_call", "data": json.dumps({
+            "tool_use_id": "tu_ext_batch",
+            "tool_name": "mcp__emerge_tools__extract_batch",
+            "tool_input": {"project_id": body.project_id, "doc_ids": ["d_a", "d_b"]},
+            "tool_result": json.dumps({"ok_count": 2, "err_count": 0, "per_doc": {}}),
+            "ok": True,
+        })}
+        yield {"event": "agent_text", "data": json.dumps({
+            "text": "**Done.** Extracted 2 docs successfully."
+        })}
+        yield {"event": "turn_end", "data": json.dumps({})}
+
+    if is_publish:
+        return EventSourceResponse(gen_publish())
+    if is_extract:
+        return EventSourceResponse(gen_extract())
+    return EventSourceResponse(gen_default())
