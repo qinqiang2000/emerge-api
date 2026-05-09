@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from app.schemas.schema_field import SchemaField
 from app.schemas.score import FieldScore, ScoreResult
+from app.workspace.atomic import atomic_write_json
+from app.workspace.lock import project_lock
+from app.workspace.paths import (
+    metrics_dir,
+    metrics_path,
+    predictions_draft_dir,
+    reviewed_dir,
+    schema_path,
+)
 
 
 def _absent(v: Any) -> bool:
@@ -103,3 +114,32 @@ def score(
         ts=_now_filename_ts(),
         schema_field_count=len(schema),
     )
+
+
+async def run_eval(workspace: Path, project_id: str) -> ScoreResult:
+    schema_blob = json.loads(schema_path(workspace, project_id).read_text())
+    schema = [SchemaField(**f) for f in schema_blob]
+
+    predictions: dict[str, list[dict[str, Any]]] = {}
+    pd = predictions_draft_dir(workspace, project_id)
+    if pd.exists():
+        for p in sorted(pd.glob("*.json")):
+            blob = json.loads(p.read_text())
+            predictions[p.stem] = blob.get("entities", [])
+
+    reviewed: dict[str, list[dict[str, Any]]] = {}
+    rd = reviewed_dir(workspace, project_id)
+    if rd.exists():
+        for p in sorted(rd.glob("*.json")):
+            blob = json.loads(p.read_text())
+            reviewed[p.stem] = blob.get("entities", [])
+
+    result = score(schema, predictions, reviewed)
+
+    async with project_lock(workspace, project_id):
+        metrics_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            metrics_path(workspace, project_id, f"eval_{result.ts}"),
+            result.model_dump(mode="json"),
+        )
+    return result
