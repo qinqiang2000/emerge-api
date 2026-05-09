@@ -8,7 +8,9 @@ from pathlib import Path
 
 from app.tools.docs import upload_doc
 from app.tools.projects import create_project
+from app.tools.reviewed import save_reviewed
 from app.tools.schema import write_schema
+from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import FieldType, SchemaField
 from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import predictions_draft_dir
@@ -36,6 +38,14 @@ async def main() -> None:
         pdir / f"{did}.json",
         {"entities": [{"invoice_number": "DRAFT-1", "total_amount": 100.0}]},
     )
+    await save_reviewed(
+        workspace,
+        pid,
+        did,
+        entities=[{"invoice_number": "DRAFT-1", "total_amount": 100.0}],
+        source=ReviewedSource.MANUAL,
+    )
+    print(f"  + reviewed for {did}")
     print(f"SEEDED pid={pid} did={did}")
 
 
