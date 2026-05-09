@@ -119,3 +119,17 @@ describe('FieldEditor multi-entity', () => {
     expect(screen.getAllByLabelText(/remove entity/).length).toBe(2)
   })
 })
+
+describe('FieldEditor evidence badges', () => {
+  it('clicking a label with evidence page jumps to that page', async () => {
+    const jump = vi.fn()
+    render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
+      entities={[{ a: 'x' }]}
+      evidence={[{ a: 3 }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
+      onJumpToPage={jump}
+      onSave={() => {}} saving={false} />)
+    await userEvent.click(screen.getByLabelText('jump to page 3'))
+    expect(jump).toHaveBeenCalledWith(3)
+  })
+})

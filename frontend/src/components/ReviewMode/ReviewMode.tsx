@@ -10,7 +10,7 @@ import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
 
 export default function ReviewMode() {
-  const { activeProjectId, activeDocId, entities, notes, setField, setNote, addEntity, removeEntity, save, close, saving, err } = useReview()
+  const { activeProjectId, activeDocId, entities, evidence, notes, setField, setNote, addEntity, removeEntity, goPage, save, close, saving, err } = useReview()
   const { byProject } = useDocs()
   const schema = useSchema((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : []))
   const loadSchema = useSchema((s) => s.load)
@@ -53,10 +53,12 @@ export default function ReviewMode() {
             schema={schema}
             entities={entities}
             notes={notes}
+            evidence={evidence ?? null}
             onChange={setField}
             onSetNote={setNote}
             onAddEntity={addEntity}
             onRemoveEntity={removeEntity}
+            onJumpToPage={goPage}
             onSave={save}
             saving={saving}
           />

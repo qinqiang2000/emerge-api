@@ -14,15 +14,17 @@ interface Props {
   schema: SchemaField[]
   entities: Record<string, unknown>[]
   notes?: Record<string, string>
+  evidence?: (Record<string, number | null> | undefined)[] | null
   onChange: (entityIdx: number, name: string, value: unknown) => void
   onSetNote?: (name: string, note: string) => void
   onAddEntity: () => void
   onRemoveEntity: (idx: number) => void
+  onJumpToPage?: (page: number) => void
   onSave: () => void
   saving: boolean
 }
 
-export default function FieldEditor({ schema, entities, notes = {}, onChange, onSetNote, onAddEntity, onRemoveEntity, onSave, saving }: Props) {
+export default function FieldEditor({ schema, entities, notes = {}, evidence, onChange, onSetNote, onAddEntity, onRemoveEntity, onJumpToPage, onSave, saving }: Props) {
   const [openFor, setOpenFor] = useState<string | null>(null)
 
   return (
@@ -41,7 +43,9 @@ export default function FieldEditor({ schema, entities, notes = {}, onChange, on
         </button>
       </header>
       <div className="flex-1 overflow-auto px-4 py-3 space-y-4">
-        {entities.map((values, entityIdx) => (
+        {entities.map((values, entityIdx) => {
+          const evidenceForEntity = evidence?.[entityIdx] ?? undefined
+          return (
           <section key={entityIdx} className="border border-subtle rounded p-3 space-y-3">
             {entities.length > 1 && (
               <div className="flex items-center justify-between pb-1 border-b border-subtle">
@@ -63,6 +67,22 @@ export default function FieldEditor({ schema, entities, notes = {}, onChange, on
                 <label htmlFor={`f-${entityIdx}-${f.name}`} className="font-mono text-xs text-fg-secondary">
                   {f.name} <span className="text-fg-muted">({f.type})</span>
                 </label>
+              )
+              const evidencePage = evidenceForEntity?.[f.name] ?? null
+              const labelRow = (
+                <div className="flex items-center gap-2">
+                  {labelEl}
+                  {evidencePage != null && (
+                    <button
+                      type="button"
+                      onClick={() => onJumpToPage?.(evidencePage)}
+                      className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono border border-subtle rounded text-fg-muted hover:bg-subtle"
+                      aria-label={`jump to page ${evidencePage}`}
+                    >
+                      p{evidencePage}
+                    </button>
+                  )}
+                </div>
               )
               let control: ReactNode
 
@@ -137,7 +157,7 @@ export default function FieldEditor({ schema, entities, notes = {}, onChange, on
                   className="relative flex flex-col gap-1"
                   onContextMenu={(e) => { e.preventDefault(); setOpenFor(popoverKey) }}
                 >
-                  {labelEl}
+                  {labelRow}
                   {control}
                   {notes[f.name] && (
                     <span className="text-xs text-accent-info" title="note">note: {notes[f.name]}</span>
@@ -157,7 +177,8 @@ export default function FieldEditor({ schema, entities, notes = {}, onChange, on
               )
             })}
           </section>
-        ))}
+          )
+        })}
       </div>
       <footer className="px-4 py-3 border-t border-subtle">
         <button
