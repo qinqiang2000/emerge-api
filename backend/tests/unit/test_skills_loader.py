@@ -27,3 +27,17 @@ def test_load_skills_concatenates_with_separator() -> None:
 def test_load_skill_missing_raises() -> None:
     with pytest.raises(FileNotFoundError):
         load_skill("not_a_real_skill")
+
+
+def test_load_emerge_publish_skill_returns_text() -> None:
+    text = load_skill("emerge_publish")
+    assert "emerge-publish" in text
+    assert "freeze_version" in text
+    assert "issue_api_key" in text
+
+
+def test_load_skills_pair_extractor_and_publish() -> None:
+    text = load_skills(["emerge_extractor", "emerge_publish"])
+    assert "emerge-extractor" in text
+    assert "emerge-publish" in text
+    assert "---" in text

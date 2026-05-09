@@ -85,8 +85,9 @@ When the user types free-form text:
 For `/improve`: a separate skill (emerge-autoresearch) is loaded on this turn.
 Follow that skill's directions.
 
-For `/publish`: a separate skill (emerge-publish) will be loaded — not yet
-shipped.
+For `/publish`: a separate skill (emerge-publish) is loaded on this turn.
+Follow that skill's directions. Do NOT call `freeze_version` or
+`issue_api_key` from this skill.
 
 ## When tools fail
 
