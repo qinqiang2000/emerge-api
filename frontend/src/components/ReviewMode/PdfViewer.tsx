@@ -2,38 +2,20 @@ import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { pdfPageUrl } from '../../lib/api'
+import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
 
 export default function PdfViewer() {
   const { activeProjectId, activeDocId, page, pageCount, goPage, setPageCount } = useReview()
+  const { byProject } = useDocs()
   const [loadError, setLoadError] = useState(false)
   const url = activeProjectId && activeDocId ? pdfPageUrl(activeProjectId, activeDocId, page) : ''
 
-  // Probe forward from the first page on document change so the initial count is known.
   useEffect(() => {
     if (!activeProjectId || !activeDocId) return
-    const projectId = activeProjectId
-    const docId = activeDocId
-    let cancelled = false
-
-    async function probe() {
-      let n = 1
-      while (n < 50) {
-        const nextPage = n + 1
-        const response = await fetch(pdfPageUrl(projectId, docId, nextPage), {
-          method: 'HEAD',
-        }).catch(() => null)
-        if (cancelled || !response || !response.ok) break
-        n = nextPage
-      }
-      if (!cancelled) setPageCount(n)
-    }
-
-    void probe()
-    return () => {
-      cancelled = true
-    }
-  }, [activeProjectId, activeDocId, setPageCount])
+    const pageCountFromDoc = byProject[activeProjectId]?.find((d) => d.doc_id === activeDocId)?.page_count
+    if (pageCountFromDoc) setPageCount(pageCountFromDoc)
+  }, [activeProjectId, activeDocId, byProject, setPageCount])
 
   return (
     <div className="flex flex-col h-full bg-subtle">
