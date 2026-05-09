@@ -154,10 +154,15 @@ function handleToolResult(
     if (t === 'mcp__emerge_tools__write_schema' || t === 'mcp__emerge_tools__accept_candidate') {
       useSchema.getState().invalidate(projectId)
     }
-    if (t === 'mcp__emerge_tools__upload_doc' || t === 'mcp__emerge_tools__save_reviewed') {
+    if (
+      t === 'mcp__emerge_tools__upload_doc' ||
+      t === 'mcp__emerge_tools__save_reviewed' ||
+      t === 'mcp__emerge_tools__extract_batch' ||
+      t === 'mcp__emerge_tools__extract_one'
+    ) {
       void useDocs.getState().refresh(projectId)
     }
-    if (t === 'mcp__emerge_tools__create_project') {
+    if (t === 'mcp__emerge_tools__create_project' || t === 'mcp__emerge_tools__freeze_version') {
       void useProjects.getState().refresh()
     }
   }
