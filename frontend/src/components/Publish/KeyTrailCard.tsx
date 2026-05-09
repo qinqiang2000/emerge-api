@@ -12,7 +12,7 @@ export default function KeyTrailCard({ event }: Props) {
 
   if (!result || !('redacted' in result)) {
     return (
-      <div className="border-l-2 border-accent-primary bg-surface px-3 py-2 font-mono text-xs flex items-center gap-2">
+      <div className="border-l-2 border-accent-primary bg-surface px-3 py-1.5 font-mono text-sm flex items-center gap-2">
         <KeyRound size={14} className="text-accent-primary" />
         <span className="text-fg-muted">issuing api key...</span>
       </div>
@@ -20,19 +20,21 @@ export default function KeyTrailCard({ event }: Props) {
   }
   if ('error' in result) {
     return (
-      <div className="border-l-2 border-accent-danger bg-surface px-3 py-2 font-mono text-xs flex items-center gap-2">
+      <div className="border-l-2 border-accent-danger bg-surface px-3 py-1.5 font-mono text-sm flex items-center gap-2">
         <KeyRound size={14} className="text-accent-danger" />
-        <span>key issue failed: {result.error}</span>
+        <span className="text-accent-danger">key issue failed:</span>
+        <span className="text-fg-secondary">{result.error}</span>
       </div>
     )
   }
   return (
-    <div className="border-l-2 border-accent-primary bg-surface px-3 py-2 font-mono text-xs flex items-center gap-2">
+    <div className="border-l-2 border-accent-primary bg-surface px-3 py-1.5 font-mono text-sm flex items-center gap-2">
       <KeyRound size={14} className="text-accent-primary" />
-      <span>key issued ·</span>
-      <span>{result.key_prefix}</span>
-      <span className="text-fg-muted">hash {result.key_hash_short}</span>
-      <span className="ml-auto text-fg-muted">{result.created_at}</span>
+      <span className="text-fg-primary">key issued</span>
+      <span className="text-fg-muted">·</span>
+      <span className="text-fg-primary">{result.key_prefix}</span>
+      <span className="text-fg-muted">...hash {result.key_hash_short}</span>
+      <span className="ml-auto text-fg-muted text-xs">{result.created_at}</span>
     </div>
   )
 }

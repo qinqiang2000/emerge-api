@@ -25,7 +25,7 @@ export default function ApiKeyRevealModal() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 w-[min(480px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-surface text-fg-primary p-6 rounded border border-subtle shadow-lg space-y-4 font-body"
+          className="fixed left-1/2 top-1/2 w-[min(480px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-surface text-fg-primary p-6 rounded border border-subtle shadow-lg space-y-4"
           onEscapeKeyDown={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
