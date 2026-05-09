@@ -139,3 +139,12 @@ def test_safe_job_id_validates() -> None:
     assert safe_job_id("j_abc123def456") == "j_abc123def456"
     with pytest.raises(HTTPException):
         safe_job_id("../etc/passwd")
+
+
+async def test_get_runner_singleton(workspace: Path) -> None:
+    from app.jobs import get_runner, reset_runner_for_tests
+    reset_runner_for_tests()
+    a = get_runner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    b = get_runner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    assert a is b
+    reset_runner_for_tests()
