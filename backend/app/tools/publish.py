@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.schemas.schema_field import SchemaField
+from app.security.keys import (
+    generate_key,
+    get_keystore,
+    key_hash_short,
+    key_prefix_display,
+    sha256_key,
+)
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
@@ -20,6 +28,9 @@ from app.workspace.paths import (
     version_path,
 )
 from app.workspace.paths import parse_version_id
+
+
+_log = logging.getLogger(__name__)
 
 
 def contract_diff(
@@ -329,3 +340,24 @@ async def freeze_version(workspace: Path, project_id: str, *, force: bool = Fals
         atomic_write_json(project_json_path(workspace, project_id), project_blob)
 
     return {"version_id": version_id}
+
+
+async def issue_api_key(workspace: Path, project_id: str) -> dict[str, str]:
+    """Mint and persist a new hashed API key row; return plaintext once."""
+    plaintext = generate_key()
+    h = sha256_key(plaintext)
+    store = get_keystore(workspace)
+    async with project_lock(workspace, project_id):
+        store.upsert_for_project(project_id, plaintext, scope="extract")
+    _log.info(
+        "issued api key for %s: prefix=%s hash_short=%s",
+        project_id,
+        key_prefix_display(plaintext),
+        key_hash_short(h),
+    )
+    return {
+        "key_plaintext": plaintext,
+        "key_hash": h,
+        "key_prefix": key_prefix_display(plaintext),
+        "created_at": _iso_now(),
+    }
