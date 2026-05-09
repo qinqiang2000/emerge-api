@@ -67,3 +67,18 @@ def test_reviewed_dir(workspace: Path) -> None:
 
 def test_reviewed_path(workspace: Path) -> None:
     assert reviewed_path(workspace, "p_abc", "d_xyz") == workspace / "p_abc" / "reviewed" / "d_xyz.json"
+
+
+def test_metrics_dir(workspace: Path) -> None:
+    from app.workspace.paths import metrics_dir
+
+    assert metrics_dir(workspace, "p_abc") == workspace / "p_abc" / "metrics"
+
+
+def test_metrics_path(workspace: Path) -> None:
+    from app.workspace.paths import metrics_path
+
+    assert (
+        metrics_path(workspace, "p_abc", "eval_2026-05-09T00-00-00Z")
+        == workspace / "p_abc" / "metrics" / "eval_2026-05-09T00-00-00Z.json"
+    )

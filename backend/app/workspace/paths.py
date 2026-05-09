@@ -51,3 +51,11 @@ def reviewed_dir(workspace: Path, project_id: str) -> Path:
 
 def reviewed_path(workspace: Path, project_id: str, doc_id: str) -> Path:
     return reviewed_dir(workspace, project_id) / f"{doc_id}.json"
+
+
+def metrics_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "metrics"
+
+
+def metrics_path(workspace: Path, project_id: str, name: str) -> Path:
+    return metrics_dir(workspace, project_id) / f"{name}.json"
