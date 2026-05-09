@@ -14,6 +14,9 @@ from app.workspace.paths import (
     job_locks_dir,
     reviewed_dir,
     reviewed_path,
+    next_version_n,
+    parse_version_id,
+    version_path,
 )
 
 
@@ -111,3 +114,36 @@ def test_candidate_turn_path(workspace: Path) -> None:
         candidate_turn_path(workspace, "p_abc", "j_xyz", 3)
         == workspace / "p_abc" / "versions" / "_candidate" / "j_xyz" / "turn_3.json"
     )
+
+
+def test_version_path_constructs_v1(tmp_path: Path) -> None:
+    p = version_path(tmp_path, "p_abc123def456", 1)
+    assert p == tmp_path / "p_abc123def456" / "versions" / "v1.json"
+
+
+def test_parse_version_id_valid() -> None:
+    assert parse_version_id("v1") == 1
+    assert parse_version_id("v42") == 42
+
+
+def test_parse_version_id_invalid_returns_none() -> None:
+    assert parse_version_id("v") is None
+    assert parse_version_id("1") is None
+    assert parse_version_id("v0") is None
+    assert parse_version_id("vfoo") is None
+    assert parse_version_id("") is None
+
+
+def test_next_version_n_no_versions_dir(tmp_path: Path) -> None:
+    assert next_version_n(tmp_path, "p_abc123def456") == 1
+
+
+def test_next_version_n_skips_candidate_and_unrelated(tmp_path: Path) -> None:
+    pid = "p_abc123def456"
+    vd = versions_dir(tmp_path, pid)
+    vd.mkdir(parents=True)
+    (vd / "v1.json").write_text("{}")
+    (vd / "v3.json").write_text("{}")
+    (vd / "_candidate").mkdir()
+    (vd / "notes.txt").write_text("ignored")
+    assert next_version_n(tmp_path, pid) == 4

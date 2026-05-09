@@ -1,4 +1,8 @@
 from pathlib import Path
+import re
+
+
+_VERSION_RE = re.compile(r"^v(\d+)$")
 
 
 def project_dir(workspace: Path, project_id: str) -> Path:
@@ -75,3 +79,31 @@ def candidate_dir(workspace: Path, project_id: str, job_id: str) -> Path:
 
 def candidate_turn_path(workspace: Path, project_id: str, job_id: str, turn: int) -> Path:
     return candidate_dir(workspace, project_id, job_id) / f"turn_{turn}.json"
+
+
+def version_path(workspace: Path, project_id: str, n: int) -> Path:
+    return versions_dir(workspace, project_id) / f"v{n}.json"
+
+
+def parse_version_id(s: str) -> int | None:
+    """Return integer n for a version_id like 'v3', or None if malformed."""
+    m = _VERSION_RE.match(s or "")
+    if not m:
+        return None
+    n = int(m.group(1))
+    return n if n >= 1 else None
+
+
+def next_version_n(workspace: Path, project_id: str) -> int:
+    """Return max published version number + 1, ignoring candidates and junk."""
+    vd = versions_dir(workspace, project_id)
+    if not vd.exists():
+        return 1
+    seen: list[int] = []
+    for child in vd.iterdir():
+        if not child.is_file() or not child.name.endswith(".json"):
+            continue
+        n = parse_version_id(child.stem)
+        if n is not None:
+            seen.append(n)
+    return max(seen) + 1 if seen else 1
