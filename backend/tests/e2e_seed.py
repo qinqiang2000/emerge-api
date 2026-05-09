@@ -38,14 +38,20 @@ async def main() -> None:
         pdir / f"{did}.json",
         {"entities": [{"invoice_number": "DRAFT-1", "total_amount": 100.0}]},
     )
+
+    eval_did = await upload_doc(workspace, pid, fixture.read_bytes(), "eval_gt.pdf")
+    atomic_write_json(
+        pdir / f"{eval_did}.json",
+        {"entities": [{"invoice_number": "DRAFT-1", "total_amount": 100.0}]},
+    )
     await save_reviewed(
         workspace,
         pid,
-        did,
+        eval_did,
         entities=[{"invoice_number": "DRAFT-1", "total_amount": 100.0}],
         source=ReviewedSource.MANUAL,
     )
-    print(f"  + reviewed for {did}")
+    print(f"  + reviewed for {eval_did}")
     print(f"SEEDED pid={pid} did={did}")
 
 

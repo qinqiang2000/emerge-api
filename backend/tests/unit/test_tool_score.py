@@ -135,3 +135,14 @@ async def test_run_eval_with_no_reviewed_returns_zero_macro(workspace: Path) -> 
     assert result.n_reviewed == 0
     assert result.macro_f1 == 0.0
     assert metrics_dir(workspace, project_id).exists()
+
+
+async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:
+    outside = workspace.parent / "outside"
+    outside.mkdir()
+    atomic_write_json(outside / "schema.json", [])
+
+    with pytest.raises(ValueError, match="invalid project_id"):
+        await run_eval(workspace, "../outside")
+
+    assert not (outside / "metrics").exists()

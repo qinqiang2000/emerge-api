@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,14 @@ from app.workspace.paths import (
     reviewed_dir,
     schema_path,
 )
+
+
+_PROJECT_ID = re.compile(r"^p_[a-z0-9]{12}$")
+
+
+def _validate_project_id(project_id: str) -> None:
+    if not _PROJECT_ID.match(project_id):
+        raise ValueError("invalid project_id")
 
 
 def _absent(v: Any) -> bool:
@@ -117,6 +126,8 @@ def score(
 
 
 async def run_eval(workspace: Path, project_id: str) -> ScoreResult:
+    _validate_project_id(project_id)
+
     schema_blob = json.loads(schema_path(workspace, project_id).read_text())
     schema = [SchemaField(**f) for f in schema_blob]
 
