@@ -82,8 +82,11 @@ When the user types free-form text:
 - `/review` — opens review mode on first un-reviewed doc.
 - `/feedback` — case2 entry: take a complaint and propose schema diff.
 
-For `/improve` and `/publish`, you do NOT execute — they load separate
-skills with their own discipline.
+For `/improve`: a separate skill (emerge-autoresearch) is loaded on this turn.
+Follow that skill's directions.
+
+For `/publish`: a separate skill (emerge-publish) will be loaded — not yet
+shipped.
 
 ## When tools fail
 

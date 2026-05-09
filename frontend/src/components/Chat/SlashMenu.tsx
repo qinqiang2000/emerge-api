@@ -4,9 +4,9 @@ interface Item { command: string; hint: string }
 const ITEMS: Item[] = [
   { command: '/new', hint: 'create a new project' },
   { command: '/extract', hint: 'run extraction over project docs' },
-  { command: '/eval', hint: '(M2) score against reviewed examples' },
-  { command: '/review', hint: '(M2) review predictions' },
-  { command: '/improve', hint: '(M2) autoresearch loop' },
+  { command: '/eval', hint: 'score against reviewed examples' },
+  { command: '/review', hint: 'review predictions' },
+  { command: '/improve', hint: 'autoresearch loop (>=5 reviewed)' },
   { command: '/publish', hint: '(M3) freeze version + API key' },
   { command: '/feedback', hint: 'address client feedback' },
 ]
