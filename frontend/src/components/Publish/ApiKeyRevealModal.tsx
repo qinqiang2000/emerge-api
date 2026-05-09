@@ -38,20 +38,22 @@ export default function ApiKeyRevealModal() {
           <Dialog.Description className="text-sm text-fg-secondary">
             这是这把 key 的唯一可见时刻。复制并保存到安全位置，关闭后只剩 hash。
           </Dialog.Description>
-          <div className="bg-subtle px-3 py-2 font-mono text-xs break-all select-all">
-            {current.key_plaintext}
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-stretch bg-subtle">
+            <span className="flex-1 px-3 py-2 font-mono text-xs break-all select-all">
+              {current.key_plaintext}
+            </span>
             <button
               type="button"
               aria-label="copy"
+              title={copied ? '已复制' : '复制'}
               onClick={handleCopy}
-              className="px-3 py-1.5 text-sm bg-accent-info text-canvas inline-flex items-center gap-1 hover:opacity-90"
+              className="px-3 border-l border-canvas text-fg-secondary hover:text-fg-primary hover:bg-canvas inline-flex items-center"
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? '已复制' : '复制'}
             </button>
-            <span className="text-xs text-fg-muted ml-auto">created {current.created_at}</span>
+          </div>
+          <div className="flex items-center text-xs text-fg-muted">
+            <span className="ml-auto">created {current.created_at}</span>
           </div>
           <div className="border-t border-subtle pt-3">
             <button
