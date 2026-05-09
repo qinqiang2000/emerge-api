@@ -24,7 +24,7 @@ async function fetchSchema(projectId: string): Promise<SchemaField[]> {
 }
 
 export default function ReviewMode() {
-  const { activeProjectId, activeDocId, fields, setField, save, close, saving, err } = useReview()
+  const { activeProjectId, activeDocId, fields, notes, setField, setNote, save, close, saving, err } = useReview()
   const { byProject } = useDocs()
   const [schema, setSchema] = useState<SchemaField[]>([])
 
@@ -65,7 +65,9 @@ export default function ReviewMode() {
           <FieldEditor
             schema={schema}
             values={fields}
+            notes={notes}
             onChange={setField}
+            onSetNote={setNote}
             onSave={save}
             saving={saving}
           />

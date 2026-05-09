@@ -18,9 +18,11 @@ interface State {
   // Editing state: one entity for now (multi-entity is post-M2A)
   fields: FieldsValue
   evidence: Record<string, number | null>[] | null
+  notes: Record<string, string>
   open: (projectId: string, docId: string) => Promise<void>
   close: () => void
   setField: (name: string, value: unknown) => void
+  setNote: (name: string, note: string) => void
   goPage: (page: number) => void
   setPageCount: (n: number) => void
   save: () => Promise<void>
@@ -36,6 +38,7 @@ export const useReview = create<State>((set, get) => ({
   err: null,
   fields: {},
   evidence: null,
+  notes: {},
   open: async (projectId, docId) => {
     set({
       activeProjectId: projectId,
@@ -46,26 +49,33 @@ export const useReview = create<State>((set, get) => ({
       err: null,
       fields: {},
       evidence: null,
+      notes: {},
     })
     try {
       // Prefer reviewed payload (resume a partial review); fall back to draft.
       const reviewed = await getReviewed(projectId, docId)
       if (reviewed) {
-        set({ fields: reviewed.entities[0] ?? {}, evidence: reviewed._evidence ?? null, loading: false })
+        set({
+          fields: reviewed.entities[0] ?? {},
+          evidence: reviewed._evidence ?? null,
+          notes: reviewed._notes ?? {},
+          loading: false,
+        })
         return
       }
       const pred = await getPrediction(projectId, docId)
-      set({ fields: pred?.entities[0] ?? {}, evidence: pred?._evidence ?? null, loading: false })
+      set({ fields: pred?.entities[0] ?? {}, evidence: pred?._evidence ?? null, notes: {}, loading: false })
     } catch (e: unknown) {
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeDocId: null, fields: {}, evidence: null, page: 1 }),
+  close: () => set({ activeProjectId: null, activeDocId: null, fields: {}, evidence: null, notes: {}, page: 1 }),
   setField: (name, value) => set((s) => ({ fields: { ...s.fields, [name]: value } })),
+  setNote: (name, note) => set((s) => ({ notes: { ...s.notes, [name]: note } })),
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
   save: async () => {
-    const { activeProjectId, activeDocId, fields, evidence } = get()
+    const { activeProjectId, activeDocId, fields, evidence, notes } = get()
     if (!activeProjectId || !activeDocId) return
     set({ saving: true, err: null })
     try {
@@ -73,6 +83,7 @@ export const useReview = create<State>((set, get) => ({
         entities: [fields],
         source: 'manual',
         ...(evidence ? { _evidence: evidence } : {}),
+        ...(Object.keys(notes).length > 0 ? { _notes: notes } : {}),
       }
       await saveReviewed(activeProjectId, activeDocId, payload)
       // refresh the doc-list status so the badge flips to "reviewed"

@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
+
+import NotesPopover from './NotesPopover'
 
 interface SchemaField {
   name: string
@@ -10,12 +13,16 @@ interface SchemaField {
 interface Props {
   schema: SchemaField[]
   values: Record<string, unknown>
+  notes?: Record<string, string>
   onChange: (name: string, value: unknown) => void
+  onSetNote?: (name: string, note: string) => void
   onSave: () => void
   saving: boolean
 }
 
-export default function FieldEditor({ schema, values, onChange, onSave, saving }: Props) {
+export default function FieldEditor({ schema, values, notes = {}, onChange, onSetNote, onSave, saving }: Props) {
+  const [openFor, setOpenFor] = useState<string | null>(null)
+
   return (
     <div className="flex flex-col h-full">
       <header className="px-4 py-3 border-b border-subtle font-heading text-sm uppercase tracking-wide text-fg-muted">
@@ -97,11 +104,26 @@ export default function FieldEditor({ schema, values, onChange, onSave, saving }
           }
 
           return (
-            <div key={f.name} className="flex flex-col gap-1">
+            <div
+              key={f.name}
+              className="relative flex flex-col gap-1"
+              onContextMenu={(e) => { e.preventDefault(); setOpenFor(f.name) }}
+            >
               {labelEl}
               {control}
+              {notes[f.name] && (
+                <span className="text-xs text-accent-info" title="note">note: {notes[f.name]}</span>
+              )}
               {f.description && (
                 <span className="text-xs text-fg-muted leading-tight">{f.description}</span>
+              )}
+              {openFor === f.name && onSetNote && (
+                <NotesPopover
+                  fieldName={f.name}
+                  initial={notes[f.name] ?? ''}
+                  onSave={(t) => onSetNote(f.name, t)}
+                  onClose={() => setOpenFor(null)}
+                />
               )}
             </div>
           )
