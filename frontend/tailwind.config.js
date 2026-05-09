@@ -2,12 +2,14 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: ['selector', '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
         canvas: 'var(--bg-canvas)',
         surface: 'var(--bg-surface)',
         subtle: 'var(--bg-subtle)',
+        'bubble-user': 'var(--bg-bubble-user)',
         'fg-primary': 'var(--fg-primary)',
         'fg-secondary': 'var(--fg-secondary)',
         'fg-muted': 'var(--fg-muted)',
