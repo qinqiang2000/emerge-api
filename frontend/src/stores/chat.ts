@@ -10,6 +10,8 @@ interface State {
   events: ChatEvent[]
   busy: boolean
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  lastUserMessage: () => string | null
+  hasRecentToolError: () => boolean
   reset: () => void
 }
 
@@ -18,6 +20,24 @@ export const useChat = create<State>((set, get) => ({
   events: [],
   busy: false,
   reset: () => set({ chatId: newChatId(), events: [] }),
+  lastUserMessage: () => {
+    const events = get().events
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]
+      if (e.type === 'user') return e.text
+    }
+    return null
+  },
+  hasRecentToolError: () => {
+    const events = get().events
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]
+      if (e.type === 'user') return false
+      if (e.type === 'tool_call' && e.ok === false) return true
+      if (e.type === 'error') return true
+    }
+    return false
+  },
   send: async (projectId, message, attachments) => {
     set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true }))
     try {
