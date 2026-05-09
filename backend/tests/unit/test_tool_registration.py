@@ -7,7 +7,9 @@ from app.tools import build_emerge_mcp
 
 
 async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: AsyncMock) -> None:
-    server = build_emerge_mcp(workspace=workspace, provider=stub_provider)
+    from app.jobs.runner import JobRunner
+    runner = JobRunner(workspace=workspace, provider=stub_provider, model_id="stub")
+    server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=runner)
     names = await _extract_tool_names(server)
     expected = {
         "create_project",
@@ -26,6 +28,12 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "get_reviewed",
         "get_prediction",
         "score",
+        # M2C additions
+        "start_job",
+        "get_job",
+        "pause_job",
+        "resume_job",
+        "cancel_job",
     }
     assert expected.issubset(names), (expected - names, names)
 

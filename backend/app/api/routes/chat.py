@@ -34,6 +34,7 @@ def _get_chat_service() -> ChatService:
         workspace=settings.workspace_root,
         provider=provider,
         agent_model=settings.default_agent_model,
+        extract_model=settings.default_extract_model,
     )
 
 

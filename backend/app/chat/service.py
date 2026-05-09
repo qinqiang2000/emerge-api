@@ -21,6 +21,7 @@ from claude_agent_sdk import (
 
 from app.chat.log import append_event
 from app.chat.stream import sse_event
+from app.jobs import get_runner
 from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
@@ -63,12 +64,18 @@ class ChatService:
         workspace: Path,
         provider: Provider,
         agent_model: str = "claude-sonnet-4-6",
+        extract_model: str = "gemini-2.0-flash",
     ) -> None:
         self.workspace = workspace
         self.provider = provider
         self.agent_model = agent_model
         self.system_prompt = load_skill("emerge_extractor")
-        self.mcp_server = build_emerge_mcp(workspace=workspace, provider=provider)
+        self.job_runner = get_runner(
+            workspace=workspace, provider=provider, model_id=extract_model,
+        )
+        self.mcp_server = build_emerge_mcp(
+            workspace=workspace, provider=provider, job_runner=self.job_runner,
+        )
 
     def _build_options(self) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(

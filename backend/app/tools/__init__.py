@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 
 from app.provider.base import Provider
+from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import SchemaField
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
+from app.tools import jobs as jobs_mod
 from app.tools import predictions as predictions_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
 from app.tools import schema as schema_mod
-from app.schemas.reviewed import ReviewedSource
+
+if TYPE_CHECKING:
+    from app.jobs.runner import JobRunner
 
 
-def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
+def build_emerge_mcp(
+    workspace: Path,
+    provider: Provider,
+    job_runner: "JobRunner",
+) -> McpSdkServerConfig:
     """Construct an in-process MCP server exposing all emerge tools.
 
     Each tool closes over the workspace path and provider instance so the
@@ -182,6 +190,38 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
         result = await score_mod.run_eval(workspace, args["project_id"])
         return {"content": [{"type": "text", "text": str(result.model_dump(mode='json'))}]}
 
+    @tool(
+        "start_job",
+        "Kick off a background job. v1 supports skill='autoresearch'. Returns a job_id; subscribe to /lab/jobs/{job_id}/events for progress.",
+        {"skill": str, "project_id": str, "params": dict},
+    )
+    async def t_start_job(args: dict[str, Any]) -> dict[str, Any]:
+        jid = await jobs_mod.start_job_impl(
+            job_runner, skill=args["skill"], project_id=args["project_id"],
+            params=args.get("params") or {},
+        )
+        return {"content": [{"type": "text", "text": jid}]}
+
+    @tool("get_job", "Get current job status (latest turn, best F1 so far).", {"job_id": str})
+    async def t_get_job(args: dict[str, Any]) -> dict[str, Any]:
+        info = await jobs_mod.get_job_impl(job_runner, job_id=args["job_id"])
+        return {"content": [{"type": "text", "text": str(info)}]}
+
+    @tool("pause_job", "Pause a running job at the next turn boundary.", {"job_id": str})
+    async def t_pause_job(args: dict[str, Any]) -> dict[str, Any]:
+        await jobs_mod.pause_job_impl(job_runner, job_id=args["job_id"])
+        return {"content": [{"type": "text", "text": "paused"}]}
+
+    @tool("resume_job", "Resume a paused job.", {"job_id": str})
+    async def t_resume_job(args: dict[str, Any]) -> dict[str, Any]:
+        await jobs_mod.resume_job_impl(job_runner, job_id=args["job_id"])
+        return {"content": [{"type": "text", "text": "resumed"}]}
+
+    @tool("cancel_job", "Cancel a running or paused job. Discards remaining turns.", {"job_id": str})
+    async def t_cancel_job(args: dict[str, Any]) -> dict[str, Any]:
+        await jobs_mod.cancel_job_impl(job_runner, job_id=args["job_id"])
+        return {"content": [{"type": "text", "text": "cancelled"}]}
+
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",
@@ -201,5 +241,10 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
             t_get_reviewed,
             t_get_prediction,
             t_score,
+            t_start_job,
+            t_get_job,
+            t_pause_job,
+            t_resume_job,
+            t_cancel_job,
         ],
     )
