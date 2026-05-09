@@ -59,3 +59,42 @@ export async function saveReviewed(
 export function pdfPageUrl(projectId: string, docId: string, page: number): string {
   return `/lab/projects/${projectId}/docs/${docId}/pages/${page}`
 }
+
+export async function startJob(projectId: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
+  const r = await fetch('/lab/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill: 'autoresearch', project_id: projectId, params }),
+  })
+  if (!r.ok) throw new Error(`startJob ${r.status}`)
+  return r.json()
+}
+
+export async function pauseJob(jobId: string): Promise<void> {
+  const r = await fetch(`/lab/jobs/${jobId}/pause`, { method: 'POST' })
+  if (!r.ok) throw new Error(`pauseJob ${r.status}`)
+}
+
+export async function resumeJob(jobId: string): Promise<void> {
+  const r = await fetch(`/lab/jobs/${jobId}/resume`, { method: 'POST' })
+  if (!r.ok) throw new Error(`resumeJob ${r.status}`)
+}
+
+export async function cancelJob(jobId: string): Promise<void> {
+  const r = await fetch(`/lab/jobs/${jobId}/cancel`, { method: 'POST' })
+  if (!r.ok) throw new Error(`cancelJob ${r.status}`)
+}
+
+export async function acceptCandidate(projectId: string, jobId: string, turn: number): Promise<{ ok: boolean }> {
+  const r = await fetch(`/lab/projects/${projectId}/schema/accept-candidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_id: jobId, turn }),
+  })
+  if (!r.ok) throw new Error(`acceptCandidate ${r.status}`)
+  return r.json()
+}
+
+export function jobEventsUrl(projectId: string, jobId: string): string {
+  return `/lab/jobs/${jobId}/events?project_id=${encodeURIComponent(projectId)}`
+}
