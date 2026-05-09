@@ -86,3 +86,21 @@ def test_post_reviewed_422_on_bad_body() -> None:
         json={"entities": "not-a-list", "source": "manual"},
     )
     assert r.status_code == 422
+
+
+async def test_post_get_reviewed_multi_entity(workspace: Path) -> None:
+    """POST + GET reviewed preserves a multi-entity payload exactly."""
+    pid = await create_project(workspace, name="x")
+    client = TestClient(app)
+    body = {
+        "entities": [
+            {"invoice_number": "A1"},
+            {"invoice_number": "B2"},
+        ],
+        "source": "manual",
+    }
+    r = client.post(f"/lab/projects/{pid}/reviewed/d_aaaaaaaaaaaa", json=body)
+    assert r.status_code == 200
+    g = client.get(f"/lab/projects/{pid}/reviewed/d_aaaaaaaaaaaa")
+    assert g.status_code == 200
+    assert g.json()["entities"] == body["entities"]
