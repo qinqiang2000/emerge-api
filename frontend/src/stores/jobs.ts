@@ -37,11 +37,11 @@ const empty = (jobId: string, projectId: string): JobSlice => ({
   _abort: null,
 })
 
-function patch(set: any, jobId: string, patch: Partial<JobSlice>) {
+function patch(set: any, jobId: string, updates: Partial<JobSlice>) {
   set((s: State) => {
     const cur = s.byId[jobId]
     if (!cur) return s
-    return { byId: { ...s.byId, [jobId]: { ...cur, ...patch } } }
+    return { byId: { ...s.byId, [jobId]: { ...cur, ...updates } } }
   })
 }
 
