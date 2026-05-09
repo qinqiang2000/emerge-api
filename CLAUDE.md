@@ -4,6 +4,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 
 - Spec (single source of truth): `docs/superpowers/specs/2026-05-08-agent-native-design.md`
 - **Roadmap**: `docs/superpowers/plans/ROADMAP.md` — milestone chain + status. **Read first** when picking up work.
+- **Insights / trap notes**: `docs/superpowers/INSIGHTS.md` — why certain non-obvious code paths exist. Consult before "simplifying" anything that looks redundant.
 - 实施 plan: `docs/superpowers/plans/YYYY-MM-DD-<milestone>.md`，按 ROADMAP 顺序执行
 
 ## Collaboration
