@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.provider.base import Provider, TextBlock
 from app.schemas.schema_field import SchemaField
 
 
@@ -110,3 +111,61 @@ def build_proposer_user_text(
         lines.extend(flat)
 
     return "\n".join(lines)
+
+
+class ProposerStructuralChangeError(Exception):
+    """Raised when the proposer LLM tried to add/remove/rename/retype a field.
+    The autoresearch loop treats this as a non-improving turn and continues."""
+
+
+async def propose_schema(
+    *,
+    provider: Provider,
+    model_id: str,
+    schema: list[SchemaField],
+    reviewed: dict[str, list[dict[str, Any]]],
+    predictions: dict[str, list[dict[str, Any]]],
+    per_field: list[dict[str, Any]],
+    notes: dict[str, dict[str, str]],
+) -> tuple[list[SchemaField], str]:
+    """One proposer LLM call. Returns (revised schema, rationale).
+
+    Raises ProposerStructuralChangeError if the proposer attempts to add /
+    remove / rename / retype any field - only `description` text may change.
+    """
+    user_text = build_proposer_user_text(
+        schema=schema, reviewed=reviewed, predictions=predictions,
+        per_field=per_field, notes=notes,
+    )
+    result = await provider.extract(
+        model_id=model_id,
+        system_prompt=PROPOSER_SYSTEM_PROMPT,
+        user_content=[TextBlock(text=user_text)],
+        response_schema=PROPOSER_RESPONSE_SCHEMA,
+        params={"temperature": 0.2},
+    )
+    blob = result.raw_json
+    rationale = str(blob.get("rationale", ""))
+    raw_fields: list[dict[str, Any]] = list(blob.get("fields") or [])
+
+    if len(raw_fields) != len(schema):
+        raise ProposerStructuralChangeError(
+            f"proposer returned {len(raw_fields)} fields; expected {len(schema)}"
+        )
+    proposed: list[SchemaField] = []
+    for old, new in zip(schema, raw_fields):
+        if new.get("name") != old.name:
+            raise ProposerStructuralChangeError(
+                f"proposer changed field name {old.name!r} -> {new.get('name')!r}"
+            )
+        if new.get("type") != old.type.value:
+            raise ProposerStructuralChangeError(
+                f"proposer changed type for {old.name!r} "
+                f"{old.type.value!r} -> {new.get('type')!r}"
+            )
+        # Carry forward old metadata that the proposer doesn't touch.
+        merged = old.model_dump(mode="json")
+        merged["description"] = str(new.get("description", old.description))
+        proposed.append(SchemaField(**merged))
+
+    return proposed, rationale

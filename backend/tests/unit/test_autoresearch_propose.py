@@ -55,3 +55,78 @@ def test_proposer_user_text_includes_no_notes_section_when_empty() -> None:
         schema=schema, reviewed={}, predictions={}, per_field=[], notes={}
     )
     assert "user notes" not in text.lower() or "(none)" in text.lower()
+
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.jobs.autoresearch import ProposerStructuralChangeError, propose_schema
+from app.provider.base import ProviderResult
+
+
+async def test_propose_schema_returns_revised_descriptions() -> None:
+    schema = [_f("invoice_no", "old desc")]
+    new_blob = {
+        "fields": [{"name": "invoice_no", "type": "string", "description": "new sharper desc"}],
+        "rationale": "tightened format guidance",
+    }
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(raw_json=new_blob, model_id="stub")
+
+    proposed, rationale = await propose_schema(
+        provider=provider, model_id="stub", schema=schema,
+        reviewed={}, predictions={}, per_field=[], notes={},
+    )
+    assert len(proposed) == 1
+    assert proposed[0].name == "invoice_no"
+    assert proposed[0].description == "new sharper desc"
+    assert rationale == "tightened format guidance"
+
+
+async def test_propose_schema_rejects_added_field() -> None:
+    schema = [_f("invoice_no", "old desc")]
+    bad_blob = {
+        "fields": [
+            {"name": "invoice_no", "type": "string", "description": "new"},
+            {"name": "snuck_in", "type": "string", "description": "extra"},
+        ],
+        "rationale": "tried to add field",
+    }
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(raw_json=bad_blob, model_id="stub")
+    with pytest.raises(ProposerStructuralChangeError):
+        await propose_schema(
+            provider=provider, model_id="stub", schema=schema,
+            reviewed={}, predictions={}, per_field=[], notes={},
+        )
+
+
+async def test_propose_schema_rejects_renamed_field() -> None:
+    schema = [_f("invoice_no", "x")]
+    bad_blob = {
+        "fields": [{"name": "invoice_number", "type": "string", "description": "y"}],
+        "rationale": "renamed",
+    }
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(raw_json=bad_blob, model_id="stub")
+    with pytest.raises(ProposerStructuralChangeError):
+        await propose_schema(
+            provider=provider, model_id="stub", schema=schema,
+            reviewed={}, predictions={}, per_field=[], notes={},
+        )
+
+
+async def test_propose_schema_rejects_retyped_field() -> None:
+    schema = [_f("invoice_no", "x")]
+    bad_blob = {
+        "fields": [{"name": "invoice_no", "type": "number", "description": "y"}],
+        "rationale": "retyped",
+    }
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(raw_json=bad_blob, model_id="stub")
+    with pytest.raises(ProposerStructuralChangeError):
+        await propose_schema(
+            provider=provider, model_id="stub", schema=schema,
+            reviewed={}, predictions={}, per_field=[], notes={},
+        )
