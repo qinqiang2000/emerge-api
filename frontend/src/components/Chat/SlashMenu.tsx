@@ -7,7 +7,7 @@ const ITEMS: Item[] = [
   { command: '/eval', hint: 'score against reviewed examples' },
   { command: '/review', hint: 'review predictions' },
   { command: '/improve', hint: 'autoresearch loop (>=5 reviewed)' },
-  { command: '/publish', hint: '(M3) freeze version + API key' },
+  { command: '/publish', hint: 'freeze version + issue API key' },
   { command: '/feedback', hint: 'address client feedback' },
 ]
 
