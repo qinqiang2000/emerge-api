@@ -79,7 +79,7 @@ When the user types free-form text:
 - `/new` — start a new project (will prompt for sample docs / intent).
 - `/extract` — run `extract_batch` over all (or specified) docs.
 - `/eval` — requires reviewed examples; computes precision/recall/F1 vs reviewed examples; persists a metrics snapshot.
-- `/review` (M2+) — opens review mode on first un-reviewed doc.
+- `/review` — opens review mode on first un-reviewed doc.
 - `/feedback` — case2 entry: take a complaint and propose schema diff.
 
 For `/improve` and `/publish`, you do NOT execute — they load separate
