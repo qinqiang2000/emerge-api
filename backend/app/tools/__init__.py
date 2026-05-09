@@ -12,6 +12,7 @@ from app.tools import extract as extract_mod
 from app.tools import predictions as predictions_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
+from app.tools import score as score_mod
 from app.tools import schema as schema_mod
 from app.schemas.reviewed import ReviewedSource
 
@@ -172,6 +173,15 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
         )
         return {"content": [{"type": "text", "text": str(payload)}]}
 
+    @tool(
+        "score",
+        "Compute precision/recall/F1 by comparing draft predictions against reviewed examples. Persists a metrics snapshot under metrics/eval_{ts}.json. Returns ScoreResult.",
+        {"project_id": str},
+    )
+    async def t_score(args: dict[str, Any]) -> dict[str, Any]:
+        result = await score_mod.run_eval(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": str(result.model_dump(mode='json'))}]}
+
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",
@@ -190,5 +200,6 @@ def build_emerge_mcp(workspace: Path, provider: Provider) -> McpSdkServerConfig:
             t_list_reviewed,
             t_get_reviewed,
             t_get_prediction,
+            t_score,
         ],
     )
