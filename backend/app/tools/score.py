@@ -60,35 +60,42 @@ def score(
         if doc_id not in predictions:
             errors.append(f"doc {doc_id} has reviewed but no prediction")
             continue
-
-        reviewed_entity = reviewed_entities[0] if reviewed_entities else {}
         prediction_entities = predictions[doc_id]
-        prediction_entity = prediction_entities[0] if prediction_entities else {}
+        # Multi-entity: pair by index. Mismatched lengths surface as errors
+        # the user sees in the readiness checklist (Task 9).
+        if len(prediction_entities) != len(reviewed_entities):
+            errors.append(
+                f"doc {doc_id}: predicted {len(prediction_entities)} entities, "
+                f"reviewed {len(reviewed_entities)} — grading the overlap only"
+            )
         n_reviewed_graded += 1
+        pair_count = min(len(prediction_entities), len(reviewed_entities))
+        for i in range(pair_count):
+            reviewed_entity = reviewed_entities[i]
+            prediction_entity = prediction_entities[i]
+            for field in schema:
+                reviewed_value = reviewed_entity.get(field.name)
+                prediction_value = prediction_entity.get(field.name)
+                reviewed_absent = _absent(reviewed_value)
+                prediction_absent = _absent(prediction_value)
 
-        for field in schema:
-            reviewed_value = reviewed_entity.get(field.name)
-            prediction_value = prediction_entity.get(field.name)
-            reviewed_absent = _absent(reviewed_value)
-            prediction_absent = _absent(prediction_value)
+                if reviewed_absent and prediction_absent:
+                    continue
 
-            if reviewed_absent and prediction_absent:
-                continue
+                field_counts = counts[field.name]
+                if not reviewed_absent:
+                    field_counts["support"] += 1
 
-            field_counts = counts[field.name]
-            if not reviewed_absent:
-                field_counts["support"] += 1
-
-            if not reviewed_absent and not prediction_absent:
-                if _eq(reviewed_value, prediction_value):
-                    field_counts["tp"] += 1
-                else:
+                if not reviewed_absent and not prediction_absent:
+                    if _eq(reviewed_value, prediction_value):
+                        field_counts["tp"] += 1
+                    else:
+                        field_counts["fp"] += 1
+                        field_counts["fn"] += 1
+                elif reviewed_absent and not prediction_absent:
                     field_counts["fp"] += 1
+                elif not reviewed_absent and prediction_absent:
                     field_counts["fn"] += 1
-            elif reviewed_absent and not prediction_absent:
-                field_counts["fp"] += 1
-            elif not reviewed_absent and prediction_absent:
-                field_counts["fn"] += 1
 
     per_field: list[FieldScore] = []
     for field in schema:
