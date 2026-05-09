@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as _json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
 from app.tools import predictions as predictions_mod
+from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
@@ -191,6 +193,73 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": str(result.model_dump(mode='json'))}]}
 
     @tool(
+        "readiness_check",
+        "Run the publish readiness checklist for a project.",
+        {"project_id": str},
+    )
+    async def t_readiness_check(args: dict[str, Any]) -> dict[str, Any]:
+        out = await publish_mod.readiness_check(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "contract_diff",
+        "Diff current schema against the active version's frozen schema.",
+        {"project_id": str},
+    )
+    async def t_contract_diff(args: dict[str, Any]) -> dict[str, Any]:
+        from app.workspace.paths import parse_version_id, project_json_path, schema_path, version_path
+
+        pid = args["project_id"]
+        schema_blob = _json.loads(schema_path(workspace, pid).read_text())
+        schema = [SchemaField(**field) for field in schema_blob]
+        project = _json.loads(project_json_path(workspace, pid).read_text())
+        active_version_id = project.get("active_version_id")
+        if not active_version_id:
+            out = {
+                "added": [field.name for field in schema],
+                "removed": [],
+                "type_changed": [],
+                "enum_narrowed": [],
+                "is_breaking": False,
+                "note": "no prior active version",
+            }
+        else:
+            prev: list[SchemaField] = []
+            n = parse_version_id(active_version_id)
+            if n is not None and version_path(workspace, pid, n).exists():
+                prev_blob = _json.loads(version_path(workspace, pid, n).read_text())
+                prev = [SchemaField(**field) for field in prev_blob.get("schema", [])]
+            out = publish_mod.contract_diff(prev, schema)
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "freeze_version",
+        "Freeze the current schema as the next immutable versions/v{n}.json. GATED.",
+        {"project_id": str},
+    )
+    async def t_freeze_version(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            out = await publish_mod.freeze_version(workspace, args["project_id"])
+        except publish_mod.PublishNotReadyError as exc:
+            out = {
+                "error": {
+                    "error_code": exc.error_code,
+                    "error_message_en": exc.error_message_en,
+                    "checks": exc.checks,
+                }
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "issue_api_key",
+        "Issue or rotate an API key. Plaintext appears exactly once in this tool result.",
+        {"project_id": str},
+    )
+    async def t_issue_api_key(args: dict[str, Any]) -> dict[str, Any]:
+        out = await publish_mod.issue_api_key(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
         "start_job",
         "Kick off a background job. v1 supports skill='autoresearch'. Returns a job_id; subscribe to /lab/jobs/{job_id}/events for progress.",
         {"skill": str, "project_id": str, "params": dict},
@@ -241,6 +310,10 @@ def build_emerge_mcp(
             t_get_reviewed,
             t_get_prediction,
             t_score,
+            t_readiness_check,
+            t_contract_diff,
+            t_freeze_version,
+            t_issue_api_key,
             t_start_job,
             t_get_job,
             t_pause_job,
@@ -248,3 +321,18 @@ def build_emerge_mcp(
             t_cancel_job,
         ],
     )
+
+
+_EMERGE_TOOL_NAMES = (
+    "create_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
+    "derive_schema", "read_schema", "write_schema",
+    "extract_one", "extract_batch",
+    "save_reviewed", "list_reviewed", "get_reviewed", "get_prediction",
+    "score",
+    "start_job", "get_job", "pause_job", "resume_job", "cancel_job",
+    "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
+)
+
+
+def _emerge_tool_names() -> tuple[str, ...]:
+    return _EMERGE_TOOL_NAMES

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import mcp.types as mcp_types
 
 from app.tools import build_emerge_mcp
+from app.tools import _emerge_tool_names
 
 
 async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: AsyncMock) -> None:
@@ -36,6 +37,18 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "cancel_job",
     }
     assert expected.issubset(names), (expected - names, names)
+
+
+def test_publish_tools_are_registered(workspace: Path, stub_provider: AsyncMock) -> None:
+    from unittest.mock import MagicMock
+
+    job_runner = MagicMock()
+    build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=job_runner)
+    names = _emerge_tool_names()
+    assert "readiness_check" in names
+    assert "contract_diff" in names
+    assert "freeze_version" in names
+    assert "issue_api_key" in names
 
 
 async def _extract_tool_names(server) -> set[str]:
