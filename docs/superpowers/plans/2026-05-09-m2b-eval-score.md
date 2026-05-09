@@ -1289,4 +1289,8 @@ M2A polish items (DocStatus, page probe) addressed in Phase 3.
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-09-m2b-eval-score.md`. Default execution: subagent-driven-development (per user preference). New session recommended before starting Phase 1 to keep main context budget healthy.
+Plan complete and saved to `docs/superpowers/plans/2026-05-09-m2b-eval-score.md`. Default execution: subagent-driven-development.
+
+## After M2B ships
+
+Open `docs/superpowers/plans/ROADMAP.md` and update the M2B row to ✅ shipped with the commit range (`bad20f5..HEAD`). Then read the M2C entry under "What each milestone delivers" — that's the next plan to write. Use `superpowers:writing-plans` to produce `docs/superpowers/plans/YYYY-MM-DD-m2c-autoresearch.md` from that scope description, then `superpowers:subagent-driven-development` to execute it.
