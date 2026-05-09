@@ -15,9 +15,12 @@ from app.api.routes import eval as eval_route
 from app.api.routes import jobs as jobs_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
+from app.api.routes import publish as publish_route
 from app.api.routes import reviewed as reviewed_route
 from app.api.routes import schema as schema_route
 from app.api.routes import upload as upload_route
+from app.config import get_settings
+from app.security.keys import get_keystore
 
 
 app = FastAPI(title="emerge", version="0.0.1")
@@ -47,6 +50,14 @@ app.include_router(reviewed_route.router)
 app.include_router(eval_route.router)
 app.include_router(jobs_route.router)
 app.include_router(schema_route.router)
+async def _load_keystore_on_startup() -> None:
+    settings = get_settings()
+    settings.workspace_root.mkdir(parents=True, exist_ok=True)
+    get_keystore(settings.workspace_root)
+
+
+app.include_router(publish_route.router)
+app.router.on_startup.append(_load_keystore_on_startup)
 
 
 @app.get("/healthz")
