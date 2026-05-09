@@ -3,7 +3,8 @@
 Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get better as you correct them.
 
 - Spec (single source of truth): `docs/superpowers/specs/2026-05-08-agent-native-design.md`
-- 实施 plan: `docs/superpowers/plans/`（按 M1→M2→M3→M4 串行；M3 尾部可与 M4 并行）
+- **Roadmap**: `docs/superpowers/plans/ROADMAP.md` — milestone chain + status. **Read first** when picking up work.
+- 实施 plan: `docs/superpowers/plans/YYYY-MM-DD-<milestone>.md`，按 ROADMAP 顺序执行
 
 ## Collaboration
 
