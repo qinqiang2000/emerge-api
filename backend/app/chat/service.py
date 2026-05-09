@@ -221,10 +221,33 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
         return out
 
     if isinstance(message, UserMessage):
-        # SDK echoes back tool results as UserMessage with tool_use_result, AND
-        # re-emits the original user text. We skip both: the tool_use was
-        # already shown via AssistantMessage.ToolUseBlock, and the user text was
-        # already logged at chat_turn entry.
+        # SDK echoes tool results back as UserMessage(content=list[ToolResultBlock]).
+        # Surface them as `tool_result` SSE events so the frontend can pair to the
+        # original `tool_call` card via tool_use_id (Insight #7). Plain-string
+        # UserMessage echoes the user prompt — already logged at chat_turn entry,
+        # skip.
+        if isinstance(message.content, list):
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    content = block.content
+                    if isinstance(content, list):
+                        text_pieces = [
+                            c.get("text", "") for c in content
+                            if isinstance(c, dict) and c.get("type") == "text"
+                        ]
+                        result_text = "".join(text_pieces)
+                    else:
+                        result_text = str(content) if content is not None else ""
+                    out.append(
+                        (
+                            "tool_result",
+                            {
+                                "tool_use_id": block.tool_use_id,
+                                "result_text": result_text,
+                                "ok": not block.is_error,
+                            },
+                        )
+                    )
         return out
 
     if isinstance(message, SystemMessage):

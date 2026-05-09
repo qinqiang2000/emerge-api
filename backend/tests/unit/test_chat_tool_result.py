@@ -1,6 +1,6 @@
 from app.chat.service import _events_from_message
 from claude_agent_sdk import (
-    AssistantMessage, ToolResultBlock, ToolUseBlock,
+    AssistantMessage, ToolResultBlock, ToolUseBlock, UserMessage,
 )
 
 
@@ -59,3 +59,26 @@ def test_tool_result_block_is_error_propagates() -> None:
     )
     events = _events_from_message(msg)
     assert events[0][1]["ok"] is False
+
+
+def test_user_message_with_tool_result_block_emits_event() -> None:
+    """At runtime the SDK delivers tool results inside UserMessage, not
+    AssistantMessage. The chat service must surface them so the frontend
+    can pair `tool_result` to the original `tool_call` via tool_use_id."""
+    msg = UserMessage(
+        content=[
+            ToolResultBlock(tool_use_id="t9", content="j_abc123def456", is_error=False),
+        ],
+    )
+    events = _events_from_message(msg)
+    assert len(events) == 1
+    etype, payload = events[0]
+    assert etype == "tool_result"
+    assert payload["tool_use_id"] == "t9"
+    assert payload["result_text"] == "j_abc123def456"
+    assert payload["ok"] is True
+
+
+def test_user_message_with_string_content_is_skipped() -> None:
+    msg = UserMessage(content="echoed user prompt")
+    assert _events_from_message(msg) == []
