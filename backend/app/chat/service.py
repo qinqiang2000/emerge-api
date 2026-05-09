@@ -69,7 +69,9 @@ class ChatService:
         self.workspace = workspace
         self.provider = provider
         self.agent_model = agent_model
-        self.system_prompt = load_skill("emerge_extractor")
+        self._extractor_skill = load_skill("emerge_extractor")
+        self._autoresearch_skill = load_skill("emerge_autoresearch")
+        self.system_prompt = self._extractor_skill
         self.job_runner = get_runner(
             workspace=workspace, provider=provider, model_id=extract_model,
         )
@@ -77,9 +79,16 @@ class ChatService:
             workspace=workspace, provider=provider, job_runner=self.job_runner,
         )
 
-    def _build_options(self) -> ClaudeAgentOptions:
+    def _select_system_prompt(self, user_message: str) -> str:
+        """Choose which skills to load based on the slash intent."""
+        stripped = user_message.lstrip()
+        if stripped.startswith("/improve"):
+            return self._extractor_skill + "\n\n---\n\n" + self._autoresearch_skill
+        return self._extractor_skill
+
+    def _build_options(self, user_message: str) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
-            system_prompt=self.system_prompt,
+            system_prompt=self._select_system_prompt(user_message),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
             # Do NOT inherit user/project/local Claude Code settings — that's how
@@ -121,7 +130,7 @@ class ChatService:
             paths = ", ".join(a.get("filename", "?") for a in attachments)
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
-        options = self._build_options()
+        options = self._build_options(user_message)
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
