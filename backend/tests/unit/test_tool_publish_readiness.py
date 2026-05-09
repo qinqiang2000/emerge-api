@@ -154,6 +154,61 @@ async def test_running_job_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_readiness_multi_entity_grades_correctly(tmp_path: Path) -> None:
+    """readiness_check delegates to score() which now iterates all entities (M5 Task 8).
+
+    Corpus shape: 3 docs, each with 2 entities.  entity[0] always matches;
+    entity[1] mismatches on one doc.  A buggy entity[0]-only implementation
+    would see tp=3, fp=0, fn=0 → macro_f1=1.0 and hard_pass=True.  Correct
+    multi-entity grading sees tp=2, fp=1, fn=1 → f1≈0.667 < threshold 0.7,
+    so hard_pass=False.
+    """
+    pid = "p_aaaaaaaaaaaa"
+    schema = [{"name": "invoice_number", "type": "string", "description": "inv no", "required": False}]
+    _bootstrap_project(tmp_path, pid, schema_fields=schema, publish_min_macro_f1=0.7)
+
+    # doc d_a: entity[0] matches, entity[1] mismatches
+    _add_reviewed(tmp_path, pid, "d_aaaaaaaaaaaa",
+                  [{"invoice_number": "A1"}, {"invoice_number": "A2"}])
+    _add_prediction(tmp_path, pid, "d_aaaaaaaaaaaa",
+                    [{"invoice_number": "A1"}, {"invoice_number": "MISMATCH"}])
+
+    # docs d_b, d_c: both entities match perfectly
+    _add_reviewed(tmp_path, pid, "d_bbbbbbbbbbbb",
+                  [{"invoice_number": "B1"}, {"invoice_number": "B2"}])
+    _add_prediction(tmp_path, pid, "d_bbbbbbbbbbbb",
+                    [{"invoice_number": "B1"}, {"invoice_number": "B2"}])
+
+    _add_reviewed(tmp_path, pid, "d_cccccccccccc",
+                  [{"invoice_number": "C1"}, {"invoice_number": "C2"}])
+    _add_prediction(tmp_path, pid, "d_cccccccccccc",
+                    [{"invoice_number": "C1"}, {"invoice_number": "C2"}])
+
+    result = await readiness_check(tmp_path, pid)
+
+    # orphan check must pass — all reviewed keys are in schema
+    fields_check = next(c for c in result["checks"] if c["key"] == "reviewed_fields_in_schema")
+    assert fields_check["status"] == "pass", f"orphan check: {fields_check}"
+
+    # Correct multi-entity grading: tp=4, fp=1, fn=1 across 6 entity-rows.
+    # precision = 4/5, recall = 4/5, f1 = 0.8 — wait, let's be explicit:
+    # entity[1] of d_aaaaaaaaaaaa: reviewed="A2", pred="MISMATCH" → fp+1, fn+1
+    # all others: tp.  Totals: tp=4, fp=1, fn=1.
+    # precision=4/5=0.8, recall=4/5=0.8, f1=0.8 ≥ 0.7 → pass.
+    # entity[0]-only would see tp=3, f1=1.0 too — so we just assert macro_f1 < 1.0
+    # to confirm all entity rows were graded.
+    assert result["macro_f1"] is not None
+    assert result["macro_f1"] < 1.0, (
+        "macro_f1 should be < 1.0 because entity[1] of d_a mismatches; "
+        f"got {result['macro_f1']:.3f} — likely only entity[0] was graded"
+    )
+    f1_check = next(c for c in result["checks"] if c["key"] == "reviewed_and_f1")
+    assert f1_check["status"] == "pass", (
+        f"macro_f1={result['macro_f1']:.3f} should be >= threshold 0.7 but check failed: {f1_check}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_breaking_change_against_prev_active_fails(tmp_path: Path) -> None:
     pid = "p_abc123def456"
     _bootstrap_project(
