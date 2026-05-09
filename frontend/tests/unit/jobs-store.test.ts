@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useJob } from '../../src/stores/jobs'
 
@@ -14,7 +14,7 @@ describe('useJob per-jobId isolation', () => {
     useJob.getState().reset()
   })
 
-  it('keeps separate slices for two different jobIds', async () => {
+  it('keeps separate slices for two different jobIds', () => {
     void useJob.getState().subscribe('p_aaaaaaaaaaaa', 'job_a')
     void useJob.getState().subscribe('p_aaaaaaaaaaaa', 'job_b')
     const slice_a = useJob.getState().slice('job_a')
@@ -24,7 +24,7 @@ describe('useJob per-jobId isolation', () => {
     expect(slice_b?.jobId).toBe('job_b')
   })
 
-  it('aborts the previous SSE when re-subscribing the same jobId', async () => {
+  it('aborts the previous SSE when re-subscribing the same jobId', () => {
     void useJob.getState().subscribe('p_aaaaaaaaaaaa', 'job_a')
     const ctrl1 = useJob.getState().slice('job_a')?._abort
     expect(ctrl1).toBeDefined()
