@@ -39,12 +39,20 @@ export default function MessageList({ events, busy }: Props) {
         }
         return null
       })}
-      {busy && (
-        <div className="text-fg-muted italic flex items-center gap-2" aria-live="polite">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-muted animate-pulse"></span>
-          agent is thinking…
-        </div>
-      )}
+      {busy && (() => {
+        const latest = [...events].reverse().find(e => e.type === 'tool_call') as
+          | Extract<ChatEvent, { type: 'tool_call' }> | undefined
+        const running = latest
+          && (latest.tool_result === undefined || latest.tool_result === null)
+          && latest.ok !== false
+        const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
+        return (
+          <div className="text-fg-muted italic flex items-center gap-2" aria-live="polite">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-muted animate-pulse"></span>
+            {name ? `calling ${name}...` : 'agent is thinking...'}
+          </div>
+        )
+      })()}
     </div>
   )
 }
