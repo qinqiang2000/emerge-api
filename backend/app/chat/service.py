@@ -71,6 +71,7 @@ class ChatService:
         self.agent_model = agent_model
         self._extractor_skill = load_skill("emerge_extractor")
         self._autoresearch_skill = load_skill("emerge_autoresearch")
+        self._publish_skill = load_skill("emerge_publish")
         self.system_prompt = self._extractor_skill
         self.job_runner = get_runner(
             workspace=workspace, provider=provider, model_id=extract_model,
@@ -84,6 +85,8 @@ class ChatService:
         stripped = user_message.lstrip()
         if stripped.startswith("/improve"):
             return self._extractor_skill + "\n\n---\n\n" + self._autoresearch_skill
+        if stripped.startswith("/publish"):
+            return self._extractor_skill + "\n\n---\n\n" + self._publish_skill
         return self._extractor_skill
 
     def _build_options(self, user_message: str) -> ClaudeAgentOptions:
