@@ -68,7 +68,10 @@ When the user types free-form text:
   precision/recall/f1/support), `n_reviewed`, and `errors`. Summarize in
   chat:
   - lead with `macro_f1` rounded to 2 decimals
-  - call out the lowest-f1 field as the "where to focus" pointer
+  - call out the lowest-f1 field with support > 0 as the "where to focus"
+    pointer
+  - if no `per_field` entries have support > 0, say the reviewed examples
+    do not cover fields enough yet instead of naming a worst field
   - if `errors` non-empty, surface them
 
 ## Slash commands handled by this skill
