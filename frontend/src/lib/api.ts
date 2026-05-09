@@ -98,3 +98,8 @@ export async function acceptCandidate(projectId: string, jobId: string, turn: nu
 export function jobEventsUrl(projectId: string, jobId: string): string {
   return `/lab/jobs/${jobId}/events?project_id=${encodeURIComponent(projectId)}`
 }
+
+export function exportBundleUrl(projectId: string, version?: number): string {
+  const base = `/lab/projects/${encodeURIComponent(projectId)}/export`
+  return version ? `${base}?version=${version}` : base
+}
