@@ -1,0 +1,39 @@
+/* frontend/src/theme/tokens.css */
+:root {
+  --bg-canvas:      #faf9f5;
+  --bg-surface:     #ffffff;
+  --bg-subtle:      #e8e6dc;
+  --bg-bubble-user: #efeee6;
+  --fg-primary:     #141413;
+  --fg-secondary:   #6b6a64;
+  --fg-muted:       #b0aea5;
+  --accent-primary: #d97757;
+  --accent-info:    #6a9bcc;
+  --accent-success: #788c5d;
+  --accent-danger:  #b53a2b;
+  --font-heading: 'Poppins', Arial, sans-serif;
+  --font-body:    'Lora', Georgia, serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+}
+
+:root[data-theme='dark'] {
+  --bg-canvas:      #1f1e1c;
+  --bg-surface:     #2a2927;
+  --bg-subtle:      #36352f;
+  --bg-bubble-user: #3d3b35;
+  --fg-primary:     #faf9f5;
+  --fg-secondary:   #c5c3ba;
+  --fg-muted:       #8c8a82;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --bg-canvas:      #1f1e1c;
+    --bg-surface:     #2a2927;
+    --bg-subtle:      #36352f;
+    --bg-bubble-user: #3d3b35;
+    --fg-primary:     #faf9f5;
+    --fg-secondary:   #c5c3ba;
+    --fg-muted:       #8c8a82;
+  }
+}

@@ -38,6 +38,8 @@ Thumbs.db
 # emerge runtime data
 workspace/
 backend/workspace/
+backend/.tmp_workspace/
+!backend/app/workspace/
 test-results/
 playwright-report/
 
