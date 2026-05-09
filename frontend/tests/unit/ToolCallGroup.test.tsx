@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 import ToolCallGroup from '../../src/components/Chat/ToolCallGroup'
+import { useJob } from '../../src/stores/jobs'
 import type { ChatEvent } from '../../src/types/chat'
+import type { JobSlice } from '../../src/stores/jobs'
+
+beforeEach(() => {
+  useJob.setState({
+    byId: {},
+    subscribe: vi.fn().mockResolvedValue(undefined) as any,
+    pause: vi.fn() as any,
+    resume: vi.fn() as any,
+    cancel: vi.fn() as any,
+    accept: vi.fn() as any,
+  })
+})
 
 function tc(name: string, opts: Partial<Extract<ChatEvent, { type: 'tool_call' }>> = {}): Extract<ChatEvent, { type: 'tool_call' }> {
   return {
@@ -36,6 +49,17 @@ describe('ToolCallGroup', () => {
   })
 
   it('start_job call routes to JobProgressCard, not ToolCallPill', () => {
+    const slice: JobSlice = {
+      jobId: 'j_abc123def456',
+      projectId: 'p_x',
+      status: 'running',
+      turns: [],
+      bestTurn: null,
+      endedReason: null,
+      err: null,
+      _abort: null,
+    }
+    useJob.setState({ byId: { j_abc123def456: slice } })
     render(<ToolCallGroup calls={[
       tc('mcp__emerge_tools__start_job', { tool_result: 'j_abc123def456' }),
     ]} />)
