@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.schemas.schema_field import SchemaField
+from app.workspace.atomic import atomic_write_json
+from app.workspace.lock import project_lock
 from app.workspace.paths import (
     jobs_dir,
     metrics_dir,
+    next_version_n,
     predictions_draft_dir,
     project_dir,
     project_json_path,
@@ -146,8 +150,12 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
         from app.tools.score import score
 
         result = score(schema, _load_predictions(workspace, project_id), reviewed)
-        macro_f1 = result.macro_f1
         per_field = result.per_field
+        supported = [field_score for field_score in per_field if field_score.support > 0]
+        macro_f1 = (
+            sum(field_score.f1 for field_score in supported) / len(supported)
+            if supported else result.macro_f1
+        )
         if macro_f1 < threshold:
             checks.append({
                 "key": "reviewed_and_f1",
@@ -259,3 +267,65 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
         "macro_f1": macro_f1,
         "n_reviewed": n_reviewed,
     }
+
+
+class PublishNotReadyError(Exception):
+    """Raised when freeze_version is called before readiness hard gates pass."""
+
+    def __init__(
+        self,
+        *,
+        error_code: str,
+        error_message_en: str,
+        checks: list[dict] | None = None,
+    ) -> None:
+        self.error_code = error_code
+        self.error_message_en = error_message_en
+        self.checks = checks or []
+        super().__init__(error_message_en)
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+async def freeze_version(workspace: Path, project_id: str, *, force: bool = False) -> dict[str, str]:
+    """Freeze current lab state into immutable versions/v{n}.json."""
+    if not force:
+        readiness = await readiness_check(workspace, project_id)
+        if not readiness["hard_pass"]:
+            failed = [check for check in readiness["checks"] if check["status"] == "fail"]
+            raise PublishNotReadyError(
+                error_code="not_ready",
+                error_message_en=f"readiness checks failed: {[check['key'] for check in failed]}",
+                checks=readiness["checks"],
+            )
+
+    async with project_lock(workspace, project_id):
+        schema_blob = json.loads(schema_path(workspace, project_id).read_text(encoding="utf-8"))
+        project_blob = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
+        global_notes_path = _global_notes_path(workspace, project_id)
+        global_notes = (
+            global_notes_path.read_text(encoding="utf-8")
+            if global_notes_path.exists()
+            else ""
+        )
+
+        n = next_version_n(workspace, project_id)
+        version_id = f"v{n}"
+        target = version_path(workspace, project_id, n)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(target, {
+            "version_id": version_id,
+            "schema": schema_blob,
+            "global_notes": global_notes,
+            "model_id": project_blob["extract_model"],
+            "params": project_blob.get("extract_params") or {},
+            "frozen_at": _iso_now(),
+        })
+        target.chmod(0o444)
+
+        project_blob["active_version_id"] = version_id
+        atomic_write_json(project_json_path(workspace, project_id), project_blob)
+
+    return {"version_id": version_id}
