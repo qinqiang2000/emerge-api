@@ -16,6 +16,7 @@
 | **M2C** — autoresearch + /improve | `2026-05-09-m2c-autoresearch.md` | ✅ shipped | `361f30f..e87b0df` (23 commits, incl. T21 smoke fixes) |
 | **M3** — publish + prod fast-path + API key | `2026-05-09-m3-publish.md` | ✅ shipped + dogfooded | `adf7ef9..e03b5b2` (16 commits, T17 smoke ran live `/publish v1`+`v2` on `us-invoice`, no commits) |
 | **M4** — polish + dark mode + export bundle | `2026-05-09-m4-polish.md` | ✅ shipped | `1d95e5f..1e48a3b` (21 commits) |
+| **M5** — UX papercut bundle (useJob isolate + schema invalidate + multi-entity + click-to-page) | `2026-05-09-m5-ux-papercut.md` | ✅ shipped | `d244f12..eb978b8` (17 commits, T9 scope-reduced, T14 also fixed pre-existing ReviewMode infinite-rerender) |
 
 ## What each milestone delivers
 
@@ -57,18 +58,24 @@
 - Verify inline comments → autoresearch hint loop end-to-end
 - Address remaining minors from M2A/M2B reviewer reports
 
+### M5 — UX papercut bundle
+
+**Goal:** absorb four follow-ups deferred from M4 — `useJob` per-`jobId` isolation, ReviewMode schema cache invalidated by chat events, multi-entity `score()` / `readiness` / `FieldEditor`, and click-a-field-to-jump-to-page in ReviewMode.
+
+**Scope:** see `2026-05-09-m5-ux-papercut.md`. No new spec scope; closes follow-ups #1, #2, #3, #8 from "Open cross-cutting follow-ups".
+
 ## Open cross-cutting follow-ups
 
 These don't fit a milestone but should be tracked:
 
-- **Multi-entity docs** — `score()` and review-mode FieldEditor only handle `entities[0]`. Still open after M3 (scope-cut per design discussion); M4 deferred this. M5 candidate: land the `score()` / `readiness` fix and the FieldEditor multi-row UI together.
-- **`_evidence` round-trip** on review save — `Reviewed` model drops it. M2C (`_source_page` click-to-page) will need a decision.
-- **`fetchSchema` in ReviewMode is a one-shot fetch** — M2C autoresearch will mutate schema; review mode will see stale fields. Promote to a Zustand store with explicit invalidate.
-- **Cross-store refresh on agent tool events** — M2A patched `ChatPanel.onSubmit` to refresh `useDocs` + `useProjects`. Cleaner: emit a `tool_done` SSE event the stores subscribe to.
+- ~~**Multi-entity docs**~~ — closed by M5 (`score()` walks all entities; `FieldEditor` renders per-entity row groups; `useReview` holds `entities: dict[]`). `readiness_check` was already multi-entity-correct via score-delegation; M5 added a discriminating regression test.
+- ~~**`_evidence` round-trip on review save**~~ — closed by M5: backend round-trip was already wire-correct; M5 added the click-to-page UX (a `pN` badge per evidenced field jumps `PdfViewer.goPage`).
+- ~~**`fetchSchema` in ReviewMode is a one-shot fetch**~~ — closed by M5: ReviewMode reads from a `useSchema` Zustand store with `invalidate(pid)`.
+- ~~**Cross-store refresh on agent tool events**~~ — closed by M5: `useChat.handleToolResult` invalidates `useSchema` / refreshes `useDocs` / `useProjects` on relevant tool completions; `ChatPanel.onSubmit`'s manual refresh hack is gone.
 - **Audit log for `/v1/{pid}/extract` calls** — M3 only updates `last_used` per row. Deferred: per-call JSONL under `audit/{date}.jsonl` with hash prefix + ts + outcome. Useful once a project has multiple consumers.
 - **Plaintext API key leaks into `chats/{chat_id}.jsonl`** — found by M3 real-LLM smoke (chrome-devtools-mcp, 2026-05-09). Two surfaces: (a) chat-log writer persists the raw `tool_result` SSE event for `issue_api_key` including `key_plaintext`, (b) the LLM's natural-language summary often quotes the plaintext despite the skill's "NEVER include" instruction. Spec §12.6 marks this as a hard rule, but emerge is a single-user lab tool — the keys are minted to call our own `/v1` for testing, threat model is just local-fs read by the same user. **Risk-accepted for now**; revisit before any multi-tenant / hosted deployment. Fix when revisited: server-side redact `tool_result` for `mcp__emerge_tools__issue_api_key` before append + regex-scrub `ek_[A-Za-z0-9_-]{32}` from `agent_text` events both before persist and before SSE send; one-time history scrubber for existing jsonls.
 - **Workspace-wide flock for `_keys.json`** — M3 `issue_api_key` locks per-pid only; concurrent issuance for *different* pids races on the shared file. Single-user lab is fine; defer fix until multi-tenant.
-- **`useJob` is a single global Zustand store** — multiple `JobProgressCard`s in the same chat session collapse to one. Last `subscribe()` resets state and old SSE streams aren't aborted, so turn entries leak across runs (T21 smoke saw "turn 5" when only 3 turns actually ran). Refactor to per-jobId state (Map keyed by jobId) and abort the previous SSE on re-subscribe. Deferred from M4 polish; M5 candidate.
+- ~~**`useJob` is a single global Zustand store**~~ — closed by M5: `useJob.byId[jobId]` per-slice state with `AbortController` abort-on-resubscribe; `JobProgressCard` reads the slice via selector.
 - **Per-tool retry endpoint** — M4 ships chat-level "重试上一条" only. Per-tool re-run needs `/lab/chat/retry-tool` keyed by prior `tool_use_id`, plus frontend splice semantics for replacing the failed pill result without replaying the full user turn.
 - **Export bundle filename for non-ASCII project names** — M4 `_safe_filename` strips non-ASCII, so a Chinese project name falls back toward `project-vN.zip`. Decide whether to preserve RFC 5987 `filename*=` UTF-8 names or use a deterministic ASCII slug with project id suffix.
 

@@ -1,37 +1,25 @@
 // frontend/src/components/ReviewMode/ReviewMode.tsx
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { ChevronLeft } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { useReview } from '../../stores/review'
 import { useDocs } from '../../stores/docs'
+import { useSchema } from '../../stores/schema'
 
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
 
-interface SchemaField {
-  name: string
-  type: string
-  description: string
-  enum?: string[] | null
-}
-
-async function fetchSchema(projectId: string): Promise<SchemaField[]> {
-  // Direct GET so review mode loads without an agent round trip. The /schema
-  // endpoint is added in Task 19.
-  const r = await fetch(`/lab/projects/${projectId}/schema`)
-  if (!r.ok) return []
-  return r.json()
-}
-
 export default function ReviewMode() {
-  const { activeProjectId, activeDocId, fields, notes, setField, setNote, save, close, saving, err } = useReview()
+  const { activeProjectId, activeDocId, entities, evidence, notes, setField, setNote, addEntity, removeEntity, goPage, save, close, saving, err } = useReview()
   const { byProject } = useDocs()
-  const [schema, setSchema] = useState<SchemaField[]>([])
+  const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
+  const loadSchema = useSchema((s) => s.load)
 
   useEffect(() => {
     if (!activeProjectId) return
-    void fetchSchema(activeProjectId).then(setSchema)
-  }, [activeProjectId])
+    void loadSchema(activeProjectId)
+  }, [activeProjectId, loadSchema])
 
   const filename = activeProjectId
     ? byProject[activeProjectId]?.find((d) => d.doc_id === activeDocId)?.filename
@@ -64,10 +52,14 @@ export default function ReviewMode() {
         <section className="min-h-0">
           <FieldEditor
             schema={schema}
-            values={fields}
+            entities={entities}
             notes={notes}
+            evidence={evidence ?? null}
             onChange={setField}
             onSetNote={setNote}
+            onAddEntity={addEntity}
+            onRemoveEntity={removeEntity}
+            onJumpToPage={goPage}
             onSave={save}
             saving={saving}
           />

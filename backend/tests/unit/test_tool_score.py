@@ -137,6 +137,25 @@ async def test_run_eval_with_no_reviewed_returns_zero_macro(workspace: Path) -> 
     assert metrics_dir(workspace, project_id).exists()
 
 
+def test_score_grades_all_entities():
+    """When a doc has 2 reviewed entities and 2 prediction entities, both rows count."""
+    schema = [SchemaField(name="invoice_number", type="string", description="x")]
+    predictions = {"d_a": [
+        {"invoice_number": "A1"},
+        {"invoice_number": "B2"},
+    ]}
+    reviewed = {"d_a": [
+        {"invoice_number": "A1"},   # match
+        {"invoice_number": "B-WRONG"},  # miss
+    ]}
+    result = score(schema, predictions, reviewed)
+    by_field = {f.field: f for f in result.per_field}
+    assert by_field["invoice_number"].tp == 1
+    assert by_field["invoice_number"].fp == 1
+    assert by_field["invoice_number"].fn == 1
+    assert by_field["invoice_number"].support == 2
+
+
 async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:
     outside = workspace.parent / "outside"
     outside.mkdir()

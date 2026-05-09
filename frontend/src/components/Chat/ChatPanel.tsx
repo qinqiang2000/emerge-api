@@ -5,7 +5,6 @@ import { RefreshCw } from 'lucide-react'
 import { uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
-import { useDocs } from '../../stores/docs'
 import ThemeToggle from '../Theme/ThemeToggle'
 
 import Composer from './Composer'
@@ -14,11 +13,10 @@ import MessageList from './MessageList'
 interface AttachInfo { filename: string; doc_id?: string; pending?: boolean }
 
 export default function ChatPanel() {
-  const { selectedId, refresh: refreshProjects } = useProjects()
+  const { selectedId } = useProjects()
   const { events, send, busy } = useChat()
   const lastUserMsg = useChat(s => s.lastUserMessage())
   const hasErr = useChat(s => s.hasRecentToolError())
-  const { refresh: refreshDocs } = useDocs()
   const [pending, setPending] = useState<AttachInfo[]>([])
 
   async function attach(files: File[]) {
@@ -67,8 +65,6 @@ export default function ChatPanel() {
         onSubmit={async (text) => {
           await send(selectedId ?? 'p_unset', text, pending.map(p => ({ filename: p.filename, doc_id: p.doc_id })))
           setPending([])
-          await refreshProjects()
-          if (selectedId) await refreshDocs(selectedId)
         }}
       />
     </div>

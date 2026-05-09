@@ -8,11 +8,16 @@ interface Props { jobId: string }
 
 export default function JobProgressCard({ jobId }: Props) {
   const { selectedId } = useProjects()
-  const { status, turns, bestTurn, endedReason, subscribe, pause, resume, cancel, accept } = useJob()
+  const slice = useJob((s) => s.byId[jobId])
+  const { subscribe, pause, resume, cancel, accept } = useJob()
 
   useEffect(() => {
     if (selectedId && jobId) void subscribe(selectedId, jobId)
   }, [selectedId, jobId, subscribe])
+
+  if (!slice) return null
+
+  const { status, turns, bestTurn, endedReason } = slice
 
   return (
     <div className="border-l-2 border-accent-info bg-surface px-3 py-2 font-mono text-xs space-y-1">
@@ -22,17 +27,17 @@ export default function JobProgressCard({ jobId }: Props) {
         <span className="px-1 py-0.5 bg-subtle rounded text-[10px] uppercase">{status}</span>
         <span className="ml-auto flex items-center gap-1">
           {status === 'running' && (
-            <button aria-label="pause" onClick={() => void pause()} className="p-1 hover:bg-subtle">
+            <button aria-label="pause" onClick={() => void pause(jobId)} className="p-1 hover:bg-subtle">
               <Pause size={12} />
             </button>
           )}
           {status === 'paused' && (
-            <button aria-label="resume" onClick={() => void resume()} className="p-1 hover:bg-subtle">
+            <button aria-label="resume" onClick={() => void resume(jobId)} className="p-1 hover:bg-subtle">
               <Play size={12} />
             </button>
           )}
           {(status === 'running' || status === 'paused') && (
-            <button aria-label="cancel" onClick={() => void cancel()} className="p-1 hover:bg-subtle">
+            <button aria-label="cancel" onClick={() => void cancel(jobId)} className="p-1 hover:bg-subtle">
               <X size={12} />
             </button>
           )}
@@ -53,7 +58,7 @@ export default function JobProgressCard({ jobId }: Props) {
           )}
           {bestTurn && status === 'done' && bestTurn.turn > 0 && (
             <button
-              onClick={() => void accept(bestTurn.turn)}
+              onClick={() => void accept(jobId, bestTurn.turn)}
               className="ml-auto inline-flex items-center gap-1 px-2 py-1 bg-accent-primary text-canvas rounded uppercase tracking-wide text-[10px]"
               aria-label="accept candidate"
             >

@@ -4,6 +4,9 @@ import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
+import { useDocs } from './docs'
+import { useProjects } from './projects'
+import { useSchema } from './schema'
 
 interface State {
   chatId: string
@@ -143,6 +146,21 @@ function handleToolResult(
       return e
     }),
   }))
+
+  // Cross-store invalidation: when a schema-mutating or fs-mutating tool succeeds,
+  // the lab stores need to refetch so the UI doesn't drift from the workspace.
+  if (parent?.type === 'tool_call' && d.ok) {
+    const t = parent.tool_name
+    if (t === 'mcp__emerge_tools__write_schema' || t === 'mcp__emerge_tools__accept_candidate') {
+      useSchema.getState().invalidate(projectId)
+    }
+    if (t === 'mcp__emerge_tools__upload_doc' || t === 'mcp__emerge_tools__save_reviewed') {
+      void useDocs.getState().refresh(projectId)
+    }
+    if (t === 'mcp__emerge_tools__create_project') {
+      void useProjects.getState().refresh()
+    }
+  }
 }
 
 export const _testUtils = { handleToolResult }

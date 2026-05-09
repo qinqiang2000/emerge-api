@@ -15,14 +15,15 @@ interface State {
   loading: boolean
   saving: boolean
   err: string | null
-  // Editing state: one entity for now (multi-entity is post-M2A)
-  fields: FieldsValue
+  entities: FieldsValue[]
   evidence: Record<string, number | null>[] | null
   notes: Record<string, string>
   open: (projectId: string, docId: string) => Promise<void>
   close: () => void
-  setField: (name: string, value: unknown) => void
+  setField: (entityIdx: number, name: string, value: unknown) => void
   setNote: (name: string, note: string) => void
+  addEntity: () => void
+  removeEntity: (idx: number) => void
   goPage: (page: number) => void
   setPageCount: (n: number) => void
   save: () => Promise<void>
@@ -36,7 +37,7 @@ export const useReview = create<State>((set, get) => ({
   loading: false,
   saving: false,
   err: null,
-  fields: {},
+  entities: [],
   evidence: null,
   notes: {},
   open: async (projectId, docId) => {
@@ -47,7 +48,7 @@ export const useReview = create<State>((set, get) => ({
       pageCount: 1,
       loading: true,
       err: null,
-      fields: {},
+      entities: [],
       evidence: null,
       notes: {},
     })
@@ -56,7 +57,7 @@ export const useReview = create<State>((set, get) => ({
       const reviewed = await getReviewed(projectId, docId)
       if (reviewed) {
         set({
-          fields: reviewed.entities[0] ?? {},
+          entities: reviewed.entities ?? [],
           evidence: reviewed._evidence ?? null,
           notes: reviewed._notes ?? {},
           loading: false,
@@ -64,23 +65,32 @@ export const useReview = create<State>((set, get) => ({
         return
       }
       const pred = await getPrediction(projectId, docId)
-      set({ fields: pred?.entities[0] ?? {}, evidence: pred?._evidence ?? null, notes: {}, loading: false })
+      set({ entities: pred?.entities ?? [{}], evidence: pred?._evidence ?? null, notes: {}, loading: false })
     } catch (e: unknown) {
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeDocId: null, fields: {}, evidence: null, notes: {}, page: 1 }),
-  setField: (name, value) => set((s) => ({ fields: { ...s.fields, [name]: value } })),
+  close: () => set({ activeProjectId: null, activeDocId: null, entities: [], evidence: null, notes: {}, page: 1 }),
+  setField: (entityIdx, name, value) => set((s) => {
+    const next = s.entities.slice()
+    const cur = next[entityIdx] ?? {}
+    next[entityIdx] = { ...cur, [name]: value }
+    return { entities: next }
+  }),
   setNote: (name, note) => set((s) => ({ notes: { ...s.notes, [name]: note } })),
+  addEntity: () => set((s) => ({ entities: [...s.entities, {}] })),
+  removeEntity: (idx) => set((s) => ({
+    entities: s.entities.length > 1 ? s.entities.filter((_, i) => i !== idx) : s.entities,
+  })),
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
   save: async () => {
-    const { activeProjectId, activeDocId, fields, evidence, notes } = get()
+    const { activeProjectId, activeDocId, entities, evidence, notes } = get()
     if (!activeProjectId || !activeDocId) return
     set({ saving: true, err: null })
     try {
       const payload: ReviewedPayload = {
-        entities: [fields],
+        entities,
         source: 'manual',
         ...(evidence ? { _evidence: evidence } : {}),
         ...(Object.keys(notes).length > 0 ? { _notes: notes } : {}),

@@ -36,7 +36,10 @@ async def main() -> None:
     pdir.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
         pdir / f"{did}.json",
-        {"entities": [{"invoice_number": "DRAFT-1", "total_amount": 100.0}]},
+        {
+            "entities": [{"invoice_number": "DRAFT-1", "total_amount": 100.0}],
+            "_evidence": [{"invoice_number": 1, "total_amount": 1}],
+        },
     )
 
     eval_did = await upload_doc(workspace, pid, fixture.read_bytes(), "eval_gt.pdf")
