@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ from app.tools.projects import create_project
 from app.tools.reviewed import save_reviewed
 from app.tools.schema import write_schema
 from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import predictions_draft_dir
+from app.workspace.paths import metrics_dir, predictions_draft_dir, project_json_path
 
 
 async def test_post_eval_returns_score(workspace: Path) -> None:
@@ -42,9 +43,31 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
     body = r.json()
     assert body["macro_f1"] == 1.0
     assert body["n_reviewed"] == 1
+    files = list(metrics_dir(workspace, pid).glob("eval_*.json"))
+    assert len(files) == 1
+    saved = json.loads(files[0].read_text())
+    assert saved["macro_f1"] == body["macro_f1"]
 
 
 def test_post_eval_400_on_bad_pid() -> None:
     client = TestClient(app)
     r = client.post("/lab/projects/p_INVALIDPATH/eval")
     assert r.status_code == 400
+
+
+def test_post_eval_404_on_missing_project() -> None:
+    client = TestClient(app)
+    r = client.post("/lab/projects/p_abcdefghijkl/eval")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "project_not_found"
+
+
+def test_post_eval_404_on_missing_schema(workspace: Path) -> None:
+    pid = "p_abcdefghijkl"
+    atomic_write_json(project_json_path(workspace, pid), {"name": "missing-schema"})
+
+    client = TestClient(app)
+    r = client.post(f"/lab/projects/{pid}/eval")
+
+    assert r.status_code == 404
+    assert r.json()["detail"] == "schema_not_found"
