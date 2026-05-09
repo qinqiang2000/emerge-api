@@ -28,10 +28,9 @@ from app.skills import load_skill
 from app.tools import build_emerge_mcp
 
 
-# Strict allowlist: the agent may ONLY call our emerge MCP tools. The
-# `allowed_tools` SDK option is NOT enforced when permission_mode='auto', so we
-# additionally install a `can_use_tool` callback that hard-denies anything not
-# matching this prefix (Bash/Read/Edit/Write/Skill/Task/Web*/foreign MCPs).
+# Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
+# defense-in-depth block in `_build_options` for how this prefix is enforced
+# (disallowed_tools is load-bearing; can_use_tool is the backstop).
 _EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
 
 # All Claude Agent SDK built-in tool names. permission_mode='default' does NOT
