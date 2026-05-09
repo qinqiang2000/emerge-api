@@ -1,43 +1,47 @@
 import type { ChatEvent } from '../../types/chat'
+import { groupChatEvents } from '../../lib/groupChatEvents'
 
-import JobProgressCard from './JobProgressCard'
-import ToolCallCard from './ToolCallCard'
-import KeyTrailCard from '../Publish/KeyTrailCard'
 import AgentMessage from './AgentMessage'
+import ToolCallGroup from './ToolCallGroup'
+import UserBubble from './UserBubble'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
 export default function MessageList({ events, busy }: Props) {
+  const items = groupChatEvents(events)
   return (
-    <div className="px-4 py-3 space-y-3 font-body">
-      {events.map((e, i) => {
-        if (e.type === 'user') {
-          return <div key={i} className="text-fg-primary"><b>you:</b> {e.text}</div>
+    <div data-testid="message-list" className="px-4 py-3 space-y-4 font-body">
+      {items.map((item, i) => {
+        if (item.kind === 'user') {
+          return <UserBubble key={i} text={item.text} />
         }
-        if (e.type === 'agent_text') {
+        if (item.kind === 'agent') {
           return (
-            <div key={i} className="text-fg-secondary">
-              <AgentMessage text={e.text} />
+            <div key={i} className="flex justify-start">
+              <div className="max-w-[80%]">
+                <AgentMessage text={item.text} />
+              </div>
             </div>
           )
         }
-        if (e.type === 'tool_call') {
-          if (e.tool_name === 'mcp__emerge_tools__issue_api_key') {
-            return <KeyTrailCard key={i} event={e} />
-          }
-          if (e.tool_name === 'mcp__emerge_tools__start_job' && typeof e.tool_result === 'string' && e.tool_result.startsWith('j_')) {
-            return <JobProgressCard key={i} jobId={e.tool_result} />
-          }
-          return <ToolCallCard key={i} event={e} />
-        }
-        if (e.type === 'error') {
+        if (item.kind === 'tools') {
           return (
-            <div key={i} className="border-l-2 border-accent-danger px-3 py-2 bg-subtle text-sm">
-              <span className="font-mono text-accent-danger">{e.error_code}</span>: {e.error_message_en}
+            <div key={i} className="flex justify-start">
+              <div className="max-w-[80%] w-full">
+                <ToolCallGroup calls={item.calls} />
+              </div>
             </div>
           )
         }
-        return null
+        return (
+          <div
+            key={i}
+            className="border-l-2 border-accent-danger px-3 py-2 bg-subtle text-sm font-mono"
+          >
+            <span className="text-accent-danger">{item.error_code}</span>
+            <span className="text-fg-secondary">: {item.error_message_en}</span>
+          </div>
+        )
       })}
       {busy && (() => {
         const latest = [...events].reverse().find(e => e.type === 'tool_call') as
@@ -47,7 +51,7 @@ export default function MessageList({ events, busy }: Props) {
           && latest.ok !== false
         const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
         return (
-          <div className="text-fg-muted italic flex items-center gap-2" aria-live="polite">
+          <div className="text-fg-muted italic flex items-center gap-2 px-1" aria-live="polite">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-muted animate-pulse"></span>
             {name ? `calling ${name}...` : 'agent is thinking...'}
           </div>
