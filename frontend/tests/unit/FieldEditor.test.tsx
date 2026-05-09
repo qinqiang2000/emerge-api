@@ -10,7 +10,7 @@ const SCHEMA = [
 ]
 
 /** Stateful test wrapper — emulates the real parent (review store)
- *  by holding values in state and feeding them back via the values prop. */
+ *  by holding entities in state and feeding them back via the entities prop. */
 function Stateful({
   initial,
   onChange,
@@ -18,19 +18,21 @@ function Stateful({
   onSave = () => {},
 }: {
   initial: Record<string, unknown>
-  onChange?: (name: string, value: unknown) => void
+  onChange?: (entityIdx: number, name: string, value: unknown) => void
   saving?: boolean
   onSave?: () => void
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(initial)
+  const [entities, setEntities] = useState<Record<string, unknown>[]>([initial])
   return (
     <FieldEditor
       schema={SCHEMA as any}
-      values={values}
-      onChange={(name, value) => {
-        setValues((s) => ({ ...s, [name]: value }))
-        onChange?.(name, value)
+      entities={entities}
+      onChange={(entityIdx, name, value) => {
+        setEntities((s) => s.map((row, i) => i === entityIdx ? { ...row, [name]: value } : row))
+        onChange?.(entityIdx, name, value)
       }}
+      onAddEntity={() => setEntities((s) => [...s, {}])}
+      onRemoveEntity={(idx) => setEntities((s) => s.filter((_, i) => i !== idx))}
       onSave={onSave}
       saving={saving}
     />
@@ -44,13 +46,13 @@ describe('FieldEditor', () => {
     expect(screen.getByLabelText(/total_amount/)).toHaveValue('99.5')
   })
 
-  it('calls onChange with field name and accumulated value as user types', async () => {
+  it('calls onChange with entity index, field name and accumulated value as user types', async () => {
     const onChange = vi.fn()
     render(<Stateful initial={{ invoice_number: '' }} onChange={onChange} />)
     const input = screen.getByLabelText(/invoice_number/)
     await userEvent.type(input, 'INV-42')
-    // last call has the full accumulated value
-    expect(onChange).toHaveBeenLastCalledWith('invoice_number', 'INV-42')
+    // last call has entity index 0 + the full accumulated value
+    expect(onChange).toHaveBeenLastCalledWith(0, 'invoice_number', 'INV-42')
   })
 
   it('disables save button when saving=true', () => {
@@ -64,8 +66,8 @@ describe('FieldEditor type-derived controls', () => {
     const onChange = vi.fn()
     render(<FieldEditor
       schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['invoice', 'others'] }]}
-      values={{ doc_type: 'invoice' }}
-      onChange={onChange} onSave={() => {}} saving={false}
+      entities={[{ doc_type: 'invoice' }]}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
     />)
     expect(screen.getByRole('button', { name: 'invoice' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'others' })).toBeInTheDocument()
@@ -75,18 +77,18 @@ describe('FieldEditor type-derived controls', () => {
     const onChange = vi.fn()
     render(<FieldEditor
       schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['a', 'b'] }]}
-      values={{ doc_type: 'a' }}
-      onChange={onChange} onSave={() => {}} saving={false}
+      entities={[{ doc_type: 'a' }]}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
     />)
     fireEvent.click(screen.getByRole('button', { name: 'b' }))
-    expect(onChange).toHaveBeenCalledWith('doc_type', 'b')
+    expect(onChange).toHaveBeenCalledWith(0, 'doc_type', 'b')
   })
 
   it('renders number stepper for type=number', () => {
     render(<FieldEditor
       schema={[{ name: 'amount', type: 'number', description: 'd' }]}
-      values={{ amount: 100 }}
-      onChange={vi.fn()} onSave={() => {}} saving={false}
+      entities={[{ amount: 100 }]}
+      onChange={vi.fn()} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
     />)
     expect(screen.getByRole('button', { name: '-' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '+' })).toBeInTheDocument()
@@ -96,12 +98,24 @@ describe('FieldEditor type-derived controls', () => {
     const onChange = vi.fn()
     render(<FieldEditor
       schema={[{ name: 'is_paid', type: 'boolean', description: 'd' }]}
-      values={{ is_paid: false }}
-      onChange={onChange} onSave={() => {}} saving={false}
+      entities={[{ is_paid: false }]}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
     />)
-    const toggle = screen.getByRole('switch', { name: /is_paid/i })
+    const toggle = screen.getByRole('switch', { name: /0-is_paid/i })
     expect(toggle).toBeInTheDocument()
     fireEvent.click(toggle)
-    expect(onChange).toHaveBeenCalledWith('is_paid', true)
+    expect(onChange).toHaveBeenCalledWith(0, 'is_paid', true)
+  })
+})
+
+describe('FieldEditor multi-entity', () => {
+  it('renders one row per entity and add/remove buttons', () => {
+    render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
+      entities={[{ a: 'x' }, { a: 'y' }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
+      onSave={() => {}} saving={false} />)
+    expect(screen.getAllByText(/entity #/).length).toBe(2)
+    expect(screen.getByLabelText('add entity')).toBeInTheDocument()
+    expect(screen.getAllByLabelText(/remove entity/).length).toBe(2)
   })
 })

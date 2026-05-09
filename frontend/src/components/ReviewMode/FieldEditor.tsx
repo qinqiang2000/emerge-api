@@ -12,122 +12,152 @@ interface SchemaField {
 
 interface Props {
   schema: SchemaField[]
-  values: Record<string, unknown>
+  entities: Record<string, unknown>[]
   notes?: Record<string, string>
-  onChange: (name: string, value: unknown) => void
+  onChange: (entityIdx: number, name: string, value: unknown) => void
   onSetNote?: (name: string, note: string) => void
+  onAddEntity: () => void
+  onRemoveEntity: (idx: number) => void
   onSave: () => void
   saving: boolean
 }
 
-export default function FieldEditor({ schema, values, notes = {}, onChange, onSetNote, onSave, saving }: Props) {
+export default function FieldEditor({ schema, entities, notes = {}, onChange, onSetNote, onAddEntity, onRemoveEntity, onSave, saving }: Props) {
   const [openFor, setOpenFor] = useState<string | null>(null)
 
   return (
     <div className="flex flex-col h-full">
-      <header className="px-4 py-3 border-b border-subtle font-heading text-sm uppercase tracking-wide text-fg-muted">
-        Fields
+      <header className="px-4 py-3 border-b border-subtle flex items-center justify-between">
+        <span className="font-heading text-sm uppercase tracking-wide text-fg-muted">
+          {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
+        </span>
+        <button
+          type="button"
+          aria-label="add entity"
+          onClick={onAddEntity}
+          className="text-xs px-2 py-1 border border-subtle rounded hover:bg-subtle font-mono"
+        >
+          + entity
+        </button>
       </header>
-      <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-        {schema.map((f) => {
-          const current = values[f.name]
-          const labelEl = (
-            <label htmlFor={`f-${f.name}`} className="font-mono text-xs text-fg-secondary">
-              {f.name} <span className="text-fg-muted">({f.type})</span>
-            </label>
-          )
-          let control: ReactNode
+      <div className="flex-1 overflow-auto px-4 py-3 space-y-4">
+        {entities.map((values, entityIdx) => (
+          <section key={entityIdx} className="border border-subtle rounded p-3 space-y-3">
+            {entities.length > 1 && (
+              <div className="flex items-center justify-between pb-1 border-b border-subtle">
+                <span className="font-mono text-xs text-fg-muted">entity #{entityIdx + 1}</span>
+                <button
+                  type="button"
+                  aria-label={`remove entity ${entityIdx + 1}`}
+                  onClick={() => onRemoveEntity(entityIdx)}
+                  className="text-xs px-2 py-0.5 border border-subtle rounded hover:bg-subtle font-mono text-accent-danger"
+                >
+                  −
+                </button>
+              </div>
+            )}
+            {schema.map((f) => {
+              const current = values[f.name]
+              const popoverKey = `${entityIdx}-${f.name}`
+              const labelEl = (
+                <label htmlFor={`f-${entityIdx}-${f.name}`} className="font-mono text-xs text-fg-secondary">
+                  {f.name} <span className="text-fg-muted">({f.type})</span>
+                </label>
+              )
+              let control: ReactNode
 
-          if (f.type === 'string' && f.enum && f.enum.length > 0) {
-            control = (
-              <div className="flex gap-2 flex-wrap">
-                {f.enum.map((opt) => (
+              if (f.type === 'string' && f.enum && f.enum.length > 0) {
+                control = (
+                  <div className="flex gap-2 flex-wrap">
+                    {f.enum.map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => onChange(entityIdx, f.name, opt)}
+                        className={
+                          'px-2 py-1 border text-xs rounded ' +
+                          (current === opt ? 'bg-accent-primary text-canvas border-transparent' : 'border-subtle hover:bg-subtle')
+                        }
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )
+              } else if (f.type === 'number') {
+                const display = current == null ? '' : String(current)
+                const num = typeof current === 'number' ? current : Number(current ?? 0)
+                control = (
+                  <div className="flex items-center gap-2">
+                    <button type="button" aria-label="-" onClick={() => onChange(entityIdx, f.name, num - 1)}
+                            className="px-2 py-1 border border-subtle font-mono">-</button>
+                    <input
+                      id={`f-${entityIdx}-${f.name}`}
+                      type="text"
+                      value={display}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(entityIdx, f.name, e.target.value)}
+                      className="bg-surface border border-subtle px-2 py-1 font-mono text-sm w-32"
+                    />
+                    <button type="button" aria-label="+" onClick={() => onChange(entityIdx, f.name, num + 1)}
+                            className="px-2 py-1 border border-subtle font-mono">+</button>
+                  </div>
+                )
+              } else if (f.type === 'boolean') {
+                const checked = !!current
+                control = (
                   <button
-                    key={opt}
-                    type="button"
-                    onClick={() => onChange(f.name, opt)}
+                    role="switch"
+                    aria-label={`${entityIdx}-${f.name}`}
+                    aria-checked={checked}
+                    onClick={() => onChange(entityIdx, f.name, !checked)}
                     className={
-                      'px-2 py-1 border text-xs rounded ' +
-                      (current === opt ? 'bg-accent-primary text-canvas border-transparent' : 'border-subtle hover:bg-subtle')
+                      'inline-flex items-center w-10 h-5 rounded-full transition-colors ' +
+                      (checked ? 'bg-accent-success' : 'bg-subtle')
                     }
                   >
-                    {opt}
+                    <span className={`inline-block w-4 h-4 rounded-full bg-canvas transform transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
                   </button>
-                ))}
-              </div>
-            )
-          } else if (f.type === 'number') {
-            const display = current == null ? '' : String(current)
-            const num = typeof current === 'number' ? current : Number(current ?? 0)
-            control = (
-              <div className="flex items-center gap-2">
-                <button type="button" aria-label="-" onClick={() => onChange(f.name, num - 1)}
-                        className="px-2 py-1 border border-subtle font-mono">-</button>
-                <input
-                  id={`f-${f.name}`}
-                  type="text"
-                  value={display}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(f.name, e.target.value)}
-                  className="bg-surface border border-subtle px-2 py-1 font-mono text-sm w-32"
-                />
-                <button type="button" aria-label="+" onClick={() => onChange(f.name, num + 1)}
-                        className="px-2 py-1 border border-subtle font-mono">+</button>
-              </div>
-            )
-          } else if (f.type === 'boolean') {
-            const checked = !!current
-            control = (
-              <button
-                role="switch"
-                aria-label={f.name}
-                aria-checked={checked}
-                onClick={() => onChange(f.name, !checked)}
-                className={
-                  'inline-flex items-center w-10 h-5 rounded-full transition-colors ' +
-                  (checked ? 'bg-accent-success' : 'bg-subtle')
-                }
-              >
-                <span className={`inline-block w-4 h-4 rounded-full bg-canvas transform transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-            )
-          } else {
-            const display = current == null ? '' : String(current)
-            control = (
-              <input
-                id={`f-${f.name}`}
-                type="text"
-                value={display}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(f.name, e.target.value)}
-                className="bg-surface border border-subtle px-2 py-1 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-accent-primary"
-              />
-            )
-          }
+                )
+              } else {
+                const display = current == null ? '' : String(current)
+                control = (
+                  <input
+                    id={`f-${entityIdx}-${f.name}`}
+                    type="text"
+                    value={display}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(entityIdx, f.name, e.target.value)}
+                    className="bg-surface border border-subtle px-2 py-1 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-accent-primary"
+                  />
+                )
+              }
 
-          return (
-            <div
-              key={f.name}
-              className="relative flex flex-col gap-1"
-              onContextMenu={(e) => { e.preventDefault(); setOpenFor(f.name) }}
-            >
-              {labelEl}
-              {control}
-              {notes[f.name] && (
-                <span className="text-xs text-accent-info" title="note">note: {notes[f.name]}</span>
-              )}
-              {f.description && (
-                <span className="text-xs text-fg-muted leading-tight">{f.description}</span>
-              )}
-              {openFor === f.name && onSetNote && (
-                <NotesPopover
-                  fieldName={f.name}
-                  initial={notes[f.name] ?? ''}
-                  onSave={(t) => onSetNote(f.name, t)}
-                  onClose={() => setOpenFor(null)}
-                />
-              )}
-            </div>
-          )
-        })}
+              return (
+                <div
+                  key={f.name}
+                  className="relative flex flex-col gap-1"
+                  onContextMenu={(e) => { e.preventDefault(); setOpenFor(popoverKey) }}
+                >
+                  {labelEl}
+                  {control}
+                  {notes[f.name] && (
+                    <span className="text-xs text-accent-info" title="note">note: {notes[f.name]}</span>
+                  )}
+                  {f.description && (
+                    <span className="text-xs text-fg-muted leading-tight">{f.description}</span>
+                  )}
+                  {openFor === popoverKey && onSetNote && (
+                    <NotesPopover
+                      fieldName={f.name}
+                      initial={notes[f.name] ?? ''}
+                      onSave={(t) => onSetNote(f.name, t)}
+                      onClose={() => setOpenFor(null)}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </section>
+        ))}
       </div>
       <footer className="px-4 py-3 border-t border-subtle">
         <button
