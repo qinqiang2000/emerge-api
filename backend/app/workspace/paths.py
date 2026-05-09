@@ -59,3 +59,19 @@ def metrics_dir(workspace: Path, project_id: str) -> Path:
 
 def metrics_path(workspace: Path, project_id: str, name: str) -> Path:
     return metrics_dir(workspace, project_id) / f"{name}.json"
+
+
+def jobs_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "jobs"
+
+
+def job_log_path(workspace: Path, project_id: str, job_id: str) -> Path:
+    return jobs_dir(workspace, project_id) / f"{job_id}.jsonl"
+
+
+def candidate_dir(workspace: Path, project_id: str, job_id: str) -> Path:
+    return versions_dir(workspace, project_id) / "_candidate" / job_id
+
+
+def candidate_turn_path(workspace: Path, project_id: str, job_id: str, turn: int) -> Path:
+    return candidate_dir(workspace, project_id, job_id) / f"turn_{turn}.json"

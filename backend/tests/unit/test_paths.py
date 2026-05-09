@@ -82,3 +82,32 @@ def test_metrics_path(workspace: Path) -> None:
         metrics_path(workspace, "p_abc", "eval_2026-05-09T00-00-00Z")
         == workspace / "p_abc" / "metrics" / "eval_2026-05-09T00-00-00Z.json"
     )
+
+
+def test_jobs_dir(workspace: Path) -> None:
+    from app.workspace.paths import jobs_dir
+    assert jobs_dir(workspace, "p_abc") == workspace / "p_abc" / "jobs"
+
+
+def test_job_log_path(workspace: Path) -> None:
+    from app.workspace.paths import job_log_path
+    assert (
+        job_log_path(workspace, "p_abc", "j_xyz")
+        == workspace / "p_abc" / "jobs" / "j_xyz.jsonl"
+    )
+
+
+def test_candidate_dir(workspace: Path) -> None:
+    from app.workspace.paths import candidate_dir
+    assert (
+        candidate_dir(workspace, "p_abc", "j_xyz")
+        == workspace / "p_abc" / "versions" / "_candidate" / "j_xyz"
+    )
+
+
+def test_candidate_turn_path(workspace: Path) -> None:
+    from app.workspace.paths import candidate_turn_path
+    assert (
+        candidate_turn_path(workspace, "p_abc", "j_xyz", 3)
+        == workspace / "p_abc" / "versions" / "_candidate" / "j_xyz" / "turn_3.json"
+    )
