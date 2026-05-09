@@ -17,6 +17,7 @@
 | **M3** — publish + prod fast-path + API key | `2026-05-09-m3-publish.md` | ✅ shipped + dogfooded | `adf7ef9..e03b5b2` (16 commits, T17 smoke ran live `/publish v1`+`v2` on `us-invoice`, no commits) |
 | **M4** — polish + dark mode + export bundle | `2026-05-09-m4-polish.md` | ✅ shipped | `1d95e5f..1e48a3b` (21 commits) |
 | **M5** — UX papercut bundle (useJob isolate + schema invalidate + multi-entity + click-to-page) | `2026-05-09-m5-ux-papercut.md` | ✅ shipped | `d244f12..eb978b8` (17 commits, T9 scope-reduced, T14 also fixed pre-existing ReviewMode infinite-rerender) |
+| **M6** — agent sandbox + secret hygiene (allowlist enforce + API key redaction) | `2026-05-10-m6-agent-sandbox-secret-hygiene.md` | ✅ shipped | `4f3c40f..d9c6452` (11 commits, history scrubber cleaned 2 leaked entries from M3 dogfood jsonl; 2 real-LLM tests skip-by-default behind `EMERGE_REAL_LLM=1`) |
 
 ## What each milestone delivers
 
@@ -64,6 +65,12 @@
 
 **Scope:** see `2026-05-09-m5-ux-papercut.md`. No new spec scope; closes follow-ups #1, #2, #3, #8 from "Open cross-cutting follow-ups".
 
+### M6 — agent sandbox + secret hygiene
+
+**Goal:** close two hosted-readiness blockers from M5 dogfood — SDK built-in tools escaping the `mcp__emerge_tools__*` allowlist and plaintext API keys leaking into `chats/*.jsonl`.
+
+**Scope:** see `2026-05-10-m6-agent-sandbox-secret-hygiene.md`. Closes the 🚨 critical follow-up filed 2026-05-10 plus the M3-era plaintext API key follow-up.
+
 ## Open cross-cutting follow-ups
 
 These don't fit a milestone but should be tracked:
@@ -72,9 +79,9 @@ These don't fit a milestone but should be tracked:
 - ~~**`_evidence` round-trip on review save**~~ — closed by M5: backend round-trip was already wire-correct; M5 added the click-to-page UX (a `pN` badge per evidenced field jumps `PdfViewer.goPage`).
 - ~~**`fetchSchema` in ReviewMode is a one-shot fetch**~~ — closed by M5: ReviewMode reads from a `useSchema` Zustand store with `invalidate(pid)`.
 - ~~**Cross-store refresh on agent tool events**~~ — closed by M5: `useChat.handleToolResult` invalidates `useSchema` / refreshes `useDocs` / `useProjects` on relevant tool completions; `ChatPanel.onSubmit`'s manual refresh hack is gone. Post-M5 dogfood (multi_entity_2.pdf, 2026-05-10) extended the trigger list to also cover `extract_batch` / `extract_one` (PENDING → DRAFT) and `freeze_version` (active version bump).
-- **🚨 Critical: agent allowlist not enforcing on SDK built-in tools** — found 2026-05-10 during M5 dogfood. `chat/service.py:_emerge_only_permission` is wired with `permission_mode='default'` + `can_use_tool` callback + `allowed_tools=['mcp__emerge_tools__*']`, but `chats/c_*.jsonl` shows `Glob` calls with `ok: true` returning real workspace paths (`workspace/p_4w6rzeuz9dfi/docs/...`, `.tmp_workspace/...`). The deny callback is not being invoked for SDK built-ins. Worst case: Read on `backend/.env` / Bash arbitrary commands. Single-user lab so threat-model is "agent could leak our own files to itself" — risk-bounded but **not acceptable** for any hosted / multi-tenant. Investigation needed: whether the SDK's `permission_mode='default'` exempts certain tool classes, or whether `disallowed_tools=[<built-ins>]` is required, or whether the SDK version we use respects the callback at all.
+- ~~**🚨 Critical: agent allowlist not enforcing on SDK built-in tools**~~ — closed by M6: `disallowed_tools=_SDK_BUILT_IN_TOOLS` is the load-bearing knob (16 SDK built-ins explicitly listed in `chat/service.py`); `can_use_tool` retained as backstop. Confirmed empirical hypothesis — `permission_mode='default'` does NOT consult the callback for built-ins; explicit denial is the only reliable knob.
 - **Audit log for `/v1/{pid}/extract` calls** — M3 only updates `last_used` per row. Deferred: per-call JSONL under `audit/{date}.jsonl` with hash prefix + ts + outcome. Useful once a project has multiple consumers.
-- **Plaintext API key leaks into `chats/{chat_id}.jsonl`** — found by M3 real-LLM smoke (chrome-devtools-mcp, 2026-05-09). Two surfaces: (a) chat-log writer persists the raw `tool_result` SSE event for `issue_api_key` including `key_plaintext`, (b) the LLM's natural-language summary often quotes the plaintext despite the skill's "NEVER include" instruction. Spec §12.6 marks this as a hard rule, but emerge is a single-user lab tool — the keys are minted to call our own `/v1` for testing, threat model is just local-fs read by the same user. **Risk-accepted for now**; revisit before any multi-tenant / hosted deployment. Fix when revisited: server-side redact `tool_result` for `mcp__emerge_tools__issue_api_key` before append + regex-scrub `ek_[A-Za-z0-9_-]{32}` from `agent_text` events both before persist and before SSE send; one-time history scrubber for existing jsonls.
+- ~~**Plaintext API key leaks into `chats/{chat_id}.jsonl`**~~ — closed by M6: `EventRedactor` (in `chat/redactor.py`) provides asymmetric scrubbing — persist-side replaces `key_plaintext` with `[REDACTED]` for `issue_api_key` tool_result and regex-scrubs `ek_[A-Za-z0-9_-]{32}` from `agent_text`; SSE-side keeps the freshly minted key plaintext only for `tool_result` (modal reveal) but still scrubs `agent_text`. One-shot `app.scripts.scrub_chat_logs` CLI cleaned 2 leaked entries from the M3 dogfood `c_63121a1cd823.jsonl`.
 - **Workspace-wide flock for `_keys.json`** — M3 `issue_api_key` locks per-pid only; concurrent issuance for *different* pids races on the shared file. Single-user lab is fine; defer fix until multi-tenant.
 - ~~**`useJob` is a single global Zustand store**~~ — closed by M5: `useJob.byId[jobId]` per-slice state with `AbortController` abort-on-resubscribe; `JobProgressCard` reads the slice via selector.
 - **Per-tool retry endpoint** — M4 ships chat-level "重试上一条" only. Per-tool re-run needs `/lab/chat/retry-tool` keyed by prior `tool_use_id`, plus frontend splice semantics for replacing the failed pill result without replaying the full user turn.

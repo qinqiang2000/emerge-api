@@ -20,6 +20,7 @@ from claude_agent_sdk import (
 )
 
 from app.chat.log import append_event
+from app.chat.redactor import EventRedactor
 from app.chat.stream import sse_event
 from app.jobs import get_runner
 from app.provider.base import Provider
@@ -27,11 +28,24 @@ from app.skills import load_skill
 from app.tools import build_emerge_mcp
 
 
-# Strict allowlist: the agent may ONLY call our emerge MCP tools. The
-# `allowed_tools` SDK option is NOT enforced when permission_mode='auto', so we
-# additionally install a `can_use_tool` callback that hard-denies anything not
-# matching this prefix (Bash/Read/Edit/Write/Skill/Task/Web*/foreign MCPs).
+# Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
+# defense-in-depth block in `_build_options` for how this prefix is enforced
+# (disallowed_tools is load-bearing; can_use_tool is the backstop).
 _EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
+
+# All Claude Agent SDK built-in tool names. permission_mode='default' does NOT
+# consult the can_use_tool callback for these — only an explicit disallowed_tools
+# entry actually prevents invocation. Empirically verified during M5 dogfood
+# (chat c_1c32d12a2747 had Glob calls returning workspace paths despite the
+# can_use_tool callback being installed).
+_SDK_BUILT_IN_TOOLS = [
+    "Bash", "BashOutput", "KillBash",
+    "Edit", "MultiEdit", "Read", "Write", "NotebookEdit",
+    "Grep", "Glob",
+    "WebFetch", "WebSearch",
+    "Task", "TodoWrite", "ExitPlanMode",
+    "ToolSearch",
+]
 
 
 async def _emerge_only_permission(
@@ -98,13 +112,18 @@ class ChatService:
             # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
             # SessionStart hooks were leaking into the chat stream.
             setting_sources=[],
-            # Strict allowlist via can_use_tool callback: only emerge MCP tools.
-            # `permission_mode='default'` makes the SDK actually consult the hook
-            # before each tool invocation. `allowed_tools=...` alone is NOT
-            # enforced under auto mode — keep both for clarity / defense in depth.
+            # Defense in depth:
+            #   1. disallowed_tools — load-bearing. Empirically (M5 dogfood) the
+            #      can_use_tool callback below is NOT consulted for SDK built-ins
+            #      under permission_mode='default'. Explicit denial is the only
+            #      reliable knob.
+            #   2. can_use_tool — backstop for any name that isn't an emerge MCP
+            #      tool and isn't in disallowed_tools either.
+            #   3. allowed_tools — advisory for the SDK's own bookkeeping.
             permission_mode="default",
             can_use_tool=_emerge_only_permission,
             allowed_tools=[f"{_EMERGE_TOOL_PREFIX}*"],
+            disallowed_tools=_SDK_BUILT_IN_TOOLS,
             max_turns=20,
         )
 
@@ -134,18 +153,22 @@ class ChatService:
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
         options = self._build_options(user_message)
+        redactor = EventRedactor()
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
                 async for message in client.receive_response():
                     for etype, payload in _events_from_message(message):
+                        redactor.observe(etype, payload)
+                        persist_payload = redactor.scrub_for_persist(etype, payload)
+                        sse_payload = redactor.scrub_for_sse(etype, payload)
                         await append_event(
                             self.workspace,
                             project_id,
                             chat_id,
-                            {"type": etype, **payload},
+                            {"type": etype, **persist_payload},
                         )
-                        yield sse_event(etype, payload)
+                        yield sse_event(etype, sse_payload)
         except Exception as e:  # noqa: BLE001
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
