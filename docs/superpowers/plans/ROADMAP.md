@@ -69,7 +69,6 @@ These don't fit a milestone but should be tracked:
 - **Markdown not rendered in chat** — agent responses contain `**bold**`, `| tables |`, `## headers` as raw text. Add a markdown renderer (e.g. `react-markdown`) to `AgentMessage` in M4 polish.
 - **"agent is thinking…" indicator exists but is subtle** — live region (aria-live="polite") shows during agent turns; input is disabled. Consider a more visible spinner or streaming dots for long-running tool calls (e.g. `score` on large projects).
 - **`useJob` is a single global Zustand store** — multiple `JobProgressCard`s in the same chat session collapse to one. Last `subscribe()` resets state and old SSE streams aren't aborted, so turn entries leak across runs (T21 smoke saw "turn 5" when only 3 turns actually ran). Refactor to per-jobId state (Map keyed by jobId) and abort the previous SSE on re-subscribe. M4 polish.
-- **"ACCEPT TURN 0" is confusing when baseline is best** — autoresearch ended with `bestTurn=0` (no proposal beat baseline). Button correctly says `accept turn 0` but UX-wise users expect a non-no-op action. Either disable the button with copy "no improvement — current schema kept", or hide the button when `bestTurn.turn === 0`. M4 polish.
 
 ## How to use this file
 

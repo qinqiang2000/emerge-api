@@ -46,7 +46,12 @@ export default function JobProgressCard({ jobId }: Props) {
       {endedReason && (
         <div className="flex items-center gap-2 text-fg-muted">
           ended ({endedReason})
-          {bestTurn && (status === 'done') && (
+          {bestTurn && status === 'done' && bestTurn.turn === 0 && (
+            <span className="ml-auto text-[10px] uppercase tracking-wide">
+              baseline still best — schema unchanged
+            </span>
+          )}
+          {bestTurn && status === 'done' && bestTurn.turn > 0 && (
             <button
               onClick={() => void accept(bestTurn.turn)}
               className="ml-auto inline-flex items-center gap-1 px-2 py-1 bg-accent-primary text-canvas rounded uppercase tracking-wide text-[10px]"

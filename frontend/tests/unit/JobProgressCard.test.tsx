@@ -32,9 +32,21 @@ describe('JobProgressCard', () => {
     expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument()
   })
 
-  it('shows accept-candidate button after ended=done', () => {
+  it('shows accept-candidate button after ended=done with bestTurn > 0', () => {
     useJob.setState(s => ({ ...s, status: 'done', endedReason: 'max_turn' }))
     render(<JobProgressCard jobId="j_xyz" />)
     expect(screen.getByRole('button', { name: /accept candidate/i })).toBeInTheDocument()
+  })
+
+  it('hides accept button and shows baseline-best hint when bestTurn === 0', () => {
+    useJob.setState(s => ({
+      ...s,
+      status: 'done',
+      endedReason: 'max_turn',
+      bestTurn: { type: 'turn', turn: 0, macro_f1: 0.96, per_field: [], saved: true },
+    }))
+    render(<JobProgressCard jobId="j_xyz" />)
+    expect(screen.queryByRole('button', { name: /accept candidate/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/baseline still best/i)).toBeInTheDocument()
   })
 })
