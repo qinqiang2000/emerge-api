@@ -173,12 +173,30 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
                     )
                 )
             elif isinstance(block, ToolResultBlock):
-                # Drop — the corresponding ToolUseBlock has already been streamed
-                # as a tool_call card. The result content is consumed by the
-                # model on the next turn; rendering an empty card with no
-                # tool_name just produces a blank "(no content)" button in the
-                # UI. M2's ToolCallCard rework can fold result back into the
-                # original card via tool_use_id pairing.
+                # Emit a `tool_result` event paired by tool_use_id. Frontend looks
+                # up the matching `tool_call` card and attaches the result.
+                # Insight #7: the original drop-the-block design left the
+                # frontend blind to tool output. M2C needs job_id surfaced
+                # so the JobProgressCard can subscribe to /lab/jobs/{job_id}/events.
+                content = block.content
+                if isinstance(content, list):
+                    text_pieces = [
+                        c.get("text", "") for c in content
+                        if isinstance(c, dict) and c.get("type") == "text"
+                    ]
+                    result_text = "".join(text_pieces)
+                else:
+                    result_text = str(content) if content is not None else ""
+                out.append(
+                    (
+                        "tool_result",
+                        {
+                            "tool_use_id": block.tool_use_id,
+                            "result_text": result_text,
+                            "ok": not block.is_error,
+                        },
+                    )
+                )
                 continue
             else:
                 # ServerToolUseBlock / ServerToolResultBlock / unknown — drop
