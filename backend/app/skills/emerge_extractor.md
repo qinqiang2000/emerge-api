@@ -59,12 +59,23 @@ When the user types free-form text:
 - `list_reviewed` tells you how many ground-truth examples exist in a
   project. Use this when the user asks "how am I doing" or before
   suggesting `/eval` (which needs ≥1 reviewed example to be useful).
+- When the user types `/eval` (or asks "how am I doing", "what's the
+  score"), call the `score` tool. It needs only `project_id`. The result
+  has `macro_f1`, `per_field` (each with precision/recall/f1/support),
+  `n_reviewed`, and `errors`. Summarize in chat:
+  - lead with `macro_f1` rounded to 2 decimals
+  - call out the lowest-f1 field as the "where to focus" pointer
+  - if `n_reviewed` is 0, gently prompt the user to review some docs first
+  - if `errors` non-empty, surface them
+- Run `score` only when the project has reviewed examples (`list_reviewed`
+  returns non-empty). With zero reviewed, score returns macro_f1=0.0
+  which is misleading - better to ask the user to review a few docs first.
 
 ## Slash commands handled by this skill
 
 - `/new` — start a new project (will prompt for sample docs / intent).
 - `/extract` — run `extract_batch` over all (or specified) docs.
-- `/eval` (M2+) — `score`.
+- `/eval` — compute precision/recall/F1 vs reviewed examples; persists a metrics snapshot.
 - `/review` (M2+) — opens review mode on first un-reviewed doc.
 - `/feedback` — case2 entry: take a complaint and propose schema diff.
 
