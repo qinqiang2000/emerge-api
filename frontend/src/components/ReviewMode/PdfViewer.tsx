@@ -9,17 +9,31 @@ export default function PdfViewer() {
   const [loadError, setLoadError] = useState(false)
   const url = activeProjectId && activeDocId ? pdfPageUrl(activeProjectId, activeDocId, page) : ''
 
-  // Lazy probe of next page on each page change. If the server 404s on page+1
-  // we know the total. Cheap because rendered PNGs are cached server-side.
+  // Probe forward from the first page on document change so the initial count is known.
   useEffect(() => {
     if (!activeProjectId || !activeDocId) return
-    if (page < pageCount) return
-    fetch(pdfPageUrl(activeProjectId, activeDocId, page + 1), { method: 'HEAD' })
-      .then((r) => {
-        if (r.ok) setPageCount(page + 1)
-      })
-      .catch(() => {/* ignore */})
-  }, [activeProjectId, activeDocId, page, pageCount, setPageCount])
+    const projectId = activeProjectId
+    const docId = activeDocId
+    let cancelled = false
+
+    async function probe() {
+      let n = 1
+      while (n < 50) {
+        const nextPage = n + 1
+        const response = await fetch(pdfPageUrl(projectId, docId, nextPage), {
+          method: 'HEAD',
+        }).catch(() => null)
+        if (cancelled || !response || !response.ok) break
+        n = nextPage
+      }
+      if (!cancelled) setPageCount(n)
+    }
+
+    void probe()
+    return () => {
+      cancelled = true
+    }
+  }, [activeProjectId, activeDocId, setPageCount])
 
   return (
     <div className="flex flex-col h-full bg-subtle">
