@@ -127,3 +127,22 @@ Adding a metrics tree section without an API would mean either rendering an empt
 **Open questions for Design**
 - Should the row appear with an empty/placeholder state when no eval has run, or stay hidden?
 - What's the canonical filename inside `metrics/` — one file per eval run, or a rolling history?
+
+---
+
+### 2026-05-10 — `metrics/` ContextSurface section uses placeholder data
+
+- **Status**: 🟡 Pending
+- **Area**: `Context/ContextSurface`
+- **Files**: `frontend/src/components/Context/ContextSurface.tsx`
+- **Type**: new-state
+
+**What changed**
+The `metrics/` section in the right context surface renders 4 placeholder metric rows. Real eval-history wiring requires a `useEval` store + `/lab/projects/:id/evals` endpoint that don't exist yet.
+
+**Why**
+The section is part of the design's tri-card layout; leaving it out would break the visual rhythm. Placeholder rows mark the slot until the eval API lands.
+
+**Open questions for Design**
+- What's the canonical metric set (precision/recall/F1/macro/coverage/etc) for the latest-eval card?
+- Should this stay hidden when no eval has run, or show "no eval yet"?

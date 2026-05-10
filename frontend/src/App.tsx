@@ -3,7 +3,7 @@ import Shell from './components/Shell/Shell'
 import Topbar from './components/Shell/Topbar'
 import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
-import DocList from './components/DocList/DocList'
+import ContextSurface from './components/Context/ContextSurface'
 import ReviewMode from './components/ReviewMode/ReviewMode'
 import ApiKeyRevealModal from './components/Publish/ApiKeyRevealModal'
 import { useReview } from './stores/review'
@@ -41,7 +41,7 @@ export default function App() {
         }
         left={<FSSpine />}
         center={activeDocId ? <ReviewMode /> : <ChatPanel />}
-        right={<DocList />}
+        right={<ContextSurface onClose={() => setRightHidden(true)} />}
         leftHidden={leftHidden}
         rightHidden={rightHidden}
       />

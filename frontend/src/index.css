@@ -91,6 +91,32 @@ html, body, #root {
 .slashmenu .hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
 @keyframes ghostIn{0%{opacity:0;transform:translateY(4px)}100%{opacity:1;transform:translateY(0)}}
 
+/* ── context surface ─────────────────────────────────────────────── */
+.ctx{border-left:1px solid var(--rule);background:#FDFDFC;overflow:hidden auto;padding:14px 0 40px;display:flex;flex-direction:column;gap:18px;min-height:0;transition:opacity .25s, transform .25s;position:relative}
+.ctx .ctx-close{position:sticky;top:0;align-self:flex-end;margin:0 12px -8px 0;display:inline-flex;align-items:center;justify-content:center;width:28px;height:26px;color:var(--ink-3);background:rgba(253,253,252,.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid var(--rule-soft);border-radius:6px;cursor:default;z-index:3;transition:background .15s, color .15s, border-color .15s}
+.ctx .ctx-close:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule)}
+.ctx .ctx-section{padding:0 16px}
+.ctx .ctx-h{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-4);padding:0 0 8px;display:flex;align-items:center;justify-content:space-between}
+.ctx .ctx-h .small{font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:none;letter-spacing:0}
+.ctx .ctx-card{background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.ctx .doc{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;cursor:default;border:1px solid transparent}
+.ctx .doc:hover{background:var(--paper);border-color:var(--rule)}
+.ctx .doc .nm{color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctx .doc .stat{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:500;padding:2px 7px;border-radius:999px}
+.ctx .doc .stat.rev{color:var(--moss);background:var(--moss-soft)}
+.ctx .doc .stat.pen{color:var(--ochre-2);background:var(--ochre-soft)}
+.ctx .doc .stat.new{color:var(--ink-3);background:var(--paper-3)}
+.ctx .doc .stat.err{color:var(--rose);background:var(--rose-soft)}
+.ctx .metric{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:6px 0;border-bottom:1px solid var(--rule-soft)}
+.ctx .metric:last-child{border-bottom:0}
+.ctx .metric .k{color:var(--ink-3)}
+.ctx .metric .v{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:500}
+.ctx .metric .v.bad{color:var(--rose)}
+.ctx .metric .v.ok{color:var(--moss)}
+.ctx .schemaRow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);padding:4px 0}
+.ctx .schemaRow .typ{color:var(--ink-4);font-style:italic}
+.ctx .micro{font-family:var(--serif);font-size:13px;color:var(--ink-3);font-style:italic;line-height:1.5}
+
 /* ── candidate diff ──────────────────────────────────────────────── */
 .diff{font-family:var(--mono);font-size:11.5px;line-height:1.55}
 .diff .row{padding:4px 12px 4px 28px;border-bottom:1px solid var(--rule-soft);display:flex;gap:12px}
