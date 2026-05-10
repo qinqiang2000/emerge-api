@@ -3,43 +3,43 @@ import { groupChatEvents } from '../../lib/groupChatEvents'
 
 import AgentMessage from './AgentMessage'
 import ToolCallGroup from './ToolCallGroup'
-import UserBubble from './UserBubble'
+import Turn from './Turn'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
 export default function MessageList({ events, busy }: Props) {
   const items = groupChatEvents(events)
   return (
-    <div data-testid="message-list" className="px-4 py-3 space-y-4 font-body">
+    <div data-testid="message-list">
       {items.map((item, i) => {
         if (item.kind === 'user') {
-          return <UserBubble key={i} text={item.text} />
+          return (
+            <Turn key={i} who="you" ts="just now">
+              <div className="msg user">{item.text}</div>
+            </Turn>
+          )
         }
         if (item.kind === 'agent') {
           return (
-            <div key={i} className="flex justify-start">
-              <div className="max-w-[80%]">
-                <AgentMessage text={item.text} />
-              </div>
-            </div>
+            <Turn key={i} who="agent" ts="just now">
+              <AgentMessage text={item.text} />
+            </Turn>
           )
         }
         if (item.kind === 'tools') {
           return (
-            <div key={i} className="flex justify-start">
-              <div className="max-w-[80%] w-full">
-                <ToolCallGroup calls={item.calls} />
-              </div>
+            <div key={i} className="pl-2">
+              <ToolCallGroup calls={item.calls} />
             </div>
           )
         }
         return (
           <div
             key={i}
-            className="border-l-2 border-accent-danger px-3 py-2 bg-subtle text-sm font-mono"
+            className="border-l-2 border-rose px-3 py-2 bg-paper-2 text-sm font-mono"
           >
-            <span className="text-accent-danger">{item.error_code}</span>
-            <span className="text-fg-secondary">: {item.error_message_en}</span>
+            <span className="text-rose">{item.error_code}</span>
+            <span className="text-ink-3">: {item.error_message_en}</span>
           </div>
         )
       })}
@@ -51,8 +51,8 @@ export default function MessageList({ events, busy }: Props) {
           && latest.ok !== false
         const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
         return (
-          <div className="text-fg-muted italic flex items-center gap-2 px-1" aria-live="polite">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-fg-muted animate-pulse"></span>
+          <div className="text-ink-4 italic flex items-center gap-2 px-1 mt-4" aria-live="polite">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink-4 animate-pulse"></span>
             {name ? `calling ${name}...` : 'agent is thinking...'}
           </div>
         )

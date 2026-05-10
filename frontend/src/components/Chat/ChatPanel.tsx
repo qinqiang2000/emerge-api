@@ -36,13 +36,13 @@ export default function ChatPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="border-b border-subtle px-4 py-2 flex items-center gap-2">
-        <span className="font-heading text-sm uppercase tracking-wide text-fg-muted">Chat</span>
+      <header className="border-b border-rule px-4 py-2 flex items-center gap-2 shrink-0">
+        <span className="font-mono text-[10.5px] uppercase tracking-widest text-ink-4">Chat</span>
         {hasErr && lastUserMsg && (
           <button
             type="button"
             onClick={() => { void send(selectedId ?? 'p_unset', lastUserMsg) }}
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-accent-danger border border-accent-danger rounded hover:bg-subtle"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-rose border border-rose rounded hover:bg-paper-2"
             aria-label="retry last user message"
           >
             <RefreshCw size={12} />
@@ -50,8 +50,10 @@ export default function ChatPanel() {
           </button>
         )}
       </header>
-      <div className="flex-1 overflow-auto">
-        <MessageList events={events} busy={busy} />
+      <div className="conv-scroll">
+        <div className="conv-inner">
+          <MessageList events={events} busy={busy} />
+        </div>
       </div>
       <Composer
         disabled={busy}

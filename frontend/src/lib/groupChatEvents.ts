@@ -18,9 +18,21 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
     }
     flushTools()
     if (e.type === 'user') {
-      out.push({ kind: 'user', text: e.text })
+      const prev = out[out.length - 1]
+      if (prev && prev.kind === 'user') {
+        // merge consecutive user messages
+        prev.text = prev.text + '\n\n' + e.text
+      } else {
+        out.push({ kind: 'user', text: e.text })
+      }
     } else if (e.type === 'agent_text') {
-      out.push({ kind: 'agent', text: e.text })
+      const prev = out[out.length - 1]
+      if (prev && prev.kind === 'agent') {
+        // merge consecutive agent text chunks
+        prev.text = prev.text + e.text
+      } else {
+        out.push({ kind: 'agent', text: e.text })
+      }
     } else if (e.type === 'error') {
       out.push({
         kind: 'error',
