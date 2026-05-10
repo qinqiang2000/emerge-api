@@ -194,6 +194,29 @@ html, body, #root {
 .rev-bar .spinepeek:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule)}
 .rev-bar .spinepeek.on{background:var(--ink);color:var(--paper);border-color:var(--ink);border-style:solid}
 
+/* ── eval card (T12) ─────────────────────────────────────────────── */
+.eval-card{background:var(--paper);border:1px solid var(--rule);border-radius:8px;overflow:hidden;font-family:var(--mono);font-size:12px}
+.eval-card .eh{display:flex;align-items:baseline;gap:12px;padding:12px 14px;border-bottom:1px solid var(--rule-soft);background:var(--paper-2)}
+.eval-card .eh .nm{color:var(--ink);font-weight:500}
+.eval-card .eh .stamp{color:var(--ink-4);font-size:11px}
+.eval-card .eh .agg{margin-left:auto;font-size:18px;font-family:var(--serif);color:var(--ink);font-weight:500}
+.eval-card .eh .agg .lbl{font-family:var(--mono);font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.1em;margin-right:6px;font-weight:400}
+.eval-row{display:grid;grid-template-columns:1fr 60px 60px 60px 110px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--rule-soft);font-size:11.5px}
+.eval-row:last-child{border-bottom:0}
+.eval-row .f{color:var(--ink-2);font-weight:500}
+.eval-row .num{font-variant-numeric:tabular-nums;color:var(--ink-3);text-align:right}
+.eval-row .num.f1{color:var(--ink);font-weight:500}
+.eval-row .num.bad{color:var(--rose)}
+.eval-row .num.ok{color:var(--moss)}
+.eval-row .bar{height:4px;background:var(--paper-3);position:relative;border-radius:2px;overflow:hidden;margin-left:14px}
+.eval-row .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--moss)}
+.eval-row .bar i.bad{background:var(--rose)}
+.eval-row .bar i.mid{background:var(--ochre)}
+.eval-row.head{background:var(--paper-2);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-4);font-weight:500}
+.eval-row.head .f{color:var(--ink-4)}
+.eval-row.expand{grid-template-columns:1fr;background:var(--paper-2);padding:10px 14px 12px 28px;color:var(--ink-3);font-family:var(--serif);font-size:13px;font-style:italic;line-height:1.55}
+.eval-row.expand b{font-family:var(--mono);color:var(--rose);font-style:normal;font-weight:500;font-size:11.5px}
+
 /* ── review fields (T11) ─────────────────────────────────────────── */
 .rev-fields{overflow-y:auto;padding:8px 18px 80px;display:flex;flex-direction:column;gap:10px}
 .ctag{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:3px;font-weight:500;flex-shrink:0}

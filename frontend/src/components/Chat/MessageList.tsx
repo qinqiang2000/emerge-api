@@ -4,6 +4,7 @@ import { toolShortHint } from '../../lib/toolHint'
 import KeyTrailCard from '../Publish/KeyTrailCard'
 
 import AgentMessage from './AgentMessage'
+import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
 import ProposalDiff from './ProposalDiff'
 import ToolCall, { type ToolStatus } from './ToolCall'
@@ -62,6 +63,10 @@ function ToolCallCard({ call }: { call: ToolCallEvent }) {
   // Special routing: issue_api_key → KeyTrailCard
   if (call.tool_name === 'mcp__emerge_tools__issue_api_key') {
     return <KeyTrailCard event={call} />
+  }
+  // Special routing: score → EvalCardAdapter
+  if (call.tool_name === 'mcp__emerge_tools__score') {
+    return <EvalCardAdapter call={call} />
   }
 
   const status = toolStatus(call)
