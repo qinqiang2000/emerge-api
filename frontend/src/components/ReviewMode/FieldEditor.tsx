@@ -81,7 +81,7 @@ export default function FieldEditor({
   return (
     <div className="flex flex-col h-full">
       {/* Top bar: entity navigator + add entity */}
-      <header className="px-4 py-2 border-b border-subtle flex items-center gap-3">
+      <header className="px-4 py-2 border-b border-rule flex items-center gap-3">
         {entities.length > 1 ? (
           <>
             <button
@@ -89,11 +89,11 @@ export default function FieldEditor({
               aria-label="previous entity"
               disabled={safeIdx === 0}
               onClick={() => setEntityIdx(i => Math.max(0, i - 1))}
-              className="font-mono text-xs px-2 py-1 border border-subtle rounded hover:bg-subtle disabled:opacity-30"
+              className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
             >
               ‹
             </button>
-            <span className="font-mono text-xs text-fg-muted">
+            <span className="font-mono text-xs text-ink-4">
               entity {safeIdx + 1} of {entities.length}
             </span>
             <button
@@ -101,7 +101,7 @@ export default function FieldEditor({
               aria-label="next entity"
               disabled={safeIdx === entities.length - 1}
               onClick={() => setEntityIdx(i => Math.min(entities.length - 1, i + 1))}
-              className="font-mono text-xs px-2 py-1 border border-subtle rounded hover:bg-subtle disabled:opacity-30"
+              className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
             >
               ›
             </button>
@@ -112,13 +112,13 @@ export default function FieldEditor({
                 onRemoveEntity(safeIdx)
                 setEntityIdx(i => Math.max(0, i - 1))
               }}
-              className="font-mono text-xs px-2 py-1 border border-subtle rounded hover:bg-subtle text-accent-danger ml-1"
+              className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 text-rose ml-1"
             >
               − remove
             </button>
           </>
         ) : (
-          <span className="font-mono text-xs text-fg-muted">
+          <span className="font-mono text-xs text-ink-4">
             {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
           </span>
         )}
@@ -126,7 +126,7 @@ export default function FieldEditor({
           type="button"
           aria-label="add entity"
           onClick={onAddEntity}
-          className="ml-auto font-mono text-xs px-2 py-1 border border-subtle rounded hover:bg-subtle"
+          className="ml-auto font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
         >
           + entity
         </button>
@@ -158,12 +158,12 @@ export default function FieldEditor({
       </div>
 
       {/* Save footer */}
-      <footer className="px-4 py-3 border-t border-subtle flex items-center gap-3">
+      <footer className="px-4 py-3 border-t border-rule flex items-center gap-3">
         <button
           type="button"
           onClick={onSave}
           disabled={saving}
-          className="px-4 py-2 bg-accent-primary text-canvas font-heading text-sm uppercase tracking-wide rounded hover:opacity-90 disabled:opacity-50"
+          className="px-4 py-2 bg-ochre text-paper font-mono text-sm uppercase tracking-wide rounded hover:opacity-90 disabled:opacity-50"
         >
           {saving ? 'saving…' : 'save reviewed'}
         </button>

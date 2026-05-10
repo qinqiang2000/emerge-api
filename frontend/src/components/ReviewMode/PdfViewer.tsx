@@ -18,25 +18,25 @@ export default function PdfViewer() {
   }, [activeProjectId, activeDocId, byProject, setPageCount])
 
   return (
-    <div className="flex flex-col h-full bg-subtle">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-canvas">
+    <div className="flex flex-col h-full bg-paper-2">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-rule bg-paper">
         <button
           type="button"
           onClick={() => goPage(page - 1)}
           disabled={page <= 1}
-          className="p-1 disabled:opacity-30 hover:bg-subtle rounded"
+          className="p-1 disabled:opacity-30 hover:bg-paper-2 rounded"
           aria-label="previous page"
         >
           <ChevronLeft size={16} />
         </button>
-        <span className="text-xs font-mono text-fg-secondary">
+        <span className="text-xs font-mono text-ink-3">
           {page} / {pageCount}
         </span>
         <button
           type="button"
           onClick={() => goPage(page + 1)}
           disabled={page >= pageCount}
-          className="p-1 disabled:opacity-30 hover:bg-subtle rounded"
+          className="p-1 disabled:opacity-30 hover:bg-paper-2 rounded"
           aria-label="next page"
         >
           <ChevronRight size={16} />
@@ -44,7 +44,7 @@ export default function PdfViewer() {
       </div>
       <div className="flex-1 overflow-auto grid place-items-start p-4">
         {loadError ? (
-          <div className="text-sm text-fg-muted">page render failed</div>
+          <div className="text-sm text-ink-4">page render failed</div>
         ) : (
           <img
             src={url}
