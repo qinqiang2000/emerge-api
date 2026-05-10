@@ -1,7 +1,12 @@
+import { KeyRound } from 'lucide-react'
+
 import type { ChatEvent } from '../../types/chat'
 import { groupChatEvents } from '../../lib/groupChatEvents'
 import { toolShortHint } from '../../lib/toolHint'
-import KeyTrailCard from '../Publish/KeyTrailCard'
+import PublishStage, { adaptReadiness, sampleCurl } from '../Publish/PublishStage'
+import { useApiKey } from '../../stores/apiKey'
+import { useChat } from '../../stores/chat'
+import { useProjects } from '../../stores/projects'
 
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
@@ -51,6 +56,109 @@ function resultText(result: unknown): string {
   return typeof result === 'string' ? result : JSON.stringify(result, null, 2)
 }
 
+// ─── Publish adapters ─────────────────────────────────────────────────────────
+
+function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
+  const checklist = adaptReadiness(event.tool_result) ?? []
+  const projectId = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
+    ? (event.tool_input as Record<string, unknown>).project_id as string
+    : 'project'
+
+  const send = useChat(s => s.send)
+  const selectedId = useProjects(s => s.selectedId)
+
+  const handleAdvance = () => {
+    const pid = selectedId ?? projectId
+    void send(pid, 'yes, mint the key now')
+  }
+
+  const handleClose = () => {
+    // No-op for inline card: chat history keeps the readiness record.
+    // (Overlay would unmount; inline we just leave it in the thread.)
+  }
+
+  // If tool_result not yet set, show running state
+  if (event.tool_result === undefined || event.tool_result === null) {
+    return (
+      <div className="border-l-2 border-ochre bg-paper px-3 py-1.5 font-mono text-sm flex items-center gap-2">
+        <span className="text-ink-4">running readiness check...</span>
+      </div>
+    )
+  }
+
+  return (
+    <PublishStage
+      stage="check"
+      projectName={String(projectId)}
+      checklist={checklist}
+      onAdvance={handleAdvance}
+      onClose={handleClose}
+    />
+  )
+}
+
+function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
+  const { current, clear } = useApiKey()
+
+  const projectId = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
+    ? (event.tool_input as Record<string, unknown>).project_id as string
+    : 'project'
+
+  // One-time reveal available — show full key stage
+  if (current && current.project_id === projectId) {
+    return (
+      <PublishStage
+        stage="key"
+        projectName={current.project_id}
+        versionLabel={current.version_id ?? 'v1'}
+        keyPlaintext={current.key_plaintext}
+        keyHash={current.key_hash}
+        keyPrefix={current.key_prefix}
+        createdAt={current.created_at}
+        sampleSnippet={sampleCurl(current.project_id)}
+        onClose={clear}
+      />
+    )
+  }
+
+  // Reveal already closed — render redacted trail from tool_result
+  const result = event.tool_result as
+    | { redacted: true; key_prefix: string; key_hash_short: string; created_at: string }
+    | { redacted: true; error: string }
+    | undefined
+
+  if (!result || !('redacted' in result)) {
+    // Still running
+    return (
+      <div className="border-l-2 border-ochre bg-paper px-3 py-1.5 font-mono text-sm flex items-center gap-2">
+        <KeyRound size={14} className="text-ochre-2" />
+        <span className="text-ink-4">issuing api key...</span>
+      </div>
+    )
+  }
+  if ('error' in result) {
+    return (
+      <div className="border-l-2 border-rose bg-paper px-3 py-1.5 font-mono text-sm flex items-center gap-2">
+        <KeyRound size={14} className="text-rose" />
+        <span className="text-rose">key issue failed:</span>
+        <span className="text-ink-3">{result.error}</span>
+      </div>
+    )
+  }
+  return (
+    <div className="border-l-2 border-ochre bg-paper px-3 py-1.5 font-mono text-sm flex items-center gap-2">
+      <KeyRound size={14} className="text-ochre-2" />
+      <span className="text-ink">key issued</span>
+      <span className="text-ink-4">·</span>
+      <span className="text-ink">{result.key_prefix}</span>
+      <span className="text-ink-4">...hash {result.key_hash_short}</span>
+      <span className="ml-auto text-ink-4 text-xs">{result.created_at}</span>
+    </div>
+  )
+}
+
+// ─── ToolCallCard ─────────────────────────────────────────────────────────────
+
 function ToolCallCard({ call }: { call: ToolCallEvent }) {
   // Special routing: start_job → JobProgressCard
   if (
@@ -60,9 +168,13 @@ function ToolCallCard({ call }: { call: ToolCallEvent }) {
   ) {
     return <JobProgressCard jobId={call.tool_result} />
   }
-  // Special routing: issue_api_key → KeyTrailCard
+  // Special routing: readiness_check → PublishStage check view
+  if (call.tool_name === 'mcp__emerge_tools__readiness_check') {
+    return <PublishStageCheckAdapter event={call} />
+  }
+  // Special routing: issue_api_key → PublishStage key view (or redacted trail)
   if (call.tool_name === 'mcp__emerge_tools__issue_api_key') {
-    return <KeyTrailCard event={call} />
+    return <PublishStageKeyAdapter event={call} />
   }
   // Special routing: score → EvalCardAdapter
   if (call.tool_name === 'mcp__emerge_tools__score') {

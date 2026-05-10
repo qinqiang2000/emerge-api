@@ -5,7 +5,6 @@ import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
 import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
-import ApiKeyRevealModal from './components/Publish/ApiKeyRevealModal'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useDocs } from './stores/docs'
@@ -36,7 +35,6 @@ export default function App() {
 
   return (
     <>
-      <ApiKeyRevealModal />
       <Shell
         topbar={
           <Topbar

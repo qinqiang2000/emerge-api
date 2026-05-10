@@ -168,6 +168,25 @@ Without backend confidence the dots would show fake signal. High-tone (moss) is 
 
 ---
 
+### 2026-05-10 — Publish stage rendered inline in chat thread (not full overlay)
+
+- **Status**: 🟡 Pending
+- **Area**: `Publish/PublishStage`
+- **Files**: `frontend/src/components/Publish/PublishStage.tsx`, `frontend/src/components/Chat/MessageList.tsx`
+- **Type**: layout
+
+**What changed**
+The handoff design renders the publish readiness check + key reveal as a full-conv-column overlay (`.pub-stage` is `position:absolute; inset:0`). M7 implements it as inline chat messages — readiness_check tool result becomes one card, issue_api_key result becomes another (or a key card if the reveal SSE has fired).
+
+**Why**
+The chat-thread architecture means the user has already typed `/publish` and seen the agent's reasoning. Hijacking the entire conv with an overlay obscures that history and conflicts with how every other tool result renders. Inline preserves the editorial flow and lets the user scroll back to see the readiness checklist after they've minted the key.
+
+**Open questions for Design**
+- Should the publish UX intentionally interrupt and dim the chat history (modal-like)? Or is the inline thread acceptable?
+- Should we add a "mint key →" call-to-action somewhere besides clicking inside the readiness card?
+
+---
+
 ### 2026-05-10 — Object/array sub-shape rendering simplified in M7 review
 
 - **Status**: 🟡 Pending

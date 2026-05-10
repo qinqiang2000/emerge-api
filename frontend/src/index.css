@@ -304,3 +304,43 @@ html, body, #root {
 .rev-json .js{color:var(--ink)}
 .rev-json .jn{color:var(--moss);font-variant-numeric:tabular-nums}
 .rev-json .jb{color:var(--rose);font-style:italic}
+
+/* ── Publish stage ─────────────────────────────────────────────────────────── */
+/* Design uses position:absolute;inset:0 overlay. M7 renders inline in chat thread. */
+/* .pub-stage.inline overrides the overlay default for the inline-card usage. */
+.pub-stage{position:absolute;inset:0;background:var(--paper);display:flex;align-items:stretch;justify-content:center;animation:fade .5s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.pub-stage.inline{position:relative;inset:auto;padding:16px 0}
+.pub-card{align-self:center;width:100%;max-width:680px;margin:auto;display:flex;flex-direction:column;gap:24px;padding:48px 36px}
+.pub-eyebrow{font-family:var(--mono);font-size:11px;color:var(--ochre-2);text-transform:uppercase;letter-spacing:.18em;display:flex;align-items:center;gap:10px}
+.pub-eyebrow .ln{flex:1;height:1px;background:var(--rule)}
+.pub-h{font-family:var(--serif);font-size:34px;line-height:1.2;letter-spacing:-.005em;color:var(--ink);font-weight:500}
+.pub-h em{font-style:italic;color:var(--ochre-2)}
+.pub-sub{font-family:var(--serif);font-size:16px;color:var(--ink-3);font-style:italic;line-height:1.6;max-width:520px}
+.pub-checks{display:flex;flex-direction:column;gap:0;border:1px solid var(--rule);border-radius:8px;background:var(--paper);overflow:hidden}
+.pub-check{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--rule-soft);font-family:var(--mono);font-size:12.5px}
+.pub-check:last-child{border-bottom:0}
+.pub-check .mk{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600}
+.pub-check.ok .mk{background:var(--moss-soft);color:var(--moss)}
+.pub-check.warn .mk{background:var(--ochre-soft);color:var(--ochre-2)}
+.pub-check .lab{color:var(--ink-2);flex:1}
+.pub-check .det{color:var(--ink-4);font-size:11.5px}
+.pub-key{background:var(--ink);color:var(--paper);border-radius:8px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;font-family:var(--mono);font-size:12px;position:relative;overflow:hidden}
+.pub-key::before{content:"";position:absolute;inset:0;background:radial-gradient(800px 200px at 80% 0%, rgba(181,100,44,.18), transparent 60%);pointer-events:none}
+.pub-key .lab2{color:rgba(247,244,238,.55);text-transform:uppercase;letter-spacing:.12em;font-size:10.5px;font-weight:500;display:flex;align-items:center;justify-content:space-between}
+.pub-key .lab2 .warn{color:var(--ochre)}
+.pub-key .key{font-size:14px;color:var(--paper);letter-spacing:.02em;display:flex;align-items:center;gap:10px;background:rgba(247,244,238,.06);padding:10px 12px;border-radius:6px;border:1px dashed rgba(247,244,238,.18)}
+.pub-key .key .copy{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:rgba(247,244,238,.7);padding:3px 8px;border:1px solid rgba(247,244,238,.18);border-radius:4px;cursor:default}
+.pub-key .key .copy:hover{background:rgba(247,244,238,.08);color:var(--paper)}
+.pub-key .one{color:rgba(247,244,238,.5);font-size:11px;font-style:italic;font-family:var(--serif);line-height:1.4}
+.pub-key-copy-btn{display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-family:var(--mono);font-size:10.5px;color:rgba(247,244,238,.7);padding:3px 8px;border:1px solid rgba(247,244,238,.18);border-radius:4px;cursor:default;background:transparent}
+.pub-key-copy-btn .copy-label{line-height:1}
+.pub-key-copy-btn:hover{background:rgba(247,244,238,.08);color:var(--paper)}
+.pub-snip{background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);line-height:1.65;white-space:pre;overflow-x:auto}
+.pub-snip .c{color:var(--ink-5)}
+.pub-snip .k{color:var(--ochre-2)}
+.pub-btn-primary{font-family:var(--mono);font-size:12.5px;padding:8px 18px;background:var(--ink);color:var(--paper);border-radius:6px;border:none;cursor:default;letter-spacing:.01em}
+.pub-btn-primary:hover{opacity:.88}
+.pub-btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.pub-btn-ghost{font-family:var(--mono);font-size:12.5px;padding:8px 14px;background:transparent;color:var(--ink-3);border:1px solid var(--rule);border-radius:6px;cursor:default;letter-spacing:.01em}
+.pub-btn-ghost:hover{background:var(--paper-2);color:var(--ink)}
