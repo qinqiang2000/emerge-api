@@ -163,3 +163,33 @@ html, body, #root {
 .help-pop .step .t code{font-family:var(--mono);font-size:11px;color:var(--ochre-2)}
 .help-pop .closehint{font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em;margin-top:6px;display:flex;align-items:center;gap:6px}
 .help-pop .closehint kbd{background:var(--paper-2);border:1px solid var(--rule);padding:1px 5px;border-radius:3px;font-size:9.5px}
+
+/* ── review overlay ──────────────────────────────────────────────── */
+.rev-overlay{position:absolute;inset:0;background:#FDFDFC;display:flex;flex-direction:column;animation:slideUp .35s ease-out}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.rev-bar{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--rule);background:var(--paper);flex-wrap:wrap}
+.rev-bar .back{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px;cursor:default;padding:5px 9px;border-radius:5px;white-space:nowrap;flex-shrink:0}
+.rev-bar .back:hover{background:var(--paper-2);color:var(--ink)}
+.rev-bar .title{font-family:var(--serif);font-size:16px;font-style:italic;color:var(--ink);display:flex;align-items:baseline;gap:10px;white-space:nowrap;min-width:0;flex-shrink:1;overflow:hidden;text-overflow:ellipsis}
+.rev-bar .title .doc{font-family:var(--mono);font-size:12px;font-style:normal;color:var(--ink-3);background:var(--paper-2);padding:3px 8px;border-radius:4px;border:1px solid var(--rule)}
+.rev-bar .spacer{flex:1}
+.rev-bar .nav{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap;flex-shrink:0}
+.rev-bar .nav .arrow{padding:4px 8px;border:1px solid var(--rule);border-radius:4px;cursor:default}
+.rev-bar .nav .arrow:hover{background:var(--paper-2)}
+.rev-bar .save{font-family:var(--mono);font-size:11.5px;padding:6px 12px;background:var(--ink);color:var(--paper);border-radius:5px;cursor:default;white-space:nowrap;flex-shrink:0}
+.rev-bar .save:hover{background:var(--ink-2)}
+.rev-body{flex:1;display:grid;grid-template-columns:1.1fr 1fr;min-height:0}
+.rev-pdf{background:#F8F3E6;border-right:1px solid var(--rule);overflow-y:auto;padding:24px 40px}
+.rev-toolbar{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:nowrap}
+.rev-toolbar .seg{display:inline-flex;border:1px solid var(--rule);border-radius:5px;overflow:hidden;background:var(--paper)}
+.rev-toolbar .seg button{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:4px 11px;border-right:1px solid var(--rule-soft);cursor:default;background:transparent;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;flex-shrink:0}
+.rev-toolbar .seg button:last-child{border-right:0}
+.rev-toolbar .seg button:hover{background:var(--paper-2);color:var(--ink-2)}
+.rev-toolbar .seg button.on{background:var(--ink);color:var(--paper)}
+.rev-toolbar .ghostbtn{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:5px 10px;border:1px solid var(--rule);border-radius:5px;background:var(--paper);cursor:default;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+.rev-toolbar .ghostbtn:hover{background:var(--paper-2);color:var(--ink-2)}
+.rev-bar .spinepeek{font-family:var(--mono);font-size:10.5px;color:var(--ink-4);padding:5px 9px;border:1px dashed var(--rule);border-radius:5px;background:transparent;cursor:default;white-space:nowrap;flex-shrink:0;text-transform:uppercase;letter-spacing:.06em}
+.rev-bar .spinepeek.icon{padding:5px 7px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3)}
+.rev-bar .spinepeek.icon:hover{color:var(--ink)}
+.rev-bar .spinepeek:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule)}
+.rev-bar .spinepeek.on{background:var(--ink);color:var(--paper);border-color:var(--ink);border-style:solid}

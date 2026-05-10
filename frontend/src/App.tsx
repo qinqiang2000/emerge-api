@@ -4,7 +4,7 @@ import Topbar from './components/Shell/Topbar'
 import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
-import ReviewMode from './components/ReviewMode/ReviewMode'
+import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
 import ApiKeyRevealModal from './components/Publish/ApiKeyRevealModal'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
@@ -18,6 +18,18 @@ export default function App() {
 
   const [leftHidden, setLeftHidden] = useState(false)
   const [rightHidden, setRightHidden] = useState(false)
+  const [leftPeek, setLeftPeek] = useState(false)
+  const [rightPeek, setRightPeek] = useState(false)
+
+  const inReview = !!activeDocId
+
+  // In review mode, panels are hidden by default; peek toggles reveal them.
+  // Outside review, the user-controlled hidden flags apply.
+  const effectiveLeftHidden  = inReview ? !leftPeek  : leftHidden
+  const effectiveRightHidden = inReview ? !rightPeek : rightHidden
+
+  const onToggleLeft  = () => inReview ? setLeftPeek(v => !v)  : setLeftHidden(v => !v)
+  const onToggleRight = () => inReview ? setRightPeek(v => !v) : setRightHidden(v => !v)
 
   const schemaVersion = 'v' + (project?.active_version_id ?? '0')
   const schemaState: 'draft' | 'frozen' = project?.active_version_id ? 'frozen' : 'draft'
@@ -33,17 +45,25 @@ export default function App() {
             schemaState={schemaState}
             watchingCount={docs.length}
             improveJob={undefined}
-            leftHidden={leftHidden}
-            rightHidden={rightHidden}
-            onToggleLeft={() => setLeftHidden(h => !h)}
-            onToggleRight={() => setRightHidden(h => !h)}
+            leftHidden={effectiveLeftHidden}
+            rightHidden={effectiveRightHidden}
+            onToggleLeft={onToggleLeft}
+            onToggleRight={onToggleRight}
           />
         }
         left={<FSSpine />}
-        center={activeDocId ? <ReviewMode /> : <ChatPanel />}
-        right={<ContextSurface onClose={() => setRightHidden(true)} />}
-        leftHidden={leftHidden}
-        rightHidden={rightHidden}
+        center={inReview
+          ? <ReviewOverlay
+              onBack={() => useReview.getState().close()}
+              leftPeek={leftPeek}
+              setLeftPeek={setLeftPeek}
+              rightPeek={rightPeek}
+              setRightPeek={setRightPeek}
+            />
+          : <ChatPanel />}
+        right={<ContextSurface onClose={onToggleRight} />}
+        leftHidden={effectiveLeftHidden}
+        rightHidden={effectiveRightHidden}
       />
     </>
   )
