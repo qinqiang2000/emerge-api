@@ -30,3 +30,45 @@ html, body, #root {
 .msg p{margin:0 0 .65em}
 .msg p:last-child{margin-bottom:0}
 .msg code{font-family:var(--mono);font-size:.86em;background:var(--paper-2);border:1px solid var(--rule-soft);padding:1px 5px;border-radius:4px;color:var(--ochre-2)}
+
+/* ── tool calls ──────────────────────────────────────────────────── */
+.tool{border:1px solid var(--rule);background:var(--paper-2);border-radius:6px;font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow:hidden}
+.tool .t-head{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:default;border-bottom:1px solid transparent}
+.tool.open .t-head{border-bottom-color:var(--rule-soft)}
+.tool .t-arrow{color:var(--ink-4);width:10px;font-size:10px}
+.tool .t-name{color:var(--ink);font-weight:500}
+.tool .t-args{color:var(--ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tool .t-status{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;padding:2px 8px;border-radius:999px;font-weight:500}
+.tool .t-status.done{color:var(--moss);background:var(--moss-soft)}
+.tool .t-status.run{color:var(--ochre-2);background:var(--ochre-soft)}
+.tool .t-status.err{color:var(--rose);background:var(--rose-soft)}
+.tool .t-status.cand{color:var(--ink-2);background:var(--paper-3)}
+.tool .t-dur{color:var(--ink-5);font-size:11px;font-variant-numeric:tabular-nums}
+.tool .t-body{padding:0;background:var(--paper)}
+.tool .t-row{display:flex;gap:0;padding:6px 12px 6px 28px;border-bottom:1px solid var(--rule-soft);align-items:center}
+.tool .t-row:last-child{border-bottom:0}
+.tool .t-row .glyph{color:var(--ink-5);margin-right:8px;width:10px;font-size:10px}
+.tool .t-row.nest{padding-left:44px}
+.tool .t-row.nest2{padding-left:60px}
+.tool .t-row .label{color:var(--ink-2);font-weight:500;flex:1;display:flex;align-items:center;gap:8px}
+.tool .t-row .v{color:var(--ink-4);text-overflow:ellipsis;white-space:nowrap;overflow:hidden;max-width:50%}
+.tool .t-row .mini{font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
+.tool .t-bar{height:3px;background:var(--paper-3);position:relative;overflow:hidden}
+.tool .t-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ochre);transition:width .4s ease}
+.tool .t-bar.indet i{width:30%;animation:indet 1.6s ease-in-out infinite}
+@keyframes indet{0%{left:-30%}100%{left:100%}}
+.tool .t-foot{padding:8px 12px;display:flex;gap:8px;background:var(--paper);border-top:1px solid var(--rule-soft)}
+.tool .t-btn{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border:1px solid var(--rule);border-radius:4px;color:var(--ink-2);background:var(--paper)}
+.tool .t-btn:hover{background:var(--paper-2)}
+.tool .t-btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tool .t-btn.primary:hover{background:var(--ink-2)}
+.tool .t-btn.danger{color:var(--rose);border-color:var(--rose-soft)}
+
+/* ── candidate diff ──────────────────────────────────────────────── */
+.diff{font-family:var(--mono);font-size:11.5px;line-height:1.55}
+.diff .row{padding:4px 12px 4px 28px;border-bottom:1px solid var(--rule-soft);display:flex;gap:12px}
+.diff .row:last-child{border-bottom:0}
+.diff .field{color:var(--ink);font-weight:500;flex:0 0 220px;display:flex;align-items:center;gap:6px}
+.diff .col{flex:1;min-width:0;color:var(--ink-3)}
+.diff .col .old{color:var(--ink-4);text-decoration:line-through;text-decoration-color:var(--rose);text-decoration-thickness:1px;display:block;white-space:normal;font-size:11px}
+.diff .col .new{color:var(--ink);display:block;white-space:normal;background:linear-gradient(transparent 65%, var(--moss-soft) 65%);padding:0 2px;font-size:11px}
