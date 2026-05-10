@@ -108,3 +108,22 @@ Conversation column is the most prominent surface and the banner needs to stay v
 **Open questions for Design**
 - Should the banner persist across scene changes (eval, publish)?
 - Should there be a dismiss-for-this-session control?
+
+---
+
+### 2026-05-10 — `metrics/` tree section deferred in M7 FSSpine
+
+- **Status**: 🟡 Pending
+- **Area**: `Spine/FSSpine`
+- **Files**: `frontend/src/components/Spine/FSSpine.tsx`
+- **Type**: new-state
+
+**What changed**
+The handoff prototype's FSSpine includes a `metrics/` directory entry. M7 omits it because the eval-history API surface doesn't exist yet (`useEval.history(pid)` is referenced by the plan but never built).
+
+**Why**
+Adding a metrics tree section without an API would mean either rendering an empty placeholder forever or hardcoding fake data. Both diverge from real product behavior.
+
+**Open questions for Design**
+- Should the row appear with an empty/placeholder state when no eval has run, or stay hidden?
+- What's the canonical filename inside `metrics/` — one file per eval run, or a rolling history?

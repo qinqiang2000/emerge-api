@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Shell from './components/Shell/Shell'
 import Topbar from './components/Shell/Topbar'
-import ProjectList from './components/ProjectList/ProjectList'
+import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import DocList from './components/DocList/DocList'
 import ReviewMode from './components/ReviewMode/ReviewMode'
@@ -39,7 +39,7 @@ export default function App() {
             onToggleRight={() => setRightHidden(h => !h)}
           />
         }
-        left={<ProjectList />}
+        left={<FSSpine />}
         center={activeDocId ? <ReviewMode /> : <ChatPanel />}
         right={<DocList />}
         leftHidden={leftHidden}
