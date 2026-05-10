@@ -28,8 +28,6 @@ interface Props {
   onAddEntity: () => void
   onRemoveEntity: (idx: number) => void
   onJumpToPage?: (page: number) => void
-  onSave: () => void
-  saving: boolean
   /** 'form' | 'json' — controlled by ReviewOverlay via view toggle */
   view?: 'form' | 'json'
   /** null = natural, true = expand all, false = collapse all */
@@ -46,8 +44,6 @@ export default function FieldEditor({
   onAddEntity,
   onRemoveEntity,
   onJumpToPage,
-  onSave,
-  saving,
   view = 'form',
   forceOpen = null,
 }: Props) {
@@ -156,18 +152,6 @@ export default function FieldEditor({
           </div>
         )}
       </div>
-
-      {/* Save footer */}
-      <footer className="px-4 py-3 border-t border-rule flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className="px-4 py-2 bg-ochre text-paper font-mono text-sm uppercase tracking-wide rounded hover:opacity-90 disabled:opacity-50"
-        >
-          {saving ? 'saving…' : 'save reviewed'}
-        </button>
-      </footer>
     </div>
   )
 }

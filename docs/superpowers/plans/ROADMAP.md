@@ -119,6 +119,7 @@ These don't fit a milestone but should be tracked:
 - **review object/array sub-shape** — object/array fields render as editable JSON `<pre>` since `SchemaField` carries no sub-field shape; design shows nested form rows.
 - **per-field confidence dots** — hard-coded to 'high' (moss); needs per-field score from extract LLM.
 - **PDF→field bidirectional binding** — current click-to-page (field→PDF) is one-way; clicking in the PDF doesn't activate the corresponding field row.
+- **review toolbar `<flagged>/<total> flagged` status** — design shows a flagged-field count between the expand-toggle and prev/next arrows; deferred until per-field confidence lands (a "flag" needs a confidence threshold to count against).
 
 ## How to use this file
 

@@ -222,3 +222,22 @@ Backend `accept_candidate` API is keyed by (jobId, turn), not (jobId, fieldName)
 **Open questions for Design**
 - Is per-field accept semantically meaningful, or is "accept the whole turn" enough? (One turn often proposes one field at a time anyway.)
 - Should reject persist anywhere, or is dismiss-only fine?
+
+---
+
+### 2026-05-10 — Review toolbar `<flagged>/<total> flagged` status text deferred
+
+- **Status**: 🟡 Pending
+- **Area**: `ReviewMode/ReviewBar`
+- **Files**: `frontend/src/components/ReviewMode/ReviewBar.tsx`
+- **Type**: new-state
+
+**What changed**
+The handoff design's review toolbar shows a `<flagged>/<total> flagged` status string between the expand-toggle and the prev/next arrows (e.g. `4/13 flagged`). M7 omits this string; the toolbar jumps directly from the expand icon to the nav arrows.
+
+**Why**
+Backend doesn't expose a per-field "flag" count (a flag would mean "low/mid confidence" or "needs review" — both depend on the still-deferred per-field confidence signal). Rendering `0/N flagged` would be misleading; rendering nothing is cleaner.
+
+**Open questions for Design**
+- Once per-field confidence lands, is "flagged" defined as `confLab !== 'high'` (low + mid) or only `low`?
+- Where should the count live when there are zero flagged fields — hidden, or `0/N flagged` greyed out as a confidence signal?

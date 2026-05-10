@@ -18,14 +18,10 @@ function Stateful({
   initial,
   schema = SCHEMA,
   onChange,
-  saving = false,
-  onSave = () => {},
 }: {
   initial: Record<string, unknown>
   schema?: typeof SCHEMA
   onChange?: (entityIdx: number, name: string, value: unknown) => void
-  saving?: boolean
-  onSave?: () => void
 }) {
   const [entities, setEntities] = useState<Record<string, unknown>[]>([initial])
   return (
@@ -38,8 +34,6 @@ function Stateful({
       }}
       onAddEntity={() => setEntities((s) => [...s, {}])}
       onRemoveEntity={(idx) => setEntities((s) => s.filter((_, i) => i !== idx))}
-      onSave={onSave}
-      saving={saving}
     />
   )
 }
@@ -62,22 +56,7 @@ describe('FieldEditor', () => {
     expect(found).toBe(true)
   })
 
-  it('disables save button when saving=true', () => {
-    render(<Stateful initial={{}} saving={true} />)
-    expect(screen.getByRole('button', { name: /saving/i })).toBeDisabled()
-  })
-
-  it('save button renders with correct label when not saving', () => {
-    render(<Stateful initial={{}} saving={false} />)
-    expect(screen.getByRole('button', { name: /save reviewed/i })).toBeInTheDocument()
-  })
-
-  it('calls onSave when save button is clicked', () => {
-    const onSave = vi.fn()
-    render(<Stateful initial={{}} onSave={onSave} />)
-    fireEvent.click(screen.getByRole('button', { name: /save reviewed/i }))
-    expect(onSave).toHaveBeenCalled()
-  })
+  // Save button moved to ReviewBar in toolbar redesign; no footer save in FieldEditor.
 })
 
 // ── FieldRow cdot rendering ──────────────────────────────────────────────────
@@ -146,7 +125,7 @@ describe('FieldEditor ObjectField', () => {
     render(<FieldEditor
       schema={[{ name: 'address', type: 'object', description: '' }]}
       entities={[{ address: { street: '1 Main St', city: 'Anytown' } }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     // ObjectField header contains the field name and "object" type tag
     expect(screen.getByText('address')).toBeInTheDocument()
@@ -157,7 +136,7 @@ describe('FieldEditor ObjectField', () => {
     render(<FieldEditor
       schema={[{ name: 'meta', type: 'object', description: '' }]}
       entities={[{ meta: { k: 'v' } }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     const objHead = document.querySelector('.objhead')!
     // Initially collapsed
@@ -172,7 +151,7 @@ describe('FieldEditor ObjectField', () => {
     render(<FieldEditor
       schema={[{ name: 'meta', type: 'object', description: '' }]}
       entities={[{ meta: { k: 'v' } }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     const objHead = document.querySelector('.objhead')!
     fireEvent.click(objHead)
@@ -189,7 +168,7 @@ describe('FieldEditor ArrayField', () => {
     render(<FieldEditor
       schema={[{ name: 'items', type: 'array', description: '' }]}
       entities={[{ items: [{ name: 'Widget', price: 10 }, { name: 'Gadget', price: 20 }] }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     expect(screen.getByText('items')).toBeInTheDocument()
     expect(screen.getByText(/array · 2 rows/)).toBeInTheDocument()
@@ -199,7 +178,7 @@ describe('FieldEditor ArrayField', () => {
     render(<FieldEditor
       schema={[{ name: 'lines', type: 'array', description: '' }]}
       entities={[{ lines: ['a', 'b'] }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     // Starts open by default — .rhead rows visible
     expect(screen.getByText('#1')).toBeInTheDocument()
@@ -210,7 +189,7 @@ describe('FieldEditor ArrayField', () => {
     render(<FieldEditor
       schema={[{ name: 'lines', type: 'array', description: '' }]}
       entities={[{ lines: ['a', 'b'] }]}
-      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     const arrHead = document.querySelector('.arrhead')!
     fireEvent.click(arrHead)
@@ -222,7 +201,7 @@ describe('FieldEditor ArrayField', () => {
     render(<FieldEditor
       schema={[{ name: 'lines', type: 'array', description: '' }]}
       entities={[{ lines: ['a'] }]}
-      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     fireEvent.click(screen.getByRole('button', { name: 'add row' }))
     expect(onChange).toHaveBeenCalledWith(0, 'lines', ['a', {}])
@@ -233,7 +212,7 @@ describe('FieldEditor ArrayField', () => {
     render(<FieldEditor
       schema={[{ name: 'lines', type: 'array', description: '' }]}
       entities={[{ lines: ['a', 'b'] }]}
-      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}}
     />)
     // Click delete for row #1
     fireEvent.click(screen.getByRole('button', { name: 'delete row 1' }))
@@ -248,7 +227,7 @@ describe('FieldEditor multi-entity', () => {
     render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'x' }, { a: 'y' }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
-      onSave={() => {}} saving={false} />)
+      />)
     expect(screen.getByText(/entity 1 of 2/)).toBeInTheDocument()
     expect(screen.getByLabelText('previous entity')).toBeInTheDocument()
     expect(screen.getByLabelText('next entity')).toBeInTheDocument()
@@ -258,7 +237,7 @@ describe('FieldEditor multi-entity', () => {
     render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'x' }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
-      onSave={() => {}} saving={false} />)
+      />)
     expect(screen.getByLabelText('add entity')).toBeInTheDocument()
   })
 
@@ -267,7 +246,7 @@ describe('FieldEditor multi-entity', () => {
     render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'x' }]}
       onChange={() => {}} onAddEntity={onAdd} onRemoveEntity={() => {}}
-      onSave={() => {}} saving={false} />)
+      />)
     fireEvent.click(screen.getByLabelText('add entity'))
     expect(onAdd).toHaveBeenCalled()
   })
@@ -283,7 +262,7 @@ describe('FieldEditor evidence badges', () => {
       evidence={[{ a: 3 }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
       onJumpToPage={jump}
-      onSave={() => {}} saving={false} />)
+      />)
     await userEvent.click(screen.getByLabelText('jump to page 3'))
     expect(jump).toHaveBeenCalledWith(3)
   })
@@ -297,7 +276,7 @@ describe('FieldEditor JSON view', () => {
       schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'hello' }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
-      onSave={() => {}} saving={false}
+     
       view="json"
     />)
     // .rev-json container should be present
@@ -311,7 +290,7 @@ describe('FieldEditor JSON view', () => {
       schema={[{ name: 'total', type: 'string', description: '' }]}
       entities={[{ total: '100' }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
-      onSave={() => {}} saving={false}
+     
       view="json"
     />)
     // Line numbers are in .ln spans

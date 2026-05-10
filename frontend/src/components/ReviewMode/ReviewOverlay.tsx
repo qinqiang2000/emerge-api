@@ -92,8 +92,6 @@ export default function ReviewOverlay({ onBack }: Props) {
             onAddEntity={addEntity}
             onRemoveEntity={removeEntity}
             onJumpToPage={goPage}
-            onSave={save}
-            saving={saving}
             view={view}
             forceOpen={forceOpen}
           />

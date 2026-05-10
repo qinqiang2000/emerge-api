@@ -79,7 +79,7 @@ describe('ArrayField duplicate row', () => {
         schema={[{ name: 'lines', type: 'array', description: '' }]}
         entities={[{ lines: [{ name: 'Widget', price: 10 }] }]}
         onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
-        onSave={() => {}} saving={false}
+       
       />
     )
     expect(screen.getByRole('button', { name: 'duplicate row 1' })).toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('ArrayField duplicate row', () => {
         schema={[{ name: 'lines', type: 'array', description: '' }]}
         entities={[{ lines: [{ name: 'Widget', price: 10 }, { name: 'Gadget', price: 20 }] }]}
         onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}}
-        onSave={() => {}} saving={false}
+       
       />
     )
     fireEvent.click(screen.getByRole('button', { name: 'duplicate row 1' }))
@@ -114,7 +114,7 @@ describe('ArrayField duplicate row', () => {
         schema={[{ name: 'items', type: 'array', description: '' }]}
         entities={[{ items: [{ sku: 'A-1', qty: 3 }] }]}
         onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}}
-        onSave={() => {}} saving={false}
+       
       />
     )
     fireEvent.click(screen.getByRole('button', { name: 'duplicate row 1' }))
