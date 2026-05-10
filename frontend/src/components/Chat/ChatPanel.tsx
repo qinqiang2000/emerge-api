@@ -1,14 +1,16 @@
 // frontend/src/components/Chat/ChatPanel.tsx
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
+import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
 import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
+import ImproveBanner from '../Improve/ImproveBanner'
 
 interface AttachInfo { filename: string; doc_id?: string; pending?: boolean }
 
@@ -19,6 +21,28 @@ export default function ChatPanel() {
   const docs = useDocs(s => s.byProject[selectedId ?? ''] ?? [])
   const fields = useSchema(s => s.byProject[selectedId ?? ''] ?? [])
   const [pending, setPending] = useState<AttachInfo[]>([])
+  const convScrollRef = useRef<HTMLDivElement>(null)
+
+  // Find any running improve job to show the banner.
+  const byId = useJob(s => s.byId)
+  const runningImproveEntry = Object.entries(byId)
+    .filter(([, slice]) => slice.status === 'running')
+    .sort(([a], [b]) => (a > b ? -1 : a < b ? 1 : 0))[0] ?? null
+  const improveJob = runningImproveEntry ? runningImproveEntry[1] : null
+
+  function handleBannerOpen() {
+    // Scroll to the most recent proposal card via data-attribute, or fall back to bottom.
+    const jobId = improveJob?.jobId
+    const card = jobId
+      ? document.querySelector(`[data-improve-card="${jobId}"]`)
+      : null
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      const el = convScrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    }
+  }
 
   const hasContent = events.length > 0 || docs.length > 0 || fields.length > 0
 
@@ -47,8 +71,11 @@ export default function ChatPanel() {
 
   return (
     <>
+      {improveJob && (
+        <ImproveBanner job={improveJob} onOpen={handleBannerOpen} />
+      )}
       {hasContent ? (
-        <div className="conv-scroll">
+        <div className="conv-scroll" ref={convScrollRef}>
           <div className="conv-inner">
             <MessageList events={events} busy={busy} />
           </div>

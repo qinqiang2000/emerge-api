@@ -11,10 +11,10 @@ import { useProjects } from '../../stores/projects'
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
-import ProposalDiff from './ProposalDiff'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import Turn from './Turn'
+import ProposalCandidateCard from '../Improve/ProposalCandidateCard'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
@@ -187,18 +187,9 @@ function ToolCallCard({ call }: { call: ToolCallEvent }) {
   const errorCode = status === 'err' ? extractErrorCode(call.tool_result) : null
   const argsStr = hint ?? (errorCode ? errorCode : undefined)
 
-  // Candidate proposal: render ProposalDiff inside body
-  if (status === 'cand') {
-    const r = parseResult(call.tool_result)!
-    return (
-      <ToolCall name={displayName} args={argsStr} status="cand" defaultOpen>
-        <ProposalDiff
-          field={r.field as string}
-          oldDesc={(r.old_description as string) ?? ''}
-          newDesc={r.new_description as string}
-        />
-      </ToolCall>
-    )
+  // Candidate proposal: delegate to ProposalCandidateCard (adds accept/reject footer)
+  if (call.tool_name.endsWith('propose_description') && status === 'cand') {
+    return <ProposalCandidateCard event={call} />
   }
 
   return (

@@ -203,3 +203,22 @@ The design's nested-form treatment requires sub-field metadata (names, types, su
 **Open questions for Design**
 - Is sub-shape something we add to `SchemaField`, or do we keep object/array as opaque-JSON in the lab UI and only break them out when the user explicitly adds separate fields?
 - For array types: should each item card show a derived summary (first string value) or always show "item N"?
+
+---
+
+### 2026-05-10 — Improve candidate accept is turn-level, not field-level
+
+- **Status**: 🟡 Pending
+- **Area**: `Improve/ProposalCandidateCard`, `useJob.accept`
+- **Files**: `frontend/src/components/Improve/ProposalCandidateCard.tsx`, `frontend/src/stores/jobs.ts`
+- **Type**: interaction
+
+**What changed**
+The design's proposal cards have per-field accept/reject buttons. M7 implements accept as turn-level (calls `useJob.accept(jobId, turnNumber)` which freezes whatever the active turn proposed). Reject is a UI-only dismiss (no backend rejection — the card unmounts locally).
+
+**Why**
+Backend `accept_candidate` API is keyed by (jobId, turn), not (jobId, fieldName). Adding field-level granularity needs a new tool + autoresearch-job state machine for partial accepts.
+
+**Open questions for Design**
+- Is per-field accept semantically meaningful, or is "accept the whole turn" enough? (One turn often proposes one field at a time anyway.)
+- Should reject persist anywhere, or is dismiss-only fine?
