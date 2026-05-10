@@ -51,13 +51,7 @@ export default function App() {
         }
         left={<FSSpine />}
         center={inReview
-          ? <ReviewOverlay
-              onBack={() => useReview.getState().close()}
-              leftPeek={leftPeek}
-              setLeftPeek={setLeftPeek}
-              rightPeek={rightPeek}
-              setRightPeek={setRightPeek}
-            />
+          ? <ReviewOverlay onBack={() => useReview.getState().close()} />
           : <ChatPanel />}
         right={<ContextSurface />}
         leftHidden={effectiveLeftHidden}

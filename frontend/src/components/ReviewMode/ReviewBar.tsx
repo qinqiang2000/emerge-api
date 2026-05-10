@@ -1,38 +1,13 @@
 // frontend/src/components/ReviewMode/ReviewBar.tsx
 import type { DocSummary } from '../../types/review'
 
-// Inline SVG icons reused from Topbar geometry
-function IconLeftOpen() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-      <line x1="6.5" y1="3.4" x2="6.5" y2="12.6"/>
-    </svg>
-  )
-}
-
-function IconRightPanel() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-      <line x1="9.5" y1="3.4" x2="9.5" y2="12.6"/>
-    </svg>
-  )
-}
-
 type Props = {
   filename?: string
-  page: number
-  pageCount: number
   saving: boolean
-  leftPeek: boolean
-  setLeftPeek: (fn: (v: boolean) => boolean) => void
-  rightPeek: boolean
-  setRightPeek: (fn: (v: boolean) => boolean) => void
   view: 'form' | 'json'
   onSetView: (v: 'form' | 'json') => void
-  onExpandAll: () => void
-  onCollapseAll: () => void
+  forceOpen: boolean | null
+  onToggleExpand: () => void
   docs: DocSummary[]
   activeDocId: string | null
   activeProjectId: string | null
@@ -43,17 +18,11 @@ type Props = {
 
 export default function ReviewBar({
   filename,
-  page,
-  pageCount,
   saving,
-  leftPeek,
-  setLeftPeek,
-  rightPeek,
-  setRightPeek,
   view,
   onSetView,
-  onExpandAll,
-  onCollapseAll,
+  forceOpen,
+  onToggleExpand,
   docs,
   activeDocId,
   activeProjectId,
@@ -75,32 +44,18 @@ export default function ReviewBar({
     if (nextDoc && activeProjectId) void onOpen(activeProjectId, nextDoc.doc_id)
   }
 
+  const allExpanded = forceOpen === true
+
   return (
     <div className="rev-bar">
-      <button className="back" onClick={onBack}>← back</button>
+      <button className="back" onClick={onBack} type="button">◂ back to chat</button>
 
       <span className="title">
-        <em>Reviewing</em>
-        <span className="doc">{filename ?? activeDocId} · pg {page}/{pageCount || '?'}</span>
+        <em>reviewing</em>
+        <span className="doc">docs/{filename ?? activeDocId}</span>
       </span>
 
-      <button
-        className={'spinepeek icon' + (leftPeek ? ' on' : '')}
-        onClick={() => setLeftPeek(v => !v)}
-        title={leftPeek ? 'hide spine' : 'peek spine'}
-        type="button"
-      >
-        <IconLeftOpen />
-      </button>
-
-      <button
-        className={'spinepeek icon' + (rightPeek ? ' on' : '')}
-        onClick={() => setRightPeek(v => !v)}
-        title={rightPeek ? 'hide context' : 'peek context'}
-        type="button"
-      >
-        <IconRightPanel />
-      </button>
+      <div className="spacer" />
 
       <div className="rev-toolbar">
         <div className="seg">
@@ -119,16 +74,21 @@ export default function ReviewBar({
             json
           </button>
         </div>
-        <button className="ghostbtn" onClick={onExpandAll} type="button">expand all</button>
-        <button className="ghostbtn" onClick={onCollapseAll} type="button">collapse</button>
+        <button
+          className="ghostbtn"
+          onClick={onToggleExpand}
+          title={allExpanded ? 'collapse all' : 'expand all'}
+          aria-label={allExpanded ? 'collapse all' : 'expand all'}
+          type="button"
+          style={{ padding: '4px 7px', fontSize: 12 }}
+        >
+          {allExpanded ? '⤡' : '⤢'}
+        </button>
       </div>
 
-      <div className="spacer" />
-
       <div className="nav">
-        <button className="arrow" onClick={handlePrev} disabled={!hasPrev} type="button">‹</button>
-        <span>doc {idx >= 0 ? idx + 1 : '–'} / {total}</span>
-        <button className="arrow" onClick={handleNext} disabled={!hasNext} type="button">›</button>
+        <button className="arrow" onClick={handlePrev} disabled={!hasPrev} aria-label="previous doc" type="button">‹</button>
+        <button className="arrow" onClick={handleNext} disabled={!hasNext} aria-label="next doc" type="button">›</button>
       </div>
 
       <button className="save" onClick={onSave} disabled={saving} type="button">

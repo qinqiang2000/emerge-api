@@ -12,21 +12,15 @@ import ReviewBar from './ReviewBar'
 
 type Props = {
   onBack: () => void
-  leftPeek: boolean
-  setLeftPeek: (fn: (v: boolean) => boolean) => void
-  rightPeek: boolean
-  setRightPeek: (fn: (v: boolean) => boolean) => void
 }
 
-export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek, setRightPeek }: Props) {
+export default function ReviewOverlay({ onBack }: Props) {
   const {
     activeProjectId,
     activeDocId,
     entities,
     evidence,
     notes,
-    page,
-    pageCount,
     saving,
     err,
     setField,
@@ -54,8 +48,7 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
 
   const filename = docs.find(d => d.doc_id === activeDocId)?.filename
 
-  const handleExpandAll = () => setForceOpen(true)
-  const handleCollapseAll = () => setForceOpen(false)
+  const handleToggleExpand = () => setForceOpen(v => (v === true ? false : true))
   const handleSetView = (v: 'form' | 'json') => {
     setView(v)
     setForceOpen(null)
@@ -65,17 +58,11 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
     <div className="rev-overlay">
       <ReviewBar
         filename={filename}
-        page={page ?? 1}
-        pageCount={pageCount ?? 0}
         saving={saving}
-        leftPeek={leftPeek}
-        setLeftPeek={setLeftPeek}
-        rightPeek={rightPeek}
-        setRightPeek={setRightPeek}
         view={view}
         onSetView={handleSetView}
-        onExpandAll={handleExpandAll}
-        onCollapseAll={handleCollapseAll}
+        forceOpen={forceOpen}
+        onToggleExpand={handleToggleExpand}
         docs={docs}
         activeDocId={activeDocId}
         activeProjectId={activeProjectId}
