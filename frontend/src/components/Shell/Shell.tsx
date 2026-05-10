@@ -100,8 +100,8 @@ export default function Shell({ topbar, left, center, right, leftHidden = false,
   ].filter(Boolean).join(' ')
 
   const shellStyle: CSSProperties = {
-    '--left-w': `${leftW}px`,
-    '--right-w': `${rightW}px`,
+    '--left-w': leftHidden ? '0px' : `${leftW}px`,
+    '--right-w': rightHidden ? '0px' : `${rightW}px`,
   } as CSSProperties
 
   return (
@@ -127,11 +127,13 @@ export default function Shell({ topbar, left, center, right, leftHidden = false,
       {/* drag resizers */}
       <div
         className={`resizer left${drag === 'left' ? ' active' : ''}`}
+        title="Drag to resize"
         onMouseDown={(e) => { e.preventDefault(); startDrag('left', e.clientX) }}
         onTouchStart={(e) => { if (e.touches.length > 0) startDrag('left', e.touches[0].clientX) }}
       />
       <div
         className={`resizer right${drag === 'right' ? ' active' : ''}`}
+        title="Drag to resize"
         onMouseDown={(e) => { e.preventDefault(); startDrag('right', e.clientX) }}
         onTouchStart={(e) => { if (e.touches.length > 0) startDrag('right', e.touches[0].clientX) }}
       />

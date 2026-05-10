@@ -57,7 +57,7 @@ export default function Topbar({
 
   const displayName = projectName
     ? (projectName.endsWith('/') ? projectName : projectName + '/')
-    : null
+    : ''
 
   return (
     <>
@@ -74,21 +74,25 @@ export default function Topbar({
       {/* Brand */}
       <div className="brand"><span className="dot"></span>emerge</div>
 
-      {/* Crumbs */}
-      {displayName && (
-        <div className="crumbs">
-          <span>~</span>
-          <span className="sep">/</span>
-          <span>projects</span>
-          <span className="sep">/</span>
-          <span>{displayName}</span>
-          <span>schema</span>
-          <span className="sep">·</span>
-          <span className="here">{schemaVersion}</span>
-          <span className="sep">·</span>
-          <span>{schemaState}</span>
-        </div>
-      )}
+      {/* Crumbs — always render; degrades gracefully when no project selected */}
+      <div className="crumbs">
+        <span>~</span>
+        <span className="sep">/</span>
+        <span>projects</span>
+        <span className="sep">/</span>
+        {displayName ? (
+          <>
+            <span className="here">{displayName}</span>
+            <span>schema</span>
+            <span className="sep">·</span>
+            <span>{schemaVersion}</span>
+            <span className="sep">·</span>
+            <span>{schemaState}</span>
+          </>
+        ) : (
+          <span style={{ color: 'var(--ink-5)', fontStyle: 'italic' }}>select a project</span>
+        )}
+      </div>
 
       <div className="spacer" />
 
