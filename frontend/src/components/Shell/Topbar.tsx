@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import HelpPopover from './HelpPopover'
+
 type TopbarProps = {
   projectName: string
   schemaVersion: string   // "v3"
@@ -50,6 +53,8 @@ export default function Topbar({
   onToggleLeft,
   onToggleRight,
 }: TopbarProps) {
+  const [helpOpen, setHelpOpen] = useState(false)
+
   const displayName = projectName
     ? (projectName.endsWith('/') ? projectName : projectName + '/')
     : null
@@ -108,16 +113,15 @@ export default function Topbar({
         ⌘K · ask agent
       </span>
 
-      {/* Help button stub — HelpPopover lands in T9 */}
+      {/* Help button */}
       <button
-        className="side-toggle"
+        className={'help-btn' + (helpOpen ? ' on' : '')}
         type="button"
-        disabled
-        title="Help (coming soon)"
-        style={{ fontFamily: 'var(--sans)', fontSize: '13px', fontStyle: 'normal' }}
-      >
-        ?
-      </button>
+        onClick={() => setHelpOpen(o => !o)}
+        title="how this works"
+        aria-label="how this works"
+      >?</button>
+      {helpOpen && <HelpPopover onClose={() => setHelpOpen(false)} />}
 
       {/* Right toggle */}
       <button
