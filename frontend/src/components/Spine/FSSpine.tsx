@@ -58,7 +58,7 @@ function buildTree(
   const versionsCount = activeVersionId ? 1 : 0
   nodes.push({ kind: 'dir', name: 'versions/', count: versionsCount })
   if (activeVersionId) {
-    nodes.push({ kind: 'file', name: `v${activeVersionId}`, stamp: 'frozen' })
+    nodes.push({ kind: 'file', name: activeVersionId, stamp: 'frozen' })
   } else {
     nodes.push({ kind: 'ghost', name: '(no versions yet)' })
   }

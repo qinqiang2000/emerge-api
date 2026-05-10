@@ -38,7 +38,7 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
     open,
   } = useReview()
 
-  const docs = useDocs(s => s.byProject[activeProjectId ?? ''] ?? [])
+  const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
   const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
 

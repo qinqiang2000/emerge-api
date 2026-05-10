@@ -1,5 +1,6 @@
 // frontend/src/components/Chat/ChatPanel.tsx
 import { useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
@@ -17,14 +18,15 @@ interface AttachInfo { filename: string; doc_id?: string; pending?: boolean }
 export default function ChatPanel() {
   const { selectedId, projects } = useProjects()
   const events = useChat(s => s.events)
-  const { send, busy } = useChat()
-  const docs = useDocs(s => s.byProject[selectedId ?? ''] ?? [])
-  const fields = useSchema(s => s.byProject[selectedId ?? ''] ?? [])
+  const send = useChat(s => s.send)
+  const busy = useChat(s => s.busy)
+  const docCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
+  const fieldCount = useSchema(s => (s.byProject[selectedId ?? ''] ?? []).length)
   const [pending, setPending] = useState<AttachInfo[]>([])
   const convScrollRef = useRef<HTMLDivElement>(null)
 
   // Find any running improve job to show the banner.
-  const byId = useJob(s => s.byId)
+  const byId = useJob(useShallow(s => s.byId))
   const runningImproveEntry = Object.entries(byId)
     .filter(([, slice]) => slice.status === 'running')
     .sort(([a], [b]) => (a > b ? -1 : a < b ? 1 : 0))[0] ?? null
@@ -44,7 +46,7 @@ export default function ChatPanel() {
     }
   }
 
-  const hasContent = events.length > 0 || docs.length > 0 || fields.length > 0
+  const hasContent = events.length > 0 || docCount > 0 || fieldCount > 0
 
   const projectName = projects.find(p => p.project_id === selectedId)?.name ?? ''
 

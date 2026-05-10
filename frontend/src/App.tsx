@@ -13,7 +13,7 @@ export default function App() {
   const { activeDocId } = useReview()
   const { selectedId, projects } = useProjects()
   const project = projects.find(p => p.project_id === selectedId) ?? null
-  const docs = useDocs(s => s.byProject[selectedId ?? ''] ?? [])
+  const watchingCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
 
   const [leftHidden, setLeftHidden] = useState(false)
   const [rightHidden, setRightHidden] = useState(false)
@@ -30,7 +30,7 @@ export default function App() {
   const onToggleLeft  = () => inReview ? setLeftPeek(v => !v)  : setLeftHidden(v => !v)
   const onToggleRight = () => inReview ? setRightPeek(v => !v) : setRightHidden(v => !v)
 
-  const schemaVersion = 'v' + (project?.active_version_id ?? '0')
+  const schemaVersion = project?.active_version_id ?? 'v0'
   const schemaState: 'draft' | 'frozen' = project?.active_version_id ? 'frozen' : 'draft'
 
   return (
@@ -41,7 +41,7 @@ export default function App() {
             projectName={project?.name ?? ''}
             schemaVersion={schemaVersion}
             schemaState={schemaState}
-            watchingCount={docs.length}
+            watchingCount={watchingCount}
             improveJob={undefined}
             leftHidden={effectiveLeftHidden}
             rightHidden={effectiveRightHidden}

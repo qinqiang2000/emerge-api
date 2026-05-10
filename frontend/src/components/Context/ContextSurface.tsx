@@ -1,6 +1,7 @@
 // frontend/src/components/Context/ContextSurface.tsx
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { useProjects } from '../../stores/projects'
 import { useSchema } from '../../stores/schema'
@@ -44,11 +45,11 @@ export default function ContextSurface({ onClose }: Props) {
   const { selectedId, projects } = useProjects()
   const pid = selectedId ?? ''
 
-  const fields = useSchema(s => s.byProject[pid] ?? [])
-  const { load: loadSchema } = useSchema()
+  const fields = useSchema(useShallow(s => s.byProject[pid] ?? []))
+  const loadSchema = useSchema(s => s.load)
 
-  const { byProject, refresh: refreshDocs } = useDocs()
-  const docs = byProject[pid] ?? []
+  const docs = useDocs(useShallow(s => s.byProject[pid] ?? []))
+  const refreshDocs = useDocs(s => s.refresh)
   const { open: openReview } = useReview()
 
   const project = projects.find(p => p.project_id === pid) ?? null
@@ -67,7 +68,7 @@ export default function ContextSurface({ onClose }: Props) {
 
   // ── schema header hint ───────────────────────────────────────────
   const versionStr = project?.active_version_id
-    ? `v${project.active_version_id} frozen`
+    ? `${project.active_version_id} frozen`
     : 'v0 draft'
   const schemaHint = `${fields.length} fields · ${versionStr}`
 
