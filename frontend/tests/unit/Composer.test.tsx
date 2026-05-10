@@ -7,7 +7,7 @@ describe('Composer', () => {
   it('calls onSubmit on Enter', async () => {
     const onSubmit = vi.fn()
     render(<Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={onSubmit} />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByPlaceholderText('say something to the agent, or type / for a command…')
     await userEvent.type(input, 'hello')
     await userEvent.keyboard('{Enter}')
     expect(onSubmit).toHaveBeenCalledWith('hello')
@@ -15,9 +15,14 @@ describe('Composer', () => {
 
   it('shows slash menu when text starts with /', async () => {
     render(<Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByPlaceholderText('say something to the agent, or type / for a command…')
     await userEvent.type(input, '/ext')
-    expect(screen.getByText('/extract')).toBeInTheDocument()
+    // The slash menu renders a .cmd span; the row2 chips also show /extract as <b>.
+    // getAllByText handles both; check at least one is in the slashmenu.
+    const matches = screen.getAllByText('/extract')
+    expect(matches.length).toBeGreaterThanOrEqual(1)
+    // The .cmd span inside .slashmenu should be present
+    expect(matches.some(el => el.className === 'cmd')).toBe(true)
   })
 
   it('shows pending attachment chips', () => {

@@ -1,6 +1,5 @@
 // frontend/src/components/Chat/ChatPanel.tsx
 import { useState } from 'react'
-import { RefreshCw } from 'lucide-react'
 
 import { uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
@@ -13,8 +12,6 @@ interface AttachInfo { filename: string; doc_id?: string; pending?: boolean }
 export default function ChatPanel() {
   const { selectedId } = useProjects()
   const { events, send, busy } = useChat()
-  const lastUserMsg = useChat(s => s.lastUserMessage())
-  const hasErr = useChat(s => s.hasRecentToolError())
   const [pending, setPending] = useState<AttachInfo[]>([])
 
   async function attach(files: File[]) {
@@ -35,21 +32,7 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <header className="border-b border-rule px-4 py-2 flex items-center gap-2 shrink-0">
-        <span className="font-mono text-[10.5px] uppercase tracking-widest text-ink-4">Chat</span>
-        {hasErr && lastUserMsg && (
-          <button
-            type="button"
-            onClick={() => { void send(selectedId ?? 'p_unset', lastUserMsg) }}
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-rose border border-rose rounded hover:bg-paper-2"
-            aria-label="retry last user message"
-          >
-            <RefreshCw size={12} />
-            重试上一条
-          </button>
-        )}
-      </header>
+    <>
       <div className="conv-scroll">
         <div className="conv-inner">
           <MessageList events={events} busy={busy} />
@@ -64,6 +47,6 @@ export default function ChatPanel() {
           setPending([])
         }}
       />
-    </div>
+    </>
   )
 }

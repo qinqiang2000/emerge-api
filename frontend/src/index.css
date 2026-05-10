@@ -64,6 +64,33 @@ html, body, #root {
 .tool .t-btn.primary:hover{background:var(--ink-2)}
 .tool .t-btn.danger{color:var(--rose);border-color:var(--rose-soft)}
 
+/* ── composer ────────────────────────────────────────────────────── */
+.composer-wrap{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:20px 56px 18px;background:linear-gradient(to top, #FDFDFC 70%, rgba(253,253,252,0));pointer-events:none}
+.composer{pointer-events:auto;position:relative;width:100%;max-width:720px;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 6px 24px rgba(31,27,20,.06);padding:0;display:flex;flex-direction:column}
+.composer .row1{display:flex;align-items:flex-start;gap:0;padding:12px 14px 6px}
+.composer .caret{font-family:var(--mono);color:var(--ochre);margin-right:8px;font-size:14px;padding-top:1px}
+.composer textarea{flex:1;font-family:var(--serif);font-size:16px;color:var(--ink);background:transparent;border:0;outline:none;resize:none;min-height:24px;line-height:1.5;font-style:italic}
+.composer textarea::placeholder{color:var(--ink-4);font-style:italic}
+.composer .row2{display:flex;align-items:center;gap:10px;padding:6px 12px 10px;border-top:1px solid var(--rule-soft);margin-top:4px}
+.composer .slashes{display:flex;gap:6px;flex-wrap:wrap}
+.composer .slash{font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--paper-2);border:1px solid var(--rule);padding:3px 8px;border-radius:4px;cursor:default}
+.composer .slash:hover{background:var(--paper-3);color:var(--ink)}
+.composer .slash b{color:var(--ochre-2);font-weight:500}
+.composer .send{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-4);display:flex;align-items:center;gap:4px}
+.composer .send kbd{background:var(--paper-2);border:1px solid var(--rule);border-bottom-width:2px;padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:10px}
+
+.slashmenu{position:absolute;left:0;right:0;bottom:100%;margin-bottom:8px;display:flex;justify-content:center;padding:0;pointer-events:none;z-index:6;animation:ghostIn .12s ease-out}
+.slashmenu .inner{pointer-events:auto;width:100%;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 8px 28px rgba(31,27,20,.10);overflow:hidden;padding:6px}
+.slashmenu .inner::before{content:"commands";display:block;font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.12em;padding:6px 10px 4px}
+.slashmenu .item{display:flex;align-items:baseline;gap:14px;padding:7px 12px;border-radius:6px;border:1px solid transparent;cursor:pointer;transition:background .08s}
+.slashmenu .item:hover{background:var(--paper-2)}
+.slashmenu .item.active{background:var(--ochre-soft);border-color:transparent}
+.slashmenu .cmd{font-family:var(--mono);font-size:13px;color:var(--ochre-2);font-weight:500;flex:0 0 96px}
+.slashmenu .desc{font-family:var(--serif);font-size:13.5px;color:var(--ink-3);font-style:italic;line-height:1.4;flex:1;min-width:0}
+.slashmenu .item.active .desc{color:var(--ink-2)}
+.slashmenu .hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
+@keyframes ghostIn{0%{opacity:0;transform:translateY(4px)}100%{opacity:1;transform:translateY(0)}}
+
 /* ── candidate diff ──────────────────────────────────────────────── */
 .diff{font-family:var(--mono);font-size:11.5px;line-height:1.55}
 .diff .row{padding:4px 12px 4px 28px;border-bottom:1px solid var(--rule-soft);display:flex;gap:12px}

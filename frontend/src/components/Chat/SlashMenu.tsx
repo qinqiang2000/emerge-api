@@ -1,35 +1,47 @@
 // frontend/src/components/Chat/SlashMenu.tsx
-interface Item { command: string; hint: string }
 
-const ITEMS: Item[] = [
-  { command: '/new', hint: 'create a new project' },
-  { command: '/extract', hint: 'run extraction over project docs' },
-  { command: '/eval', hint: 'score against reviewed examples' },
-  { command: '/review', hint: 'review predictions' },
-  { command: '/improve', hint: 'autoresearch loop (>=5 reviewed)' },
-  { command: '/publish', hint: 'freeze version + issue API key' },
-  { command: '/feedback', hint: 'address client feedback' },
+interface Item { cmd: string; desc: string }
+
+const COMMANDS: Item[] = [
+  { cmd: '/init',    desc: 'derive a schema from the documents in this folder' },
+  { cmd: '/extract', desc: 'run extraction on every doc, or a subset' },
+  { cmd: '/review',  desc: 'open the next pending document for review' },
+  { cmd: '/eval',    desc: 'score current schema against reviewed/' },
+  { cmd: '/improve', desc: 'long-running: refine field descriptions to lift F1' },
+  { cmd: '/publish', desc: 'freeze a version and mint an API key' },
 ]
 
-interface Props { query: string; onPick: (cmd: string) => void }
+interface Props {
+  query: string
+  activeIdx: number
+  onPick: (cmd: string) => void
+  onHover: (idx: number) => void
+}
 
-export default function SlashMenu({ query, onPick }: Props) {
-  const filtered = ITEMS.filter(i => i.command.startsWith(query))
-  if (filtered.length === 0) return null
+export default function SlashMenu({ query, activeIdx, onPick, onHover }: Props) {
+  const filtered = query.trim().length > 1
+    ? COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(query.trim().toLowerCase()))
+    : COMMANDS
+  const list = filtered.length ? filtered : COMMANDS
+
   return (
-    <ul className="absolute bottom-full mb-2 left-0 right-0 max-h-60 overflow-auto bg-surface border border-subtle rounded shadow font-mono text-sm">
-      {filtered.map(i => (
-        <li key={i.command}>
-          <button
-            type="button"
-            onClick={() => onPick(i.command)}
-            className="w-full text-left px-3 py-2 hover:bg-subtle"
+    <div className="slashmenu">
+      <div className="inner">
+        {list.map((s, i) => (
+          <div
+            key={s.cmd}
+            className={'item ' + (i === activeIdx ? 'active' : '')}
+            onMouseEnter={() => onHover(i)}
+            onMouseDown={(e) => { e.preventDefault(); onPick(s.cmd) }}
           >
-            <span className="text-accent-primary">{i.command}</span>{' '}
-            <span className="text-fg-muted">{i.hint}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+            <span className="cmd">{s.cmd}</span>
+            <span className="desc">{s.desc}</span>
+            <span className="hint">{i === activeIdx ? '↵' : ''}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
+
+export { COMMANDS }
