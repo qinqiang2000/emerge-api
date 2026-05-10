@@ -1,0 +1,99 @@
+// frontend/src/components/ReviewMode/ReviewBar.tsx
+import type { DocSummary } from '../../types/review'
+
+type Props = {
+  filename?: string
+  saving: boolean
+  view: 'form' | 'json'
+  onSetView: (v: 'form' | 'json') => void
+  forceOpen: boolean | null
+  onToggleExpand: () => void
+  docs: DocSummary[]
+  activeDocId: string | null
+  activeProjectId: string | null
+  onOpen: (pid: string, docId: string) => void
+  onSave: () => void
+  onBack: () => void
+}
+
+export default function ReviewBar({
+  filename,
+  saving,
+  view,
+  onSetView,
+  forceOpen,
+  onToggleExpand,
+  docs,
+  activeDocId,
+  activeProjectId,
+  onOpen,
+  onSave,
+  onBack,
+}: Props) {
+  const idx = docs.findIndex(d => d.doc_id === activeDocId)
+  const total = docs.length
+  const hasPrev = idx > 0
+  const hasNext = idx >= 0 && idx < total - 1
+  const prevDoc = hasPrev ? docs[idx - 1] : null
+  const nextDoc = hasNext ? docs[idx + 1] : null
+
+  const handlePrev = () => {
+    if (prevDoc && activeProjectId) void onOpen(activeProjectId, prevDoc.doc_id)
+  }
+  const handleNext = () => {
+    if (nextDoc && activeProjectId) void onOpen(activeProjectId, nextDoc.doc_id)
+  }
+
+  const allExpanded = forceOpen === true
+
+  return (
+    <div className="rev-bar">
+      <button className="back" onClick={onBack} type="button">◂ back to chat</button>
+
+      <span className="title">
+        <em>reviewing</em>
+        <span className="doc">docs/{filename ?? activeDocId}</span>
+      </span>
+
+      <div className="spacer" />
+
+      <div className="rev-toolbar">
+        <div className="seg">
+          <button
+            className={view === 'form' ? 'on' : ''}
+            onClick={() => onSetView('form')}
+            type="button"
+          >
+            form
+          </button>
+          <button
+            className={view === 'json' ? 'on' : ''}
+            onClick={() => onSetView('json')}
+            type="button"
+          >
+            json
+          </button>
+        </div>
+        <button
+          className="ghostbtn"
+          onClick={onToggleExpand}
+          title={allExpanded ? 'collapse all' : 'expand all'}
+          aria-label={allExpanded ? 'collapse all' : 'expand all'}
+          type="button"
+          style={{ padding: '4px 7px', fontSize: 12 }}
+        >
+          {allExpanded ? '⤡' : '⤢'}
+        </button>
+      </div>
+
+      <div className="nav">
+        <button className="arrow" onClick={handlePrev} disabled={!hasPrev} aria-label="previous doc" type="button">‹</button>
+        <button className="arrow" onClick={handleNext} disabled={!hasNext} aria-label="next doc" type="button">›</button>
+      </div>
+
+      <button className="save" onClick={onSave} disabled={saving} type="button">
+        {saving ? 'saving…' : 'save'}
+      </button>
+    </div>
+  )
+}

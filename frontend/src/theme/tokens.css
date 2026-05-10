@@ -1,39 +1,24 @@
-/* frontend/src/theme/tokens.css */
 :root {
-  --bg-canvas:      #faf9f5;
-  --bg-surface:     #ffffff;
-  --bg-subtle:      #e8e6dc;
-  --bg-bubble-user: #efeee6;
-  --fg-primary:     #141413;
-  --fg-secondary:   #6b6a64;
-  --fg-muted:       #b0aea5;
-  --accent-primary: #d97757;
-  --accent-info:    #6a9bcc;
-  --accent-success: #788c5d;
-  --accent-danger:  #b53a2b;
-  --font-heading: 'Poppins', Arial, sans-serif;
-  --font-body:    'Lora', Georgia, serif;
-  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+  --paper:      #FAFAF7;
+  --paper-2:    #F2F1EC;
+  --paper-3:    #E8E5DC;
+  --rule:       #DCD8CD;
+  --rule-soft:  #ECE9E0;
+  --ink:        #1B1A16;
+  --ink-2:      #37352E;
+  --ink-3:      #5C5A52;
+  --ink-4:      #8A877D;
+  --ink-5:      #B3B0A5;
+  --ochre:      #B5642C;
+  --ochre-2:    #8E4A1E;
+  --ochre-soft: #EFD9C4;
+  --moss:       #5C6B3A;
+  --moss-soft:  #D7DBC2;
+  --rose:       #A6453F;
+  --rose-soft:  #EAC9C5;
+  --serif: 'Lora', 'Iowan Old Style', 'Apple Garamond', Georgia, serif;
+  --mono:  'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:  'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
-
-:root[data-theme='dark'] {
-  --bg-canvas:      #1f1e1c;
-  --bg-surface:     #2a2927;
-  --bg-subtle:      #36352f;
-  --bg-bubble-user: #3d3b35;
-  --fg-primary:     #faf9f5;
-  --fg-secondary:   #c5c3ba;
-  --fg-muted:       #8c8a82;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']):not([data-theme='dark']) {
-    --bg-canvas:      #1f1e1c;
-    --bg-surface:     #2a2927;
-    --bg-subtle:      #36352f;
-    --bg-bubble-user: #3d3b35;
-    --fg-primary:     #faf9f5;
-    --fg-secondary:   #c5c3ba;
-    --fg-muted:       #8c8a82;
-  }
-}
+html, body { background: #FDFDFC; color: var(--ink); font-family: var(--serif); -webkit-font-smoothing: antialiased; }
+::selection { background: rgba(181,100,44,.22); }

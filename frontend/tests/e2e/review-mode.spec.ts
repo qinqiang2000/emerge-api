@@ -1,4 +1,5 @@
 // frontend/tests/e2e/review-mode.spec.ts
+// Updated for T11 new DOM structure — contentEditable .val spans replace labeled inputs.
 import { test, expect } from '@playwright/test'
 
 test('open a doc, edit a field, save, badge flips to reviewed', async ({ page }) => {
@@ -15,12 +16,19 @@ test('open a doc, edit a field, save, badge flips to reviewed', async ({ page })
   // click the doc to enter review mode
   await page.getByRole('button', { name: /sample\.pdf/ }).click()
 
-  // FieldEditor renders: invoice_number with value DRAFT-1
-  const invoiceInput = page.getByLabel(/invoice_number/)
-  await expect(invoiceInput).toHaveValue('DRAFT-1')
+  // FieldEditor renders: look for field name "invoice_number" in the .name span
+  await expect(page.locator('.rev-fld .name', { hasText: 'invoice_number' })).toBeVisible({ timeout: 8_000 })
 
-  // edit and save
-  await invoiceInput.fill('CONFIRMED-1')
+  // Find the corresponding .val contentEditable span (first one = invoice_number field row)
+  const valSpan = page.locator('.rev-fld').first().locator('.val')
+  await expect(valSpan).toBeVisible()
+
+  // Clear and type a new value
+  await valSpan.click()
+  await valSpan.fill('CONFIRMED-1')
+  // Trigger blur to commit the change
+  await valSpan.blur()
+
   await page.getByRole('button', { name: /save reviewed/i }).click()
 
   // wait for save to complete, then back out

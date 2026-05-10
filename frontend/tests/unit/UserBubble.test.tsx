@@ -1,29 +1,57 @@
+/**
+ * Originally tested UserBubble (removed in M7 T3).
+ * Now tests Turn, which replaced UserBubble as the user-message container.
+ */
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-import UserBubble from '../../src/components/Chat/UserBubble'
+import Turn from '../../src/components/Chat/Turn'
 
-describe('UserBubble', () => {
-  it('renders the text content', () => {
-    render(<UserBubble text="提取这些发票核心信息" />)
+describe('Turn (user)', () => {
+  it('renders children', () => {
+    render(
+      <Turn who="you" ts="just now">
+        <div className="msg user">提取这些发票核心信息</div>
+      </Turn>
+    )
     expect(screen.getByText('提取这些发票核心信息')).toBeInTheDocument()
   })
 
-  it('does not interpret markdown (plain text only)', () => {
-    const { container } = render(<UserBubble text="**not bold**" />)
-    expect(container.querySelector('strong')).toBeNull()
-    expect(container.textContent).toContain('**not bold**')
+  it('shows "you" label for user turns', () => {
+    render(
+      <Turn who="you" ts="just now">
+        <span>hi</span>
+      </Turn>
+    )
+    expect(screen.getByText('you')).toBeInTheDocument()
   })
 
-  it('outer container is right-aligned (justify-end)', () => {
-    const { container } = render(<UserBubble text="hi" />)
-    const outer = container.firstElementChild as HTMLElement
-    expect(outer.className).toContain('justify-end')
+  it('shows "agent" label for agent turns', () => {
+    render(
+      <Turn who="agent" ts="just now">
+        <span>hi</span>
+      </Turn>
+    )
+    expect(screen.getByText('agent')).toBeInTheDocument()
   })
 
-  it('bubble has bg-bubble-user', () => {
-    const { container } = render(<UserBubble text="hi" />)
-    const bubble = container.querySelector('[data-role="user-bubble"]')
-    expect(bubble?.className).toContain('bg-bubble-user')
+  it('agent .who span has "agent" class', () => {
+    const { container } = render(
+      <Turn who="agent" ts="just now">
+        <span>hi</span>
+      </Turn>
+    )
+    const whoEl = container.querySelector('.who')
+    expect(whoEl?.className).toContain('agent')
+  })
+
+  it('user .who span does not have "agent" class', () => {
+    const { container } = render(
+      <Turn who="you" ts="just now">
+        <span>hi</span>
+      </Turn>
+    )
+    const whoEl = container.querySelector('.who')
+    expect(whoEl?.className).not.toContain('agent')
   })
 })

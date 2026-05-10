@@ -1,4 +1,5 @@
 // frontend/tests/e2e/review-mode-evidence.spec.ts
+// Updated for T11 — evidence badges are still aria-label="jump to page N" buttons (.ev class).
 import { test, expect } from '@playwright/test'
 
 test('field with _evidence shows pX badge and click does not crash', async ({ page }) => {

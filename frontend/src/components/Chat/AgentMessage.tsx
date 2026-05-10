@@ -5,7 +5,7 @@ interface Props { text: string }
 
 export default function AgentMessage({ text }: Props) {
   return (
-    <div className="text-fg-primary leading-relaxed font-body max-w-none">
+    <div className="msg text-ink leading-relaxed font-serif max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         skipHtml
@@ -17,7 +17,7 @@ export default function AgentMessage({ text }: Props) {
               href={href}
               target="_blank"
               rel="noreferrer noopener"
-              className="text-accent-primary underline"
+              className="text-ochre-2 underline"
             >
               {children}
             </a>
@@ -28,29 +28,29 @@ export default function AgentMessage({ text }: Props) {
             return isBlock ? (
               <code className={`${className ?? ''} font-mono`}>{children}</code>
             ) : (
-              <code className="font-mono bg-subtle text-fg-primary px-1 py-0.5 rounded text-[0.9em]">
+              <code className="font-mono bg-paper-2 border border-rule-soft text-ochre-2 px-1 py-0.5 rounded text-[0.86em]">
                 {children}
               </code>
             )
           },
           pre: ({ children }) => (
-            <pre className="bg-subtle text-fg-primary p-3 rounded overflow-x-auto text-sm">
+            <pre className="bg-paper-2 text-ink border border-rule p-3 rounded overflow-x-auto text-sm">
               {children}
             </pre>
           ),
-          h1: ({ children }) => <h1 className="font-heading text-xl mt-3 mb-2">{children}</h1>,
-          h2: ({ children }) => <h2 className="font-heading text-lg mt-3 mb-2">{children}</h2>,
-          h3: ({ children }) => <h3 className="font-heading text-base mt-2 mb-1.5">{children}</h3>,
+          h1: ({ children }) => <h1 className="font-serif text-xl mt-3 mb-2">{children}</h1>,
+          h2: ({ children }) => <h2 className="font-serif text-lg mt-3 mb-2">{children}</h2>,
+          h3: ({ children }) => <h3 className="font-serif text-base mt-2 mb-1.5">{children}</h3>,
           table: ({ children }) => (
             <div className="overflow-x-auto my-2">
               <table className="border-collapse text-sm">{children}</table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="border border-subtle px-2 py-1 text-left font-heading">{children}</th>
+            <th className="border border-rule px-2 py-1 text-left font-serif">{children}</th>
           ),
           td: ({ children }) => (
-            <td className="border border-subtle px-2 py-1">{children}</td>
+            <td className="border border-rule px-2 py-1">{children}</td>
           ),
           ul: ({ children }) => <ul className="list-disc ml-5 my-1.5 space-y-0.5">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal ml-5 my-1.5 space-y-0.5">{children}</ol>,

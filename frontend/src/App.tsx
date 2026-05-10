@@ -1,37 +1,62 @@
-import { useEffect } from 'react'
-
-import ProjectList from './components/ProjectList/ProjectList'
+import { useState } from 'react'
+import Shell from './components/Shell/Shell'
+import Topbar from './components/Shell/Topbar'
+import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
-import DocList from './components/DocList/DocList'
-import ReviewMode from './components/ReviewMode/ReviewMode'
-import ApiKeyRevealModal from './components/Publish/ApiKeyRevealModal'
-import ThemeToggle from './components/Theme/ThemeToggle'
+import ContextSurface from './components/Context/ContextSurface'
+import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
 import { useReview } from './stores/review'
-import { useTheme } from './stores/theme'
+import { useProjects } from './stores/projects'
+import { useDocs } from './stores/docs'
 
 export default function App() {
   const { activeDocId } = useReview()
-  const hydrate = useTheme(s => s.hydrate)
-  useEffect(() => { hydrate() }, [hydrate])
+  const { selectedId, projects } = useProjects()
+  const project = projects.find(p => p.project_id === selectedId) ?? null
+  const watchingCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
 
-  if (activeDocId) return <ReviewMode />
+  const [leftHidden, setLeftHidden] = useState(false)
+  const [rightHidden, setRightHidden] = useState(false)
+  const [leftPeek, setLeftPeek] = useState(false)
+  const [rightPeek, setRightPeek] = useState(false)
+
+  const inReview = !!activeDocId
+
+  // In review mode, panels are hidden by default; peek toggles reveal them.
+  // Outside review, the user-controlled hidden flags apply.
+  const effectiveLeftHidden  = inReview ? !leftPeek  : leftHidden
+  const effectiveRightHidden = inReview ? !rightPeek : rightHidden
+
+  const onToggleLeft  = () => inReview ? setLeftPeek(v => !v)  : setLeftHidden(v => !v)
+  const onToggleRight = () => inReview ? setRightPeek(v => !v) : setRightHidden(v => !v)
+
+  const schemaVersion = project?.active_version_id ?? 'v0'
+  const schemaState: 'draft' | 'frozen' = project?.active_version_id ? 'frozen' : 'draft'
+
   return (
     <>
-      <ApiKeyRevealModal />
-      <div className="fixed right-3 top-3 z-10">
-        <ThemeToggle />
-      </div>
-      <div className="grid grid-cols-[260px_1fr_360px] h-full bg-canvas text-fg-primary">
-        <aside className="border-r border-subtle">
-          <ProjectList />
-        </aside>
-        <main className="flex flex-col">
-          <ChatPanel />
-        </main>
-        <aside className="border-l border-subtle">
-          <DocList />
-        </aside>
-      </div>
+      <Shell
+        topbar={
+          <Topbar
+            projectName={project?.name ?? ''}
+            schemaVersion={schemaVersion}
+            schemaState={schemaState}
+            watchingCount={watchingCount}
+            improveJob={undefined}
+            leftHidden={effectiveLeftHidden}
+            rightHidden={effectiveRightHidden}
+            onToggleLeft={onToggleLeft}
+            onToggleRight={onToggleRight}
+          />
+        }
+        left={<FSSpine />}
+        center={inReview
+          ? <ReviewOverlay onBack={() => useReview.getState().close()} />
+          : <ChatPanel />}
+        right={<ContextSurface />}
+        leftHidden={effectiveLeftHidden}
+        rightHidden={effectiveRightHidden}
+      />
     </>
   )
 }

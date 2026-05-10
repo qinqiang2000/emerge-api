@@ -10,7 +10,7 @@ export default function ExportBundleButton({ projectId, activeVersionId }: Props
     <a
       aria-label={`export ${activeVersionId} bundle`}
       href={exportBundleUrl(projectId)}
-      className="p-1 hover:bg-subtle rounded text-fg-muted hover:text-fg-primary transition-colors"
+      className="p-1 hover:bg-paper-2 rounded text-ink-4 hover:text-ink transition-colors"
     >
       <Download size={12} />
     </a>

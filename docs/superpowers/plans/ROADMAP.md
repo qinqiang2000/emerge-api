@@ -18,6 +18,7 @@
 | **M4** — polish + dark mode + export bundle | `2026-05-09-m4-polish.md` | ✅ shipped | `1d95e5f..1e48a3b` (21 commits) |
 | **M5** — UX papercut bundle (useJob isolate + schema invalidate + multi-entity + click-to-page) | `2026-05-09-m5-ux-papercut.md` | ✅ shipped | `d244f12..eb978b8` (17 commits, T9 scope-reduced, T14 also fixed pre-existing ReviewMode infinite-rerender) |
 | **M6** — agent sandbox + secret hygiene (allowlist enforce + API key redaction) | `2026-05-10-m6-agent-sandbox-secret-hygiene.md` | ✅ shipped | `4f3c40f..d9c6452` (11 commits, history scrubber cleaned 2 leaked entries from M3 dogfood jsonl; 2 real-LLM tests skip-by-default behind `EMERGE_REAL_LLM=1`) |
+| **M7** — design handoff UI replacement | `2026-05-10-m7-design-handoff-ui.md` | ✅ shipped | `5080ff0..fcf9369` (~14 task commits) |
 
 ## What each milestone delivers
 
@@ -71,6 +72,30 @@
 
 **Scope:** see `2026-05-10-m6-agent-sandbox-secret-hygiene.md`. Closes the 🚨 critical follow-up filed 2026-05-10 plus the M3-era plaintext API key follow-up.
 
+### M7 — design handoff UI replacement
+
+**Goal:** replace the ad-hoc Tailwind palette with the full Anthropic design-handoff token system and rebuild every screen to spec — new CSS token layer, semantic ink/paper/ochre/moss/rose palette, editorial typography (serif body + mono chrome labels), new 3-col shell, all ReviewMode / Chat / Publish / Improve components rebuilt or migrated.
+
+**Scope:**
+- T0: contract setup — `docs/design-decisions.md`, `docs/superpowers/plans/2026-05-10-m7-design-handoff-ui.md`
+- T1: token rewrite — `frontend/src/theme/tokens.css`, `tailwind.config.js`; dark-mode toggle dropped (no dark palette in handoff)
+- T2: Shell layout — 3-col `AppShell`, `Topbar`, `ErrorBoundary`
+- T3: Turn + conv — `AgentMessage`, `UserBubble`, `MessageList`, `ConvColumn` conv-column scroll
+- T4: ToolCall + ToolRow + ProposalDiff — new pill/inline rendering for tool calls and schema-diff proposals
+- T5: Composer + SlashMenu — new composer bar with slash-command popover
+- T6: FSSpine — filesystem spine with docs/versions/metrics tree (metrics deferred)
+- T7: ContextSurface — right column context card (schema / eval metrics / docs tabs)
+- T8: EmptyHero — landing hero for empty project state
+- T9: HelpPopover — keyboard shortcuts popover
+- T10: Review overlay shell + ReviewBar — full-screen review overlay triggered from topbar
+- T11: Review fields — `Section`, `FieldRow`, `ObjectField`, `ArrayField`, `JsonView`, `FieldEditor` multi-entity nav
+- T12: EvalCard — inline eval result card in chat thread
+- T13: Publish stage — readiness check + API key reveal inline chat cards
+- T14: Improve banner + candidate cards — running banner + `ProposalCandidateCard` turn-level accept
+- T15: legacy-token sweep + ROADMAP closeout (this commit)
+
+**Design decisions deferred:** dark palette revival, schema section grouping, metrics tree API, per-field accept in /improve, publish stage overlay, object/array sub-shape, per-field confidence, PDF↔field bidirectional binding.
+
 ## Open cross-cutting follow-ups
 
 These don't fit a milestone but should be tracked:
@@ -86,6 +111,15 @@ These don't fit a milestone but should be tracked:
 - ~~**`useJob` is a single global Zustand store**~~ — closed by M5: `useJob.byId[jobId]` per-slice state with `AbortController` abort-on-resubscribe; `JobProgressCard` reads the slice via selector.
 - **Per-tool retry endpoint** — M4 ships chat-level "重试上一条" only. Per-tool re-run needs `/lab/chat/retry-tool` keyed by prior `tool_use_id`, plus frontend splice semantics for replacing the failed pill result without replaying the full user turn.
 - **Export bundle filename for non-ASCII project names** — M4 `_safe_filename` strips non-ASCII, so a Chinese project name falls back toward `project-vN.zip`. Decide whether to preserve RFC 5987 `filename*=` UTF-8 names or use a deterministic ASCII slug with project id suffix.
+- **dark-mode revival** — M7 ships light-only; design needs a dark palette pass before re-enabling the theme toggle.
+- **schema sections** — review renders one synthetic section because `SchemaField` has no `section` attribute; design shows multi-section grouping. Needs optional `section` field in backend schema model.
+- **metrics tree section** — `FSSpine` `metrics/` row deferred until eval history is exposed via `/lab/projects/:id/evals`.
+- **per-field accept in /improve** — currently turn-level; needs new backend tool + state machine for field-level granularity.
+- **publish stage overlay vs inline** — current implementation is inline chat cards; design intends a full-conv-column overlay (`.pub-stage` position:absolute inset:0).
+- **review object/array sub-shape** — object/array fields render as editable JSON `<pre>` since `SchemaField` carries no sub-field shape; design shows nested form rows.
+- **per-field confidence dots** — hard-coded to 'high' (moss); needs per-field score from extract LLM.
+- **PDF→field bidirectional binding** — current click-to-page (field→PDF) is one-way; clicking in the PDF doesn't activate the corresponding field row.
+- **review toolbar `<flagged>/<total> flagged` status** — design shows a flagged-field count between the expand-toggle and prev/next arrows; deferred until per-field confidence lands (a "flag" needs a confidence threshold to count against).
 
 ## How to use this file
 
