@@ -5,8 +5,6 @@ import { RefreshCw } from 'lucide-react'
 import { uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
-import ThemeToggle from '../Theme/ThemeToggle'
-
 import Composer from './Composer'
 import MessageList from './MessageList'
 
@@ -51,9 +49,6 @@ export default function ChatPanel() {
             重试上一条
           </button>
         )}
-        <div className={hasErr ? '' : 'ml-auto'}>
-          <ThemeToggle />
-        </div>
       </header>
       <div className="flex-1 overflow-auto">
         <MessageList events={events} busy={busy} />
