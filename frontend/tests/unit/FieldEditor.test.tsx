@@ -1,3 +1,7 @@
+// tests/unit/FieldEditor.test.tsx
+// Updated for T11 new DOM structure (contentEditable FieldRow, Section, ObjectField, ArrayField).
+// Old M5 tests replaced with integration smoke tests per T11.10 spec.
+
 import { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,18 +10,19 @@ import FieldEditor from '../../src/components/ReviewMode/FieldEditor'
 
 const SCHEMA = [
   { name: 'invoice_number', type: 'string', description: 'invoice no' },
-  { name: 'total_amount', type: 'number', description: 'total' },
+  { name: 'total_amount', type: 'string', description: 'total' },
 ]
 
-/** Stateful test wrapper — emulates the real parent (review store)
- *  by holding entities in state and feeding them back via the entities prop. */
+/** Stateful test wrapper — emulates the real parent (review store). */
 function Stateful({
   initial,
+  schema = SCHEMA,
   onChange,
   saving = false,
   onSave = () => {},
 }: {
   initial: Record<string, unknown>
+  schema?: typeof SCHEMA
   onChange?: (entityIdx: number, name: string, value: unknown) => void
   saving?: boolean
   onSave?: () => void
@@ -25,7 +30,7 @@ function Stateful({
   const [entities, setEntities] = useState<Record<string, unknown>[]>([initial])
   return (
     <FieldEditor
-      schema={SCHEMA as any}
+      schema={schema as any}
       entities={entities}
       onChange={(entityIdx, name, value) => {
         setEntities((s) => s.map((row, i) => i === entityIdx ? { ...row, [name]: value } : row))
@@ -39,89 +44,239 @@ function Stateful({
   )
 }
 
+// ── FieldEditor basic rendering ──────────────────────────────────────────────
+
 describe('FieldEditor', () => {
-  it('renders a labelled input per schema field', () => {
-    render(<Stateful initial={{ invoice_number: 'INV-1', total_amount: 99.5 }} />)
-    expect(screen.getByLabelText(/invoice_number/)).toHaveValue('INV-1')
-    expect(screen.getByLabelText(/total_amount/)).toHaveValue('99.5')
+  it('renders field names via FieldRow', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1', total_amount: '99.5' }} />)
+    // FieldRow renders field name in .name spans
+    expect(screen.getByText('invoice_number')).toBeInTheDocument()
+    expect(screen.getByText('total_amount')).toBeInTheDocument()
   })
 
-  it('calls onChange with entity index, field name and accumulated value as user types', async () => {
-    const onChange = vi.fn()
-    render(<Stateful initial={{ invoice_number: '' }} onChange={onChange} />)
-    const input = screen.getByLabelText(/invoice_number/)
-    await userEvent.type(input, 'INV-42')
-    // last call has entity index 0 + the full accumulated value
-    expect(onChange).toHaveBeenLastCalledWith(0, 'invoice_number', 'INV-42')
+  it('renders field values as contentEditable spans', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1' }} />)
+    // The .val contentEditable span should contain the value
+    const valSpans = document.querySelectorAll('[contenteditable]')
+    const found = Array.from(valSpans).some(el => el.textContent === 'INV-1')
+    expect(found).toBe(true)
   })
 
   it('disables save button when saving=true', () => {
     render(<Stateful initial={{}} saving={true} />)
     expect(screen.getByRole('button', { name: /saving/i })).toBeDisabled()
   })
-})
 
-describe('FieldEditor type-derived controls', () => {
-  it('renders enum chips for an enum string field', () => {
-    const onChange = vi.fn()
-    render(<FieldEditor
-      schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['invoice', 'others'] }]}
-      entities={[{ doc_type: 'invoice' }]}
-      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
-    />)
-    expect(screen.getByRole('button', { name: 'invoice' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'others' })).toBeInTheDocument()
+  it('save button renders with correct label when not saving', () => {
+    render(<Stateful initial={{}} saving={false} />)
+    expect(screen.getByRole('button', { name: /save reviewed/i })).toBeInTheDocument()
   })
 
-  it('clicking an enum chip emits onChange', () => {
-    const onChange = vi.fn()
-    render(<FieldEditor
-      schema={[{ name: 'doc_type', type: 'string', description: 'd', enum: ['a', 'b'] }]}
-      entities={[{ doc_type: 'a' }]}
-      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
-    />)
-    fireEvent.click(screen.getByRole('button', { name: 'b' }))
-    expect(onChange).toHaveBeenCalledWith(0, 'doc_type', 'b')
-  })
-
-  it('renders number stepper for type=number', () => {
-    render(<FieldEditor
-      schema={[{ name: 'amount', type: 'number', description: 'd' }]}
-      entities={[{ amount: 100 }]}
-      onChange={vi.fn()} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
-    />)
-    expect(screen.getByRole('button', { name: '-' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '+' })).toBeInTheDocument()
-  })
-
-  it('renders toggle for type=boolean', () => {
-    const onChange = vi.fn()
-    render(<FieldEditor
-      schema={[{ name: 'is_paid', type: 'boolean', description: 'd' }]}
-      entities={[{ is_paid: false }]}
-      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
-    />)
-    const toggle = screen.getByRole('switch', { name: /0-is_paid/i })
-    expect(toggle).toBeInTheDocument()
-    fireEvent.click(toggle)
-    expect(onChange).toHaveBeenCalledWith(0, 'is_paid', true)
+  it('calls onSave when save button is clicked', () => {
+    const onSave = vi.fn()
+    render(<Stateful initial={{}} onSave={onSave} />)
+    fireEvent.click(screen.getByRole('button', { name: /save reviewed/i }))
+    expect(onSave).toHaveBeenCalled()
   })
 })
+
+// ── FieldRow cdot rendering ──────────────────────────────────────────────────
+
+describe('FieldEditor FieldRow cdot', () => {
+  it('renders a confidence dot for each field (default moss / high)', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1', total_amount: '100' }} />)
+    const dots = document.querySelectorAll('.cdot')
+    // One cdot per field row (2 fields)
+    expect(dots.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+// ── Section toggle ───────────────────────────────────────────────────────────
+
+describe('FieldEditor Section', () => {
+  it('renders a section header with label "fields"', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1' }} />)
+    // Section label is rendered as italic serif .lab span
+    expect(screen.getByText('fields')).toBeInTheDocument()
+  })
+
+  it('field count chip shows correct count', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1', total_amount: '99' }} />)
+    expect(screen.getByText('2 fields')).toBeInTheDocument()
+  })
+
+  it('clicking section header toggles body (collapses)', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1' }} />)
+    const sectHeader = document.querySelector('.sect-h')!
+    expect(sectHeader).toBeInTheDocument()
+    // Initially open — field names visible
+    expect(screen.getByText('invoice_number')).toBeInTheDocument()
+    fireEvent.click(sectHeader)
+    // After collapse — field name spans should be gone
+    expect(screen.queryByText('invoice_number')).not.toBeInTheDocument()
+  })
+})
+
+// ── Active field ─────────────────────────────────────────────────────────────
+
+describe('FieldEditor active field', () => {
+  it('clicking a FieldRow adds .active class', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1' }} />)
+    const row = document.querySelector('.rev-fld')!
+    expect(row).toBeInTheDocument()
+    expect(row.classList.contains('active')).toBe(false)
+    fireEvent.click(row)
+    expect(row.classList.contains('active')).toBe(true)
+  })
+
+  it('clicking active row again deactivates it', () => {
+    render(<Stateful initial={{ invoice_number: 'INV-1' }} />)
+    const row = document.querySelector('.rev-fld')!
+    fireEvent.click(row)
+    expect(row.classList.contains('active')).toBe(true)
+    fireEvent.click(row)
+    expect(row.classList.contains('active')).toBe(false)
+  })
+})
+
+// ── ObjectField ──────────────────────────────────────────────────────────────
+
+describe('FieldEditor ObjectField', () => {
+  it('renders ObjectField for type=object fields', () => {
+    render(<FieldEditor
+      schema={[{ name: 'address', type: 'object', description: '' }]}
+      entities={[{ address: { street: '1 Main St', city: 'Anytown' } }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    // ObjectField header contains the field name and "object" type tag
+    expect(screen.getByText('address')).toBeInTheDocument()
+    expect(screen.getByText(/object · 2 keys/)).toBeInTheDocument()
+  })
+
+  it('ObjectField expands on header click to show JSON body', () => {
+    render(<FieldEditor
+      schema={[{ name: 'meta', type: 'object', description: '' }]}
+      entities={[{ meta: { k: 'v' } }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    const objHead = document.querySelector('.objhead')!
+    // Initially collapsed
+    expect(document.querySelector('.objbody')).not.toBeInTheDocument()
+    fireEvent.click(objHead)
+    expect(document.querySelector('.objbody')).toBeInTheDocument()
+    // JSON content visible
+    expect(document.querySelector('.objbody')!.textContent).toContain('"k"')
+  })
+
+  it('ObjectField collapses again on second click', () => {
+    render(<FieldEditor
+      schema={[{ name: 'meta', type: 'object', description: '' }]}
+      entities={[{ meta: { k: 'v' } }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    const objHead = document.querySelector('.objhead')!
+    fireEvent.click(objHead)
+    expect(document.querySelector('.objbody')).toBeInTheDocument()
+    fireEvent.click(objHead)
+    expect(document.querySelector('.objbody')).not.toBeInTheDocument()
+  })
+})
+
+// ── ArrayField ───────────────────────────────────────────────────────────────
+
+describe('FieldEditor ArrayField', () => {
+  it('renders ArrayField for type=array fields', () => {
+    render(<FieldEditor
+      schema={[{ name: 'items', type: 'array', description: '' }]}
+      entities={[{ items: [{ name: 'Widget', price: 10 }, { name: 'Gadget', price: 20 }] }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    expect(screen.getByText('items')).toBeInTheDocument()
+    expect(screen.getByText(/array · 2 rows/)).toBeInTheDocument()
+  })
+
+  it('ArrayField shows row cards with index labels', () => {
+    render(<FieldEditor
+      schema={[{ name: 'lines', type: 'array', description: '' }]}
+      entities={[{ lines: ['a', 'b'] }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    // Starts open by default — .rhead rows visible
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.getByText('#2')).toBeInTheDocument()
+  })
+
+  it('clicking ArrayField header collapses the list', () => {
+    render(<FieldEditor
+      schema={[{ name: 'lines', type: 'array', description: '' }]}
+      entities={[{ lines: ['a', 'b'] }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    const arrHead = document.querySelector('.arrhead')!
+    fireEvent.click(arrHead)
+    expect(document.querySelector('.arrlist')).not.toBeInTheDocument()
+  })
+
+  it('+ row button adds an empty entry', () => {
+    const onChange = vi.fn()
+    render(<FieldEditor
+      schema={[{ name: 'lines', type: 'array', description: '' }]}
+      entities={[{ lines: ['a'] }]}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: 'add row' }))
+    expect(onChange).toHaveBeenCalledWith(0, 'lines', ['a', {}])
+  })
+
+  it('delete row button removes the entry', () => {
+    const onChange = vi.fn()
+    render(<FieldEditor
+      schema={[{ name: 'lines', type: 'array', description: '' }]}
+      entities={[{ lines: ['a', 'b'] }]}
+      onChange={onChange} onAddEntity={() => {}} onRemoveEntity={() => {}} onSave={() => {}} saving={false}
+    />)
+    // Click delete for row #1
+    fireEvent.click(screen.getByRole('button', { name: 'delete row 1' }))
+    expect(onChange).toHaveBeenCalledWith(0, 'lines', ['b'])
+  })
+})
+
+// ── Multi-entity nav ─────────────────────────────────────────────────────────
 
 describe('FieldEditor multi-entity', () => {
-  it('renders one row per entity and add/remove buttons', () => {
+  it('shows entity nav strip when multiple entities', () => {
     render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'x' }, { a: 'y' }]}
       onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
       onSave={() => {}} saving={false} />)
-    expect(screen.getAllByText(/entity #/).length).toBe(2)
+    expect(screen.getByText(/entity 1 of 2/)).toBeInTheDocument()
+    expect(screen.getByLabelText('previous entity')).toBeInTheDocument()
+    expect(screen.getByLabelText('next entity')).toBeInTheDocument()
+  })
+
+  it('add entity button is always present', () => {
+    render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
+      entities={[{ a: 'x' }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
+      onSave={() => {}} saving={false} />)
     expect(screen.getByLabelText('add entity')).toBeInTheDocument()
-    expect(screen.getAllByLabelText(/remove entity/).length).toBe(2)
+  })
+
+  it('calls onAddEntity when + entity is clicked', () => {
+    const onAdd = vi.fn()
+    render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
+      entities={[{ a: 'x' }]}
+      onChange={() => {}} onAddEntity={onAdd} onRemoveEntity={() => {}}
+      onSave={() => {}} saving={false} />)
+    fireEvent.click(screen.getByLabelText('add entity'))
+    expect(onAdd).toHaveBeenCalled()
   })
 })
 
+// ── Evidence badges (M5 click-to-page preserved) ─────────────────────────────
+
 describe('FieldEditor evidence badges', () => {
-  it('clicking a label with evidence page jumps to that page', async () => {
+  it('clicking an evidence badge jumps to that page', async () => {
     const jump = vi.fn()
     render(<FieldEditor schema={[{ name: 'a', type: 'string', description: '' }]}
       entities={[{ a: 'x' }]}
@@ -131,5 +286,36 @@ describe('FieldEditor evidence badges', () => {
       onSave={() => {}} saving={false} />)
     await userEvent.click(screen.getByLabelText('jump to page 3'))
     expect(jump).toHaveBeenCalledWith(3)
+  })
+})
+
+// ── JSON view ────────────────────────────────────────────────────────────────
+
+describe('FieldEditor JSON view', () => {
+  it('renders JSON view when view=json', () => {
+    render(<FieldEditor
+      schema={[{ name: 'a', type: 'string', description: '' }]}
+      entities={[{ a: 'hello' }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
+      onSave={() => {}} saving={false}
+      view="json"
+    />)
+    // .rev-json container should be present
+    expect(document.querySelector('.rev-json')).toBeInTheDocument()
+    // Key should be colored as .jk
+    expect(document.querySelector('.jk')).toBeInTheDocument()
+  })
+
+  it('line numbers are rendered', () => {
+    render(<FieldEditor
+      schema={[{ name: 'total', type: 'string', description: '' }]}
+      entities={[{ total: '100' }]}
+      onChange={() => {}} onAddEntity={() => {}} onRemoveEntity={() => {}}
+      onSave={() => {}} saving={false}
+      view="json"
+    />)
+    // Line numbers are in .ln spans
+    const lnSpans = document.querySelectorAll('.ln')
+    expect(lnSpans.length).toBeGreaterThan(0)
   })
 })

@@ -44,8 +44,8 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
 
   // view: 'form' | 'json' — consumed in T11, threaded through now
   const [view, setView] = useState<'form' | 'json'>('form')
-  // _forceOpen: null = natural state, true = all expanded, false = all collapsed — plumbed in T11
-  const [_forceOpen, setForceOpen] = useState<boolean | null>(null)
+  // forceOpen: null = natural state, true = all expanded, false = all collapsed — plumbed in T11
+  const [forceOpen, setForceOpen] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (!activeProjectId) return
@@ -94,8 +94,7 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
         <div className="rev-pdf">
           <PdfViewer />
         </div>
-        <div style={{ minHeight: 0, overflow: 'auto' }}>
-          {/* forceOpen={forceOpen} and view={view} plumbed in T11 */}
+        <div style={{ minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           <FieldEditor
             schema={schema}
             entities={entities}
@@ -108,6 +107,8 @@ export default function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek
             onJumpToPage={goPage}
             onSave={save}
             saving={saving}
+            view={view}
+            forceOpen={forceOpen}
           />
         </div>
       </div>

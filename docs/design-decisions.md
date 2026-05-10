@@ -146,3 +146,41 @@ The section is part of the design's tri-card layout; leaving it out would break 
 **Open questions for Design**
 - What's the canonical metric set (precision/recall/F1/macro/coverage/etc) for the latest-eval card?
 - Should this stay hidden when no eval has run, or show "no eval yet"?
+
+---
+
+### 2026-05-10 — Confidence labels hard-coded to high in M7 review fields
+
+- **Status**: 🟡 Pending
+- **Area**: `ReviewMode/FieldRow`, `ObjectField`, `ArrayField`
+- **Files**: `frontend/src/components/ReviewMode/FieldRow.tsx`, `frontend/src/components/ReviewMode/ObjectField.tsx`, `frontend/src/components/ReviewMode/ArrayField.tsx`
+- **Type**: new-state
+
+**What changed**
+The design shows per-field confidence dots (low/mid/high → rose/ochre/moss). Backend doesn't emit per-field confidence yet, so all dots render at 'high' (moss). CSS classes `.cdot.mid` and `.cdot.low` are wired but unused.
+
+**Why**
+Without backend confidence the dots would show fake signal. High-tone (moss) is the most neutral default — it signals "extraction present" rather than implying certainty.
+
+**Open questions for Design**
+- Should the dot be hidden entirely until confidence is real?
+- What scoring mechanism provides the input (model logprobs / extract LLM internal score / heuristic)?
+
+---
+
+### 2026-05-10 — Object/array sub-shape rendering simplified in M7 review
+
+- **Status**: 🟡 Pending
+- **Area**: `ReviewMode/ObjectField`, `ArrayField`
+- **Files**: `frontend/src/components/ReviewMode/ObjectField.tsx`, `frontend/src/components/ReviewMode/ArrayField.tsx`
+- **Type**: new-state
+
+**What changed**
+Object and array fields don't render a nested form because the backend `SchemaField` doesn't carry sub-field shape today. `ObjectField` shows the raw object value as an editable JSON `<pre>`; `ArrayField` shows each entry as a collapsible `.rcard` with its JSON content also editable. The design's nested-form treatment (sub-field rows with names, types, evidence, notes) is not implemented.
+
+**Why**
+The design's nested-form treatment requires sub-field metadata (names, types, summaries, evidence per sub-field) that the schema model doesn't have. Adding sub-shape would require `SchemaField` model changes + extract-LLM prompt updates.
+
+**Open questions for Design**
+- Is sub-shape something we add to `SchemaField`, or do we keep object/array as opaque-JSON in the lab UI and only break them out when the user explicitly adds separate fields?
+- For array types: should each item card show a derived summary (first string value) or always show "item N"?
