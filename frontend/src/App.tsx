@@ -59,7 +59,7 @@ export default function App() {
               setRightPeek={setRightPeek}
             />
           : <ChatPanel />}
-        right={<ContextSurface onClose={onToggleRight} />}
+        right={<ContextSurface />}
         leftHidden={effectiveLeftHidden}
         rightHidden={effectiveRightHidden}
       />

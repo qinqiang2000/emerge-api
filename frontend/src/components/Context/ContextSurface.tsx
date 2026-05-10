@@ -1,6 +1,5 @@
 // frontend/src/components/Context/ContextSurface.tsx
 import { useEffect } from 'react'
-import { X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useProjects } from '../../stores/projects'
@@ -37,11 +36,7 @@ const PLACEHOLDER_METRICS = [
 const MAX_VISIBLE_DOCS = 9
 const MAX_VISIBLE_FIELDS = 7
 
-interface Props {
-  onClose?: () => void
-}
-
-export default function ContextSurface({ onClose }: Props) {
+export default function ContextSurface() {
   const { selectedId, projects } = useProjects()
   const pid = selectedId ?? ''
 
@@ -80,9 +75,6 @@ export default function ContextSurface({ onClose }: Props) {
   if (!selectedId) {
     return (
       <div className="ctx">
-        <button className="ctx-close" onClick={onClose} title="Close context">
-          <X size={13} strokeWidth={1.8} />
-        </button>
         <div className="ctx-section">
           <p className="micro" style={{ paddingTop: 24, textAlign: 'center' }}>
             select a project to see context
@@ -94,11 +86,6 @@ export default function ContextSurface({ onClose }: Props) {
 
   return (
     <div className="ctx">
-      {/* ── close button ─────────────────────────────────────────── */}
-      <button className="ctx-close" onClick={onClose} title="Close context">
-        <X size={13} strokeWidth={1.8} />
-      </button>
-
       {/* ── section 1: schema.json ───────────────────────────────── */}
       <div className="ctx-section">
         <div className="ctx-h">

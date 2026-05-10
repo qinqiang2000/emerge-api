@@ -74,20 +74,18 @@ export default function Topbar({
       {/* Brand */}
       <div className="brand"><span className="dot"></span>emerge</div>
 
-      {/* Crumbs — always render; degrades gracefully when no project selected */}
+      {/* Crumbs — always render; matches handoff `~/projects/<name>/ schema · v · state` shape */}
       <div className="crumbs">
-        <span>~</span>
-        <span className="sep">/</span>
-        <span>projects</span>
-        <span className="sep">/</span>
+        <span>~/projects/</span>
         {displayName ? (
           <>
             <span className="here">{displayName}</span>
+            <span className="sep">/</span>
             <span>schema</span>
             <span className="sep">·</span>
             <span>{schemaVersion}</span>
             <span className="sep">·</span>
-            <span>{schemaState}</span>
+            <span style={{ color: 'var(--ochre-2)' }}>{schemaState}</span>
           </>
         ) : (
           <span style={{ color: 'var(--ink-5)', fontStyle: 'italic' }}>select a project</span>
