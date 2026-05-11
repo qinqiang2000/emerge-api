@@ -5,19 +5,19 @@ import { useShallow } from 'zustand/react/shallow'
 import { useProjects } from '../../stores/projects'
 import { useSchema } from '../../stores/schema'
 import { useDocs } from '../../stores/docs'
+import { useEval } from '../../stores/eval'
 import { useReview } from '../../stores/review'
 import { docStatus } from '../../types/review'
 import type { DocSummary } from '../../types/review'
+import type { EvalSnapshot } from '../../lib/api'
 
-// Map legacy docStatus values → pill class suffixes
 function toPillClass(doc: DocSummary): string {
   const s = docStatus(doc)
   if (s === 'reviewed') return 'rev'
-  if (s === 'draft') return 'pen'   // has prediction, not yet reviewed
-  return 'new'                       // no prediction yet
+  if (s === 'draft') return 'pen'
+  return 'new'
 }
 
-// Pill label shown to user
 function toPillLabel(doc: DocSummary): string {
   const s = docStatus(doc)
   if (s === 'reviewed') return 'reviewed'
@@ -25,13 +25,37 @@ function toPillLabel(doc: DocSummary): string {
   return 'new'
 }
 
-// Placeholder metrics — real wiring deferred until useEval + /lab/projects/:id/evals land
-const PLACEHOLDER_METRICS = [
-  { k: 'precision', v: '0.94', tone: 'ok' },
-  { k: 'recall',    v: '0.91', tone: 'ok' },
-  { k: 'f1',        v: '0.92', tone: 'ok' },
-  { k: 'coverage',  v: '100%', tone: 'ok' },
-] as const
+type MetricTone = 'ok' | 'mid' | 'bad'
+
+function toneFor(v: number): MetricTone {
+  if (v >= 0.85) return 'ok'
+  if (v >= 0.65) return 'mid'
+  return 'bad'
+}
+
+interface MetricRow {
+  k: string
+  v: string
+  tone: MetricTone
+}
+
+// Visible-for-test export — keeps the derivation pure for unit tests if we
+// want to grow them later. (See ContextSurface.test.tsx for the rendered shape.)
+export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: string } {
+  const n = snap.per_field.length
+  const macroP = n === 0 ? 0 : snap.per_field.reduce((a, f) => a + f.precision, 0) / n
+  const macroR = n === 0 ? 0 : snap.per_field.reduce((a, f) => a + f.recall, 0) / n
+  const macroF = snap.macro_f1
+  const coverage = snap.n_docs === 0 ? 0 : snap.n_reviewed / snap.n_docs
+  const rows: MetricRow[] = [
+    { k: 'precision', v: macroP.toFixed(2), tone: toneFor(macroP) },
+    { k: 'recall',    v: macroR.toFixed(2), tone: toneFor(macroR) },
+    { k: 'f1',        v: macroF.toFixed(2), tone: toneFor(macroF) },
+    { k: 'coverage',  v: `${Math.round(coverage * 100)}%`, tone: toneFor(coverage) },
+  ]
+  const hint = `macro ${macroF.toFixed(2)} · ${snap.n_reviewed} reviewed`
+  return { rows, hint }
+}
 
 const MAX_VISIBLE_DOCS = 9
 const MAX_VISIBLE_FIELDS = 7
@@ -45,33 +69,28 @@ export default function ContextSurface() {
 
   const docs = useDocs(useShallow(s => s.byProject[pid] ?? []))
   const refreshDocs = useDocs(s => s.refresh)
-  const { open: openReview } = useReview()
 
+  const evalSnap = useEval(s => (pid ? s.byProject[pid] : undefined))
+  const loadEval = useEval(s => s.load)
+
+  const { open: openReview } = useReview()
   const project = projects.find(p => p.project_id === pid) ?? null
 
   useEffect(() => {
     if (!pid) return
     void loadSchema(pid)
     void refreshDocs(pid)
-  }, [pid, loadSchema, refreshDocs])
+    void loadEval(pid)
+  }, [pid, loadSchema, refreshDocs, loadEval])
 
-  // Log placeholder metrics once — surfaces the deferred wiring
-  useEffect(() => {
-    if (!pid) return
-    console.log('[ContextSurface] metrics section uses placeholder data — useEval not wired yet')
-  }, [pid])
-
-  // ── schema header hint ───────────────────────────────────────────
   const versionStr = project?.active_version_id
     ? `${project.active_version_id} frozen`
     : 'v0 draft'
   const schemaHint = `${fields.length} fields · ${versionStr}`
 
-  // ── docs display ─────────────────────────────────────────────────
   const visibleDocs = docs.slice(0, MAX_VISIBLE_DOCS)
   const docsHint = `${visibleDocs.length} of ${docs.length} shown`
 
-  // ── no project selected ──────────────────────────────────────────
   if (!selectedId) {
     return (
       <div className="ctx">
@@ -83,6 +102,10 @@ export default function ContextSurface() {
       </div>
     )
   }
+
+  // ── metrics derivation ───────────────────────────────────────────
+  const metrics = evalSnap ? deriveMetrics(evalSnap) : null
+  const metricsHint = metrics?.hint ?? 'latest eval'
 
   return (
     <div className="ctx">
@@ -151,15 +174,21 @@ export default function ContextSurface() {
       <div className="ctx-section">
         <div className="ctx-h">
           <span>metrics/</span>
-          <span className="small">latest eval</span>
+          <span className="small">{metricsHint}</span>
         </div>
         <div className="ctx-card">
-          {PLACEHOLDER_METRICS.map(m => (
-            <div key={m.k} className="metric">
-              <span className="k">{m.k}</span>
-              <span className={`v ${m.tone}`}>{m.v}</span>
+          {metrics === null ? (
+            <div className="metric" style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              <span className="k">no eval yet — type /eval in the chat</span>
             </div>
-          ))}
+          ) : (
+            metrics.rows.map(m => (
+              <div key={m.k} className="metric">
+                <span className="k">{m.k}</span>
+                <span className={`v ${m.tone}`}>{m.v}</span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
