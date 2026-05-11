@@ -45,6 +45,14 @@ _SDK_BUILT_IN_TOOLS = [
     "WebFetch", "WebSearch",
     "Task", "TodoWrite", "ExitPlanMode",
     "ToolSearch",
+    # emerge loads its skills as system_prompt text, NOT via the SDK Skill
+    # mechanism — so the SDK has no "emerge-publish" / "emerge-extractor" /
+    # "emerge-autoresearch" registered. When the agent reached for the
+    # built-in `Skill` tool on /publish, the SDK returned
+    # `<tool_use_error>Unknown skill: emerge-publish</tool_use_error>` and
+    # the UI rendered a stray `▸ Skill ERR` chip. Deny it explicitly so the
+    # agent never sees `Skill` as an option in the first place.
+    "Skill",
 ]
 
 
