@@ -88,8 +88,8 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       type="button"
-      aria-label="copy"
-      title={copied ? '已复制' : '复制'}
+      aria-label="copy api key"
+      title={copied ? 'Copied' : 'Copy'}
       onClick={handleCopy}
       className="pub-key-copy-btn"
     >
@@ -218,7 +218,7 @@ function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix,
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button
           type="button"
-          aria-label="我已保存 - 关闭"
+          aria-label="I've saved this key — close"
           onClick={onClose}
           className="pub-btn-primary"
         >
