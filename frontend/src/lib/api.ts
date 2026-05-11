@@ -103,3 +103,31 @@ export function exportBundleUrl(projectId: string, version?: number): string {
   const base = `/lab/projects/${encodeURIComponent(projectId)}/export`
   return version ? `${base}?version=${version}` : base
 }
+
+export interface FieldScore {
+  field: string
+  tp: number
+  fp: number
+  fn: number
+  support: number
+  precision: number
+  recall: number
+  f1: number
+}
+
+export interface EvalSnapshot {
+  n_docs: number
+  n_reviewed: number
+  macro_f1: number
+  per_field: FieldScore[]
+  errors: string[]
+  ts: string
+  schema_field_count: number
+}
+
+export async function getLatestEval(projectId: string): Promise<EvalSnapshot | null> {
+  const r = await fetch(`/lab/projects/${projectId}/evals/latest`)
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(`getLatestEval ${r.status}`)
+  return r.json()
+}
