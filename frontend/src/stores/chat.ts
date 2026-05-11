@@ -5,6 +5,7 @@ import { streamSSE } from '../lib/sse'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
+import { useEval } from './eval'
 import { useProjects } from './projects'
 import { useSchema } from './schema'
 
@@ -164,6 +165,9 @@ function handleToolResult(
     }
     if (t === 'mcp__emerge_tools__create_project' || t === 'mcp__emerge_tools__freeze_version') {
       void useProjects.getState().refresh()
+    }
+    if (t === 'mcp__emerge_tools__score') {
+      void useEval.getState().refresh(projectId)
     }
   }
 }

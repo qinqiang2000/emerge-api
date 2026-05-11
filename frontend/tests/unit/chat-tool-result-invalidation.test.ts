@@ -4,6 +4,7 @@ import { _testUtils, useChat } from '../../src/stores/chat'
 import { useSchema } from '../../src/stores/schema'
 import { useDocs } from '../../src/stores/docs'
 import { useProjects } from '../../src/stores/projects'
+import { useEval } from '../../src/stores/eval'
 
 beforeEach(() => {
   useChat.getState().reset()
@@ -62,6 +63,34 @@ describe('handleToolResult side effects', () => {
     }]})
     _testUtils.handleToolResult({ tool_use_id: 't5', result_text: '{"version_id":"v3"}', ok: true }, 'p_a', null)
     expect(refresh).toHaveBeenCalled()
+    refresh.mockRestore()
+  })
+
+  it('refreshes useEval when score completes', () => {
+    const refresh = vi.spyOn(useEval.getState(), 'refresh').mockResolvedValue(null)
+    useChat.setState({ events: [{
+      type: 'tool_call', tool_use_id: 't6', tool_name: 'mcp__emerge_tools__score',
+      tool_input: {}, tool_result: null, ok: true,
+    }]})
+    _testUtils.handleToolResult(
+      { tool_use_id: 't6', result_text: '{"macro_f1":0.97,"per_field":[],"n_docs":5,"n_reviewed":5,"errors":[],"ts":"2026-05-11T07-04-00Z","schema_field_count":1}', ok: true },
+      'p_a', null,
+    )
+    expect(refresh).toHaveBeenCalledWith('p_a')
+    refresh.mockRestore()
+  })
+
+  it('does not refresh useEval when score fails', () => {
+    const refresh = vi.spyOn(useEval.getState(), 'refresh').mockResolvedValue(null)
+    useChat.setState({ events: [{
+      type: 'tool_call', tool_use_id: 't7', tool_name: 'mcp__emerge_tools__score',
+      tool_input: {}, tool_result: null, ok: false,
+    }]})
+    _testUtils.handleToolResult(
+      { tool_use_id: 't7', result_text: 'err', ok: false },
+      'p_a', null,
+    )
+    expect(refresh).not.toHaveBeenCalled()
     refresh.mockRestore()
   })
 })
