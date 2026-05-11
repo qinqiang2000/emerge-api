@@ -506,41 +506,84 @@ commits `576089f..81bd62d`). One Accepted decision per resolution below.
 
 ---
 
-### 2026-05-11 — Agent prints a key-info markdown table after `issue_api_key` (same anti-pattern as T7, different tool)
+### 2026-05-11 — Agent no longer re-emits `issue_api_key` metadata as a markdown table (M7.1 follow-up)
 
-- **Status**: 🟡 Pending — M7.2 candidate
-- **Area**: `backend/app/skills/emerge_publish.md`, `Publish/PublishStage` (key stage)
+- **Status**: ✅ Accepted
 - **Files**: `backend/app/skills/emerge_publish.md`
 - **Type**: copy
 
 **What changed**
-Surfaced during the post-M7.1 end-to-end verification (chat `c_bbcddbe1c5b3.jsonl`,
-2026-05-11). On `/publish → mint key`, after `issue_api_key` returns and
-the UI renders the key-stage `<PublishStage>` card (with project, version,
-plaintext key, prefix, hash, created timestamp, `curl` snippet), the
-agent ALSO emits a `Detail | Value` markdown table re-stating the
-project / key prefix / created date. Same double-render pattern that
-M7.1 T7 fixed for `score` / `readiness_check` — but the `issue_api_key`
-key-info table is out of T7's scope, so it slipped through.
+Surfaced during the post-M7.1 end-to-end verification (chat
+`c_bbcddbe1c5b3.jsonl`, 2026-05-11). After `issue_api_key`, the UI's
+key-stage `<PublishStage>` already renders the project, version,
+plaintext key (one-time), prefix, hash, created timestamp, and the
+`$EMERGE_API_KEY`-templated curl snippet — but the agent was ALSO
+emitting a `Detail | Value` markdown table re-stating project / key
+prefix / created date. Same double-render pattern M7.1 T7 fixed for
+`score` / `readiness_check`, just for a tool T7 didn't cover. Folded
+into M7.1 rather than punted to M7.2 — same shape of edit, same
+verification path, no reason to defer.
 
-**Why**
-The `emerge-publish` skill's step 7 already says "simply note: 'API key
-revealed in modal. Save it now'" + provide a `curl` template with a
-placeholder. The model interprets the curl template + the rich tool
-result as license to render the key metadata as a markdown table for
-readability. The fix is the same as T7: add an explicit "Rendering
-contract: the UI renders the key card; do NOT reproduce key metadata as
-a markdown table" line under step 7 of the skill.
+**Fix**
+`emerge_publish.md` step 7 — added a "Rendering contract" block telling
+the model: the UI renders the key card; do NOT reproduce its metadata
+in a markdown table or inline curl block; give one short sentence
+acknowledging the mint and pointing at the card; mention the
+`Authorization: Bearer $EMERGE_API_KEY` usage only if the user asks.
 
-**Why deferred (not folded into M7.1)**
-The M7.1 plan and roadmap were scoped to the six 2026-05-11 verification
-findings (eval table, readiness table, eyebrow, CN labels, job card,
-ProposalCandidateCard) plus `Skill ERR`. M7.1 is shipped (`576089f..81bd62d`)
-and the roadmap row is closed. A new agent-cosmetic finding files as
-M7.2 candidate — bundle with the metrics-panel + per-turn-diff items.
+**Verified**
+Re-ran `/publish issue the api key now — readiness already passed` on
+us-invoice. Backend restarted to reload the skill, v5 frozen, key minted
+(`ek_bYsZrZxZ…/202f19`), agent's post-key narrative: "v5 frozen and
+key minted — copy it from the card above before closing; it won't be
+shown again. The prior v4 key is now invalid. Calls go to
+`POST /v1/p_4w6rzeuz9dfi/extract` with `Authorization: Bearer
+$EMERGE_API_KEY`." No `Detail | Value` table.
+
+**Pre-existing snag surfaced (out of scope, logged below)**
+The `mint key →` button injects `"yes, mint the key now"` as the next
+user message, but `ChatService._select_system_prompt` only loads the
+publish skill when the message *starts with* `/publish`. The model can
+go either way (the earlier successful run did `list_projects` →
+`issue_api_key` despite the skill not being loaded; this run refused
+with "this skill needs to be loaded"). The publish flow is multi-turn
+and the per-turn keyword-prefix skill loader doesn't respect that.
+Separate architectural concern; see the next entry.
 
 **Reference**
-- Verification screenshot (key card + duplicate table beneath):
+- Verification screenshot (now without the duplicate table):
   `docs/screenshots/2026-05-11-m7-1-publish-key.png`.
-- The fix is a 3-line addition to `emerge_publish.md` step 7 in the same
-  shape as T7's emerge-extractor / emerge-publish edits.
+
+---
+
+### 2026-05-11 — Publish flow's multi-turn skill loading is fragile (M7.2 candidate)
+
+- **Status**: 🟡 Pending — M7.2 candidate
+- **Area**: `backend/app/chat/service.py:97-104` (`_select_system_prompt`),
+  `frontend/src/components/Publish/PublishStage.tsx` (`mint key →` handler)
+- **Type**: architecture
+
+**What changed**
+Surfaced during the post-M7.1 verify of the `issue_api_key` fix. The
+publish flow is multi-turn: `/publish` → readiness check → user clicks
+`mint key →` (which sends `"yes, mint the key now"`) → agent calls
+`issue_api_key`. But `_select_system_prompt` keys off `user_message.lstrip().startswith("/publish")`,
+so the publish skill is loaded ONLY on the first turn. The
+mint-confirmation turn runs under the default extractor skill. The model
+sometimes proceeds anyway (the `issue_api_key` tool is in the MCP
+regardless), sometimes refuses ("this skill needs to be loaded"). Both
+behaviors observed in back-to-back runs on 2026-05-11.
+
+**Why deferred (not folded into M7.1)**
+The "mint key round-trips through the agent" choice is listed in the
+M7.1 plan's Out-of-scope section ("Agent-native; not changing it here.").
+Robustifying that round-trip is a new design decision: either
+(a) keep the skill loaded for the whole `/publish` *conversation* (state,
+not message-prefix), (b) inject a synthetic `/publish` prefix into the
+auto-injected mint-confirmation message, or (c) move mint to a direct
+UI action (`useApiKey.mintAndReveal()`) and bypass the agent loop —
+fastest path, but contradicts the agent-native design.
+
+**Reference**
+- Repro: any `/publish` flow where the user clicks `mint key →` rather
+  than typing `/publish ...mint...` themselves.

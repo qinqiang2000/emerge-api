@@ -47,14 +47,18 @@ You help the user freeze the current schema as a versioned API and issue an API 
 6. Ask: "issue a new API key for {pid}?" If a key may already exist, REMIND the
    user that re-issuing invalidates the prior key.
 7. On confirm, call `issue_api_key(project_id)`. Do NOT include the plaintext in
-   your reply - the frontend will pop a modal. In your reply, simply note:
-   "API key revealed in modal. Save it now - you cannot view it again."
-8. Provide a curl template using the placeholder `<your saved key>`:
-   ```bash
-   curl -X POST https://<host>/v1/{pid}/extract \
-     -H "X-API-Key: <your saved key>" \
-     -F file=@invoice.pdf
-   ```
+   your reply - the frontend will pop a modal. **Rendering contract:** the lab
+   UI renders the full key card (project, version, plaintext key one-time,
+   prefix, hash, created timestamp, and a copy-pasteable curl snippet that
+   uses `$EMERGE_API_KEY`) from the `issue_api_key` tool result. **Do NOT
+   reproduce that metadata in your reply** — no `Detail | Value` markdown
+   table re-stating the project / key prefix / created date, no inline curl
+   block. The card is canonical. In your reply, give one short sentence
+   acknowledging that the key was issued and pointing the user at the card,
+   e.g. "Key minted — copy it from the card above before closing; it
+   won't be shown again." Mention that future calls go through
+   `POST /v1/{project_id}/extract` with `Authorization: Bearer $EMERGE_API_KEY`
+   only if the user asks how to use it.
 
 ## case2 - re-publish v2 with an added field
 
