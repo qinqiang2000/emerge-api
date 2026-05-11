@@ -14,7 +14,6 @@ import JobProgressCard from './JobProgressCard'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import Turn from './Turn'
-import ProposalCandidateCard from '../Improve/ProposalCandidateCard'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
@@ -28,15 +27,7 @@ function useProjectName(projectId: string): string {
 function toolStatus(e: ToolCallEvent): ToolStatus {
   if (e.ok === false) return 'err'
   if (e.tool_result === undefined || e.tool_result === null) return 'run'
-  if (isProposalCandidate(e)) return 'cand'
   return 'done'
-}
-
-function isProposalCandidate(e: ToolCallEvent): boolean {
-  if (!e.tool_name.endsWith('propose_description')) return false
-  if (!e.ok || e.tool_result === null || e.tool_result === undefined) return false
-  const r = parseResult(e.tool_result)
-  return r !== null && typeof r.field === 'string' && typeof r.new_description === 'string'
 }
 
 function parseResult(result: unknown): Record<string, unknown> | null {
@@ -193,11 +184,6 @@ function ToolCallCard({ call }: { call: ToolCallEvent }) {
   const hint = status !== 'run' ? toolShortHint(call.tool_name, call.tool_result) : null
   const errorCode = status === 'err' ? extractErrorCode(call.tool_result) : null
   const argsStr = hint ?? (errorCode ? errorCode : undefined)
-
-  // Candidate proposal: delegate to ProposalCandidateCard (adds accept/reject footer)
-  if (call.tool_name.endsWith('propose_description') && status === 'cand') {
-    return <ProposalCandidateCard event={call} />
-  }
 
   return (
     <ToolCall name={displayName} args={argsStr} status={status}>
