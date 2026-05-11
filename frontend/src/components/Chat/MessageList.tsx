@@ -13,6 +13,7 @@ import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
+import ToolStack from './ToolStack'
 import Turn from './Turn'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
@@ -159,10 +160,14 @@ function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
   )
 }
 
-// ─── ToolCallCard ─────────────────────────────────────────────────────────────
+// ─── HoistedToolCard ──────────────────────────────────────────────────────────
+// Rich-card tools (score / readiness_check / issue_api_key / start_job) render
+// outside the ToolStack collapse — their primary artifact (score numbers,
+// readiness checklist, one-time key reveal, job progress) is the user's main
+// focus and must stay immediately visible. Hoist routing happens at the
+// grouping layer (lib/groupChatEvents.ts); this is the render-time dispatch.
 
-function ToolCallCard({ call }: { call: ToolCallEvent }) {
-  // Special routing: start_job → JobProgressCard
+function HoistedToolCard({ call }: { call: ToolCallEvent }) {
   if (
     call.tool_name === 'mcp__emerge_tools__start_job' &&
     typeof call.tool_result === 'string' &&
@@ -170,19 +175,24 @@ function ToolCallCard({ call }: { call: ToolCallEvent }) {
   ) {
     return <JobProgressCard jobId={call.tool_result} />
   }
-  // Special routing: readiness_check → PublishStage check view
   if (call.tool_name === 'mcp__emerge_tools__readiness_check') {
     return <PublishStageCheckAdapter event={call} />
   }
-  // Special routing: issue_api_key → PublishStage key view (or redacted trail)
   if (call.tool_name === 'mcp__emerge_tools__issue_api_key') {
     return <PublishStageKeyAdapter event={call} />
   }
-  // Special routing: score → EvalCardAdapter
   if (call.tool_name === 'mcp__emerge_tools__score') {
     return <EvalCardAdapter call={call} />
   }
+  // Fallback (shouldn't trigger — HOISTED_TOOL_NAMES in groupChatEvents owns the list):
+  return <PlumbingToolCard call={call} />
+}
 
+// ─── PlumbingToolCard ─────────────────────────────────────────────────────────
+// Generic ToolCall renderer for non-hoisted tools. Wrapped in a ToolStack
+// (collapsed `Ran N tools ›`) by MessageList.
+
+function PlumbingToolCard({ call }: { call: ToolCallEvent }) {
   const status = toolStatus(call)
   const displayName = call.tool_name.replace(/^mcp__emerge_tools__/, '')
   const hint = status !== 'run' ? toolShortHint(call.tool_name, call.tool_result) : null
@@ -220,10 +230,19 @@ export default function MessageList({ events, busy }: Props) {
         }
         if (item.kind === 'tools') {
           return (
-            <div key={i} className="pl-2 flex flex-col gap-2">
-              {item.calls.map((call, j) => (
-                <ToolCallCard key={j} call={call} />
-              ))}
+            <div key={i} className="pl-2">
+              <ToolStack>
+                {item.calls.map((call, j) => (
+                  <PlumbingToolCard key={j} call={call} />
+                ))}
+              </ToolStack>
+            </div>
+          )
+        }
+        if (item.kind === 'hoisted_tool') {
+          return (
+            <div key={i} className="pl-2">
+              <HoistedToolCard call={item.call} />
             </div>
           )
         }

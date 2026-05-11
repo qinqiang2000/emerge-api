@@ -639,3 +639,79 @@ permutations (per-field worst, errors count, …) deferred until design weighs i
   inline `<EvalCard>` at F1 0.847 alongside the right-rail metrics card with
   derived macro values precision 0.88 / recall 0.82 / f1 0.85 / coverage 83%
   for the dogfood us-invoice run)
+
+---
+
+### 2026-05-11 — Adopt ToolStack (done-only) + hoist rich cards to grouping layer
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/MessageList`, `lib/groupChatEvents`, `Chat/ToolStack` (new)
+- **Files**: `frontend/src/components/Chat/ToolStack.tsx` (new),
+  `frontend/src/components/Chat/MessageList.tsx`,
+  `frontend/src/lib/groupChatEvents.ts`,
+  `frontend/src/types/chat.ts`,
+  `frontend/src/index.css` (`.tstack` block),
+  `docs/design/emerge-api/project/{app.jsx,index.html,pieces.jsx}` (synced)
+- **Type**: layout | new-state | new-component
+
+**What changed**
+A run of consecutive plumbing tool calls in chat (e.g. `read_documents` →
+`derive_schema` → `write_schema`) now collapses to a single editorial-italic
+line `Ran 3 tools ›` that expands to a vertical-spine tree of `<ToolCall>`
+nodes. The 4 rich-card tools — `score`, `readiness_check`, `issue_api_key`,
+`start_job` — are **hoisted out** of the ToolStack at the grouping layer
+(`lib/groupChatEvents.ts`) and render as independent blocks (`EvalCard`,
+`PublishStage check/key`, `JobProgressCard`), exactly as they did before.
+
+The hoist logic that used to live at render time as a chain of 4 `if`s
+inside `ToolCallCard` is now expressed as the `HOISTED_TOOL_NAMES` set in
+`groupChatEvents.ts`. `MessageList` exposes two card components in its
+place: `HoistedToolCard` (the 4 rich-card routes) and `PlumbingToolCard`
+(generic `<ToolCall>` for everything else, wrapped by `<ToolStack>`).
+
+**Why**
+Plumbing tool calls (≈80% of chat tool noise) are *availability*, not
+*attention* — the user's eye should land on agent_text and rich cards, with
+tool traces a click away. Each plumbing call was previously a full-width
+row competing with `<EvalCard>` / `<AgentMessage>` for focus. Folding them
+behind one italic line gives a Claude-style trace without sacrificing the
+emerge artifact-first stance.
+
+Rich cards stay hoisted because folding `EvalCard` / `PublishStage` /
+`JobProgressCard` behind `Ran N tools ›` would hide their primary surface
+(score numbers, readiness checklist, one-time API key reveal, job
+progress) — the exact opposite of what the user came for.
+
+**Scope decisions (intentional omissions)**
+- **No `run` mode carousel.** The handoff's `ToolStack` had a `state="run"`
+  in-place step-by-step animation driven by a prefilled `steps={[...]}`
+  prop. emerge's agent streams `tool_use` blocks one at a time and the
+  frontend has no way to predict the next step, so the run mode semantics
+  don't translate. Run state stays as the existing `calling X…` footer in
+  `MessageList`.
+- **No `totalDur` chip.** The handoff's `Ran 3 tools · 13.6s ›` cell has
+  no data source: the SSE protocol (`backend/app/chat/service.py`) carries
+  no timestamps on `tool_call` events, and on chat-history rehydration the
+  events arrive batched so wall-clock timing would collapse to ~0ms.
+  Rendering "Ran 3 tools ›" without a duration is cheaper than adding a
+  timestamp field to the protocol for a glance-value chip. Revisit if the
+  chip becomes load-bearing.
+- **`Ran 1 tool ›` is accepted.** When the hoist split leaves a 1-element
+  plumbing group it shows up as `Ran 1 tool ›` — slightly redundant vs
+  rendering the bare ToolCall, but special-casing N=1 adds branching with
+  no clear win. Defer until a user complains.
+
+**Reference**
+- Design handoff: `https://api.anthropic.com/v1/design/h/Y_ioMfjKoAZmEFaH3H7AXw`
+- Synced design files: `docs/design/emerge-api/project/{app.jsx,index.html,pieces.jsx}`
+- New tests: `frontend/tests/unit/groupChatEvents.test.ts` covers 3 new
+  cases — mid-stream hoist, leading hoist (no empty leading group),
+  back-to-back hoist.
+
+**Open questions for Design**
+- Is the `Ran 1 tool ›` edge case visually acceptable, or should N=1
+  collapse degrade back to the raw ToolCall row? (Currently accepted.)
+- When/if calling-time timing becomes desirable, the path is: add
+  `ts_start_ms`/`ts_end_ms` to the `tool_call` SSE event in
+  `backend/app/chat/service.py:213-249` and surface `· 0.0s` next to
+  `Ran N tools`. Not done in this pass.

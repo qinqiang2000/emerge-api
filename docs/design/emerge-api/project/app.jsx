@@ -208,6 +208,16 @@ function DefaultConversation({ onReview, onEval, onPublish, onImprove }) {
           <div className="msg">
             <p>I’ll start by reading a handful, deriving a candidate schema, and writing it to <code>schema.json</code>. We can edit it together once it’s on disk.</p>
           </div>
+          <ToolStack
+            steps={[
+              {name:'read_documents', args:'docs/*.pdf, sample=4'},
+              {name:'derive_schema',  args:'from=4 sampled docs'},
+              {name:'write_file',     args:'schema.json'},
+            ]}
+            state="done"
+            totalDur="13.6s"
+            open={false}
+          >
           <ToolCall name="read_documents" args="docs/*.pdf, sample=4" status="done" dur="2.1s" open={true}>
             <ToolRow glyph="·" label="2024-Q3-acme.pdf"     value="2 pages · 14kb text" />
             <ToolRow glyph="·" label="2024-Q3-globex.pdf"   value="3 pages · 21kb text" />
@@ -224,6 +234,7 @@ function DefaultConversation({ onReview, onEval, onPublish, onImprove }) {
           </ToolCall>
 
           <ToolCall name="write_file" args="schema.json (14 fields, 1.2kb)" status="done" dur="0.1s" />
+          </ToolStack>
 
           <div className="msg" style={{marginTop:12}}>
             <p>Schema is on disk. I ran a first-pass extraction across all 42 docs while we were talking — confidence is 87% overall. <strong style={{fontWeight:500,color:'var(--ochre-2)'}}>Three documents</strong> have low-confidence fields I’d like you to look at first.</p>

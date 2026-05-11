@@ -150,6 +150,69 @@ function ToolCall({ name, args, status='done', dur, open:openProp=false, childre
   );
 }
 
+// ─── tool stack: claude-style sequence with in-place "current step" + collapse-to-one-line ───
+// usage: <ToolStack steps={[{name,args},...]} state="done|run" running={idx} totalDur="13.6s">
+//          <ToolCall ... /> <ToolCall ... /> ...
+//        </ToolStack>
+// each step in `steps` corresponds (by order) to a <ToolCall> child for the expanded view.
+function ToolStack({ steps, state='done', running=0, totalDur, open:openProp=false, children }) {
+  const [open, setOpen] = useState(openProp);
+  const [liveIdx, setLiveIdx] = useState(running);
+  useEffect(()=>{ setOpen(openProp); }, [openProp]);
+  useEffect(()=>{ setLiveIdx(running); }, [running]);
+  // auto-advance through steps while in 'run' mode, ~1.4s per step (demo cadence)
+  useEffect(()=>{
+    if (state !== 'run') return;
+    const id = setInterval(()=>{
+      setLiveIdx(i => (i + 1) % steps.length);
+    }, 1400);
+    return ()=>clearInterval(id);
+  }, [state, steps.length]);
+
+  const kids = React.Children.toArray(children);
+  const total = steps.length;
+
+  if (state === 'run') {
+    return (
+      <div className="tstack">
+        <div className="ts-live">
+          {steps.map((s, i)=>(
+            <div key={i} className={'ts-row ' + (i===liveIdx ? 'cur' : (i<liveIdx ? 'prev' : ''))}>
+              <span className="ts-orbit"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              <span className="nm">{s.name}</span>
+              <span className="ag">({s.args})</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={'tstack ' + (open ? 'open' : '')}>
+      <div className="ts-ran" onClick={()=>setOpen(o=>!o)}>
+        <span>Ran</span>
+        <span className="cnt">{total}</span>
+        <span>{total===1 ? 'tool' : 'tools'}</span>
+        {totalDur && <span className="dur">· {totalDur}</span>}
+        <span className="chev">›</span>
+      </div>
+      <div className="ts-tree">
+        {kids.map((kid, i)=>(
+          <div key={i} className={'ts-node ' + (steps[i]?.state || 'done')}>
+            <span className="ts-dot" aria-hidden="true">
+              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="2.5,3.5 5,6 2.5,8.5"/><line x1="6.5" y1="8.5" x2="9.5" y2="8.5"/>
+              </svg>
+            </span>
+            {kid}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ToolRow({ glyph='·', label, value, mini, nest=0 }) {
   const c = nest===2 ? 't-row nest2' : nest===1 ? 't-row nest' : 't-row';
   return (
@@ -339,6 +402,7 @@ function ImproveBanner({ pct, onOpen }) {
 window.Topbar = Topbar;
 window.FSSpine = FSSpine;
 window.ToolCall = ToolCall;
+window.ToolStack = ToolStack;
 window.ToolRow = ToolRow;
 window.Turn = Turn;
 window.Composer = Composer;

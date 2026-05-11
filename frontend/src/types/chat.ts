@@ -5,8 +5,11 @@ export type ChatEvent =
   | { type: 'error'; error_code: string; error_message_en: string }
   | { type: 'turn_end' }
 
+type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
+
 export type RenderItem =
   | { kind: 'user'; text: string }
   | { kind: 'agent'; text: string }
-  | { kind: 'tools'; calls: Extract<ChatEvent, { type: 'tool_call' }>[] }
+  | { kind: 'tools'; calls: ToolCallEvent[] }
+  | { kind: 'hoisted_tool'; call: ToolCallEvent }
   | { kind: 'error'; error_code: string; error_message_en: string }

@@ -86,4 +86,45 @@ describe('groupChatEvents', () => {
     const items = groupChatEvents(events)
     expect(items.map(i => i.kind)).toEqual(['user', 'tools', 'user'])
   })
+
+  it('rich-card tools (score / readiness_check / issue_api_key / start_job) hoist out of tools group', () => {
+    const events: ChatEvent[] = [
+      tc('mcp__emerge_tools__read_documents'),
+      tc('mcp__emerge_tools__derive_schema'),
+      tc('mcp__emerge_tools__score'),
+      tc('mcp__emerge_tools__write_schema'),
+    ]
+    const items = groupChatEvents(events)
+    expect(items.map(i => i.kind)).toEqual(['tools', 'hoisted_tool', 'tools'])
+    if (items[0].kind === 'tools') {
+      expect(items[0].calls.map(c => c.tool_name)).toEqual([
+        'mcp__emerge_tools__read_documents',
+        'mcp__emerge_tools__derive_schema',
+      ])
+    }
+    if (items[1].kind === 'hoisted_tool') {
+      expect(items[1].call.tool_name).toBe('mcp__emerge_tools__score')
+    }
+    if (items[2].kind === 'tools') {
+      expect(items[2].calls.map(c => c.tool_name)).toEqual(['mcp__emerge_tools__write_schema'])
+    }
+  })
+
+  it('hoisted tool at start does not emit empty leading tools group', () => {
+    const events: ChatEvent[] = [
+      tc('mcp__emerge_tools__readiness_check'),
+      tc('mcp__emerge_tools__write_schema'),
+    ]
+    const items = groupChatEvents(events)
+    expect(items.map(i => i.kind)).toEqual(['hoisted_tool', 'tools'])
+  })
+
+  it('back-to-back hoisted tools each become their own item', () => {
+    const events: ChatEvent[] = [
+      tc('mcp__emerge_tools__readiness_check'),
+      tc('mcp__emerge_tools__issue_api_key'),
+    ]
+    const items = groupChatEvents(events)
+    expect(items.map(i => i.kind)).toEqual(['hoisted_tool', 'hoisted_tool'])
+  })
 })
