@@ -238,8 +238,16 @@
   .rev-bar .save{font-family:var(--mono);font-size:11.5px;padding:6px 12px;background:var(--ink);color:var(--paper);border-radius:5px;cursor:default;white-space:nowrap;flex-shrink:0}
   .rev-bar .save:hover{background:var(--ink-2)}
 
-  .rev-body{flex:1;display:grid;grid-template-columns:1.1fr 1fr;min-height:0;min-width:0}
+  .rev-body{flex:1;display:grid;grid-template-columns:var(--rev-split,52%) 6px 1fr;min-height:0;min-width:0;position:relative}
+  .rev-body.dragging{cursor:col-resize;user-select:none}
+  .rev-body.dragging *{user-select:none !important;cursor:col-resize !important}
   .rev-pdf{background:#F8F3E6;border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;overflow:hidden}
+  /* draggable splitter between the doc viewer and the field editor */
+  .rev-split{position:relative;cursor:col-resize;background:transparent;display:flex;align-items:center;justify-content:center;z-index:5}
+  .rev-split::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;margin-left:-0.5px;background:transparent;transition:background .15s}
+  .rev-split::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:36px;margin-left:-1.5px;margin-top:-18px;border-radius:2px;background:transparent;transition:background .15s, transform .15s}
+  .rev-split:hover::before,.rev-split.active::before{background:var(--ochre-soft)}
+  .rev-split:hover::after,.rev-split.active::after{background:var(--ochre);transform:scaleY(1.05)}
 
   /* ───────── doc viewer shell (unified for PDF + image) ───────── */
   .dv-toolbar{display:flex;align-items:center;gap:4px;padding:8px 10px;background:rgba(253,253,252,.86);-webkit-backdrop-filter:blur(10px) saturate(150%);backdrop-filter:blur(10px) saturate(150%);border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:11px;color:var(--ink-3);flex-shrink:0;flex-wrap:wrap;row-gap:4px}
@@ -332,7 +340,13 @@
   .rev-bar .spinepeek.on{background:var(--ink);color:var(--paper);border-color:var(--ink);border-style:solid}
 
   /* fields container */
-  .rev-fields{overflow-y:auto;padding:8px 18px 80px;display:flex;flex-direction:column;gap:10px}
+  .rev-fields{overflow-y:auto;padding:8px 18px 80px;display:flex;flex-direction:column;gap:10px;container-type:inline-size}
+  /* when the field column gets narrow, stack key + value vertically so values don't get squeezed to one char per line */
+  @container (max-width: 360px){
+    .rev-fld .kv{grid-template-columns:1fr !important;gap:2px !important}
+    .rev-fld .notes{margin-left:4px !important}
+    .rev-fld.nested .notes{margin-left:4px !important}
+  }
 
   /* confidence tag (only shown for low/mid) */
   .ctag{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:3px;font-weight:500;flex-shrink:0}
@@ -353,12 +367,12 @@
   .rev-fld:last-child{border-bottom:0}
   .rev-fld:hover{background:rgba(242,241,236,.5)}
   .rev-fld.active{border-left-color:var(--ochre);background:rgba(239,217,196,.18)}
-  .rev-fld .kv{display:grid;grid-template-columns:240px 1fr;gap:14px;align-items:baseline}
+  .rev-fld .kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:20px;align-items:baseline}
   .rev-fld .ktop{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
   .rev-fld .cdot{width:6px;height:6px;border-radius:50%;background:var(--moss);flex-shrink:0}
   .rev-fld .cdot.mid{background:var(--ochre)}
   .rev-fld .cdot.low{background:var(--rose)}
-  .rev-fld .name{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);font-weight:500;letter-spacing:.005em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+  .rev-fld .name{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);font-weight:500;letter-spacing:.005em;min-width:0;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;flex:1 1 auto}
   .rev-fld .ty{font-family:var(--mono);font-size:9.5px;color:var(--ink-5);text-transform:lowercase;font-style:italic;flex-shrink:0}
   .rev-fld .ev{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);cursor:default;text-decoration:underline;text-decoration-color:var(--ink-5);text-underline-offset:2px;flex-shrink:0}
   .rev-fld .ev:hover{color:var(--ochre-2);text-decoration-color:var(--ochre)}
@@ -368,17 +382,17 @@
   .rev-fld .valwrap{display:flex;align-items:baseline;gap:10px;min-width:0}
   .rev-fld .valwrap .val{flex:1 1 auto;min-width:0}
   .rev-fld .edstamp{font-family:var(--mono);font-size:9px;color:var(--ink-5);white-space:nowrap;flex-shrink:0;margin-left:auto;line-height:1}
-  .rev-fld .notes{grid-column:2;font-family:var(--serif);font-size:11.5px;font-style:italic;color:var(--ink-3);min-height:14px;padding:0 4px;line-height:1.45;margin-left:254px;margin-top:1px}
+  .rev-fld .notes{grid-column:2;font-family:var(--serif);font-size:11.5px;font-style:italic;color:var(--ink-3);min-height:14px;padding:0 4px;line-height:1.45;margin-left:140px;margin-top:1px}
   .rev-fld .notes::before{content:"// ";color:var(--ink-5);font-family:var(--mono);font-style:normal;font-size:10px}
   .rev-fld .notes:empty::after{content:"add a note for the agent…";color:var(--ink-5);font-style:italic}
 
   /* nested rows (inside object / array) */
   .rev-fld.nested{padding:4px 6px 4px 18px;border-bottom:1px solid var(--rule-soft);background:transparent}
   .rev-fld.nested:hover{background:rgba(242,241,236,.6)}
-  .rev-fld.nested .kv{grid-template-columns:180px 1fr;gap:10px}
+  .rev-fld.nested .kv{grid-template-columns:minmax(100px,max-content) 1fr;gap:14px}
   .rev-fld.nested .name{font-size:11px;color:var(--ink-3)}
   .rev-fld.nested .val{font-size:12.5px;line-height:1.35;padding:1px 4px;min-height:18px}
-  .rev-fld.nested .notes{font-size:11px;margin-left:190px}
+  .rev-fld.nested .notes{font-size:11px;margin-left:114px}
 
   /* object field — collapsible card */
   .rev-obj{border:1px solid var(--rule);border-radius:6px;background:var(--paper);margin:6px 0;overflow:hidden}
