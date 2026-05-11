@@ -241,3 +241,120 @@ Backend doesn't expose a per-field "flag" count (a flag would mean "low/mid conf
 **Open questions for Design**
 - Once per-field confidence lands, is "flagged" defined as `confLab !== 'high'` (low + mid) or only `low`?
 - Where should the count live when there are zero flagged fields — hidden, or `0/N flagged` greyed out as a confidence signal?
+
+---
+
+### 2026-05-11 — `/eval` renders as agent markdown table; `EvalCard` component unused
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/EvalCard`, `Chat/MessageList`, `Context/ContextSurface`
+- **Files**: `frontend/src/components/Chat/EvalCard.tsx`, `frontend/src/components/Chat/MessageList.tsx`
+- **Type**: new-state
+
+**What changed**
+`/eval` results render as a markdown `<h2>` + table inside the agent's message bubble. The styled `EvalCard` component (`.eval-card`, per-field tonal rows, nbar) is built but never mounted — `MessageList` doesn't detect the `score` tool result and inline it. (The right-panel `metrics/` section also doesn't update after a fresh `/eval` — that's the same root cause as the `metrics/ ContextSurface placeholder` entry above: no `useEval` store. Not re-logging it here.) Net effect: eval output lives only as chat prose; no styled card, no sticky "current F1" anywhere.
+
+**Why**
+The `score` tool result isn't matched to an `EvalCard` adapter the way the M7 plan (T12.3) assumed; the agent's prose-with-markdown-table path takes over. Discovered during M7 scene verification.
+
+**Open questions for Design**
+- Keep the agent markdown table, or wire the `score` result into `<EvalCard>` (and feed `metrics/`)?
+- Should the latest eval be a persistent artifact (sticky in context surface / FS spine) rather than a one-off chat message?
+
+**Reference**
+- Original Design: `docs/design/emerge-api/project/app.jsx` (EvalConversation ~323-356), `index.html:384-405`
+- Current implementation: `docs/screenshots/2026-05-10-m7-eval-card.png`
+
+---
+
+### 2026-05-11 — Publish stage shows raw IDs / placeholder checklist; "mint key" round-trips through the agent
+
+- **Status**: 🟡 Pending
+- **Area**: `Publish/PublishStage`
+- **Files**: `frontend/src/components/Publish/PublishStage.tsx`, `frontend/src/components/Chat/MessageList.tsx`
+- **Type**: copy | new-state | interaction
+- **Relates to**: the `Publish stage rendered inline in chat thread (not full overlay)` entry above — that one is about *layout*; this one is about the *data the stage shows* and the *mint action*.
+
+**What changed**
+1. The `check` and `key` stage eyebrows render the uppercased `project_id` (`READINESS · P_4W6RZEUZ9DFI`, `KEY MINTED · P_4W6RZEUZ9DFI / V1`) instead of the project name + slash the design uses (`READINESS · invoices/`).
+2. The `check` stage's checklist is a single placeholder line `✓ no checks required`; the actual readiness checks (Schema non-empty / Reviewed & F1 / Reviewed fields in schema / No running jobs / Contract diff compat — all pass in dogfood) are printed separately as a markdown table in the agent's text, not fed into the `PublishStage` `checklist` prop.
+3. `mint key →` doesn't call `useApiKey.mintAndReveal()`; it injects the chat message "yes, mint the key now" and the agent re-runs `list_projects` → `issue_api_key` (two extra LLM round-trips per mint).
+4. `KEY MINTED · … / V1` — the "V1" looks like the API key's own counter but sits next to the readiness report's "next frozen version will be v5", which reads as a contradiction.
+
+**Why**
+The styled `PublishStage` panel was built ahead of (or separate from) the data that drives it — eyebrow string, checklist items, and the mint action bypass the component's props and either show raw values or route through the agent. Discovered during M7 scene verification.
+
+**Open questions for Design**
+- Eyebrow: project name + slash (`us-invoice/`) — confirm, and what to show when there's no friendly slug.
+- Should `mint key →` be a direct UI action (instant reveal), or is the agent round-trip acceptable for an action of this weight?
+- How to label the key's own version vs. the schema version so the two `vN`s don't collide.
+
+**Reference**
+- Original Design: `docs/design/emerge-api/project/index.html:407-435`
+- Current implementation: `docs/screenshots/2026-05-10-m7-publish-check.png`, `docs/screenshots/2026-05-10-m7-publish-key.png`
+
+---
+
+### 2026-05-11 — Mixed CN/EN microcopy in publish key card
+
+- **Status**: 🟡 Pending
+- **Area**: `Publish/PublishStage` (key stage)
+- **Files**: `frontend/src/components/Publish/PublishStage.tsx`
+- **Type**: copy
+
+**What changed**
+The one-time key-reveal card mixes languages: the `copy` button has a Chinese tooltip (`复制`) and the close button's accessible name is Chinese (`我已保存 - 关闭`) while the rest of the surface (and the whole app) is English.
+
+**Why**
+Leftover from iterating on this card; no i18n layer in M7.
+
+**Open questions for Design**
+- Confirm English as the M7 baseline microcopy (and file a separate i18n track), or is bilingual intentional anywhere?
+
+---
+
+### 2026-05-11 — Improve proposal-candidate cards unreachable in the autoresearch flow
+
+- **Status**: 🟡 Pending
+- **Area**: `Improve/ProposalCandidateCard`, `Improve` job card, `Chat/MessageList`
+- **Files**: `frontend/src/components/Improve/ProposalCandidateCard.tsx`, `frontend/src/components/Improve/ImproveBanner.tsx`, `frontend/src/stores/jobs.ts`
+- **Type**: new-state | interaction
+- **Relates to**: the `Improve candidate accept is turn-level, not field-level` entry above — that one discusses the cards' accept *granularity* (assuming they appear); this one notes that in the autoresearch job flow they don't appear at all.
+
+**What changed**
+`ProposalCandidateCard` (the diff + accept/edit/dismiss card the design centers the `/improve` scene on) renders only from a chat `tool_call` event whose name ends in `propose_description`. The autoresearch loop runs server-side (JobRunner) and surfaces per-turn proposals only as `job_event` progress lines (`turn N · best f1 X (turn M)`) — it never emits `propose_description` as a chat tool call. So during a real `/improve` run there is **no per-field candidate card to accept or reject**. Related: the job card has `pause`/`cancel` but no "accept the best candidate" button (the agent's intro text promises "accept the best candidate via the UI button"); and it shows `best f1` with no baseline — in the dogfood run the best candidate was `0.83` vs. the live schema's `0.97`, with no warning that accepting would regress.
+
+**Why**
+The candidate card was wired for a chat-streamed proposal model; the actual autoresearch job is a separate async worker whose internal proposals don't flow through the chat SSE. Discovered during M7 scene verification.
+
+**Open questions for Design**
+- Should autoresearch per-turn proposals be mirrored into the chat thread as `cand` cards, or should accept/reject live entirely on the job card (and only at job end)?
+- The job card needs a baseline F1 to compare `best f1` against, plus an explicit accept (and probably a "this would regress" guard). Where does the accept control live — job card, a job-complete summary message, or both?
+- Reconcile the agent's copy ("accept the best candidate via the UI button") with whatever UI actually ships.
+
+**Reference**
+- Original Design: `docs/design/emerge-api/project/app.jsx` (improve scene ~305-340), `pieces.jsx:325-337`, `index.html:436-446`
+- Current implementation: `docs/screenshots/2026-05-10-m7-improve-banner.png`, `docs/screenshots/2026-05-10-m7-improve.png`
+
+---
+
+### 2026-05-11 — `new project…` entry point is a no-op; project-scoped EmptyHero unreachable from the UI
+
+- **Status**: 🟡 Pending
+- **Area**: `Spine/FSSpine`, `Empty/EmptyHero`
+- **Files**: `frontend/src/components/Spine/FSSpine.tsx`, `frontend/src/components/Empty/EmptyHero.tsx`
+- **Type**: interaction | new-state
+
+**What changed**
+Clicking `+ new project…` in the FS spine produces no visible result (no name prompt, no new project row, no DOM change). Because no project can be created from the UI, the project-scoped `EmptyHero` variant (eyebrow `~/projects/<name>/`, drop zone scoped to a real folder) is unreachable — the only hero state you can see is the "no project selected" variant (eyebrow `~/PROJECTS/`).
+
+**Why**
+The create-project flow behind `new project…` isn't wired in M7 (or fails silently). Discovered during M7 scene verification.
+
+**Open questions for Design**
+- Create-project UX: inline rename row in the spine, a small dialog, or a chat command (`/init` after picking a name)?
+- Should the "no project selected" hero and the "empty project" hero be the same component with a swapped eyebrow, or visually distinct states?
+
+**Reference**
+- Original Design: `docs/design/emerge-api/project/app.jsx:155-187`, `pieces.jsx:94-130`
+- Current implementation: `docs/screenshots/2026-05-10-m7-empty-hero.png`

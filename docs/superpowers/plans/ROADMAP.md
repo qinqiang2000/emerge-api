@@ -19,6 +19,7 @@
 | **M5** — UX papercut bundle (useJob isolate + schema invalidate + multi-entity + click-to-page) | `2026-05-09-m5-ux-papercut.md` | ✅ shipped | `d244f12..eb978b8` (17 commits, T9 scope-reduced, T14 also fixed pre-existing ReviewMode infinite-rerender) |
 | **M6** — agent sandbox + secret hygiene (allowlist enforce + API key redaction) | `2026-05-10-m6-agent-sandbox-secret-hygiene.md` | ✅ shipped | `4f3c40f..d9c6452` (11 commits, history scrubber cleaned 2 leaked entries from M3 dogfood jsonl; 2 real-LLM tests skip-by-default behind `EMERGE_REAL_LLM=1`) |
 | **M7** — design handoff UI replacement | `2026-05-10-m7-design-handoff-ui.md` | ✅ shipped | `5080ff0..fcf9369` (~14 task commits) |
+| **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | 📋 planned | — |
 
 ## What each milestone delivers
 
@@ -96,6 +97,25 @@
 
 **Design decisions deferred:** dark palette revival, schema section grouping, metrics tree API, per-field accept in /improve, publish stage overlay, object/array sub-shape, per-field confidence, PDF↔field bidirectional binding.
 
+### M7.1 — design-handoff wiring & polish (post-M7 verification fixes)
+
+**Goal:** close the gaps surfaced when the M7 scenes were verified live on 2026-05-11 — structured result cards (`EvalCard`, `PublishStage` checklist) silently fall back to plain tool pills because their adapters don't match the real tool output; the publish panel labels a raw `project_id`; the key-reveal card has stray Chinese labels; the improve job card under-communicates; the `/publish` agent hits a `Skill` tool error.
+
+**Scope (see `2026-05-11-m7-1-handoff-wiring-fixes.md`):**
+- T1: backend `t_score` must emit `json.dumps(...)` not `str(dict)` — the Python repr breaks the frontend `JSON.parse` so `EvalCard` never renders (root cause of the missing eval card)
+- T2: `adaptReadiness` / `adaptScoreResult` robust to string `tool_result`; humanize readiness `key`→`label`
+- T3: `PublishStage` eyebrow shows project *name* not `project_id`
+- T4: english-only labels in the key-reveal card
+- T5: `JobProgressCard` shows baseline + delta; allow accept-best-turn after cancel; never offers a regression
+- **T6: retire `ProposalCandidateCard` — autoresearch accept is turn-level, not per-field** (the per-turn macro F1 is the unit of "did this help"; a turn-N description was scored in turn N's full-schema context). Closes the "per-field accept in /improve" follow-up by deciding *against* it.
+- T7: stop the agent re-emitting eval / readiness results as markdown tables — the UI cards are canonical
+- T8: diagnose & fix the `Skill ERR` on `/publish` (investigation task)
+- T9: design-decisions log + this roadmap closeout
+
+**Decisions affirmed (no change):** publish stage stays inline (not the full-conv-column overlay) — keeping conversation context visible wins; `mint key →` stays agent-mediated; `new project…` deselecting to the empty hero is the intended create flow.
+
+**Spun out to M7.2 (not in M7.1):** `/eval` result → right-panel `metrics/` section (needs a tiny read endpoint + `useEval` store); "preview what turn N changed before you accept it" diff on the job-card accept affordance (needs the autoresearch turn event to carry the per-turn schema delta; reuses the retained `ProposalDiff.tsx`).
+
 ## Open cross-cutting follow-ups
 
 These don't fit a milestone but should be tracked:
@@ -113,9 +133,9 @@ These don't fit a milestone but should be tracked:
 - **Export bundle filename for non-ASCII project names** — M4 `_safe_filename` strips non-ASCII, so a Chinese project name falls back toward `project-vN.zip`. Decide whether to preserve RFC 5987 `filename*=` UTF-8 names or use a deterministic ASCII slug with project id suffix.
 - **dark-mode revival** — M7 ships light-only; design needs a dark palette pass before re-enabling the theme toggle.
 - **schema sections** — review renders one synthetic section because `SchemaField` has no `section` attribute; design shows multi-section grouping. Needs optional `section` field in backend schema model.
-- **metrics tree section** — `FSSpine` `metrics/` row deferred until eval history is exposed via `/lab/projects/:id/evals`.
-- **per-field accept in /improve** — currently turn-level; needs new backend tool + state machine for field-level granularity.
-- **publish stage overlay vs inline** — current implementation is inline chat cards; design intends a full-conv-column overlay (`.pub-stage` position:absolute inset:0).
+- **metrics tree section / `/eval` → right-panel metrics** — `FSSpine` `metrics/` row and `ContextSurface`'s metrics panel both still show placeholder data; needs eval history exposed via `/lab/projects/:id/evals` (or `…/evals/latest`) + a `useEval` store. **Now an M7.2 candidate** (see M7.1 → "Spun out to M7.2"). The `score` tool already persists `metrics/eval_*.json` snapshots, so the read endpoint is thin.
+- ~~**per-field accept in /improve**~~ — **resolved by decision (M7.1 T6, 2026-05-11): retired.** Autoresearch accept is turn-level — a turn-N field description was scored in turn N's full-schema context, so cross-turn per-field accept is incoherent. `ProposalCandidateCard` deleted; `JobProgressCard`'s "accept turn N" button is the committed model. A "preview what turn N changed" diff (reusing `ProposalDiff.tsx`) is the M7.2 follow-up for the diff UI.
+- ~~**publish stage overlay vs inline**~~ — **resolved by decision (M7.1, 2026-05-11): stays inline.** Inline chat cards keep the conversation context visible; the full-conv-column overlay (`.pub-stage` position:absolute inset:0) is not pursued.
 - **review object/array sub-shape** — object/array fields render as editable JSON `<pre>` since `SchemaField` carries no sub-field shape; design shows nested form rows.
 - **per-field confidence dots** — hard-coded to 'high' (moss); needs per-field score from extract LLM.
 - **PDF→field bidirectional binding** — current click-to-page (field→PDF) is one-way; clicking in the PDF doesn't activate the corresponding field row.
