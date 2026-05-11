@@ -151,4 +151,81 @@ describe('enterProject', () => {
     expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'kept' }])
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it('switch race: a fetch in-flight when the user switches away again is dropped', async () => {
+    // Two deferred promises so we can resolve the B fetch *after* switching to C.
+    let resolveB!: (v: unknown[]) => void
+    const deferredB = new Promise<unknown[]>(res => { resolveB = res })
+    const deferredC = new Promise<unknown[]>(res => res([]))
+    const spy = vi.spyOn(api, 'getChatEvents')
+      .mockImplementationOnce(() => deferredB)   // first call (enterProject p_b)
+      .mockImplementationOnce(() => deferredC)   // second call (enterProject p_c)
+
+    useChat.setState({ events: [], loadedProjectId: 'p_a', chatId: 'c_a' })
+
+    useChat.getState().enterProject('p_b')
+    expect(useChat.getState().loadedProjectId).toBe('p_b')
+
+    // User switches away again before fetch B resolves.
+    useChat.getState().enterProject('p_c')
+    expect(useChat.getState().loadedProjectId).toBe('p_c')
+
+    // Now fetch B resolves with content — must be dropped (we already moved to p_c).
+    resolveB([{ type: 'user', text: 'B-history-event' }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const after = useChat.getState()
+    expect(after.loadedProjectId).toBe('p_c')
+    expect(after.events.some(e => e.type === 'user' && e.text === 'B-history-event')).toBe(false)
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('send during hydration: server history is prepended to the user in-flight tail', async () => {
+    let resolveFetch!: (v: unknown[]) => void
+    const deferred = new Promise<unknown[]>(res => { resolveFetch = res })
+    vi.spyOn(api, 'getChatEvents').mockImplementation(() => deferred)
+
+    useChat.setState({ events: [], loadedProjectId: 'p_old', chatId: 'c_old' })
+
+    useChat.getState().enterProject('p_new')
+    // Synchronous: events cleared, prefixLen captured = 0 by the store.
+    expect(useChat.getState().events).toEqual([])
+
+    // Simulate the user sending mid-fetch (grows events past prefixLen).
+    useChat.setState(s => ({
+      events: [...s.events, { type: 'user', text: 'mid-fetch' }],
+      busy: true,
+    }))
+
+    // Now the hydrate resolves with prior server history.
+    resolveFetch([{ type: 'agent_text', text: 'old history' }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useChat.getState().events).toEqual([
+      { type: 'agent_text', text: 'old history' },
+      { type: 'user', text: 'mid-fetch' },
+    ])
+  })
+
+  it('fresh-load first-entry switch: null loadedProjectId + empty events still hydrates', async () => {
+    const spy = vi.spyOn(api, 'getChatEvents').mockResolvedValue([
+      { type: 'agent_text', text: 'historical' },
+    ])
+    useChat.setState({ events: [], loadedProjectId: null, chatId: 'c_initial' })
+
+    useChat.getState().enterProject('p_x')
+
+    // Synchronously: switch branch ran (adopt branch needs events.length > 0).
+    const sync = useChat.getState()
+    expect(sync.loadedProjectId).toBe('p_x')
+    expect(sync.chatId).toBe(chatIdFor('p_x'))
+    expect(sync.events).toEqual([])
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(spy).toHaveBeenCalled()
+    expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'historical' }])
+  })
 })

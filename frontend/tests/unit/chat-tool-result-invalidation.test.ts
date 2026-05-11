@@ -7,7 +7,7 @@ import { useProjects } from '../../src/stores/projects'
 import { useEval } from '../../src/stores/eval'
 
 beforeEach(() => {
-  useChat.getState().reset()
+  useChat.setState({ events: [], busy: false, loadedProjectId: null })
   useSchema.getState().reset()
 })
 

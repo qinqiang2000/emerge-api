@@ -138,10 +138,14 @@ export async function getLatestEval(projectId: string): Promise<EvalSnapshot | n
 export async function getChatEvents(projectId: string, chatId: string): Promise<unknown[]> {
   try {
     const r = await fetch(`/lab/chats/${projectId}/${chatId}`)
-    if (!r.ok) return []
+    if (!r.ok) {
+      if (r.status !== 404) console.warn('getChatEvents failed', r.status)
+      return []
+    }
     const body = (await r.json()) as { events?: unknown[] }
     return body.events ?? []
-  } catch {
+  } catch (err) {
+    console.warn('getChatEvents threw', err)
     return []
   }
 }

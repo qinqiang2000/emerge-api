@@ -32,7 +32,7 @@ function _writeChatId(projectId: string, chatId: string): void {
 }
 
 /** Per-project, persisted chat id. Mints + persists one on first access. */
-export function chatIdFor(projectId: string): string {
+function chatIdFor(projectId: string): string {
   const existing = _readChatId(projectId)
   if (existing) return existing
   const fresh = newChatId()
@@ -49,7 +49,6 @@ interface State {
   enterProject: (projectId: string) => void
   lastUserMessage: () => string | null
   hasRecentToolError: () => boolean
-  reset: () => void
 }
 
 export const useChat = create<State>((set, get) => ({
@@ -57,9 +56,6 @@ export const useChat = create<State>((set, get) => ({
   events: [],
   busy: false,
   loadedProjectId: null,
-  // TODO: reset() can't rotate the localStorage chat-id key without a projectId;
-  // it's currently unused, so leaving the signature alone.
-  reset: () => set({ chatId: newChatId(), events: [], loadedProjectId: null }),
   enterProject: (projectId) => {
     if (projectId === 'p_unset') return
     if (projectId === get().loadedProjectId) return
@@ -79,12 +75,21 @@ export const useChat = create<State>((set, get) => ({
     // bind to that project's persisted chatId, clear, then fire-and-forget hydrate.
     const cid = chatIdFor(projectId)
     set({ loadedProjectId: projectId, chatId: cid, events: [], busy: false })
+    // Snapshot the prefix length right after the clear so the apply branch can
+    // tell whether the user sent anything during the hydration window. If they
+    // did, events.length will have grown past prefixLen → prepend rather than
+    // replace, so the user's in-flight tail isn't silently dropped.
+    const prefixLen = get().events.length
     void (async () => {
       const reduced = reduceEvents(await getChatEvents(projectId, cid))
-      const s = get()
-      if (s.chatId === cid && s.loadedProjectId === projectId && s.events.length === 0) {
-        set({ events: reduced })
-      }
+      set(s => {
+        // User switched away during the fetch → drop the result entirely.
+        if (s.chatId !== cid || s.loadedProjectId !== projectId) return s
+        // Common case: nothing happened between dispatch and apply → replace.
+        if (s.events.length === prefixLen) return { events: reduced }
+        // User sent during hydration → prepend server history, keep in-flight tail.
+        return { events: [...reduced, ...s.events] }
+      })
     })()
   },
   lastUserMessage: () => {
