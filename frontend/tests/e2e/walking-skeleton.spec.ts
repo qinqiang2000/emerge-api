@@ -2,9 +2,12 @@ import { test, expect } from '@playwright/test'
 
 test('drag a PDF and submit chat — stubbed flow', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Projects')).toBeVisible()
+  // "App loaded" anchor: the composer textbox is always present in the M7 shell.
+  // (The old top-bar "Projects" label no longer exists — the UI says "~/projects/"
+  // in several places, which would trip strict mode.)
+  await expect(page.getByRole('textbox')).toBeVisible()
 
-  // type a chat message and hit Enter
+  // type a chat message and hit Enter (plain message, no slash → submits on Enter)
   const textarea = page.getByRole('textbox')
   await textarea.fill('extract core invoice info')
   await textarea.press('Enter')

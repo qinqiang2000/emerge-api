@@ -759,3 +759,47 @@ advertises `⌘ ↵`), and don't let plain Enter dead-end.
   `/eval` highlighted → Tab → `/eval ` filled, menu closed, focus retained
   → Enter → submitted (screenshot `docs/screenshots/2026-05-11-slash-ev.png`
   shows the filtered menu state pre-Tab).
+
+---
+
+### 2026-05-12 — E2E specs realigned to M7 UI; two assertions adjusted to closest equivalent
+
+- **Status**: 🟡 Pending
+- **Area**: `tests/e2e` (Chat thread, Publish key card)
+- **Files**: `frontend/tests/e2e/chat-layout.spec.ts`,
+  `frontend/tests/e2e/publish-modal.spec.ts` (+ selector-only churn in
+  `walking-skeleton`, `review-mode`, `review-mode-evidence`)
+- **Type**: other (test maintenance)
+
+**What changed**
+The `m7-design-handoff-ui` merge rewrote the markup the Playwright suite
+targeted, so all 5 specs were re-selectored against the current DOM
+(project selection is a `.proj` sidebar row, not a `<button>`; right-rail
+doc list rows are `role="button"` with an uppercase status badge; ToolStack
+`Ran N tools ›` collapse; etc.). Two assertions tested behavior the M7 UI
+no longer has and were adjusted (not dropped):
+1. **`chat-layout`** — old: user message renders as a right-aligned
+   "bubble" (`[data-role="user-bubble"]` whose parent has `justify-end`).
+   New: the terminal-style thread renders the user line as `.msg.user`
+   (italic, smart-quoted via CSS `::before`/`::after`), visually distinct
+   from agent turns but not bubble-laid-out. The spec now asserts the
+   `.msg.user` element exists and carries the typed text.
+2. **`publish-modal`** — old: the redacted "key issued · prefix …hash"
+   trail was asserted *alongside* the one-time-reveal card. New: the reveal
+   card and the trail are the same inline `PublishStage` card in two states
+   (`useApiKey.current` set vs cleared), so the trail only appears *after*
+   the reveal is closed. The trail assertions (`key issued`, prefix,
+   `hash ffffff`) moved to after the close click.
+
+**Why**
+`cd frontend && npm run e2e` was failing all 5 specs (pre-M7 selectors).
+No product behavior changed — only the tests. The two adjustments above
+keep coverage on the same intent (user line is visually distinct; the
+plaintext key never persists and a redacted trail remains) against the
+shapes the M7 UI actually renders.
+
+**Reference**
+- Verified: `cd frontend && npm run e2e` → 5/5 green (run twice, stable).
+- UI snapshotted live via chrome-devtools-mcp against the e2e test-mode
+  backend (`EMERGE_TEST_MODE=1`, seeded project `e2e-test`) before
+  reselectoring.

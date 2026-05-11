@@ -1,40 +1,44 @@
 // frontend/tests/e2e/review-mode.spec.ts
-// Updated for T11 new DOM structure — contentEditable .val spans replace labeled inputs.
+// M7: project selection is a sidebar row; the doc list lives in the right-rail
+// ContextSurface as role="button" rows with an uppercase status badge.
 import { test, expect } from '@playwright/test'
 
 test('open a doc, edit a field, save, badge flips to reviewed', async ({ page }) => {
   await page.goto('/')
 
-  // wait for project to load + click it
-  await expect(page.getByText('e2e-test')).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'e2e-test' }).click()
+  // select the seeded project (clickable `.proj` row, not a <button>)
+  const projRow = page.locator('.proj', { hasText: 'e2e-test' })
+  await expect(projRow).toBeVisible({ timeout: 10_000 })
+  await projRow.click()
 
-  // doc list shows up in right pane with "draft" badge
-  await expect(page.getByText('sample.pdf')).toBeVisible()
-  await expect(page.getByText('draft')).toBeVisible()
+  // right-rail doc list shows sample.pdf with a "pending" badge (rendered
+  // uppercase by CSS — the accessible name is "sample.pdf PENDING")
+  const docBtn = page.getByRole('button', { name: /sample\.pdf pending/i })
+  await expect(docBtn).toBeVisible()
 
   // click the doc to enter review mode
-  await page.getByRole('button', { name: /sample\.pdf/ }).click()
+  await docBtn.click()
 
   // FieldEditor renders: look for field name "invoice_number" in the .name span
   await expect(page.locator('.rev-fld .name', { hasText: 'invoice_number' })).toBeVisible({ timeout: 8_000 })
 
-  // Find the corresponding .val contentEditable span (first one = invoice_number field row)
+  // Find the corresponding .val contentEditable span (first row = invoice_number)
   const valSpan = page.locator('.rev-fld').first().locator('.val')
   await expect(valSpan).toBeVisible()
 
-  // Clear and type a new value
+  // Clear and type a new value, then blur to commit the change
   await valSpan.click()
   await valSpan.fill('CONFIRMED-1')
-  // Trigger blur to commit the change
   await valSpan.blur()
 
-  await page.getByRole('button', { name: /save reviewed/i }).click()
+  // The review-bar save button is just labelled "save" now.
+  const saveBtn = page.getByRole('button', { name: 'save', exact: true })
+  await saveBtn.click()
 
-  // wait for save to complete, then back out
-  await expect(page.getByRole('button', { name: /save reviewed/i })).toBeEnabled({ timeout: 10_000 })
+  // wait for the save round-trip to finish (button reverts from "saving…"), then back out
+  await expect(saveBtn).toBeEnabled({ timeout: 10_000 })
   await page.getByRole('button', { name: /back/i }).click()
 
   // doc list shows "reviewed" badge now
-  await expect(page.getByRole('button', { name: /sample\.pdf reviewed/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /sample\.pdf reviewed/i })).toBeVisible()
 })

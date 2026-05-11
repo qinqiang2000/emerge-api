@@ -1,9 +1,13 @@
 import { expect, test } from '@playwright/test'
 
-test('chat layout: user bubble right-aligned, agent left, consecutive tools grouped', async ({ page }) => {
+test('chat layout: user line distinct from agent, consecutive plumbing tools grouped', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('e2e-test')).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'e2e-test' }).click()
+
+  // Select the seeded project. In the M7 sidebar (FSSpine) the project name is
+  // a clickable row (`.proj`), not a <button>.
+  const projRow = page.locator('.proj', { hasText: 'e2e-test' })
+  await expect(projRow).toBeVisible({ timeout: 10_000 })
+  await projRow.click()
 
   const textarea = page.getByRole('textbox')
   await textarea.fill('/extract')
@@ -20,8 +24,10 @@ test('chat layout: user bubble right-aligned, agent left, consecutive tools grou
   await expect(page.getByText('extract_batch')).toBeVisible()
   await expect(page.locator('strong', { hasText: 'Done.' })).toBeVisible()
 
-  const userBubble = page.locator('[data-role="user-bubble"]')
-  await expect(userBubble).toBeVisible()
-  const parentClass = await userBubble.evaluate(el => (el.parentElement as HTMLElement).className)
-  expect(parentClass).toContain('justify-end')
+  // The terminal-style chat renders the user line as `.msg.user` (italic,
+  // smart-quoted via CSS ::before/::after) — distinct from agent turns. The
+  // pre-M7 right-aligned "bubble" layout is gone. See docs/design-decisions.md 2026-05-12.
+  const userMsg = page.locator('.msg.user')
+  await expect(userMsg).toBeVisible()
+  await expect(userMsg).toHaveText('/extract')
 })
