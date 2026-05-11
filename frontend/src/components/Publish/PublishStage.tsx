@@ -34,13 +34,30 @@ export type PublishStageProps = CheckProps | KeyProps
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const READINESS_LABELS: Record<string, string> = {
+  schema_non_empty: 'Schema non-empty',
+  reviewed_and_f1: 'Reviewed & F1',
+  reviewed_fields_in_schema: 'Reviewed fields in schema',
+  no_running_jobs: 'No running jobs',
+  contract_diff_compat: 'Contract diff compat',
+}
+
+function humanizeKey(key: string): string {
+  return READINESS_LABELS[key]
+    ?? key.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+}
+
 export function adaptReadiness(result: unknown): CheckItem[] | null {
-  if (!result || typeof result !== 'object') return null
-  const checks = (result as Record<string, unknown>).checks
+  let obj: unknown = result
+  if (typeof result === 'string') {
+    try { obj = JSON.parse(result) } catch { return null }
+  }
+  if (!obj || typeof obj !== 'object') return null
+  const checks = (obj as Record<string, unknown>).checks
   if (!Array.isArray(checks)) return null
   return checks.map((c: Record<string, unknown>) => ({
     key: String(c.key ?? c.label ?? '?'),
-    label: String(c.label ?? c.key ?? '?'),
+    label: c.label != null ? String(c.label) : humanizeKey(String(c.key ?? '?')),
     ok: c.status === 'pass',
     detail: c.detail != null ? String(c.detail) : undefined,
   }))

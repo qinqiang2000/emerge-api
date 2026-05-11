@@ -46,6 +46,7 @@ interface ScoreResult {
     error_explanation?: string
   }>
   scored_at?: string
+  ts?: string
 }
 
 function parseScoreResult(raw: unknown): ScoreResult | null {
@@ -80,7 +81,10 @@ export function adaptScoreResult(
       err: typeof f.error_explanation === 'string' ? f.error_explanation : undefined,
     }
   })
-  const scoredAt = typeof sr.scored_at === 'string' ? sr.scored_at : 'just now'
+  const scoredAt =
+    (typeof sr.scored_at === 'string' && sr.scored_at) ||
+    (typeof sr.ts === 'string' && sr.ts) ||
+    'just now'
   return { rows, overall, scoredAt }
 }
 
