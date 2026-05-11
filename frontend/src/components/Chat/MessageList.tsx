@@ -20,6 +20,11 @@ interface Props { events: ChatEvent[]; busy?: boolean }
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
 
+function useProjectName(projectId: string): string {
+  const projects = useProjects(s => s.projects)
+  return projects.find(p => p.project_id === projectId)?.name ?? projectId
+}
+
 function toolStatus(e: ToolCallEvent): ToolStatus {
   if (e.ok === false) return 'err'
   if (e.tool_result === undefined || e.tool_result === null) return 'run'
@@ -63,6 +68,7 @@ function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
   const projectId = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
     ? (event.tool_input as Record<string, unknown>).project_id as string
     : 'project'
+  const projectName = useProjectName(projectId)
 
   const send = useChat(s => s.send)
   const selectedId = useProjects(s => s.selectedId)
@@ -89,7 +95,7 @@ function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
   return (
     <PublishStage
       stage="check"
-      projectName={String(projectId)}
+      projectName={projectName}
       checklist={checklist}
       onAdvance={handleAdvance}
       onClose={handleClose}
@@ -103,13 +109,14 @@ function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
   const projectId = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
     ? (event.tool_input as Record<string, unknown>).project_id as string
     : 'project'
+  const projectName = useProjectName(projectId)
 
   // One-time reveal available — show full key stage
   if (current && current.project_id === projectId) {
     return (
       <PublishStage
         stage="key"
-        projectName={current.project_id}
+        projectName={projectName}
         versionLabel={current.version_id ?? 'v1'}
         keyPlaintext={current.key_plaintext}
         keyHash={current.key_hash}
