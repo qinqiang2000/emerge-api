@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from claude_agent_sdk import AssistantMessage, TextBlock
 from fastapi.testclient import TestClient
 
 from app.chat.log import append_event, read_chat_session_id
@@ -135,6 +136,48 @@ async def test_no_retry_when_no_prior_session(workspace: Path) -> None:
     joined = "".join(chunks)
     assert "agent_failure" in joined
     assert not chat_meta_path(workspace, PID, CID).exists()
+
+
+async def test_no_retry_on_mid_stream_failure_of_resumed_turn(workspace: Path) -> None:
+    """A resumed turn that fails *after* yielding an event must not retry, and the
+    (valid) sidecar must be left intact — re-streaming would duplicate events."""
+    from app.chat.log import write_chat_session_id
+
+    write_chat_session_id(workspace, PID, CID, "sess-old")
+
+    constructed: list[Any] = []
+
+    class _MidStreamFailClient(_FakeClient):
+        def __init__(self, *, options: Any) -> None:
+            constructed.append(getattr(options, "resume", None))
+            super().__init__(options=options)
+
+        async def receive_response(self):
+            # One agent_text-producing message gets through...
+            yield AssistantMessage(
+                content=[TextBlock(text="partial answer")], model="claude-sonnet-4-6"
+            )
+            # ...then the transport dies mid-stream.
+            raise RuntimeError("connection reset by peer")
+
+    svc = _make_service(workspace)
+    with patch("app.chat.service.ClaudeSDKClient", _MidStreamFailClient):
+        chunks = await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
+
+    # No retry: a single construction with resume="sess-old".
+    assert constructed == ["sess-old"]
+    # Sidecar left alone — the session is fine, the failure was transient.
+    assert read_chat_session_id(workspace, PID, CID) == "sess-old"
+    joined = "".join(chunks)
+    # The already-streamed agent_text plus an agent_failure error event.
+    assert "partial answer" in joined
+    assert "agent_failure" in joined
+
+
+def test_chat_history_endpoint_bad_ids(workspace: Path) -> None:
+    client = TestClient(app)
+    resp = client.get("/lab/chats/bad/also-bad")
+    assert resp.status_code == 400
 
 
 def test_chat_history_endpoint(workspace: Path) -> None:

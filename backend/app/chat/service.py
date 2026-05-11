@@ -119,7 +119,9 @@ class ChatService:
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
             # Resume the prior SDK conversation so the agent remembers earlier
-            # turns. None on the first turn (or after a self-heal); see INSIGHTS #11.
+            # turns. None on the first turn (or after a self-heal retry that only
+            # fires when the resumed attempt failed before emitting anything);
+            # see INSIGHTS #11.
             resume=resume,
             # Do NOT inherit user/project/local Claude Code settings — that's how
             # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
@@ -168,9 +170,10 @@ class ChatService:
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
         latest_sid: str | None = None
+        yielded_any = False
 
         async def _run(opts: ClaudeAgentOptions) -> AsyncIterator[str]:
-            nonlocal latest_sid
+            nonlocal latest_sid, yielded_any
             redactor = EventRedactor()
             async with ClaudeSDKClient(options=opts) as client:
                 await client.query(prompt)
@@ -190,6 +193,7 @@ class ChatService:
                             chat_id,
                             {"type": etype, **persist_payload},
                         )
+                        yielded_any = True
                         yield sse_event(etype, sse_payload)
 
         try:
@@ -198,12 +202,20 @@ class ChatService:
                 async for chunk in _run(options):
                     yield chunk
             except Exception:  # noqa: BLE001
-                if prev_sid is None:
+                # Only self-heal when the *resumed* attempt failed before emitting
+                # anything user-visible. The dead-transcript case fails fast at
+                # client startup (before any yield); a mid-stream failure of a
+                # resumed session (dropped connection, provider 5xx) is transient —
+                # retrying would re-stream already-delivered SSE events and the
+                # frontend would see duplicates, so re-raise and leave the (valid)
+                # sidecar alone. See INSIGHTS #11.
+                if prev_sid is None or yielded_any:
                     raise
                 # A sidecar pointing at a transcript that ~/.claude no longer has
                 # must not wedge the chat forever — clear it and retry fresh once.
                 write_chat_session_id(self.workspace, project_id, chat_id, None)
                 latest_sid = None
+                yielded_any = False
                 options = self._build_options(user_message, resume=None)
                 async for chunk in _run(options):
                     yield chunk

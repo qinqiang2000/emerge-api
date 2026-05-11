@@ -52,6 +52,14 @@ def test_read_chat_events_skips_partial_trailing_line(workspace: Path) -> None:
     assert read_chat_events(workspace, "p_x", "c_x") == [{"type": "user", "text": "hi"}]
 
 
+def test_read_chat_events_unreadable_log_degrades_to_empty(workspace: Path) -> None:
+    # A path that exists but can't be opened as a file (here: a directory) must
+    # degrade to [] rather than bubbling an OSError out of GET /lab/chats/...
+    cdir = chats_dir(workspace, "p_x")
+    (cdir / "c_x.jsonl").mkdir(parents=True)
+    assert read_chat_events(workspace, "p_x", "c_x") == []
+
+
 def test_session_id_sidecar_roundtrip(workspace: Path) -> None:
     assert read_chat_session_id(workspace, "p_x", "c_x") is None
     write_chat_session_id(workspace, "p_x", "c_x", "sess-1")

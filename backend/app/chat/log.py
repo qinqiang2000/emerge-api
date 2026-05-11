@@ -27,21 +27,25 @@ async def append_event(
 
 
 def read_chat_events(workspace: Path, project_id: str, chat_id: str) -> list[dict[str, Any]]:
-    """Read back the JSONL chat log for UI replay. Returns [] if no log file."""
+    """Read back the JSONL chat log for UI replay. Returns [] if no/unreadable log file."""
     log_path = chats_dir(workspace, project_id) / f"{chat_id}.jsonl"
     if not log_path.exists():
         return []
     out: list[dict[str, Any]] = []
-    with log_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                # A partial trailing line (or any junk) is skipped — recoverable.
-                continue
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    # A partial trailing line (or any junk) is skipped — recoverable.
+                    continue
+    except OSError:
+        # Corrupt/locked log degrades to empty history rather than 500ing the GET.
+        return []
     return out
 
 
