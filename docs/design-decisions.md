@@ -503,3 +503,44 @@ commits `576089f..81bd62d`). One Accepted decision per resolution below.
   `tool_call` littered the trail. Diagnosis evidence: chat
   `c_11f0c9f0e0fc.jsonl` lines 2-3 capture the exact
   `tool_call → "Unknown skill"` pair.
+
+---
+
+### 2026-05-11 — Agent prints a key-info markdown table after `issue_api_key` (same anti-pattern as T7, different tool)
+
+- **Status**: 🟡 Pending — M7.2 candidate
+- **Area**: `backend/app/skills/emerge_publish.md`, `Publish/PublishStage` (key stage)
+- **Files**: `backend/app/skills/emerge_publish.md`
+- **Type**: copy
+
+**What changed**
+Surfaced during the post-M7.1 end-to-end verification (chat `c_bbcddbe1c5b3.jsonl`,
+2026-05-11). On `/publish → mint key`, after `issue_api_key` returns and
+the UI renders the key-stage `<PublishStage>` card (with project, version,
+plaintext key, prefix, hash, created timestamp, `curl` snippet), the
+agent ALSO emits a `Detail | Value` markdown table re-stating the
+project / key prefix / created date. Same double-render pattern that
+M7.1 T7 fixed for `score` / `readiness_check` — but the `issue_api_key`
+key-info table is out of T7's scope, so it slipped through.
+
+**Why**
+The `emerge-publish` skill's step 7 already says "simply note: 'API key
+revealed in modal. Save it now'" + provide a `curl` template with a
+placeholder. The model interprets the curl template + the rich tool
+result as license to render the key metadata as a markdown table for
+readability. The fix is the same as T7: add an explicit "Rendering
+contract: the UI renders the key card; do NOT reproduce key metadata as
+a markdown table" line under step 7 of the skill.
+
+**Why deferred (not folded into M7.1)**
+The M7.1 plan and roadmap were scoped to the six 2026-05-11 verification
+findings (eval table, readiness table, eyebrow, CN labels, job card,
+ProposalCandidateCard) plus `Skill ERR`. M7.1 is shipped (`576089f..81bd62d`)
+and the roadmap row is closed. A new agent-cosmetic finding files as
+M7.2 candidate — bundle with the metrics-panel + per-turn-diff items.
+
+**Reference**
+- Verification screenshot (key card + duplicate table beneath):
+  `docs/screenshots/2026-05-11-m7-1-publish-key.png`.
+- The fix is a 3-line addition to `emerge_publish.md` step 7 in the same
+  shape as T7's emerge-extractor / emerge-publish edits.
