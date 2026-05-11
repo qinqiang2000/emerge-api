@@ -77,19 +77,22 @@ export default function FieldRow({
             </button>
           )}
         </div>
-        <span
-          ref={valRef}
-          className={`val${isEdited ? ' edited' : ''}`}
-          contentEditable
-          suppressContentEditableWarning
-          onFocus={() => setShowNotes(true)}
-          onBlur={(e) => {
-            onChange(e.currentTarget.textContent ?? '')
-            setShowNotes(false)
-          }}
-        >
-          {displayValue}
-        </span>
+        <div className="valwrap">
+          <span
+            ref={valRef}
+            className={`val${isEdited ? ' edited' : ''}`}
+            contentEditable
+            suppressContentEditableWarning
+            onFocus={() => setShowNotes(true)}
+            onBlur={(e) => {
+              onChange(e.currentTarget.textContent ?? '')
+              setShowNotes(false)
+            }}
+          >
+            {displayValue}
+          </span>
+          {isEdited && <span className="edstamp" title="edited">●</span>}
+        </div>
       </div>
       {notesVisible && (
         <span

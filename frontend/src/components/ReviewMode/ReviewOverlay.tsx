@@ -21,6 +21,7 @@ export default function ReviewOverlay({ onBack }: Props) {
     entities,
     evidence,
     notes,
+    loading,
     saving,
     err,
     setField,
@@ -82,19 +83,25 @@ export default function ReviewOverlay({ onBack }: Props) {
           <PdfViewer />
         </div>
         <div style={{ minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <FieldEditor
-            schema={schema}
-            entities={entities}
-            notes={notes}
-            evidence={evidence ?? null}
-            onChange={setField}
-            onSetNote={setNote}
-            onAddEntity={addEntity}
-            onRemoveEntity={removeEntity}
-            onJumpToPage={goPage}
-            view={view}
-            forceOpen={forceOpen}
-          />
+          {loading ? (
+            <div style={{ padding: '16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-5)' }}>
+              loading…
+            </div>
+          ) : (
+            <FieldEditor
+              schema={schema}
+              entities={entities}
+              notes={notes}
+              evidence={evidence ?? null}
+              onChange={setField}
+              onSetNote={setNote}
+              onAddEntity={addEntity}
+              onRemoveEntity={removeEntity}
+              onJumpToPage={goPage}
+              view={view}
+              forceOpen={forceOpen}
+            />
+          )}
         </div>
       </div>
     </div>
