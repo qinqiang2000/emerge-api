@@ -715,3 +715,47 @@ progress) — the exact opposite of what the user came for.
   `ts_start_ms`/`ts_end_ms` to the `tool_call` SSE event in
   `backend/app/chat/service.py:213-249` and surface `· 0.0s` next to
   `Ran N tools`. Not done in this pass.
+
+---
+
+### 2026-05-11 — Composer slash-command submit: fix Enter re-pick loop, add Tab, close menu on pick
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/Composer`
+- **Files**: `frontend/src/components/Chat/Composer.tsx`,
+  `frontend/tests/unit/Composer.test.tsx`
+- **Type**: interaction (bug fix)
+
+**What changed**
+Three coupled fixes to the slash-command autocomplete:
+1. **Enter no longer loops.** Before: while the text started with `/` the
+   menu was always open, so plain Enter always "picked the active item" →
+   `setText('/eval ')` → still starts with `/` → next Enter re-picks…
+   forever. A slash command could only be submitted with ⌘/Ctrl+Enter.
+   Now the menu is considered *dismissed* once a full command prefixes the
+   text (`/eval`, or `/eval …`), so after a pick the next plain Enter falls
+   through to `submit()` — consistent with the `⌘ ↵ send` footer hint.
+   ⌘/Ctrl+Enter still submits unconditionally, including mid-typing.
+2. **Tab picks the active item**, same as Enter (`preventDefault` so it
+   doesn't shift focus). Common autocomplete affordance.
+3. **The menu closes after a pick / after a full command name is typed.**
+   `showSlash = text.startsWith('/') && !completedCommand`, where
+   `completedCommand` is true when the text is exactly a command or is
+   prefixed by `<cmd> `. Previously the menu lingered (e.g. it stayed open
+   showing all 6 commands with `/eval ev` in the box).
+
+**Why**
+Reported during the 2026-05-11 ToolStack browser dogfood: typing `/eval`
+and pressing Enter did nothing visible (silent re-pick loop), the menu
+never went away, and there was no Tab support. User's stated preference:
+keep the combo shortcut as the canonical submit (the footer already
+advertises `⌘ ↵`), and don't let plain Enter dead-end.
+
+**Reference**
+- New tests: `frontend/tests/unit/Composer.test.tsx` — Enter picks→closes→
+  submits, Tab picks, full-command-name closes the menu, ⌘/Ctrl+Enter
+  submits while the menu is open.
+- Live check: dogfood on us-invoice — typed `/ev` → menu filtered to
+  `/eval` highlighted → Tab → `/eval ` filled, menu closed, focus retained
+  → Enter → submitted (screenshot `docs/screenshots/2026-05-11-slash-ev.png`
+  shows the filtered menu state pre-Tab).

@@ -15,7 +15,14 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
   const [activeIdx, setActiveIdx] = useState(0)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
-  const showSlash = text.startsWith('/')
+  // The autocomplete menu is open only while the user is still typing a command
+  // name. Once a full command prefixes the text (`/eval` or `/eval …`), the
+  // choice is locked in: the menu closes, and plain Enter submits — consistent
+  // with the "⌘ ↵ send" footer hint (⌘/Ctrl+Enter always submits regardless).
+  // This also kills the old re-pick loop: pickSlash sets text to "/eval " which
+  // is a completedCommand, so the next Enter falls through to submit().
+  const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
+  const showSlash = text.startsWith('/') && !completedCommand
 
   // Auto-grow textarea up to 220px
   useEffect(() => {
@@ -69,8 +76,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
         setActiveIdx(i => (i - 1 + slashMatches.length) % slashMatches.length)
         return
       }
-      // Enter picks the active item (not submit)
-      if (e.key === 'Enter' && !e.shiftKey) {
+      // Enter or Tab picks the active item (fills "<cmd> " and closes the menu).
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
         e.preventDefault()
         const pick = slashMatches[Math.min(activeIdx, slashMatches.length - 1)]
         if (pick) pickSlash(pick.cmd)
