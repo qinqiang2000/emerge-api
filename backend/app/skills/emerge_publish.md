@@ -27,9 +27,17 @@ You help the user freeze the current schema as a versioned API and issue an API 
 
 1. Call `readiness_check(project_id)`. Read the returned `{checks, soft_warnings,
    hard_pass, macro_f1, n_reviewed}`.
-2. Present the checklist to the user, grouped by status:
-   - For each `fail`: explain plainly what is wrong and the corrective action.
-   - For each `warn`: surface plainly. These are advisory.
+2. **Rendering contract:** the lab UI renders the readiness checklist
+   automatically from the `readiness_check` tool result (as a PublishStage
+   panel inline with this turn). **Do NOT reproduce it as a markdown
+   `| Check | Status | Detail |` table or bullet list.** Instead, give
+   one short narrative:
+   - If `hard_pass` is `true`, say so in one line and tell the user the
+     next frozen version number (`v{N+1}`).
+   - If `hard_pass` is `false`, name the failing check(s) by their
+     human-readable label and what to fix — one short paragraph. Do
+     NOT list passing checks; the UI shows them.
+   - If there are `soft_warnings`, mention them in one phrase.
 3. If `hard_pass` is `false`, STOP. Do NOT call `freeze_version`. Ask the user
    to fix and re-run `/publish`.
 4. If only soft warnings, ask: "ready to publish v{N}?" Wait for explicit

@@ -65,14 +65,22 @@ When the user types free-form text:
   reviewed makes score return macro_f1=0.0, which is misleading. If reviewed
   examples exist, call the `score` tool. It needs only `project_id`. The
   result has `macro_f1`, `per_field` (each with
-  precision/recall/f1/support), `n_reviewed`, and `errors`. Summarize in
-  chat:
-  - lead with `macro_f1` rounded to 2 decimals
-  - call out the lowest-f1 field with support > 0 as the "where to focus"
-    pointer
+  precision/recall/f1/support), `n_reviewed`, and `errors`.
+
+  **Rendering contract:** the lab UI renders the full per-field
+  precision/recall/F1 table from the `score` tool result automatically
+  (as an EvalCard inline with this turn). **Do NOT reproduce that table
+  in your reply** — no `📊 Eval Results` heading, no markdown table, no
+  per-field bullet list. Give one short sentence:
+  - the macro_f1 rounded to 2 decimals, and
+  - which one or two fields are weakest (lowest f1 with support > 0)
+    as the "where to focus" pointer, then
+  - suggest a next step (`/review` more docs, or tighten a specific
+    description).
+  Edge cases:
   - if no `per_field` entries have support > 0, say the reviewed examples
-    do not cover fields enough yet instead of naming a worst field
-  - if `errors` non-empty, surface them
+    do not cover fields enough yet instead of naming a worst field.
+  - if `errors` is non-empty, surface them in the same sentence.
 
 ## Slash commands handled by this skill
 
