@@ -358,3 +358,148 @@ The create-project flow behind `new project…` isn't wired in M7 (or fails sile
 **Reference**
 - Original Design: `docs/design/emerge-api/project/app.jsx:155-187`, `pieces.jsx:94-130`
 - Current implementation: `docs/screenshots/2026-05-10-m7-empty-hero.png`
+
+---
+
+### 2026-05-11 — M7.1 resolutions (wiring & polish from the 2026-05-11 verification)
+
+The six 🟡 Pending entries above were addressed by M7.1
+(plan: `docs/superpowers/plans/2026-05-11-m7-1-handoff-wiring-fixes.md`,
+commits `576089f..81bd62d`). One Accepted decision per resolution below.
+
+#### `/eval` → real `<EvalCard>`; agent no longer prints a markdown table
+
+- **Status**: ✅ Accepted
+- **Files**: `backend/app/tools/__init__.py`, `backend/app/skills/emerge_extractor.md`,
+  `frontend/src/components/Chat/EvalCard.tsx`
+- **What changed**: T1 — `t_score` now emits `_json.dumps(...)` (was
+  `str(dict)`, a Python repr that broke the frontend `JSON.parse`); same
+  fix in sibling `t_get_prediction`. T2 — `adaptScoreResult` reads `ts`
+  as the timestamp fallback (the backend field is `ts`, not `scored_at`).
+  T7 — the `emerge-extractor` skill now has an explicit "Rendering
+  contract: the lab UI renders the full per-field table; do NOT reproduce
+  it" block, so the agent gives a one-sentence narrative instead.
+- **Why**: the `EvalCard` component existed but never rendered — the
+  adapter silently fell back to a plain tool pill because of the
+  `JSON.parse` throw, and the agent filled the gap with a `📊 Eval Results`
+  markdown table.
+- **Reference**: `docs/screenshots/2026-05-11-m7-1-eval-card.png` (after).
+
+#### Publish stage shows real readiness checklist + project name eyebrow
+
+- **Status**: ✅ Accepted
+- **Files**: `frontend/src/components/Publish/PublishStage.tsx`,
+  `frontend/src/components/Chat/MessageList.tsx`,
+  `backend/app/skills/emerge_publish.md`
+- **What changed**: T2 — `adaptReadiness` now parses a JSON-string
+  `tool_result` (the frontend keeps the raw string for everything except
+  `issue_api_key`), and a `key`→`label` humanizer maps
+  `schema_non_empty`→`Schema non-empty`, `reviewed_and_f1`→`Reviewed & F1`,
+  etc. T3 — `PublishStage{Check,Key}Adapter` resolves `project_id` →
+  project name via a `useProjectName` helper, so the eyebrows read
+  `READINESS · us-invoice` and `KEY MINTED · us-invoice/v…` instead of
+  the uppercased raw id. T7 — the `emerge-publish` skill now has an
+  explicit "Rendering contract" block telling the agent NOT to reproduce
+  the `| Check | Status | Detail |` markdown table.
+- **Why**: even though `readiness_check` already emitted valid JSON, the
+  adapter required an object input → JSON-string → `null` → the "no
+  checks required" placeholder. The eyebrow string and the agent's
+  duplicate table were the remaining cosmetic gaps.
+- **Decisions affirmed (unchanged)**: publish stage stays inline (not the
+  full-conv-column overlay) — keeping the conversation context visible
+  wins; `mint key →` stays agent-mediated (chat message →
+  `issue_api_key`); the schema `vN` (next-frozen) is surfaced in the
+  agent's one-line narrative, the API key's own `vN` lives on the
+  key-stage eyebrow.
+- **Reference**: `docs/screenshots/2026-05-11-m7-1-publish-eyebrow.png`,
+  `docs/screenshots/2026-05-11-m7-1-publish-check.png`.
+
+#### English-only labels in the key-reveal card
+
+- **Status**: ✅ Accepted
+- **Files**: `frontend/src/components/Publish/PublishStage.tsx`
+- **What changed**: T4 — `CopyButton` title `Copied`/`Copy` (was
+  `已复制`/`复制`) and `aria-label="copy api key"` (was `copy`); `KeyStage`
+  close button `aria-label="I've saved this key — close"` (was
+  `我已保存 - 关闭`). `rg '\p{Han}' frontend/src/components` is now clean
+  of user-facing CJK.
+- **Why**: the M7 baseline microcopy is English; the leftover Chinese
+  tooltips read as unfinished.
+- **Reference**: `docs/screenshots/2026-05-11-m7-1-key-card-en.png`.
+
+#### `JobProgressCard` shows baseline + delta; accept-best-turn after cancel; never offers a regression
+
+- **Status**: ✅ Accepted
+- **Files**: `frontend/src/components/Chat/JobProgressCard.tsx`,
+  `frontend/tests/unit/JobProgressCard.test.tsx`
+- **What changed**: T5 — extracted a pure `formatJobLine` helper that
+  produces `turn N · best f1 X (turn M) · baseline Y (Δ ±Z)` (was just
+  `turn N · best f1 X (turn M)`). The accept block now fires for both
+  `'done'` AND `'cancelled'`, so a user who cancels a productive run can
+  still keep the best turn. And the accept button is gated by
+  `bestTurn.macro_f1 > turns[0].macro_f1` — if the best turn ≤ baseline,
+  the card shows "baseline still best — schema unchanged" instead of
+  offering an accept that would regress.
+- **Why**: per the M7 plan and the 2026-05-11 verification — the job card
+  under-communicated and didn't let the user keep a good candidate after
+  cancelling.
+- **Reference**: `docs/screenshots/2026-05-11-m7-1-improve-jobcard.png`.
+
+#### `ProposalCandidateCard` retired — autoresearch accept is turn-level (load-bearing)
+
+- **Status**: ✅ Accepted (load-bearing decision)
+- **Files deleted**: `frontend/src/components/Improve/ProposalCandidateCard.tsx`,
+  `frontend/tests/unit/ProposalCandidateCard.test.tsx`
+- **Files modified**: `frontend/src/components/Chat/MessageList.tsx`
+  (removed the `propose_description` branch, the `isProposalCandidate`
+  helper, and the `'cand'` return from `toolStatus`)
+- **Files kept** (for the deferred per-turn-diff follow-up):
+  `ProposalDiff.tsx`, the `'cand'` `ToolStatus` member in `ToolCall.tsx`,
+  the `.tool .t-status.cand` CSS rule in `index.css`.
+- **Reasoning**: the unit of "did this help" in autoresearch is the
+  *whole-schema macro F1 at a given turn* (a turn changes a field's
+  `description`, re-extracts all reviewed docs, re-scores). Per-field
+  accept *across* turns is incoherent — a turn-N description was scored
+  in the context of turn N's full schema. So the committed model is
+  turn-level accept via `JobProgressCard`'s "accept turn N" button (T5).
+  The per-field `ProposalCandidateCard` was wired for a chat-streamed
+  proposal model that doesn't exist (`grep -rn "propose_description"
+  backend/app/` returns nothing — no chat-exposed `@tool` ever emits the
+  event the card was waiting for). Closes the "per-field accept in
+  /improve" open follow-up by deciding *against* it.
+- **Carried forward to M7.2**: "preview what turn N changed before you
+  accept it" reuses the retained `ProposalDiff.tsx`.
+
+#### Agent no longer re-emits eval / readiness results as markdown tables
+
+- **Status**: ✅ Accepted
+- **Files**: `backend/app/skills/emerge_extractor.md`,
+  `backend/app/skills/emerge_publish.md`
+- **What changed**: T7 — added explicit "Rendering contract" blocks to
+  both skill prompts. The `emerge-extractor` `/eval` section now reads
+  "the lab UI renders the full per-field precision/recall/F1 table from
+  the tool result automatically. Do NOT reproduce that table in your
+  reply — no `📊 Eval Results` heading, no markdown table, no per-field
+  bullet list." The `emerge-publish` workflow step now reads "the lab UI
+  renders the readiness checklist automatically. Do NOT reproduce it as
+  a markdown table." Both replace the previous "Summarize / Present"
+  wording that the model was interpreting as "format the rows as a table."
+- **Why**: the UI cards are canonical; the duplicate agent table read as
+  a double-render and made the `EvalCard` / `PublishStage` feel redundant.
+
+#### `Skill ERR` chip on `/publish` — fix: deny built-in `Skill` SDK tool
+
+- **Status**: ✅ Accepted
+- **Files**: `backend/app/chat/service.py`
+- **What changed**: T8 — added `"Skill"` to the `_SDK_BUILT_IN_TOOLS`
+  `disallowed_tools` list. That list was meant to enumerate every SDK
+  built-in we don't expose; `Skill` was simply missing.
+- **Why**: the agent reached for `Skill("emerge-publish")` (a built-in
+  SDK tool) on `/publish`; emerge loads its skills as `system_prompt`
+  text rather than registering them with the SDK Skill mechanism, so the
+  SDK returned `<tool_use_error>Unknown skill: emerge-publish</tool_use_error>`
+  and the chat showed a stray `▸ Skill ERR` chip. The agent recovered
+  (the skill text was already in the system prompt), but the failed
+  `tool_call` littered the trail. Diagnosis evidence: chat
+  `c_11f0c9f0e0fc.jsonl` lines 2-3 capture the exact
+  `tool_call → "Unknown skill"` pair.
