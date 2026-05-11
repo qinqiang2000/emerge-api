@@ -165,3 +165,66 @@ async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:
         await run_eval(workspace, "../outside")
 
     assert not (outside / "metrics").exists()
+
+
+async def test_t_score_tool_emits_valid_json(workspace: Path) -> None:
+    """t_score must emit json.dumps not str() (Python repr) so the frontend can JSON.parse it.
+
+    Calls the t_score tool via build_emerge_mcp and verifies that the text payload
+    is valid JSON with the expected ScoreResult shape.
+    """
+    from unittest.mock import AsyncMock
+
+    from claude_agent_sdk import SdkMcpTool  # noqa: F401 — used in type hint below
+    from app.provider.base import Provider
+    from app.tools import build_emerge_mcp
+
+    # Build the MCP; the returned config's instance is an mcp.Server.
+    # We intercept create_sdk_mcp_server to capture the tool list before it's
+    # hidden inside the server closure.
+    captured_tools: list[SdkMcpTool] = []
+    import app.tools as _tools_ns  # build_emerge_mcp references create_sdk_mcp_server via this ns
+
+    _orig = _tools_ns.create_sdk_mcp_server
+
+    def _capturing_create(name, version="1.0.0", tools=None):
+        if tools:
+            captured_tools.extend(tools)
+        return _orig(name=name, version=version, tools=tools)
+
+    _tools_ns.create_sdk_mcp_server = _capturing_create
+    try:
+        build_emerge_mcp(workspace, AsyncMock(spec=Provider), AsyncMock())
+    finally:
+        _tools_ns.create_sdk_mcp_server = _orig
+
+    score_tool = next((t for t in captured_tools if t.name == "score"), None)
+    assert score_tool is not None, "score tool not found in captured tools"
+
+    # Set up: project with schema + reviewed doc + matching prediction.
+    project_id = await create_project(workspace, name="json-test")
+    await write_schema(workspace, project_id, SCHEMA, reason="test", allow_structural=True)
+    doc_id = await upload_doc(workspace, project_id, b"pdf", "sample.pdf")
+    atomic_write_json(
+        predictions_draft_dir(workspace, project_id) / f"{doc_id}.json",
+        {"entities": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}]},
+    )
+    await save_reviewed(
+        workspace,
+        project_id,
+        doc_id,
+        entities=[{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
+        source=ReviewedSource.MANUAL,
+    )
+
+    out = await score_tool.handler({"project_id": project_id})
+    text = out["content"][0]["text"]
+
+    # Must be valid JSON — json.loads must NOT raise.
+    parsed = json.loads(text)
+
+    assert isinstance(parsed["macro_f1"], float)
+    assert isinstance(parsed["per_field"], list)
+    first = parsed["per_field"][0]
+    for key in ("field", "precision", "recall", "f1", "support"):
+        assert key in first, f"missing key {key!r} in per_field entry"

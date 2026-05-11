@@ -181,7 +181,8 @@ def build_emerge_mcp(
         payload = await predictions_mod.get_prediction(
             workspace, args["project_id"], args["doc_id"]
         )
-        return {"content": [{"type": "text", "text": str(payload)}]}
+        text = _json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
+        return {"content": [{"type": "text", "text": text}]}
 
     @tool(
         "score",
@@ -190,7 +191,7 @@ def build_emerge_mcp(
     )
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
         result = await score_mod.run_eval(workspace, args["project_id"])
-        return {"content": [{"type": "text", "text": str(result.model_dump(mode='json'))}]}
+        return {"content": [{"type": "text", "text": _json.dumps(result.model_dump(mode='json'))}]}
 
     @tool(
         "readiness_check",
