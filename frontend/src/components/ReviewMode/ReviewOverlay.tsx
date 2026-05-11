@@ -1,5 +1,5 @@
 // frontend/src/components/ReviewMode/ReviewOverlay.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useReview } from '../../stores/review'
@@ -37,10 +37,47 @@ export default function ReviewOverlay({ onBack }: Props) {
   const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
 
-  // view: 'form' | 'json' — consumed in T11, threaded through now
   const [view, setView] = useState<'form' | 'json'>('form')
-  // forceOpen: null = natural state, true = all expanded, false = all collapsed — plumbed in T11
   const [forceOpen, setForceOpen] = useState<boolean | null>(null)
+
+  // ── draggable splitter ──────────────────────────────────────────────
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const SPLIT_MIN = 22, SPLIT_MAX = 78
+  const [splitPct, setSplitPct] = useState(() => {
+    const v = parseFloat(localStorage.getItem('emerge.revSplit') ?? '')
+    return (v >= SPLIT_MIN && v <= SPLIT_MAX) ? v : 52
+  })
+  const [splitDrag, setSplitDrag] = useState(false)
+
+  useEffect(() => { localStorage.setItem('emerge.revSplit', String(splitPct)) }, [splitPct])
+
+  useEffect(() => {
+    if (!splitDrag) return
+    function onMove(e: MouseEvent | TouchEvent) {
+      const body = bodyRef.current; if (!body) return
+      const rect = body.getBoundingClientRect()
+      const x = 'touches' in e ? e.touches[0].clientX : e.clientX
+      const pct = ((x - rect.left) / rect.width) * 100
+      setSplitPct(Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, pct)))
+      if (e.cancelable) e.preventDefault()
+    }
+    function onUp() { setSplitDrag(false) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onUp)
+    }
+  }, [splitDrag])
+
+  function startSplitDrag(e: React.MouseEvent | React.TouchEvent) {
+    e.preventDefault()
+    setSplitDrag(true)
+  }
 
   useEffect(() => {
     if (!activeProjectId) return
@@ -78,10 +115,21 @@ export default function ReviewOverlay({ onBack }: Props) {
         </div>
       )}
 
-      <div className="rev-body">
+      <div
+        className={'rev-body' + (splitDrag ? ' dragging' : '')}
+        ref={bodyRef}
+        style={{ '--rev-split': splitPct + '%' } as React.CSSProperties}
+      >
         <div className="rev-pdf">
           <PdfViewer />
         </div>
+        <div
+          className={'rev-split' + (splitDrag ? ' active' : '')}
+          onMouseDown={startSplitDrag}
+          onTouchStart={startSplitDrag}
+          onDoubleClick={() => setSplitPct(52)}
+          title="Drag to resize · double-click to reset"
+        />
         <div style={{ minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           {loading ? (
             <div style={{ padding: '16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-5)' }}>

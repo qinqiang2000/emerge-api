@@ -1,6 +1,6 @@
 // review.jsx — review overlay (PDF + grouped, collapsible field editor)
 
-const { useState: useStateR, useMemo: useMemoR, useEffect: useEffectR } = React;
+const { useState: useStateR, useMemo: useMemoR, useEffect: useEffectR, useRef: useRefR } = React;
 
 // ─────────── helpers ───────────
 function confDotFor(lab){ return lab==='low'?'low':lab==='mid'?'mid':'high'; }
@@ -551,6 +551,39 @@ function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek, setRightPeek 
   const totalFields = sections.reduce((n,s)=>n + s.fields.length, 0);
   const flaggedCount = sections.reduce((n,s) => n + s.fields.filter(f=>f.confLab!=='high').length, 0);
 
+  // ─── draggable splitter between doc viewer and field editor ───
+  const bodyRef = useRefR(null);
+  const SPLIT_MIN = 22, SPLIT_MAX = 78; // percent of body width
+  const [splitPct, setSplitPct] = useStateR(()=>{
+    const v = parseFloat(localStorage.getItem('emerge.revSplit'));
+    return (v>=SPLIT_MIN && v<=SPLIT_MAX) ? v : 52;
+  });
+  const [splitDrag, setSplitDrag] = useStateR(false);
+  useEffectR(()=>{ localStorage.setItem('emerge.revSplit', String(splitPct)); }, [splitPct]);
+  useEffectR(()=>{
+    if (!splitDrag) return;
+    function onMove(e){
+      const body = bodyRef.current; if (!body) return;
+      const rect = body.getBoundingClientRect();
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      const pct = ((x - rect.left) / rect.width) * 100;
+      setSplitPct(Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, pct)));
+      if (e.cancelable) e.preventDefault();
+    }
+    function onUp(){ setSplitDrag(false); }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('touchend', onUp);
+    return ()=>{
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [splitDrag]);
+  function startSplitDrag(e){ e.preventDefault(); setSplitDrag(true); }
+
   return (
     <div className="rev-overlay">
       <div className="rev-bar">
@@ -575,10 +608,18 @@ function ReviewOverlay({ onBack, leftPeek, setLeftPeek, rightPeek, setRightPeek 
         </div>
         <button className="save">save</button>
       </div>
-      <div className="rev-body">
+      <div className={'rev-body'+(splitDrag?' dragging':'')}
+           ref={bodyRef}
+           style={{'--rev-split': splitPct+'%'}}>
         <div className="rev-pdf">
           <DocViewer activeField={activeField} file={docFile} onPickFile={setDocFile} />
         </div>
+
+        <div className={'rev-split'+(splitDrag?' active':'')}
+             onMouseDown={startSplitDrag}
+             onTouchStart={startSplitDrag}
+             onDoubleClick={()=>setSplitPct(52)}
+             title="Drag to resize · double-click to reset"></div>
 
         {view==='form' ? (
           <div className="rev-fields">
