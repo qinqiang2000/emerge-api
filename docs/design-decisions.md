@@ -556,34 +556,50 @@ Separate architectural concern; see the next entry.
 
 ---
 
-### 2026-05-11 — Publish flow's multi-turn skill loading is fragile (M7.2 candidate)
+### 2026-05-11 — `mint key →` prefixes `/publish ` on the injected message (option b)
 
-- **Status**: 🟡 Pending — M7.2 candidate
-- **Area**: `backend/app/chat/service.py:97-104` (`_select_system_prompt`),
-  `frontend/src/components/Publish/PublishStage.tsx` (`mint key →` handler)
-- **Type**: architecture
+- **Status**: ✅ Accepted
+- **Files**: `frontend/src/components/Chat/MessageList.tsx`
+  (`PublishStageCheckAdapter.handleAdvance`)
+- **Type**: interaction | architecture-light
 
 **What changed**
-Surfaced during the post-M7.1 verify of the `issue_api_key` fix. The
-publish flow is multi-turn: `/publish` → readiness check → user clicks
-`mint key →` (which sends `"yes, mint the key now"`) → agent calls
-`issue_api_key`. But `_select_system_prompt` keys off `user_message.lstrip().startswith("/publish")`,
-so the publish skill is loaded ONLY on the first turn. The
-mint-confirmation turn runs under the default extractor skill. The model
-sometimes proceeds anyway (the `issue_api_key` tool is in the MCP
-regardless), sometimes refuses ("this skill needs to be loaded"). Both
-behaviors observed in back-to-back runs on 2026-05-11.
+The `mint key →` button used to inject the literal message
+`"yes, mint the key now"`. That worked on the model's good days but —
+because `ChatService._select_system_prompt` keys off the literal
+`/publish` prefix per turn — sometimes the model saw only the default
+extractor skill on the mint-confirmation turn and refused with
+"this skill needs to be loaded." Per-turn keyword-prefix skill loading
+is structurally at odds with multi-turn flows.
 
-**Why deferred (not folded into M7.1)**
-The "mint key round-trips through the agent" choice is listed in the
-M7.1 plan's Out-of-scope section ("Agent-native; not changing it here.").
-Robustifying that round-trip is a new design decision: either
-(a) keep the skill loaded for the whole `/publish` *conversation* (state,
-not message-prefix), (b) inject a synthetic `/publish` prefix into the
-auto-injected mint-confirmation message, or (c) move mint to a direct
-UI action (`useApiKey.mintAndReveal()`) and bypass the agent loop —
-fastest path, but contradicts the agent-native design.
+**Fix (option b from the three written in the original entry)**
+`handleAdvance` now sends `"/publish yes, mint the key now"`. The
+`/publish` prefix triggers `_select_system_prompt` to re-load the
+publish skill on this turn, so `issue_api_key` is always invoked
+under the same skill that ran readiness. One-line change with a
+comment pointing at this entry.
 
-**Reference**
-- Repro: any `/publish` flow where the user clicks `mint key →` rather
-  than typing `/publish ...mint...` themselves.
+**Why this option (not a/c)**
+- (a) state-based skill loading: introduces a chat_id→skill-set
+  mapping and a state machine for skill scope. Larger blast radius
+  than the user-facing problem.
+- (c) move mint to a direct UI action: cleanest, but explicitly
+  contradicts the M7.1 plan's Out-of-scope note ("Agent-native; not
+  changing it here"). Would need a separate design pass.
+- (b) frontend prefix injection: 1 line, no contract change, the
+  injected `/publish ` is visible in the chat trail so the user can
+  see exactly what happened.
+
+**Verified**
+Single-click `mint key →` on us-invoice ran end-to-end without refusal
+(chat `c_180d92d64057.jsonl`, 2026-05-11): list_projects →
+readiness_check → freeze_version → issue_api_key. v6 frozen, key minted.
+No "skill needs to be loaded" anywhere in the chat trail.
+
+**Open**
+The underlying architectural concern — per-turn keyword-prefix skill
+loading is fragile for any multi-turn flow — is still real. This fix
+patches the one path that's exercised today (`/publish` → `mint key →`);
+similar problems may show up if `/improve` or `/extract` gain a
+mid-flow button that injects a follow-up message. Defer until a
+second instance materializes.

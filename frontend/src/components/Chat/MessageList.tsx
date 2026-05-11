@@ -66,7 +66,11 @@ function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
 
   const handleAdvance = () => {
     const pid = selectedId ?? projectId
-    void send(pid, 'yes, mint the key now')
+    // Prefix /publish so ChatService._select_system_prompt re-loads the publish
+    // skill on this turn — without it, the agent may refuse `issue_api_key`
+    // because the default extractor skill is loaded (M7.2-era multi-turn
+    // skill-loading workaround; see docs/design-decisions.md 2026-05-11).
+    void send(pid, '/publish yes, mint the key now')
   }
 
   const handleClose = () => {
