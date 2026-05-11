@@ -803,3 +803,32 @@ shapes the M7 UI actually renders.
 - UI snapshotted live via chrome-devtools-mcp against the e2e test-mode
   backend (`EMERGE_TEST_MODE=1`, seeded project `e2e-test`) before
   reselectoring.
+
+---
+
+### 2026-05-11 — Chat history survives page reload (per-project chatId + hydrate on entry)
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/ChatPanel`, `stores/chat`
+- **Files**: `frontend/src/stores/chat.ts`, `frontend/src/lib/api.ts`,
+  `frontend/src/components/Chat/ChatPanel.tsx`, `frontend/tests/unit/chat-hydrate.test.ts`
+- **Type**: new-state (bug fix)
+
+**What changed**
+The chat store now persists a per-project `chatId` in `localStorage`
+(`emerge.chatId.<pid>`) and, on project entry (`enterProject`), rebinds to
+that id and hydrates `events` from `GET /lab/chats/{pid}/{cid}` (passive
+replay via a pure `reduceEvents`; no side effects). The create-project flow
+adopts the in-flight conversation without clearing/hydrating. Backend already
+resumes the SDK session via `chats/{chat_id}.meta.json`. No new UI surface —
+single per-project chat, no history sidebar.
+
+**Why**
+Refreshing the page lost the chat: `events` were in-memory only and a fresh
+random `chatId` was minted per page load (so the backend also saw a new chat).
+
+**Reference**
+- New tests: `frontend/tests/unit/chat-hydrate.test.ts` (reduceEvents pairing,
+  chatIdFor persistence, enterProject switch/adopt/no-op cases).
+- e2e reload-restore coverage is a follow-up (the e2e `/lab/chat` stub doesn't
+  write the JSONL log, so it'd need harness work).

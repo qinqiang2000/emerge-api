@@ -131,3 +131,17 @@ export async function getLatestEval(projectId: string): Promise<EvalSnapshot | n
   if (!r.ok) throw new Error(`getLatestEval ${r.status}`)
   return r.json()
 }
+
+// Raw chat JSONL log for hydration on project entry. Permissive by design —
+// any failure (bad ids, network, parse) degrades to "empty chat", never throws
+// into a render.
+export async function getChatEvents(projectId: string, chatId: string): Promise<unknown[]> {
+  try {
+    const r = await fetch(`/lab/chats/${projectId}/${chatId}`)
+    if (!r.ok) return []
+    const body = (await r.json()) as { events?: unknown[] }
+    return body.events ?? []
+  } catch {
+    return []
+  }
+}

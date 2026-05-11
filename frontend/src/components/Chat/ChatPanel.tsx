@@ -1,5 +1,5 @@
 // frontend/src/components/Chat/ChatPanel.tsx
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { uploadDoc } from '../../lib/api'
@@ -20,6 +20,13 @@ export default function ChatPanel() {
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
   const busy = useChat(s => s.busy)
+
+  // Reload-restore: when a real project becomes selected, bind to its persisted
+  // chatId and hydrate the chat log. enterProject is a no-op for 'p_unset' and
+  // when already on this project, so the create-project flow is safe.
+  useEffect(() => {
+    if (selectedId) useChat.getState().enterProject(selectedId)
+  }, [selectedId])
   const docCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
   const fieldCount = useSchema(s => (s.byProject[selectedId ?? ''] ?? []).length)
   const [pending, setPending] = useState<AttachInfo[]>([])

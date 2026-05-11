@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 
+import { getChatEvents } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import type { ChatEvent } from '../types/chat'
@@ -9,11 +10,43 @@ import { useEval } from './eval'
 import { useProjects } from './projects'
 import { useSchema } from './schema'
 
+const CHAT_ID_KEY_PREFIX = 'emerge.chatId.'
+
+// Process-lifetime fallback when localStorage is unavailable (SSR / incognito).
+const _memChatIds = new Map<string, string>()
+
+function _readChatId(projectId: string): string | null {
+  try {
+    return localStorage.getItem(CHAT_ID_KEY_PREFIX + projectId)
+  } catch {
+    return _memChatIds.get(projectId) ?? null
+  }
+}
+
+function _writeChatId(projectId: string, chatId: string): void {
+  try {
+    localStorage.setItem(CHAT_ID_KEY_PREFIX + projectId, chatId)
+  } catch {
+    _memChatIds.set(projectId, chatId)
+  }
+}
+
+/** Per-project, persisted chat id. Mints + persists one on first access. */
+export function chatIdFor(projectId: string): string {
+  const existing = _readChatId(projectId)
+  if (existing) return existing
+  const fresh = newChatId()
+  _writeChatId(projectId, fresh)
+  return fresh
+}
+
 interface State {
   chatId: string
   events: ChatEvent[]
   busy: boolean
+  loadedProjectId: string | null
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  enterProject: (projectId: string) => void
   lastUserMessage: () => string | null
   hasRecentToolError: () => boolean
   reset: () => void
@@ -23,7 +56,37 @@ export const useChat = create<State>((set, get) => ({
   chatId: newChatId(),
   events: [],
   busy: false,
-  reset: () => set({ chatId: newChatId(), events: [] }),
+  loadedProjectId: null,
+  // TODO: reset() can't rotate the localStorage chat-id key without a projectId;
+  // it's currently unused, so leaving the signature alone.
+  reset: () => set({ chatId: newChatId(), events: [], loadedProjectId: null }),
+  enterProject: (projectId) => {
+    if (projectId === 'p_unset') return
+    if (projectId === get().loadedProjectId) return
+
+    // Create-project-from-EmptyHero case: there was no loaded project yet but an
+    // in-flight conversation already exists — that conversation *is* this project's
+    // first chat. Adopt it and persist the current chatId under the new project key
+    // (keep get().chatId rather than minting a fresh one, so the server log written
+    // under that chatId stays reachable on a later reload). Do not clear, do not hydrate.
+    if (get().loadedProjectId === null && get().events.length > 0) {
+      _writeChatId(projectId, get().chatId)
+      set({ loadedProjectId: projectId })
+      return
+    }
+
+    // Real project switch (or first entry into a project with no in-flight convo):
+    // bind to that project's persisted chatId, clear, then fire-and-forget hydrate.
+    const cid = chatIdFor(projectId)
+    set({ loadedProjectId: projectId, chatId: cid, events: [], busy: false })
+    void (async () => {
+      const reduced = reduceEvents(await getChatEvents(projectId, cid))
+      const s = get()
+      if (s.chatId === cid && s.loadedProjectId === projectId && s.events.length === 0) {
+        set({ events: reduced })
+      }
+    })()
+  },
   lastUserMessage: () => {
     const events = get().events
     for (let i = events.length - 1; i >= 0; i--) {
@@ -43,6 +106,13 @@ export const useChat = create<State>((set, get) => ({
     return false
   },
   send: async (projectId, message, attachments) => {
+    // First message into a freshly-selected real project: bind loadedProjectId and
+    // persist the current chatId under that project key, so a later enterProject for
+    // the same id is a correct no-op and a reload restores the binding.
+    if (projectId !== 'p_unset' && get().loadedProjectId === null) {
+      _writeChatId(projectId, get().chatId)
+      set({ loadedProjectId: projectId })
+    }
     set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true }))
     try {
       for await (const ev of streamSSE('/lab/chat', {
@@ -172,7 +242,66 @@ function handleToolResult(
   }
 }
 
-export const _testUtils = { handleToolResult }
+/**
+ * Reduce a raw chat JSONL log (one object per line) into the in-memory ChatEvent[]
+ * the UI renders. Pure & side-effect-free — this is *passive replay*, not live
+ * actions, so it deliberately does NOT run handleToolResult's side effects
+ * (no API-key reveal modal, no cross-store invalidation). `tool_call` and
+ * `tool_result` arrive on separate lines and are paired here by `tool_use_id`.
+ */
+export function reduceEvents(raw: unknown[]): ChatEvent[] {
+  const out: ChatEvent[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    switch (o.type) {
+      case 'user':
+        out.push({ type: 'user', text: String(o.text ?? '') })
+        break
+      case 'agent_text':
+        out.push({ type: 'agent_text', text: String(o.text ?? '') })
+        break
+      case 'error':
+        out.push({
+          type: 'error',
+          error_code: String(o.error_code ?? ''),
+          error_message_en: String(o.error_message_en ?? ''),
+        })
+        break
+      case 'tool_call':
+        out.push({
+          type: 'tool_call',
+          tool_use_id: typeof o.tool_use_id === 'string' ? o.tool_use_id : undefined,
+          tool_name: String(o.tool_name ?? ''),
+          tool_input: o.tool_input,
+          tool_result: null,
+          ok: typeof o.ok === 'boolean' ? o.ok : true,
+        })
+        break
+      case 'tool_result': {
+        const tuid = o.tool_use_id
+        if (typeof tuid !== 'string') break
+        // Most-recent matching tool_call already accumulated.
+        for (let i = out.length - 1; i >= 0; i--) {
+          const e = out[i]
+          if (e.type === 'tool_call' && e.tool_use_id === tuid) {
+            e.tool_result = o.result_text ?? null
+            e.ok = typeof o.ok === 'boolean' ? o.ok : true
+            break
+          }
+        }
+        // Orphan tool_result (no matching tool_call) → dropped.
+        break
+      }
+      default:
+        // turn_end / unknown — skip.
+        break
+    }
+  }
+  return out
+}
+
+export const _testUtils = { handleToolResult, reduceEvents, chatIdFor }
 
 function mapSse(event: string, data: unknown): ChatEvent | null {
   if (event === 'agent_text') return { type: 'agent_text', text: (data as { text: string }).text }

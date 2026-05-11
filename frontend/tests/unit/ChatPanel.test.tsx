@@ -30,6 +30,7 @@ import { useSchema } from '../../src/stores/schema'
 import ChatPanel from '../../src/components/Chat/ChatPanel'
 
 const mockSend = vi.fn()
+const mockEnterProject = vi.fn()
 const mockBusy = false
 
 const EMPTY_DOC: DocSummary = {
@@ -57,12 +58,13 @@ function setupStores({
       return selector ? selector(state) : state
     },
   )
+  const chatState = { events, send: mockSend, busy: mockBusy, enterProject: mockEnterProject }
   ;(useChat as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
-      const state = { events, send: mockSend, busy: mockBusy }
-      return selector ? selector(state) : state
+      return selector ? selector(chatState) : chatState
     },
   )
+  ;(useChat as unknown as { getState: () => unknown }).getState = () => chatState
   ;(useDocs as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
       const state = { byProject: { [selectedId ?? '']: docs } }
