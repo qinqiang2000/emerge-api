@@ -12,7 +12,11 @@ test('drag a PDF and submit chat — stubbed flow', async ({ page }) => {
   // expect the stub agent_text to appear
   await expect(page.getByText('Stub run complete')).toBeVisible({ timeout: 10_000 })
 
-  // expect tool-call cards
+  // Plumbing tool calls now collapse into a ToolStack ("Ran N tools ›");
+  // expand it to assert the tool names. See docs/design-decisions.md 2026-05-11.
+  const toolStackHead = page.getByRole('button', { name: /Ran \d+ tool/ })
+  await expect(toolStackHead).toBeVisible()
+  await toolStackHead.click()
   await expect(page.getByText('create_project')).toBeVisible()
   await expect(page.getByText('extract_batch')).toBeVisible()
 })

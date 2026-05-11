@@ -10,6 +10,12 @@ test('chat layout: user bubble right-aligned, agent left, consecutive tools grou
   await textarea.press('Enter')
 
   await expect(page.getByText('Running batch extract...')).toBeVisible({ timeout: 10_000 })
+
+  // Plumbing tool calls now collapse into a ToolStack ("Ran N tools ›");
+  // expand it to assert the tool names. See docs/design-decisions.md 2026-05-11.
+  const toolStackHead = page.getByRole('button', { name: /Ran \d+ tool/ })
+  await expect(toolStackHead).toBeVisible()
+  await toolStackHead.click()
   await expect(page.getByText('list_docs')).toBeVisible()
   await expect(page.getByText('extract_batch')).toBeVisible()
   await expect(page.locator('strong', { hasText: 'Done.' })).toBeVisible()
