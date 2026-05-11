@@ -56,6 +56,15 @@ def test_chats_dir(workspace: Path) -> None:
     assert chats_dir(workspace, "p_abc") == workspace / "p_abc" / "chats"
 
 
+def test_chat_meta_path(workspace: Path) -> None:
+    from app.workspace.paths import chat_meta_path
+
+    assert (
+        chat_meta_path(workspace, "p_abc", "c_xyz")
+        == workspace / "p_abc" / "chats" / "c_xyz.meta.json"
+    )
+
+
 def test_keys_path(workspace: Path) -> None:
     assert keys_path(workspace) == workspace / "_keys.json"
 

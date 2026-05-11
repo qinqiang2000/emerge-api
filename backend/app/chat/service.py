@@ -19,7 +19,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from app.chat.log import append_event
+from app.chat.log import append_event, read_chat_session_id, write_chat_session_id
 from app.chat.redactor import EventRedactor
 from app.chat.stream import sse_event
 from app.jobs import get_runner
@@ -111,11 +111,16 @@ class ChatService:
             return self._extractor_skill + "\n\n---\n\n" + self._publish_skill
         return self._extractor_skill
 
-    def _build_options(self, user_message: str) -> ClaudeAgentOptions:
+    def _build_options(
+        self, user_message: str, *, resume: str | None = None
+    ) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
             system_prompt=self._select_system_prompt(user_message),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
+            # Resume the prior SDK conversation so the agent remembers earlier
+            # turns. None on the first turn (or after a self-heal); see INSIGHTS #11.
+            resume=resume,
             # Do NOT inherit user/project/local Claude Code settings — that's how
             # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
             # SessionStart hooks were leaking into the chat stream.
@@ -152,6 +157,8 @@ class ChatService:
         )
         yield sse_event("user_acknowledged", {"text": user_message})
 
+        prev_sid = read_chat_session_id(self.workspace, project_id, chat_id)
+
         # Leading `/` is intercepted by the Claude Code CLI as a slash command
         # and silently consumed with no model response. A leading space bypasses
         # CLI command dispatch while remaining invisible to the model.
@@ -160,12 +167,19 @@ class ChatService:
             paths = ", ".join(a.get("filename", "?") for a in attachments)
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
-        options = self._build_options(user_message)
-        redactor = EventRedactor()
-        try:
-            async with ClaudeSDKClient(options=options) as client:
+        latest_sid: str | None = None
+
+        async def _run(opts: ClaudeAgentOptions) -> AsyncIterator[str]:
+            nonlocal latest_sid
+            redactor = EventRedactor()
+            async with ClaudeSDKClient(options=opts) as client:
                 await client.query(prompt)
                 async for message in client.receive_response():
+                    sid = getattr(message, "session_id", None)
+                    if isinstance(message, SystemMessage):
+                        sid = message.data.get("session_id") or sid
+                    if sid:
+                        latest_sid = sid
                     for etype, payload in _events_from_message(message):
                         redactor.observe(etype, payload)
                         persist_payload = redactor.scrub_for_persist(etype, payload)
@@ -177,6 +191,22 @@ class ChatService:
                             {"type": etype, **persist_payload},
                         )
                         yield sse_event(etype, sse_payload)
+
+        try:
+            options = self._build_options(user_message, resume=prev_sid)
+            try:
+                async for chunk in _run(options):
+                    yield chunk
+            except Exception:  # noqa: BLE001
+                if prev_sid is None:
+                    raise
+                # A sidecar pointing at a transcript that ~/.claude no longer has
+                # must not wedge the chat forever — clear it and retry fresh once.
+                write_chat_session_id(self.workspace, project_id, chat_id, None)
+                latest_sid = None
+                options = self._build_options(user_message, resume=None)
+                async for chunk in _run(options):
+                    yield chunk
         except Exception as e:  # noqa: BLE001
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
@@ -187,6 +217,8 @@ class ChatService:
             )
             yield sse_event("error", err)
         finally:
+            if latest_sid and latest_sid != prev_sid:
+                write_chat_session_id(self.workspace, project_id, chat_id, latest_sid)
             yield sse_event("turn_end", {})
 
 

@@ -7,6 +7,7 @@ from fastapi import HTTPException
 _PROJECT_ID = re.compile(r"^p_[a-z0-9]{12}$")
 _DOC_ID = re.compile(r"^d_[a-z0-9]{12}$")
 _JOB_ID = re.compile(r"^j_[a-z0-9]{12}$")
+_CHAT_ID = re.compile(r"^c_[a-z0-9]{12}$")
 
 
 def safe_project_id(project_id: str) -> str:
@@ -25,3 +26,9 @@ def safe_job_id(job_id: str) -> str:
     if not _JOB_ID.match(job_id):
         raise HTTPException(status_code=400, detail="invalid job_id")
     return job_id
+
+
+def safe_chat_id(chat_id: str) -> str:
+    if not _CHAT_ID.match(chat_id):
+        raise HTTPException(status_code=400, detail="invalid chat_id")
+    return chat_id

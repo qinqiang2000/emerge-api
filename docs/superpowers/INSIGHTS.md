@@ -226,6 +226,20 @@ CLI command dispatcher is not.
 
 ---
 
+## 11. Chat continuity needs `ClaudeAgentOptions(resume=...)` + a session-id sidecar
+
+**Where:** `backend/app/chat/service.py` — `chat_turn` / `_build_options`; `backend/app/chat/log.py` — `read_chat_session_id` / `write_chat_session_id`; sidecar at `chats/{chat_id}.meta.json`.
+
+**The trap:** `chat_turn` opens a *fresh* `ClaudeSDKClient` every call and `client.query(prompt)` only carries the current message. Without `resume`, the agent has zero memory of prior turns — each user message is a brand-new session. The JSONL chat log (`chats/{chat_id}.jsonl`) is write-only, used purely for UI replay (`GET /lab/chats/{pid}/{cid}`); it is **never** fed back into the SDK.
+
+**The fix:** persist the SDK `session_id` (read off every `ResultMessage`/`AssistantMessage`, or out of `SystemMessage(subtype="init").data`) to `chats/{chat_id}.meta.json` as `{"sdk_session_id": ...}` in the `finally` block, and pass it as `ClaudeAgentOptions(resume=<sdk_session_id>)` on the next turn.
+
+**Self-heal:** if the resumed transcript is gone (`~/.claude/projects/...` was cleaned) the SDK raises at client startup. On any exception when `prev_sid is not None`, clear the dead sidecar (`write_chat_session_id(..., None)`) and retry the turn **once** with `resume=None`. A stale sidecar must never wedge the chat forever. When `prev_sid is None`, don't retry — fall through to the existing `agent_failure` SSE error.
+
+**Don't** touch `setting_sources=[]` / `can_use_tool` / `disallowed_tools` while adding `resume` — they're independent and load-bearing (see #1, #2).
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code

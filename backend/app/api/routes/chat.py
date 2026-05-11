@@ -7,6 +7,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.routes._safety import safe_chat_id, safe_project_id
+from app.chat.log import read_chat_events
 from app.chat.service import ChatService
 from app.config import get_settings
 from app.provider import get_provider_for_model
@@ -60,3 +62,11 @@ async def lab_chat(body: ChatBody) -> EventSourceResponse:
             }
 
     return EventSourceResponse(gen())
+
+
+@router.get("/lab/chats/{project_id}/{chat_id}")
+async def lab_chat_history(project_id: str, chat_id: str) -> dict[str, Any]:
+    safe_project_id(project_id)
+    safe_chat_id(chat_id)
+    workspace_root = get_settings().workspace_root
+    return {"events": read_chat_events(workspace_root, project_id, chat_id)}

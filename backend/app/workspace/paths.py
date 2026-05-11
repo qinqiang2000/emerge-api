@@ -41,6 +41,10 @@ def chats_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "chats"
 
 
+def chat_meta_path(workspace: Path, project_id: str, chat_id: str) -> Path:
+    return chats_dir(workspace, project_id) / f"{chat_id}.meta.json"
+
+
 def keys_path(workspace: Path) -> Path:
     return workspace / "_keys.json"
 
