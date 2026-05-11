@@ -2,9 +2,21 @@ import { useEffect } from 'react'
 import { Pause, Play, X, Check } from 'lucide-react'
 
 import { useJob } from '../../stores/jobs'
+import type { JobSlice } from '../../stores/jobs'
 import { useProjects } from '../../stores/projects'
 
 interface Props { jobId: string }
+
+export function formatJobLine(slice: Pick<JobSlice, 'turns' | 'bestTurn'>): string {
+  const { turns, bestTurn } = slice
+  if (turns.length === 0) return 'starting...'
+  const baseline = turns[0]?.macro_f1 ?? 0
+  const best = bestTurn?.macro_f1 ?? baseline
+  const bestTurnN = bestTurn?.turn ?? 0
+  const delta = best - baseline
+  const deltaStr = delta === 0 ? '±0.00' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)}`
+  return `turn ${turns.length - 1} · best f1 ${best.toFixed(2)} (turn ${bestTurnN}) · baseline ${baseline.toFixed(2)} (Δ ${deltaStr})`
+}
 
 export default function JobProgressCard({ jobId }: Props) {
   const { selectedId } = useProjects()
@@ -43,27 +55,24 @@ export default function JobProgressCard({ jobId }: Props) {
           )}
         </span>
       </div>
-      <div className="text-ink-3">
-        {turns.length === 0 ? 'starting...' : (
-          <>turn {turns.length - 1} · best f1 {(bestTurn?.macro_f1 ?? turns[0]?.macro_f1).toFixed(2)} (turn {bestTurn?.turn ?? 0})</>
-        )}
-      </div>
+      <div className="text-ink-3">{formatJobLine(slice)}</div>
       {endedReason && (
         <div className="flex items-center gap-2 text-ink-4">
           ended ({endedReason})
-          {bestTurn && status === 'done' && bestTurn.turn === 0 && (
-            <span className="ml-auto text-[10px] uppercase tracking-wide">
-              baseline still best — schema unchanged
-            </span>
-          )}
-          {bestTurn && status === 'done' && bestTurn.turn > 0 && (
-            <button
-              onClick={() => void accept(jobId, bestTurn.turn)}
-              className="ml-auto inline-flex items-center gap-1 px-2 py-1 bg-ochre text-paper rounded uppercase tracking-wide text-[10px]"
-              aria-label="accept candidate"
-            >
-              <Check size={12} /> accept turn {bestTurn.turn}
-            </button>
+          {(status === 'done' || status === 'cancelled') && bestTurn && (
+            bestTurn.turn === 0 || (bestTurn.macro_f1 <= (turns[0]?.macro_f1 ?? 0)) ? (
+              <span className="ml-auto text-[10px] uppercase tracking-wide text-ink-4">
+                baseline still best — schema unchanged
+              </span>
+            ) : (
+              <button
+                onClick={() => void accept(jobId, bestTurn.turn)}
+                className="ml-auto inline-flex items-center gap-1 px-2 py-1 bg-ochre text-paper rounded uppercase tracking-wide text-[10px]"
+                aria-label="accept candidate"
+              >
+                <Check size={12} /> accept turn {bestTurn.turn}
+              </button>
+            )
           )}
         </div>
       )}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-import JobProgressCard from '../../src/components/Chat/JobProgressCard'
+import JobProgressCard, { formatJobLine } from '../../src/components/Chat/JobProgressCard'
 import { useJob } from '../../src/stores/jobs'
 import type { JobSlice } from '../../src/stores/jobs'
 
@@ -63,5 +63,47 @@ describe('JobProgressCard', () => {
     render(<JobProgressCard jobId="j_xyz" />)
     expect(screen.queryByRole('button', { name: /accept candidate/i })).not.toBeInTheDocument()
     expect(screen.getByText(/baseline still best/i)).toBeInTheDocument()
+  })
+
+  it('shows accept button after cancelled with bestTurn > 0 above baseline', () => {
+    useJob.setState({
+      byId: { j_xyz: { ...baseSlice, status: 'cancelled', endedReason: 'cancelled' } },
+    })
+    render(<JobProgressCard jobId="j_xyz" />)
+    expect(screen.getByRole('button', { name: /accept candidate/i })).toBeInTheDocument()
+  })
+
+  it('shows baseline-best hint after cancelled when best equals baseline', () => {
+    useJob.setState({
+      byId: { j_xyz: {
+        ...baseSlice,
+        status: 'cancelled',
+        endedReason: 'cancelled',
+        bestTurn: { type: 'turn', turn: 0, macro_f1: 0.5, per_field: [], saved: true },
+      } },
+    })
+    render(<JobProgressCard jobId="j_xyz" />)
+    expect(screen.queryByRole('button', { name: /accept candidate/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/baseline still best/i)).toBeInTheDocument()
+  })
+})
+
+describe('formatJobLine', () => {
+  it('shows baseline and delta when a later turn improved', () => {
+    const line = formatJobLine({
+      turns: [{ turn: 0, macro_f1: 0.71, saved: true }, { turn: 4, macro_f1: 0.83, saved: true }],
+      bestTurn: { turn: 4, macro_f1: 0.83, saved: true },
+    } as any)
+    expect(line).toContain('best f1 0.83')
+    expect(line).toContain('turn 4')
+    expect(line).toContain('baseline 0.71')
+    expect(line).toMatch(/\+0\.12|Δ\s*\+0\.12/)
+  })
+  it('reads "baseline still best" when turn 0 is best', () => {
+    const line = formatJobLine({
+      turns: [{ turn: 0, macro_f1: 0.91, saved: true }],
+      bestTurn: { turn: 0, macro_f1: 0.91, saved: true },
+    } as any)
+    expect(line).toContain('best f1 0.91')
   })
 })
