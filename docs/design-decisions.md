@@ -603,3 +603,39 @@ patches the one path that's exercised today (`/publish` → `mint key →`);
 similar problems may show up if `/improve` or `/extract` gain a
 mid-flow button that injects a follow-up message. Defer until a
 second instance materializes.
+
+---
+
+### 2026-05-11 — `metrics/` ContextSurface section reads real `/eval` data
+
+- **Status**: ✅ Accepted
+- **Area**: `Context/ContextSurface`
+- **Files**: `frontend/src/components/Context/ContextSurface.tsx`,
+  `frontend/src/stores/eval.ts`, `frontend/src/lib/api.ts`,
+  `backend/app/api/routes/eval.py`
+- **Type**: new-state
+- **Resolves**: the 2026-05-10 🟡 Pending entry "`metrics/` ContextSurface
+  section uses placeholder data"
+
+**What changed**
+The 4 hardcoded placeholder rows (`precision 0.94 / recall 0.91 / f1 0.92 /
+coverage 100%`) and the `[ContextSurface] metrics … placeholder` console log
+are gone. The section now reads the latest `metrics/eval_*.json` snapshot via
+a new `GET /lab/projects/:id/evals/latest` endpoint and a new `useEval`
+Zustand store. Successful `/eval` runs refresh the rail in the same SSE turn
+via `useChat.handleToolResult` (same pattern as `write_schema` →
+`useSchema.invalidate`). The empty state is "no eval yet — type /eval in the
+chat", matching the schema section's empty-state pattern.
+
+**Display contract (resolves the 2026-05-10 open question)**
+Macro precision · macro recall · macro F1 · coverage (`n_reviewed / n_docs`),
+same tone thresholds as `EvalCard.toTone` (≥0.85 ok, ≥0.65 mid, else bad).
+Header right-hint reads `macro <f1> · <n> reviewed`. Other metric
+permutations (per-field worst, errors count, …) deferred until design weighs in.
+
+**Reference**
+- Plan: `docs/superpowers/plans/2026-05-11-m7-2-metrics-panel.md`
+- Live check: `docs/screenshots/2026-05-11-m7-2-metrics-panel.png` (shows
+  inline `<EvalCard>` at F1 0.847 alongside the right-rail metrics card with
+  derived macro values precision 0.88 / recall 0.82 / f1 0.85 / coverage 83%
+  for the dogfood us-invoice run)

@@ -20,6 +20,7 @@
 | **M6** — agent sandbox + secret hygiene (allowlist enforce + API key redaction) | `2026-05-10-m6-agent-sandbox-secret-hygiene.md` | ✅ shipped | `4f3c40f..d9c6452` (11 commits, history scrubber cleaned 2 leaked entries from M3 dogfood jsonl; 2 real-LLM tests skip-by-default behind `EMERGE_REAL_LLM=1`) |
 | **M7** — design handoff UI replacement | `2026-05-10-m7-design-handoff-ui.md` | ✅ shipped | `5080ff0..fcf9369` (~14 task commits) |
 | **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | ✅ shipped | `576089f..81bd62d` (9 task commits) |
+| **M7.2** — metrics panel (`/eval` → right-rail `metrics/`) | `2026-05-11-m7-2-metrics-panel.md` | ✅ shipped | `2c9b798..eb2fc61` (6 task commits) |
 
 ## What each milestone delivers
 
@@ -116,6 +117,20 @@
 
 **Spun out to M7.2 (not in M7.1):** `/eval` result → right-panel `metrics/` section (needs a tiny read endpoint + `useEval` store); "preview what turn N changed before you accept it" diff on the job-card accept affordance (needs the autoresearch turn event to carry the per-turn schema delta; reuses the retained `ProposalDiff.tsx`).
 
+### M7.2 — metrics panel (`/eval` → right-rail `metrics/`)
+
+**Goal:** wire the placeholder `metrics/` section in `ContextSurface`'s right rail to real eval data. The `score` tool was already persisting `metrics/eval_*.json` snapshots; this milestone added the read path.
+
+**Scope (see `2026-05-11-m7-2-metrics-panel.md`):**
+- T1: backend `GET /lab/projects/:id/evals/latest` reads the lex-last `metrics/eval_*.json`, round-tripped through `ScoreResult` for shape enforcement. 404 with `eval_not_found` when no snapshot on disk.
+- T2: `useEval` Zustand store mirrors `useSchema` (cache-first `load`, force `refresh`, `invalidate`, `reset`). `projectId in byProject` cache check so a 404→null result is "cached, do not re-fetch".
+- T3: `ContextSurface` derives macro precision/recall as means of `per_field`, reads `macro_f1` directly, `coverage = n_reviewed / n_docs`. Empty state "no eval yet — type /eval in the chat". Removed `PLACEHOLDER_METRICS` and the `metrics … placeholder` console log.
+- T4: `useChat.handleToolResult` calls `useEval.refresh(pid)` after a successful `mcp__emerge_tools__score`, so the rail updates in the same SSE turn as `<EvalCard>`.
+- T5: live-verified on `us-invoice` via chrome-devtools-mcp (rail's macro F1 = inline `<EvalCard>`'s overall F1, no placeholder log).
+- T6: design-decisions ✅ entry resolving the 2026-05-10 placeholder-data 🟡, this roadmap closeout.
+
+**Spun out / still open:** FSSpine `metrics/` tree row (different surface), per-turn-diff preview on `accept turn N` (the original M7.1 → M7.2 candidate that the metrics panel work crowded out — still in the open follow-ups list).
+
 ## Open cross-cutting follow-ups
 
 These don't fit a milestone but should be tracked:
@@ -133,7 +148,7 @@ These don't fit a milestone but should be tracked:
 - **Export bundle filename for non-ASCII project names** — M4 `_safe_filename` strips non-ASCII, so a Chinese project name falls back toward `project-vN.zip`. Decide whether to preserve RFC 5987 `filename*=` UTF-8 names or use a deterministic ASCII slug with project id suffix.
 - **dark-mode revival** — M7 ships light-only; design needs a dark palette pass before re-enabling the theme toggle.
 - **schema sections** — review renders one synthetic section because `SchemaField` has no `section` attribute; design shows multi-section grouping. Needs optional `section` field in backend schema model.
-- **metrics tree section / `/eval` → right-panel metrics** — `FSSpine` `metrics/` row and `ContextSurface`'s metrics panel both still show placeholder data; needs eval history exposed via `/lab/projects/:id/evals` (or `…/evals/latest`) + a `useEval` store. **M7.2 candidate** (carried forward from M7.1's "Spun out to M7.2"). The `score` tool already persists `metrics/eval_*.json` snapshots, so the read endpoint is thin.
+- ~~**metrics tree section / `/eval` → right-panel metrics**~~ — right-panel half closed by **M7.2** (`2026-05-11-m7-2-metrics-panel.md`, commits `2c9b798..eb2fc61`): `GET /lab/projects/:id/evals/latest` endpoint + `useEval` store + `ContextSurface` rewrite + `useChat → useEval.refresh` cross-store hook. The FSSpine `metrics/` tree row is still open — different surface, different design question (one file per run vs. rolling history); keep deferred until design weighs in.
 - **per-turn-diff preview on accept** — when the user is about to `accept turn N` on the `JobProgressCard`, show the field-description diffs that turn introduced (old → new), reusing `ProposalDiff.tsx`. Needs the autoresearch turn event (or the `versions/_candidate/` blob) to carry the per-turn schema delta. **M7.2 candidate** (carried forward from M7.1's "Spun out to M7.2"). This is the proper home for the diff UI now that `ProposalCandidateCard` is retired (M7.1 T6).
 - ~~**`issue_api_key` agent re-renders a key-info markdown table**~~ — resolved inline during the 2026-05-11 post-M7.1 verify (same anti-pattern as T7, same shape of fix). Added a "Rendering contract" block to `emerge_publish.md` step 7. Verified: agent's post-key narrative no longer prints a `Detail | Value` table. See the 2026-05-11 ✅ entry in `docs/design-decisions.md`.
 - ~~**publish flow's multi-turn skill loading is fragile**~~ — patched the one exercised path (`/publish` → `mint key →`) by option (b): `handleAdvance` now sends `"/publish yes, mint the key now"` so `_select_system_prompt` re-loads the publish skill on the mint-confirmation turn. Verified single-click end-to-end on us-invoice (chat `c_180d92d64057.jsonl`, 2026-05-11). The underlying per-turn keyword-prefix skill loading is still architecturally fragile; defer the broader fix until a second auto-injected-mid-flow message materializes (e.g. an `/improve` or `/extract` button).
