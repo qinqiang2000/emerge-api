@@ -84,3 +84,27 @@ def test_get_project_schema_400_on_bad_pid() -> None:
     client = TestClient(app)
     r = client.get("/lab/projects/p_INVALIDPATH/schema")
     assert r.status_code == 400
+
+
+async def test_list_projects_includes_status(workspace: Path) -> None:
+    from app.tools.projects import list_projects, update_project
+    from app.tools.schema import write_schema
+    from app.schemas.schema_field import FieldType, SchemaField
+
+    ws = workspace
+    p_empty = await create_project(ws, name="empty-one")
+    p_draft = await create_project(ws, name="draft-one")
+    await write_schema(
+        ws,
+        p_draft,
+        [SchemaField(name="f", type=FieldType.STRING, description="d")],
+        reason="t",
+        allow_structural=True,
+    )
+    rows = {r["project_id"]: r for r in await list_projects(ws)}
+    assert rows[p_empty]["status"] == "empty"
+    assert rows[p_draft]["status"] == "draft"
+    # 'live' requires an active_version_id — set it directly on the blob.
+    await update_project(ws, p_draft, {"active_version_id": "v1"})
+    rows = {r["project_id"]: r for r in await list_projects(ws)}
+    assert rows[p_draft]["status"] == "live"

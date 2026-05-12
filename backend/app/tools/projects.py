@@ -24,6 +24,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _project_status(pdir: Path, blob: dict[str, Any]) -> str:
+    if blob.get("active_version_id"):
+        return "live"
+    sp = pdir / "schema.json"
+    if sp.exists():
+        try:
+            fields = json.loads(sp.read_text())
+            if isinstance(fields, list) and len(fields) > 0:
+                return "draft"
+        except (json.JSONDecodeError, OSError):
+            pass
+    return "empty"
+
+
 async def create_project(
     workspace: Path,
     *,
@@ -64,7 +78,11 @@ async def list_projects(workspace: Path) -> list[dict[str, Any]]:
         if not pj.exists():
             continue
         blob = json.loads(pj.read_text())
-        out.append({"project_id": child.name, **blob})
+        out.append({
+            "project_id": child.name,
+            "status": _project_status(child, blob),
+            **blob,
+        })
     return out
 
 
