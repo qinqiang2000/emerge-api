@@ -6,12 +6,12 @@
 .fs .proj.active{color:var(--ink);background:var(--paper-2);box-shadow:inset 2px 0 0 var(--ochre)}
 .fs .proj .glyph{color:var(--ink-5);width:12px;text-align:center}
 .fs .proj.active .glyph{color:var(--ochre)}
-.fs .proj .meta{margin-left:auto;font-size:10.5px;color:var(--ink-5);font-variant-numeric:tabular-nums;flex-shrink:0;padding-left:6px}
+.fs .proj .status-dot{margin-left:auto;width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .fs .proj > span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0}
 .fs .tree{padding:0 0 0 0;margin-top:4px}
 .fs .branch{font-family:var(--mono);font-size:12px;color:var(--ink-3);padding:3px 16px 3px 32px;display:flex;align-items:center;gap:8px;cursor:default;line-height:1.5;white-space:nowrap;overflow:hidden}
 .fs .branch > span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
-.fs .branch.dir{color:var(--ink-2);font-weight:500;padding-left:18px}
+.fs .branch.dir{color:var(--ink-2);font-weight:500;padding-left:18px;cursor:default}
 .fs .branch.dir .arrow{color:var(--ink-5);width:10px;display:inline-block}
 .fs .branch.file:hover{color:var(--ink);background:var(--paper-2)}
 .fs .branch .stamp{margin-left:auto;font-size:10.5px;color:var(--ink-5);font-variant-numeric:tabular-nums;font-weight:400;flex-shrink:0;padding-left:6px}
