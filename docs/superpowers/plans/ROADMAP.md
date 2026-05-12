@@ -21,7 +21,7 @@
 | **M7** — design handoff UI replacement | `2026-05-10-m7-design-handoff-ui.md` | ✅ shipped | `5080ff0..fcf9369` (~14 task commits) |
 | **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | ✅ shipped | `576089f..81bd62d` (9 task commits) |
 | **M7.2** — metrics panel (`/eval` → right-rail `metrics/`) | `2026-05-11-m7-2-metrics-panel.md` | ✅ shipped | `2c9b798..eb2fc61` (6 task commits) |
-| **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | 🚧 in progress | _(fill commit range on closeout)_ |
+| **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | ✅ shipped | `113f792..d858b19` (11 commits; T2 also relaxed 2 chat-session-continuity assertions, T10 also unblocked `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1`) |
 
 ## What each milestone delivers
 

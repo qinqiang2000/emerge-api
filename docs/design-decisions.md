@@ -837,7 +837,7 @@ random `chatId` was minted per page load (so the backend also saw a new chat).
 
 ### 2026-05-12 — Design handoff introduces multi-chat history + left-rail slim (deferred to next milestone)
 
-- **Status**: 🟡 Pending — design adopted, implementation deferred
+- **Status**: ✅ Implemented by M8 (`docs/superpowers/plans/2026-05-12-m8-chat-history.md`, commits `113f792..d858b19`). `ConvHeader` ships with the two floating chips + popover; `FSSpine` drops the meta doc-count, gains a 6 px status dot, and collapses `reviewed/` / `versions/` by default; the chat store migrates to `emerge.activeChatId.<pid>` with `chatsByProject` + `listChats / switchChat / newChat`; backend grows `GET /lab/chats/{pid}` + the `{label,kind,created_at}` sidecar half; `GET /lab/projects` carries an additive `status: live|draft|empty`. Project-status partition (live/draft/empty) is the committed answer to the open question.
 - **Area**: `Chat/ConvHeader` (new), `Spine/FSSpine`, `stores/chat`
 - **Files**: `docs/design/emerge-api/project/{app,data,pieces}.jsx`,
   `docs/design/emerge-api/project/index.html`,
@@ -883,7 +883,7 @@ language, which the user explicitly referenced.
 
 ### 2026-05-12 — UI vocabulary becomes task-type-agnostic (deferred-impl directive)
 
-- **Status**: 🟡 Pending — directive adopted, applies to all future UI work
+- **Status**: ✅ Implemented by M8 (`docs/superpowers/plans/2026-05-12-m8-chat-history.md`, commits `113f792..d858b19`). Chat-kind taxonomy ships as the locked generic-verb set `init | run | tune | review | publish | ingest | chat` (slash-cmd → kind map in `backend/app/chat/log.py:derive_chat_kind`, many-to-one — `/extract` and `/eval` both → `run`; attachments-on-turn-1 → `ingest`). Popover header is mono uppercase `history`; empty state `No sessions yet.`; row schema is `kind / label / ts` with no `summary`. Future task types share this kind vocab; `/extract` and `/v1/{pid}/extract` keep their names for backward compatibility.
 - **Area**: project-wide chrome — kind chips, slash-menu labels, button copy, empty states, popover headers
 - **Files**: `CLAUDE.md` (Engineering section, new bullet),
   `docs/superpowers/plans/PROMPT-2026-05-12-chat-history.md` (§1a),
