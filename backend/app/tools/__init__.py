@@ -17,6 +17,7 @@ from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
+from app.tools import experiment as experiment_mod
 from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
@@ -266,6 +267,114 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
+        "create_experiment",
+        "Create an experiment referencing a (prompt_id, model_id) pair. Both axes "
+        "default to the project's active. Returns the new experiment_id.",
+        {"project_id": str, "label": str, "prompt_id": str, "model_id": str},
+    )
+    async def t_create_experiment(args: dict[str, Any]) -> dict[str, Any]:
+        eid = await experiment_mod.create_experiment(
+            workspace, args["project_id"],
+            label=args.get("label") or None,
+            prompt_id=args.get("prompt_id") or None,
+            model_id=args.get("model_id") or None,
+        )
+        return {"content": [{"type": "text", "text": eid}]}
+
+    @tool(
+        "extract_with_experiment",
+        "Run an experiment's (prompt, model) pair on a single doc; writes "
+        "experiments/{experiment_id}/extracts/{doc_id}.json. Returns the payload.",
+        {"project_id": str, "experiment_id": str, "doc_id": str},
+    )
+    async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:
+        ex = await experiment_mod.read_experiment(
+            workspace, args["project_id"], args["experiment_id"],
+        )
+        model = await model_mod.read_model(
+            workspace, args["project_id"], ex.model_id,
+        )
+        from app.provider import get_provider_for_model
+        exp_provider = get_provider_for_model(model.provider_model_id)
+        payload = await experiment_mod.extract_with_experiment(
+            workspace, args["project_id"], args["experiment_id"], args["doc_id"],
+            provider=exp_provider,
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
+
+    @tool(
+        "run_experiment_eval",
+        "Loop reviewed/ docs through the experiment's (prompt, model); writes "
+        "per-doc extracts and computes overall + per-field + per-doc scores. "
+        "Returns the eval dict and sets status='ran'.",
+        {"project_id": str, "experiment_id": str},
+    )
+    async def t_run_experiment_eval(args: dict[str, Any]) -> dict[str, Any]:
+        ex = await experiment_mod.read_experiment(
+            workspace, args["project_id"], args["experiment_id"],
+        )
+        model = await model_mod.read_model(
+            workspace, args["project_id"], ex.model_id,
+        )
+        from app.provider import get_provider_for_model
+        exp_provider = get_provider_for_model(model.provider_model_id)
+        ev = await experiment_mod.run_experiment_eval(
+            workspace, args["project_id"], args["experiment_id"],
+            provider=exp_provider,
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(ev)}]}
+
+    @tool(
+        "promote_experiment",
+        "Set the experiment's (prompt_id, model_id) as the project's active pair; "
+        "clear predictions/_draft/ and re-seed from the experiment's extracts. "
+        "Marks experiment status='promoted' (audit trail).",
+        {"project_id": str, "experiment_id": str},
+    )
+    async def t_promote_experiment(args: dict[str, Any]) -> dict[str, Any]:
+        await experiment_mod.promote_experiment(
+            workspace, args["project_id"], args["experiment_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "archive_experiment",
+        "Mark an experiment as archived (excluded from default lists, not deleted). "
+        "Cannot archive a promoted experiment.",
+        {"project_id": str, "experiment_id": str},
+    )
+    async def t_archive_experiment(args: dict[str, Any]) -> dict[str, Any]:
+        await experiment_mod.archive_experiment(
+            workspace, args["project_id"], args["experiment_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "list_experiments",
+        "List experiments in a project. Archived experiments excluded unless "
+        "include_archived=true.",
+        {"project_id": str, "include_archived": bool},
+    )
+    async def t_list_experiments(args: dict[str, Any]) -> dict[str, Any]:
+        rows = await experiment_mod.list_experiments(
+            workspace, args["project_id"],
+            include_archived=bool(args.get("include_archived", False)),
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(rows)}]}
+
+    @tool(
+        "delete_experiment",
+        "Physically remove an experiment directory. Cannot delete a promoted "
+        "experiment (audit trail).",
+        {"project_id": str, "experiment_id": str},
+    )
+    async def t_delete_experiment(args: dict[str, Any]) -> dict[str, Any]:
+        await experiment_mod.delete_experiment(
+            workspace, args["project_id"], args["experiment_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
         "extract_one",
         "Extract from a single document.",
         {"project_id": str, "doc_id": str},
@@ -471,6 +580,13 @@ def build_emerge_mcp(
             t_switch_active_model,
             t_list_models,
             t_delete_model,
+            t_create_experiment,
+            t_extract_with_experiment,
+            t_run_experiment_eval,
+            t_promote_experiment,
+            t_archive_experiment,
+            t_list_experiments,
+            t_delete_experiment,
             t_extract_one,
             t_extract_batch,
             t_save_reviewed,
@@ -496,6 +612,8 @@ _EMERGE_TOOL_NAMES = (
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",
+    "create_experiment", "extract_with_experiment", "run_experiment_eval",
+    "promote_experiment", "archive_experiment", "list_experiments", "delete_experiment",
     "extract_one", "extract_batch",
     "save_reviewed", "list_reviewed", "get_reviewed", "get_prediction",
     "score",
