@@ -44,6 +44,7 @@ export const usePrompts = create<State>((set, get) => ({
     }),
 
   load: async (projectId) => {
+    if (get().list[projectId]) return  // cached — skip fetch
     if (get().loading[projectId]) {
       // dedupe in-flight
       return new Promise<void>((resolve) => {

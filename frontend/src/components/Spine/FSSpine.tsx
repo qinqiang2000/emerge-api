@@ -6,9 +6,11 @@ import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useQuickLook } from '../../stores/quicklook'
+import { usePrompts } from '../../stores/prompts'
+import { useModels } from '../../stores/models'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
-type FileNode  = { kind: 'file';  name: string; stamp: string }
+type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; onClick?: () => void }
 type GhostNode = { kind: 'ghost'; name: string }
 type LeafNode  = FileNode | GhostNode
 type DirGroup  = { name: string; count: number; items: LeafNode[] }
@@ -23,7 +25,8 @@ const STATUS_DOT: Record<string, string> = {
 function buildTree(
   docs: import('../../types/review').DocSummary[],
   activeVersionId: string | null,
-  schemaFieldCount: number,
+  promptItems: LeafNode[],
+  modelItems: LeafNode[],
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   const docsItems: LeafNode[] = []
@@ -54,7 +57,6 @@ function buildTree(
 
   // ── trailing root files ────────────────────────────────────────────────
   const rootFiles: FileNode[] = [
-    { kind: 'file', name: 'schema.json', stamp: schemaFieldCount > 0 ? `${schemaFieldCount} fields` : '' },
     { kind: 'file', name: 'README.md', stamp: '' },
   ]
 
@@ -62,6 +64,8 @@ function buildTree(
     groups: [
       { name: 'docs/', count: docs.length, items: docsItems },
       { name: 'reviewed/', count: reviewedDocs.length, items: reviewedItems },
+      { name: 'prompts/', count: promptItems.filter(n => n.kind === 'file').length, items: promptItems },
+      { name: 'models/', count: modelItems.filter(n => n.kind === 'file').length, items: modelItems },
       { name: 'versions/', count: activeVersionId ? 1 : 0, items: versionItems },
     ],
     rootFiles,
@@ -75,32 +79,65 @@ export default function FSSpine() {
   const docsByProject = useDocs(s => s.byProject)
   const schemaByProject = useSchema(s => s.byProject)
 
+  const promptListByProject = usePrompts(s => s.list)
+  const modelListByProject = useModels(s => s.list)
+
   const openSchema = useQuickLook(s => s.openSchema)
   const openVersion = useQuickLook(s => s.openVersion)
 
-  // Only docs/ open by default.
+  // Only docs/ open by default; prompts/ and models/ closed by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
   const toggleDir = (name: string) => setOpenDirs(s => ({ ...s, [name]: !s[name] }))
 
   // On mount: refresh project list
   useEffect(() => { void useProjects.getState().refresh() }, [])
 
-  // When active project changes: load docs + schema
+  // When active project changes: load docs + schema + prompts + models
   useEffect(() => {
     if (!selectedId) return
     void useDocs.getState().refresh(selectedId)
     void useSchema.getState().load(selectedId)
+    void usePrompts.getState().load(selectedId)
+    void useModels.getState().load(selectedId)
   }, [selectedId])
 
   const activeDocs = selectedId ? (docsByProject[selectedId] ?? []) : []
   const activeSchemaFields = selectedId ? (schemaByProject[selectedId] ?? []) : []
   const activeProject = projects.find(p => p.project_id === selectedId) ?? null
 
+  // Build prompts leaf nodes
+  const promptItems: LeafNode[] = useMemo(() => {
+    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = promptListByProject[selectedId]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    return rows.map(row => ({
+      kind: 'file' as const,
+      name: row.label,
+      stamp: '',
+      active: row.is_active,
+      onClick: row.is_active ? () => openSchema(selectedId) : undefined,
+    }))
+  }, [selectedId, promptListByProject, openSchema])
+
+  // Build models leaf nodes
+  const modelItems: LeafNode[] = useMemo(() => {
+    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = modelListByProject[selectedId]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    return rows.map(row => ({
+      kind: 'file' as const,
+      name: row.label,
+      stamp: row.provider_model_id,
+      active: row.is_active,
+      onClick: undefined,
+    }))
+  }, [selectedId, modelListByProject])
+
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
-      ? buildTree(activeDocs, activeProject.active_version_id ?? null, activeSchemaFields.length)
+      ? buildTree(activeDocs, activeProject.active_version_id ?? null, promptItems, modelItems)
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems],
   )
 
   return (
@@ -165,17 +202,20 @@ export default function FSSpine() {
                   {open && g.items.map((n, j) => {
                     if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
                     const isVersion = g.name === 'versions/' && selectedId
+                    const clickHandler = isVersion
+                      ? () => openVersion(selectedId!, n.name)
+                      : n.onClick
                     return (
                       <div
                         key={j}
                         className="branch file"
-                        onClick={isVersion ? () => openVersion(selectedId!, n.name) : undefined}
-                        role={isVersion ? 'button' : undefined}
-                        tabIndex={isVersion ? 0 : undefined}
-                        onKeyDown={isVersion ? e => { if (e.key === 'Enter' || e.key === ' ') openVersion(selectedId!, n.name) } : undefined}
-                        style={isVersion ? { cursor: 'pointer' } : undefined}
+                        onClick={clickHandler}
+                        role={clickHandler ? 'button' : undefined}
+                        tabIndex={clickHandler ? 0 : undefined}
+                        onKeyDown={clickHandler ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
+                        style={clickHandler ? { cursor: 'pointer' } : undefined}
                       >
-                        <span style={{ color: 'var(--ink-5)' }}>·</span>
+                        <span style={{ color: 'var(--ink-5)' }}>{n.active ? '⭐' : '·'}</span>
                         <span>{n.name}</span>
                         {n.stamp && <span className="stamp">{n.stamp}</span>}
                       </div>
@@ -184,24 +224,17 @@ export default function FSSpine() {
                 </div>
               )
             })}
-            {tree.rootFiles.map((n, k) => {
-              const isSchema = n.name === 'schema.json' && selectedId
-              return (
-                <div
-                  key={'r' + k}
-                  className="branch file"
-                  style={{ paddingLeft: 18, ...(isSchema ? { cursor: 'pointer' } : {}) }}
-                  onClick={isSchema ? () => openSchema(selectedId!) : undefined}
-                  role={isSchema ? 'button' : undefined}
-                  tabIndex={isSchema ? 0 : undefined}
-                  onKeyDown={isSchema ? e => { if (e.key === 'Enter' || e.key === ' ') openSchema(selectedId!) } : undefined}
-                >
-                  <span style={{ color: 'var(--ink-5)' }}>·</span>
-                  <span>{n.name}</span>
-                  {n.stamp && <span className="stamp">{n.stamp}</span>}
-                </div>
-              )
-            })}
+            {tree.rootFiles.map((n, k) => (
+              <div
+                key={'r' + k}
+                className="branch file"
+                style={{ paddingLeft: 18 }}
+              >
+                <span style={{ color: 'var(--ink-5)' }}>·</span>
+                <span>{n.name}</span>
+                {n.stamp && <span className="stamp">{n.stamp}</span>}
+              </div>
+            ))}
           </div>
         </>
       )}

@@ -42,6 +42,7 @@ export const useModels = create<State>((set, get) => ({
     }),
 
   load: async (projectId) => {
+    if (get().list[projectId]) return  // cached — skip fetch
     if (get().loading[projectId]) {
       return new Promise<void>((resolve) => {
         const unsub = useModels.subscribe((s) => {

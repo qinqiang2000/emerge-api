@@ -5,6 +5,8 @@ import FSSpine from '../../src/components/Spine/FSSpine'
 import { useProjects } from '../../src/stores/projects'
 import { useSchema } from '../../src/stores/schema'
 import { useQuickLook } from '../../src/stores/quicklook'
+import { usePrompts } from '../../src/stores/prompts'
+import { useModels } from '../../src/stores/models'
 
 describe('FSSpine → QuickLook wiring', () => {
   beforeEach(() => {
@@ -14,11 +16,33 @@ describe('FSSpine → QuickLook wiring', () => {
     })
     useSchema.setState({ byProject: { p_test: [{ name: 'x', type: 'string', description: '' } as any] } })
     useQuickLook.getState().close()
+    usePrompts.setState({
+      list: { p_test: [
+        { prompt_id: 'pr_baseline', label: 'Baseline', derived_from: null, is_active: true, created_at: 'x', updated_at: 'x' },
+      ] },
+      activeByProject: { p_test: { prompt_id: 'pr_baseline', label: 'Baseline', schema: [], global_notes: '', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
+      loading: {},
+    })
+    useModels.setState({
+      list: { p_test: [
+        { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', is_active: true, created_at: 'x' },
+      ] },
+      activeByProject: { p_test: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', params: {}, created_at: 'x' } as any },
+      loading: {},
+    })
   })
 
-  it('clicking schema.json row opens schema QuickLook', async () => {
+  it('schema.json row no longer rendered', () => {
     render(<FSSpine />)
-    await userEvent.click(screen.getByText('schema.json'))
+    expect(screen.queryByText('schema.json')).not.toBeInTheDocument()
+    expect(screen.getByText('prompts/')).toBeInTheDocument()
+    expect(screen.getByText('models/')).toBeInTheDocument()
+  })
+
+  it('clicking the active prompt row opens schema QuickLook', async () => {
+    render(<FSSpine />)
+    await userEvent.click(screen.getByText('prompts/'))
+    await userEvent.click(screen.getByText('Baseline'))
     expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: 'p_test' })
   })
 
