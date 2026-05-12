@@ -48,6 +48,7 @@ async def get_project_experiments(
 @router.get("/lab/projects/{project_id}/experiments/{experiment_id}")
 async def get_project_experiment(project_id: str, experiment_id: str) -> dict:
     workspace = _project_or_404(project_id)
+    await migrate_project_if_needed(workspace, project_id)
     try:
         ex = await read_experiment(workspace, project_id, experiment_id)
     except ExperimentNotFoundError:
@@ -65,6 +66,7 @@ async def get_experiment_extract(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
+    await migrate_project_if_needed(workspace, project_id)
     safe_doc_id(doc_id)
     try:
         await read_experiment(workspace, project_id, experiment_id)
@@ -89,6 +91,7 @@ async def run_experiment_extract(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
+    await migrate_project_if_needed(workspace, project_id)
     safe_doc_id(doc_id)
     try:
         ex = await read_experiment(workspace, project_id, experiment_id)

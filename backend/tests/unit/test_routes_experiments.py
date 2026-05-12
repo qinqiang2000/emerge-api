@@ -168,3 +168,25 @@ def test_invalid_doc_id_rejected_on_extract_routes(
 
     r3 = client.post(f"/lab/projects/{pid}/experiments/{eid}/extracts/notadocid")
     assert r3.status_code in (400, 422)
+
+
+def test_list_experiments_include_archived_query_param(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """Default response excludes archived; ?include_archived=true returns them."""
+    from app.tools.experiment import archive_experiment, create_experiment
+    pid = "p_test12345678"
+    _seed_project_with_axes(tmp_path, pid)
+    e1 = asyncio.run(create_experiment(tmp_path, pid, label="keep"))
+    e2 = asyncio.run(create_experiment(tmp_path, pid, label="hide"))
+    asyncio.run(archive_experiment(tmp_path, pid, e2))
+
+    # default — only the live experiment
+    r = client.get(f"/lab/projects/{pid}/experiments")
+    assert r.status_code == 200
+    assert [row["experiment_id"] for row in r.json()] == [e1]
+
+    # with the query param — both
+    r2 = client.get(f"/lab/projects/{pid}/experiments?include_archived=true")
+    assert r2.status_code == 200
+    assert {row["experiment_id"] for row in r2.json()} == {e1, e2}
