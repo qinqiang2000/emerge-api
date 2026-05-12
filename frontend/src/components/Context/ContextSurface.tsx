@@ -4,6 +4,8 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { useProjects } from '../../stores/projects'
 import { useSchema } from '../../stores/schema'
+import { usePrompts } from '../../stores/prompts'
+import { useModels } from '../../stores/models'
 import { useDocs } from '../../stores/docs'
 import { useEval } from '../../stores/eval'
 import { useReview } from '../../stores/review'
@@ -68,6 +70,12 @@ export default function ContextSurface() {
   const fields = useSchema(useShallow(s => s.byProject[pid] ?? []))
   const loadSchema = useSchema(s => s.load)
 
+  const activePrompt = usePrompts(s => (pid ? s.activeByProject[pid] : undefined))
+  const loadPrompts = usePrompts(s => s.load)
+
+  const activeModel = useModels(s => (pid ? s.activeByProject[pid] : undefined))
+  const loadModels = useModels(s => s.load)
+
   const docs = useDocs(useShallow(s => s.byProject[pid] ?? []))
   const refreshDocs = useDocs(s => s.refresh)
 
@@ -81,14 +89,19 @@ export default function ContextSurface() {
   useEffect(() => {
     if (!pid) return
     void loadSchema(pid)
+    void loadPrompts(pid)
+    void loadModels(pid)
     void refreshDocs(pid)
     void loadEval(pid)
-  }, [pid, loadSchema, refreshDocs, loadEval])
+  }, [pid, loadSchema, loadPrompts, loadModels, refreshDocs, loadEval])
 
   const versionStr = project?.active_version_id
     ? `${project.active_version_id} frozen`
     : 'v0 draft'
-  const schemaHint = `${fields.length} fields · ${versionStr}`
+  const promptLabel = activePrompt?.prompt_id ?? 'pr_baseline'
+  const promptHint = `${fields.length} fields · ${versionStr}`
+  const modelLabel = activeModel?.label ?? 'Default'
+  const modelHint = activeModel?.provider_model_id ?? '—'
 
   const visibleDocs = docs.slice(0, MAX_VISIBLE_DOCS)
   const docsHint = `${visibleDocs.length} of ${docs.length} shown`
@@ -111,7 +124,7 @@ export default function ContextSurface() {
 
   return (
     <div className="ctx">
-      {/* ── section 1: schema.json ───────────────────────────────── */}
+      {/* ── section 1a: Prompt ──────────────────────────────────── */}
       <div className="ctx-section">
         <div
           className="ctx-h"
@@ -121,13 +134,13 @@ export default function ContextSurface() {
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openQuickLook(pid) }}
           style={{ cursor: 'pointer' }}
         >
-          <span>schema.json</span>
-          <span className="small">{schemaHint}</span>
+          <span>Prompt: {promptLabel}</span>
+          <span className="small">{promptHint}</span>
         </div>
         <div className="ctx-card">
           {fields.length === 0 ? (
             <div className="schemaRow" style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              no schema yet — type /init in the chat
+              no fields yet — type /init in the chat
             </div>
           ) : (
             <>
@@ -153,8 +166,23 @@ export default function ContextSurface() {
           )}
         </div>
         <p className="micro" style={{ marginTop: 8 }}>
-          The schema becomes the agent's prompt at publish time. Edit through conversation.
+          The prompt (fields + descriptions + global notes) becomes the agent's
+          instruction at publish time. Edit through conversation.
         </p>
+      </div>
+
+      {/* ── section 1b: Model ───────────────────────────────────── */}
+      <div className="ctx-section">
+        <div className="ctx-h">
+          <span>Model: {modelLabel}</span>
+          <span className="small">{modelHint}</span>
+        </div>
+        <div className="ctx-card">
+          <div className="schemaRow">
+            <span>{activeModel?.provider ?? '—'}</span>
+            <span className="typ">{activeModel?.provider_model_id ?? '—'}</span>
+          </div>
+        </div>
       </div>
 
       {/* ── section 2: docs/ ─────────────────────────────────────── */}
