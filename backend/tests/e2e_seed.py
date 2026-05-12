@@ -8,13 +8,15 @@ from pathlib import Path
 
 from app.chat.log import append_event, ensure_chat_meta
 from app.tools.docs import upload_doc
+from app.tools.experiment import create_experiment
 from app.tools.projects import create_project
 from app.tools.reviewed import save_reviewed
 from app.tools.schema import write_schema
 from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import FieldType, SchemaField
 from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import predictions_draft_dir
+from app.workspace.migrate import migrate_project_if_needed
+from app.workspace.paths import experiment_extract_path, experiment_extracts_dir, predictions_draft_dir
 
 
 async def main() -> None:
@@ -56,6 +58,22 @@ async def main() -> None:
         source=ReviewedSource.MANUAL,
     )
     print(f"  + reviewed for {eval_did}")
+
+    # ── M9.3: seed an experiment + per-doc extract so the experiment-tabs e2e
+    #    can attach + switch tabs without first triggering an LLM call. ──
+    await migrate_project_if_needed(workspace, pid)
+    # project now has prompts/pr_baseline.json + models/m_default.json after migration
+    exp_id = await create_experiment(workspace, pid, label="try gemma")
+    extracts_dir = experiment_extracts_dir(workspace, pid, exp_id)
+    extracts_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        experiment_extract_path(workspace, pid, exp_id, did),
+        {
+            "entities": [{"invoice_number": "FROM_EXPERIMENT", "total_amount": 999.99}],
+            "_evidence": [{"invoice_number": 1, "total_amount": 1}],
+        },
+    )
+    print(f"  + seeded experiment {exp_id} with extract for {did}")
 
     # Seed a chat log + meta sidecar so the chat-history popover e2e has something to list.
     seed_chat_id = "c_seed00000001"
