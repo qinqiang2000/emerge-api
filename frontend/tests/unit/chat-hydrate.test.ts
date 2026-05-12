@@ -78,15 +78,15 @@ describe('chatIdFor', () => {
   })
 
   it('returns the persisted value when localStorage already has it', () => {
-    localStorage.setItem('emerge.chatId.p_x', 'c_persisted123')
+    localStorage.setItem('emerge.activeChatId.p_x', 'c_persisted123')
     expect(chatIdFor('p_x')).toBe('c_persisted123')
   })
 
   it('mints and persists a fresh id when none exists', () => {
-    expect(localStorage.getItem('emerge.chatId.p_new')).toBeNull()
+    expect(localStorage.getItem('emerge.activeChatId.p_new')).toBeNull()
     const id = chatIdFor('p_new')
     expect(id).toMatch(/^c_[0-9a-f]{12}$/)
-    expect(localStorage.getItem('emerge.chatId.p_new')).toBe(id)
+    expect(localStorage.getItem('emerge.activeChatId.p_new')).toBe(id)
   })
 })
 
@@ -95,6 +95,9 @@ describe('enterProject', () => {
     localStorage.clear()
     useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: null })
     vi.restoreAllMocks()
+    // enterProject fires a fire-and-forget listChats; stub it out so the
+    // test environment doesn't try to fetch a relative URL.
+    vi.spyOn(api, 'getChatList').mockResolvedValue([])
   })
 
   it('switch case: clears events synchronously then hydrates from getChatEvents', async () => {
@@ -129,7 +132,7 @@ describe('enterProject', () => {
     expect(after.events).toEqual([{ type: 'user', text: 'mid' }])
     expect(after.loadedProjectId).toBe('p_abc')
     expect(after.chatId).toBe('c_inflight')
-    expect(localStorage.getItem('emerge.chatId.p_abc')).toBe('c_inflight')
+    expect(localStorage.getItem('emerge.activeChatId.p_abc')).toBe('c_inflight')
     expect(spy).not.toHaveBeenCalled()
   })
 
@@ -227,5 +230,117 @@ describe('enterProject', () => {
     await Promise.resolve()
     expect(spy).toHaveBeenCalled()
     expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'historical' }])
+  })
+})
+
+describe('localStorage key migration', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: null })
+    vi.restoreAllMocks()
+  })
+
+  it('chatIdFor migrates emerge.chatId.<pid> → emerge.activeChatId.<pid> on first read', () => {
+    localStorage.setItem('emerge.chatId.p_old', 'c_legacy00001')
+    expect(chatIdFor('p_old')).toBe('c_legacy00001')
+    expect(localStorage.getItem('emerge.activeChatId.p_old')).toBe('c_legacy00001')
+    expect(localStorage.getItem('emerge.chatId.p_old')).toBe('c_legacy00001')
+  })
+
+  it('chatIdFor prefers the new key when both exist', () => {
+    localStorage.setItem('emerge.chatId.p_x', 'c_old000000001')
+    localStorage.setItem('emerge.activeChatId.p_x', 'c_new000000001')
+    expect(chatIdFor('p_x')).toBe('c_new000000001')
+  })
+})
+
+describe('listChats', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: null, chatsByProject: {} })
+    vi.restoreAllMocks()
+  })
+
+  it('fetches and stores the list under chatsByProject[pid]', async () => {
+    const list = [
+      { chat_id: 'c_aaaaaaaaaaaa', label: 'extract', kind: 'run', ts_iso: '2026-05-12T09:00:00+00:00', n_events: 4 },
+    ]
+    vi.spyOn(api, 'getChatList').mockResolvedValue(list)
+    await useChat.getState().listChats('p_1')
+    expect(useChat.getState().chatsByProject['p_1']).toEqual(list)
+  })
+
+  it('a failed fetch leaves chatsByProject[pid] = [] (never throws)', async () => {
+    vi.spyOn(api, 'getChatList').mockResolvedValue([])
+    await useChat.getState().listChats('p_1')
+    expect(useChat.getState().chatsByProject['p_1']).toEqual([])
+  })
+})
+
+describe('switchChat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: 'p_a', chatsByProject: {} })
+    vi.restoreAllMocks()
+  })
+
+  it('persists the new active chat id, clears events, hydrates from the server', async () => {
+    const spy = vi.spyOn(api, 'getChatEvents').mockResolvedValue([{ type: 'agent_text', text: 'from chat 2' }])
+    useChat.setState({ events: [{ type: 'user', text: 'stale' }], chatId: 'c_old000000001', loadedProjectId: 'p_a' })
+    useChat.getState().switchChat('p_a', 'c_new000000001')
+    const after = useChat.getState()
+    expect(after.chatId).toBe('c_new000000001')
+    expect(after.events).toEqual([])
+    expect(localStorage.getItem('emerge.activeChatId.p_a')).toBe('c_new000000001')
+    await Promise.resolve(); await Promise.resolve()
+    expect(spy).toHaveBeenCalledWith('p_a', 'c_new000000001')
+    expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'from chat 2' }])
+  })
+
+  it('switching to the already-active chat is a no-op (no clear, no fetch)', () => {
+    const spy = vi.spyOn(api, 'getChatEvents').mockResolvedValue([])
+    useChat.setState({ events: [{ type: 'agent_text', text: 'kept' }], chatId: 'c_same00000001', loadedProjectId: 'p_a' })
+    useChat.getState().switchChat('p_a', 'c_same00000001')
+    expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'kept' }])
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('switch race: a hydrate in-flight when the user switches again is dropped', async () => {
+    let resolveA!: (v: unknown[]) => void
+    const deferredA = new Promise<unknown[]>(res => { resolveA = res })
+    vi.spyOn(api, 'getChatEvents')
+      .mockImplementationOnce(() => deferredA)
+      .mockImplementationOnce(() => Promise.resolve([]))
+    useChat.setState({ events: [], chatId: 'c_orig00000001', loadedProjectId: 'p_a' })
+    useChat.getState().switchChat('p_a', 'c_aaa000000001')
+    useChat.getState().switchChat('p_a', 'c_bbb000000001')
+    resolveA([{ type: 'user', text: 'chat-A history' }])
+    await Promise.resolve(); await Promise.resolve()
+    const after = useChat.getState()
+    expect(after.chatId).toBe('c_bbb000000001')
+    expect(after.events.some(e => e.type === 'user' && e.text === 'chat-A history')).toBe(false)
+  })
+})
+
+describe('newChat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: 'p_a', chatsByProject: {} })
+    vi.restoreAllMocks()
+  })
+
+  it('mints a fresh id, persists it as active, clears events, does NOT touch the server', () => {
+    const evSpy = vi.spyOn(api, 'getChatEvents').mockResolvedValue([])
+    const listSpy = vi.spyOn(api, 'getChatList').mockResolvedValue([])
+    useChat.setState({ events: [{ type: 'user', text: 'old chat' }], chatId: 'c_old000000001', loadedProjectId: 'p_a' })
+    useChat.getState().newChat('p_a')
+    const after = useChat.getState()
+    expect(after.chatId).toMatch(/^c_[0-9a-f]{12}$/)
+    expect(after.chatId).not.toBe('c_old000000001')
+    expect(after.events).toEqual([])
+    expect(after.loadedProjectId).toBe('p_a')
+    expect(localStorage.getItem('emerge.activeChatId.p_a')).toBe(after.chatId)
+    expect(evSpy).not.toHaveBeenCalled()
+    expect(listSpy).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { getChatEvents } from '../lib/api'
+import { getChatEvents, getChatList, type ChatSummary } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import type { ChatEvent } from '../types/chat'
@@ -10,14 +10,25 @@ import { useEval } from './eval'
 import { useProjects } from './projects'
 import { useSchema } from './schema'
 
-const CHAT_ID_KEY_PREFIX = 'emerge.chatId.'
+const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
+const LEGACY_CHAT_ID_KEY_PREFIX = 'emerge.chatId.'   // pre-M8 single-chat key
 
 // Process-lifetime fallback when localStorage is unavailable (SSR / incognito).
 const _memChatIds = new Map<string, string>()
 
 function _readChatId(projectId: string): string | null {
   try {
-    return localStorage.getItem(CHAT_ID_KEY_PREFIX + projectId)
+    const fresh = localStorage.getItem(ACTIVE_CHAT_ID_KEY_PREFIX + projectId)
+    if (fresh) return fresh
+    // One-shot migration: copy the legacy single-chat key forward to the
+    // multi-chat active key, but leave the legacy key in place for one session
+    // so a rollback (or older tab) still finds the original chat.
+    const legacy = localStorage.getItem(LEGACY_CHAT_ID_KEY_PREFIX + projectId)
+    if (legacy) {
+      localStorage.setItem(ACTIVE_CHAT_ID_KEY_PREFIX + projectId, legacy)
+      return legacy
+    }
+    return null
   } catch {
     return _memChatIds.get(projectId) ?? null
   }
@@ -25,7 +36,7 @@ function _readChatId(projectId: string): string | null {
 
 function _writeChatId(projectId: string, chatId: string): void {
   try {
-    localStorage.setItem(CHAT_ID_KEY_PREFIX + projectId, chatId)
+    localStorage.setItem(ACTIVE_CHAT_ID_KEY_PREFIX + projectId, chatId)
   } catch {
     _memChatIds.set(projectId, chatId)
   }
@@ -45,8 +56,12 @@ interface State {
   events: ChatEvent[]
   busy: boolean
   loadedProjectId: string | null
+  chatsByProject: Record<string, ChatSummary[]>
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
   enterProject: (projectId: string) => void
+  listChats: (projectId: string) => Promise<void>
+  switchChat: (projectId: string, chatId: string) => void
+  newChat: (projectId: string) => void
   lastUserMessage: () => string | null
   hasRecentToolError: () => boolean
 }
@@ -56,6 +71,7 @@ export const useChat = create<State>((set, get) => ({
   events: [],
   busy: false,
   loadedProjectId: null,
+  chatsByProject: {},
   enterProject: (projectId) => {
     if (projectId === 'p_unset') return
     if (projectId === get().loadedProjectId) return
@@ -91,6 +107,37 @@ export const useChat = create<State>((set, get) => ({
         return { events: [...reduced, ...s.events] }
       })
     })()
+    // Fire-and-forget: refresh the chat list so the conv-header popover has
+    // server-authoritative entries for this project.
+    void get().listChats(projectId)
+  },
+  listChats: async (projectId) => {
+    if (projectId === 'p_unset') return
+    const list = await getChatList(projectId)
+    set(s => ({ chatsByProject: { ...s.chatsByProject, [projectId]: list } }))
+  },
+  switchChat: (projectId, chatId) => {
+    if (projectId === 'p_unset') return
+    if (chatId === get().chatId) return
+    _writeChatId(projectId, chatId)
+    set({ loadedProjectId: projectId, chatId, events: [], busy: false })
+    // Same in-flight-tail race-safety pattern as enterProject's switch branch:
+    // snapshot prefixLen post-clear, re-check chatId + loadedProjectId on apply.
+    const prefixLen = get().events.length
+    void (async () => {
+      const reduced = reduceEvents(await getChatEvents(projectId, chatId))
+      set(s => {
+        if (s.chatId !== chatId || s.loadedProjectId !== projectId) return s
+        if (s.events.length === prefixLen) return { events: reduced }
+        return { events: [...reduced, ...s.events] }
+      })
+    })()
+  },
+  newChat: (projectId) => {
+    if (projectId === 'p_unset') return
+    const fresh = newChatId()
+    _writeChatId(projectId, fresh)
+    set({ loadedProjectId: projectId, chatId: fresh, events: [], busy: false })
   },
   lastUserMessage: () => {
     const events = get().events
@@ -142,6 +189,7 @@ export const useChat = create<State>((set, get) => ({
       }
     } finally {
       set({ busy: false })
+      if (projectId !== 'p_unset') void get().listChats(projectId)
     }
   },
 }))
