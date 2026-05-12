@@ -27,7 +27,7 @@ export default function HelpPopover({ onClose }: HelpPopoverProps) {
       <div className="ey">how this works</div>
       <h4>An agent that writes the API for you.</h4>
       <p>
-        Drop documents into a folder. The agent reads them, derives a <code>schema.json</code>,
+        Drop documents into a folder. The agent reads them, derives a <code>prompt</code>,
         and runs first-pass extractions. You review the ones it's least sure about — every edit
         teaches it.
       </p>
