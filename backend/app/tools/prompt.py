@@ -108,3 +108,99 @@ async def list_prompts(workspace: Path, project_id: str) -> list[dict]:
             "updated_at": pv.updated_at,
         })
     return out
+
+
+class PromptInUseError(Exception):
+    """Raised when delete_prompt targets a prompt that is the active prompt
+    (or, in later milestones, is referenced by a non-archived experiment).
+    """
+
+
+async def create_prompt(
+    workspace: Path,
+    project_id: str,
+    *,
+    label: str,
+    derived_from: str | None = None,
+) -> str:
+    """Mint a new prompt_id, write prompts/{new_id}.json by cloning the contents
+    of either the active prompt (derived_from=None) or a specified same-project
+    prompt. Cross-project derived_from is recorded as-is on the new variant
+    for lineage display; actual cross-project content cloning lands in M9.5
+    (import_prompt). Returns the new prompt_id.
+    """
+    from app.workspace.ids import new_prompt_id
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, project_id)
+    async with project_lock(workspace, project_id):
+        if derived_from is None or "/" not in derived_from:
+            # Same-project clone (or default = clone active)
+            src_id = derived_from if derived_from is not None else (
+                await _resolve_prompt_id(workspace, project_id, None)
+            )
+            src_path = prompt_path(workspace, project_id, src_id)
+            if not src_path.exists():
+                raise PromptNotFoundError(
+                    f"derived_from prompt {src_id} not found in project {project_id}"
+                )
+            src = PromptVariant(**json.loads(src_path.read_text(encoding="utf-8")))
+            cloned_schema = src.schema
+            cloned_notes = src.global_notes
+            # Record actual src_id as lineage even when caller passed None
+            lineage = src_id
+        else:
+            # Cross-project literal — clone from active prompt in this project,
+            # record the lineage string. M9.5 will resolve the real source.
+            active = await read_active_prompt(workspace, project_id)
+            cloned_schema = active.schema
+            cloned_notes = active.global_notes
+            lineage = derived_from
+
+        new_id = new_prompt_id()
+        now = _now_iso()
+        pv = PromptVariant(
+            prompt_id=new_id,
+            label=label,
+            schema=cloned_schema,
+            global_notes=cloned_notes,
+            derived_from=lineage,
+            created_at=now,
+            updated_at=now,
+        )
+        prompts_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
+        atomic_write_json(prompt_path(workspace, project_id, new_id), pv.model_dump(mode="json"))
+    return new_id
+
+
+async def switch_active_prompt(workspace: Path, project_id: str, prompt_id: str) -> None:
+    """Set project.json.active_prompt_id = prompt_id. Raises PromptNotFoundError
+    if the target prompt file does not exist.
+    """
+    pp = prompt_path(workspace, project_id, prompt_id)
+    if not pp.exists():
+        raise PromptNotFoundError(
+            f"cannot switch active: {prompt_id} not found in project {project_id}"
+        )
+    async with project_lock(workspace, project_id):
+        pj = project_json_path(workspace, project_id)
+        blob = json.loads(pj.read_text(encoding="utf-8"))
+        blob["active_prompt_id"] = prompt_id
+        atomic_write_json(pj, blob)
+
+
+async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> None:
+    """Physically remove prompts/{prompt_id}.json. Blocks deletion of the active
+    prompt (PromptInUseError). M9.3 will extend this with experiment-reference
+    checks.
+    """
+    pp = prompt_path(workspace, project_id, prompt_id)
+    if not pp.exists():
+        raise PromptNotFoundError(f"{prompt_id} not found in project {project_id}")
+    async with project_lock(workspace, project_id):
+        project = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
+        if project.get("active_prompt_id") == prompt_id:
+            raise PromptInUseError(
+                f"cannot delete {prompt_id}: it is the active prompt; switch active first"
+            )
+        pp.unlink()

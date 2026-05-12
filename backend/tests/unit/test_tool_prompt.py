@@ -148,3 +148,101 @@ async def test_list_prompts_marks_active(workspace: Path) -> None:
     assert by_id["pr_baseline"]["is_active"] is True
     assert by_id["pr_other"]["is_active"] is False
     assert len(items) == 2
+
+
+async def test_create_prompt_clones_active_when_derived_from_none(workspace: Path) -> None:
+    """create_prompt(derived_from=None) clones the current active prompt and mints a new id."""
+    from app.tools.prompt import create_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "invoice_no", "type": "string", "description": "d", "required": False}
+    ])
+    new_id = await create_prompt(workspace, pid, label="trial", derived_from=None)
+    assert new_id.startswith("pr_")
+    assert new_id != "pr_baseline"
+
+    blob = json.loads(prompt_path(workspace, pid, new_id).read_text())
+    assert blob["label"] == "trial"
+    assert blob["schema"][0]["name"] == "invoice_no"  # cloned from baseline
+    assert blob["derived_from"] == "pr_baseline"
+
+
+async def test_create_prompt_with_explicit_derived_from(workspace: Path) -> None:
+    from app.tools.prompt import create_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    # add a second prompt to derive from
+    atomic_write_json(prompt_path(workspace, pid, "pr_other"), {
+        "prompt_id": "pr_other",
+        "label": "Other",
+        "schema": [{"name": "x", "type": "string", "description": "d", "required": False}],
+        "global_notes": "other notes",
+        "derived_from": None,
+        "created_at": _now(),
+        "updated_at": _now(),
+    })
+    new_id = await create_prompt(workspace, pid, label="trial2", derived_from="pr_other")
+    blob = json.loads(prompt_path(workspace, pid, new_id).read_text())
+    assert blob["schema"][0]["name"] == "x"
+    assert blob["global_notes"] == "other notes"
+    assert blob["derived_from"] == "pr_other"
+
+
+async def test_create_prompt_cross_project_derived_from_string(workspace: Path) -> None:
+    """A {src_pid}/{src_prompt_id} string passes through as-is (M9.5 wires actual import)."""
+    from app.tools.prompt import create_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    new_id = await create_prompt(
+        workspace, pid,
+        label="from us",
+        derived_from="p_us_invoice/pr_baseline",  # cross-project literal
+    )
+    blob = json.loads(prompt_path(workspace, pid, new_id).read_text())
+    # NOTE: schema is cloned from active (no cross-project resolution in M9.2);
+    # derived_from string is recorded for lineage display only
+    assert blob["derived_from"] == "p_us_invoice/pr_baseline"
+
+
+async def test_switch_active_prompt(workspace: Path) -> None:
+    from app.tools.prompt import switch_active_prompt, create_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    new_id = await create_prompt(workspace, pid, label="v2")
+    await switch_active_prompt(workspace, pid, new_id)
+    project = json.loads(project_json_path(workspace, pid).read_text())
+    assert project["active_prompt_id"] == new_id
+
+
+async def test_switch_active_prompt_to_nonexistent_raises(workspace: Path) -> None:
+    from app.tools.prompt import PromptNotFoundError, switch_active_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(PromptNotFoundError):
+        await switch_active_prompt(workspace, pid, "pr_does_not_exist")
+
+
+async def test_delete_prompt_removes_file(workspace: Path) -> None:
+    from app.tools.prompt import create_prompt, delete_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    new_id = await create_prompt(workspace, pid, label="trial")
+    assert prompt_path(workspace, pid, new_id).exists()
+    await delete_prompt(workspace, pid, new_id)
+    assert not prompt_path(workspace, pid, new_id).exists()
+
+
+async def test_delete_prompt_blocks_active(workspace: Path) -> None:
+    from app.tools.prompt import PromptInUseError, delete_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(PromptInUseError):
+        await delete_prompt(workspace, pid, "pr_baseline")
+
+
+async def test_delete_prompt_missing_raises(workspace: Path) -> None:
+    from app.tools.prompt import PromptNotFoundError, delete_prompt
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(PromptNotFoundError):
+        await delete_prompt(workspace, pid, "pr_nope")
