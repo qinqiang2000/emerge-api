@@ -1,4 +1,11 @@
-import type { DocSummary, PredictionPayload, ReviewedPayload } from '../types/review'
+import type {
+  DocSummary,
+  Experiment,
+  ExperimentExtractPayload,
+  ExperimentSummary,
+  PredictionPayload,
+  ReviewedPayload,
+} from '../types/review'
 
 export interface Project {
   project_id: string
@@ -173,4 +180,49 @@ export async function getChatList(projectId: string): Promise<ChatSummary[]> {
     console.warn('getChatList threw', err)
     return []
   }
+}
+
+export async function listExperiments(
+  projectId: string,
+  opts?: { includeArchived?: boolean },
+): Promise<ExperimentSummary[]> {
+  const q = opts?.includeArchived ? '?include_archived=true' : ''
+  const r = await fetch(`/lab/projects/${projectId}/experiments${q}`, {})
+  if (!r.ok) throw new Error(`listExperiments ${r.status}`)
+  return r.json()
+}
+
+export async function getExperiment(
+  projectId: string,
+  experimentId: string,
+): Promise<Experiment> {
+  const r = await fetch(`/lab/projects/${projectId}/experiments/${experimentId}`)
+  if (!r.ok) throw new Error(`getExperiment ${r.status}`)
+  return r.json()
+}
+
+export async function getExperimentExtract(
+  projectId: string,
+  experimentId: string,
+  docId: string,
+): Promise<ExperimentExtractPayload | null> {
+  const r = await fetch(
+    `/lab/projects/${projectId}/experiments/${experimentId}/extracts/${docId}`,
+  )
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(`getExperimentExtract ${r.status}`)
+  return r.json()
+}
+
+export async function runExperimentExtract(
+  projectId: string,
+  experimentId: string,
+  docId: string,
+): Promise<ExperimentExtractPayload> {
+  const r = await fetch(
+    `/lab/projects/${projectId}/experiments/${experimentId}/extracts/${docId}`,
+    { method: 'POST' },
+  )
+  if (!r.ok) throw new Error(`runExperimentExtract ${r.status}`)
+  return r.json()
 }
