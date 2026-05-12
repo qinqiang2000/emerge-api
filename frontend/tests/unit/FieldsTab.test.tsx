@@ -14,6 +14,23 @@ describe('FieldsTab', () => {
     expect(screen.getByText(/no schema yet/i)).toBeInTheDocument()
   })
 
+  it('shows loading state when byProject has no entry for the pid yet (deep-link safety net)', async () => {
+    // No setState for byProject[p_unloaded] — simulates a deep-link path where Quick-look
+    // opens before any other surface pre-warmed useSchema. The component must call load()
+    // itself rather than show "no schema yet — type /init in the chat" misleadingly.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify([{ name: 'late_field', type: 'string', description: '' }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    render(<FieldsTab target={{ kind: 'schema', pid: 'p_unloaded' }} />)
+    expect(screen.getByText(/loading/i)).toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith('/lab/projects/p_unloaded/schema')
+    await waitFor(() => expect(screen.getByText('late_field')).toBeInTheDocument())
+    fetchSpy.mockRestore()
+  })
+
   it('renders all fields with no truncation (schema kind)', () => {
     const fields = Array.from({ length: 12 }, (_, i) => ({
       name: `field_${i}`,

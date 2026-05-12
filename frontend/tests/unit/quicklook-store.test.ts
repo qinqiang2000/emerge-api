@@ -66,4 +66,37 @@ describe('useQuickLook store', () => {
     expect(useQuickLook.getState().rawJson.value).toBeNull()
     fetchSpy.mockRestore()
   })
+
+  it('loadRaw error branch does not overwrite the new target if the user switched mid-fetch', async () => {
+    // Slow 404 against schema A; user switches to schema B before fetch resolves.
+    // The A error must not flash into B's rawJson slot.
+    let resolveFetch: (resp: Response) => void = () => {}
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      () => new Promise<Response>(res => { resolveFetch = res }),
+    )
+    useQuickLook.getState().openSchema('p_a')
+    const inflight = useQuickLook.getState().loadRaw()
+    useQuickLook.getState().openSchema('p_b')  // switch target while fetch is in flight
+    resolveFetch(new Response('{"detail":{"error_code":"schema_not_found"}}', { status: 404 }))
+    await inflight
+    // Target is p_b; rawJson stays clean (no leaked error from p_a's fetch).
+    expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: 'p_b' })
+    expect(useQuickLook.getState().rawJson).toEqual({ value: null, loading: false, error: null })
+    fetchSpy.mockRestore()
+  })
+
+  it('loadRaw catch branch does not overwrite the new target if the user switched mid-fetch', async () => {
+    let rejectFetch: (err: Error) => void = () => {}
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      () => new Promise<Response>((_, rej) => { rejectFetch = rej }),
+    )
+    useQuickLook.getState().openSchema('p_a')
+    const inflight = useQuickLook.getState().loadRaw()
+    useQuickLook.getState().openSchema('p_b')
+    rejectFetch(new TypeError('Failed to fetch'))
+    await inflight
+    expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: 'p_b' })
+    expect(useQuickLook.getState().rawJson).toEqual({ value: null, loading: false, error: null })
+    fetchSpy.mockRestore()
+  })
 })

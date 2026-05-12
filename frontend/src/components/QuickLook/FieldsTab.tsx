@@ -15,7 +15,14 @@ export default function FieldsTab({ target }: Props) {
 }
 
 function SchemaFields({ pid }: { pid: string }) {
-  const fields = useSchema(useShallow(s => s.byProject[pid] ?? []))
+  const fields = useSchema(useShallow(s => s.byProject[pid]))
+  // Cache-first load: safety net for future deep-link / slash-command surfaces
+  // that open Quick-look without going through the project-selection effect
+  // that pre-warms useSchema.
+  useEffect(() => { void useSchema.getState().load(pid) }, [pid])
+  if (fields === undefined) {
+    return <div className="ql-field-desc ql-field-desc--empty">loading…</div>
+  }
   if (fields.length === 0) {
     return (
       <div className="ql-field ql-field-desc ql-field-desc--empty">

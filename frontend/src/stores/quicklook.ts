@@ -47,14 +47,15 @@ export const useQuickLook = create<QuickLookState>((set, get) => ({
           const j = await resp.json()
           code = j?.detail?.error_code ?? code
         } catch { /* not json */ }
+        if (get().target !== t) return
         set({ rawJson: { value: null, loading: false, error: code } })
         return
       }
       const text = await resp.text()
-      // Guard against a stale response if the user changed targets while the fetch was in flight.
       if (get().target !== t) return
       set({ rawJson: { value: text, loading: false, error: null } })
     } catch (e) {
+      if (get().target !== t) return
       set({ rawJson: { value: null, loading: false, error: (e as Error).message ?? 'fetch_failed' } })
     }
   },
