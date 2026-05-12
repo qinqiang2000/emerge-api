@@ -30,6 +30,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - 主题: light/dark/system 从 day one；**不允许** Tailwind 直接 color class，只用语义 token
 - 测试: `cd backend && uv run pytest -v`
 - 单一 schema 真相: `backend/app/schemas/schema_field.py` 的 `SchemaField` pydantic model
+- **任务类型无关的 UI**：本 shell 要复用到非文档提取任务（matching、classification 等）。chrome 层（按钮、空状态、popover、slash-menu copy、kind chips）用通用动词（`init / run / tune / review / publish / ingest`），不出现 `extract` / `invoice` / 文档提取专用名词；提取专用术语只允许出现在 content/help 文案和真实路径（如 `docs/`）里。API 发布层（`/v1/{pid}/extract` 路由名等已固化部分）保持现状不破坏兼容
 
 ## 三层 LLM（互不交叉）
 

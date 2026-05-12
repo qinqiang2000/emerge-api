@@ -29,19 +29,49 @@ transcript). Read it end-to-end before planning; the final user-confirmed
 scope is the last two `## User` turns:
 
 - **Issue 1 (chat history):** Two floating icon buttons at top-right of
-  conv. ⏱ Chat history opens a popover listing the **active project's**
-  sessions (desc by time; kind tag / italic-serif label / mono summary /
-  tabular-nums timestamp; current chat highlighted with `--ochre-soft`).
-  Switching project auto-closes the popover. Hidden in Review mode.
-  `+ New chat` jumps to EmptyHero.
+  conv. ⏱ history opens a 280 px-wide popover listing the **active
+  project's** sessions, **one line per row**: 54 px-wide mono kind tag
+  (uppercase) / serif label / tabular-nums timestamp. Current chat
+  highlighted with `--ochre-soft` background; on the active row the
+  kind text shifts to `--ochre-2`. Header is just `history` (mono
+  uppercase) on the left and the project name on the right — **no
+  "N runs" count**. Switching project auto-closes the popover. Hidden
+  in Review mode. `+ New chat` jumps to EmptyHero.
 - **Issue 2 (left rail slim, options 1+2 only):** Strip `42 docs` meta
-  from project rows; on the active row show a 6px status dot
+  from project rows; on the active row show a 6 px status dot
   (`live=--moss / draft=--ochre / empty=--ink-5`). FS tree opens only
   `docs/` by default; `reviewed/`, `versions/`, `metrics/` collapse to one
   line with their count and toggle on click.
 - **Issue 3 (multi-document-type / "not just invoices") is out of scope
   for this milestone** — the design conversation discussed it but the
   user chose to do only Issues 1 & 2.
+- **Revision 2 (2026-05-12 09:08, latest):** popover content was further
+  slimmed and **vocabulary made task-type-agnostic** — see §1a below.
+
+## 1a. Task-type-agnostic design (durable constraint, not milestone-local)
+
+The most recent user turn in `chat2.md`:
+
+> 历史记录 弹框 内容有点多。后续希望本设计能复用到其他非文档提取类
+> 任务，比如文档匹配等等，但API发布是通用。所以希望少一点文档提取
+> 专用的设计，多一点通用的
+
+What this means for **this milestone**:
+
+- **Kind taxonomy is now generic verbs**: `init | run | tune | review | publish | ingest` (was `init | extract | improve | review | publish | ingest`).
+  - `run` covers any task execution (extract today; match / classify / score tomorrow).
+  - `tune` covers any optimization loop (`/improve` today; future tunable pipelines).
+  - `init / review / publish / ingest` were already generic and stay.
+- **Row schema**: drop `summary` entirely. A row is `{id, kind, label, ts}` — that's it. The backend metadata sidecar (`{chat_id}.meta.json`) drops the `summary` field too; only `{label, kind, created_at, sdk_session_id}` is persisted. This sidesteps the redactor question for summaries (no summary is generated, so nothing to redact in that path).
+- **Labels are short, present-tense verb phrases** without doc-type nouns ("tune weak fields", "run batch", "draft v3"). The data fixture in `data.jsx` is the worked example.
+- **Empty state** is the bare `No sessions yet.` (was a 2-line invoice-flavored hint with `/init` callout).
+- **Header copy** is `history` (mono uppercase) instead of italic-serif `chat history` — sectiony, not chatty.
+
+What this means **beyond this milestone** (informs all future UI plans):
+
+- Avoid surfacing the word "extract" / "extraction" / "invoice" / "document" in chrome that the user sees outside of doc-specific scenes (FS spine `docs/` folder is fine — that's a real path; popovers, buttons, empty states, slash-menu copy is not).
+- When introducing a new task type later (e.g. **matching**), the chrome should accommodate it by reusing the same kind chips, the same chat shell, the same publish/key flow — only the *content* changes.
+- Per `CLAUDE.md` (Engineering, just added): "UI vocabulary is task-type-agnostic; reserve doc-extraction-specific terms for content/help text, not chrome."
 
 ## 2. Design source-of-truth (read these first)
 
@@ -78,12 +108,12 @@ should sequence and split into Tasks; numbers below are coverage, not
 phase boundaries.
 
 ### 4.1 Backend
-- **List chats**: `GET /lab/chats/{project_id}` → `[{chat_id, label, summary, kind, ts_iso, n_events}]` sorted desc by `ts_iso`. Source of truth = directory scan of `chats/c_*.jsonl` (plus meta sidecar if useful). 404 only on bad project id; empty project returns `[]`.
-- **Chat metadata storage**: extend `{chat_id}.meta.json` (currently only `sdk_session_id`) with `{label, kind, summary, created_at}`. Decide:
-  - **Recommended default**: derive `kind` from the **first user message** (slash-command heuristic: `/init → init`, `/extract → extract`, `/improve → improve`, `/eval → eval`, `/publish → publish`, otherwise `chat`); derive `label` from the first user message (truncate to ~40 chars, strip leading `/cmd`); derive `summary` from the latest meaningful event (last `tool_call` summary or last assistant turn snippet). Persist these on every append so the list endpoint is a cheap stat-scan instead of a full replay.
+- **List chats**: `GET /lab/chats/{project_id}` → `[{chat_id, label, kind, ts_iso, n_events}]` sorted desc by `ts_iso`. Source of truth = directory scan of `chats/c_*.jsonl` (plus meta sidecar). 404 only on bad project id; empty project returns `[]`. **No `summary` field** — design dropped it in revision 2 (see §1a).
+- **Chat metadata storage**: extend `{chat_id}.meta.json` (currently only `sdk_session_id`) with `{label, kind, created_at}` — **no `summary`**. Decide:
+  - **Recommended default**: derive `kind` from the **first user message** using a slash-command map keyed on the **generic verb taxonomy**: `/init → init`, `/extract → run`, `/improve → tune`, `/eval → run`, `/publish → publish`, `/review → review`, otherwise `chat`. Note the mapping is **slash-cmd → generic-kind**, not 1:1 — `extract` and `eval` both produce a "run" because in a non-extraction future they will be the same task-execution semantics; the planner should resist the temptation to add a `kind:'extract'` just because the slash-cmd is named that. Derive `label` from the first user message (truncate to ~40 chars, strip leading `/cmd`, prefer present-tense verb phrase). Persist on chat creation; do not rewrite on every append.
   - Alternative (simpler): list endpoint just returns chat_id + first/last event timestamps and lets the frontend derive labels from the event stream — but this means listing N chats triggers N reads. Reject unless N is bounded.
 - **Delete chat (optional, ask user first)**: not in the design but a natural follow-up. The plan should **defer** unless the user asks during planning.
-- **No new safety surface** beyond reusing `safe_chat_id` / `safe_project_id`.
+- **No new safety surface** beyond reusing `safe_chat_id` / `safe_project_id`. Since no summary is generated/stored, no new path through `chat/redactor.py` is required for the chat-list endpoint (the per-chat replay endpoint already redacts).
 
 ### 4.2 Frontend store (`stores/chat.ts`)
 - Replace the single-chatId-per-project localStorage scheme with **(activeChatId per project, plus the list of known chatIds)**. Keys:
@@ -129,16 +159,16 @@ Quoted because the planner is in a fresh session and will not have read CLAUDE.m
 These are decisions the planner should **make a call on with rationale**,
 not enumerate as a menu (per CLAUDE.md collab principle):
 
-1. **Where chat metadata is stored**: extend the existing `{chat_id}.meta.json` sidecar (keep label/kind/summary alongside `sdk_session_id`). Updated on each `append_event`.
-2. **Kind taxonomy**: `init | extract | improve | eval | review | publish | ingest | chat`. The `ingest` and `review` variants in the design data are produced by tool-call patterns, not slash commands — derive from event content.
+1. **Where chat metadata is stored**: extend the existing `{chat_id}.meta.json` sidecar with `{label, kind, created_at}` alongside `sdk_session_id`. Set once on chat creation (first POST to `/lab/chat`); no rolling-summary regeneration.
+2. **Kind taxonomy (generic verbs, locked)**: `init | run | tune | review | publish | ingest | chat`. *Do not* add `extract` or `improve` even though slash-commands of those names exist — the mapping is intentionally many-to-one so non-extraction task types (matching, classification, scoring) reuse the same chip set. See §1a.
 3. **Project status field**: add `status: 'live' | 'draft' | 'empty'` to the `GET /lab/projects` response (additive, no FE breakage). Derive on the backend from `versions/`+`schema.json` presence.
 4. **localStorage migration**: read-on-init, copy `emerge.chatId.<pid>` → `emerge.activeChatId.<pid>`, leave the old key in place for one session, no UI for clearing. Pure additive — old build keeps working if rolled back.
-5. **Empty-state copy**: keep the design's `"No runs yet in this project."` and the `/init` hint verbatim.
+5. **Empty-state copy**: literal `No sessions yet.` (was changed in revision 2 from a multi-line `/init`-flavored hint; the new short form is task-type-agnostic).
 6. **Active-chat detection in popover**: the chat whose id matches `useChat.getState().chatId` gets `.active` styling. No server flag needed.
 
 ## 7. Out of scope (do NOT plan these here)
 
-- Issue 3 from `chat2.md` — document-type generalization (multi-type sample data, copy de-invoicification). Track separately; the chat already concluded "only 1 & 2".
+- Issue 3 from `chat2.md` — document-type generalization at the **data-fixture / sample-project level** (multi-type sample data). Track separately. **Note**: the *chrome-level* genericization (kind taxonomy, copy) is **in scope** for this milestone — see §1a; only the sample-data-side generalization is deferred.
 - Chat **deletion** / rename — not in the design. If raised during plan review, add as a follow-up entry to `ROADMAP.md` cross-cutting follow-ups, not a Task.
 - Chat **search** — not in the design.
 - Chat **export** — out.
@@ -178,3 +208,16 @@ And the follow-up correction:
 > 中栏顶部图标 + 历史：这个放到右上角，而不是左上角
 
 (The CSS in `index.html` reflects this: `.conv-hd { position:absolute; top:10px; right:14px; }`.)
+
+## Appendix B — Revision 2 user statement (from chat2.md, latest turn)
+
+> 历史记录 弹框 内容有点多。后续希望本设计能复用到其他非文档提取类
+> 任务，比如文档匹配等等，但API发布是通用。所以希望少一点文档提取
+> 专用的设计，多一点通用的
+
+Translation for the planner: the history popover was too dense, and more
+importantly **this whole UI shell needs to host non-extraction task types
+later (e.g. document matching)**. API publish stays universal. Favor
+generic UI vocab over extraction-specific. The kind taxonomy shift
+(`extract→run`, `improve→tune`) is one concrete consequence; see §1a for
+the full implications.

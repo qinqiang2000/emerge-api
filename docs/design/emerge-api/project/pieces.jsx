@@ -203,22 +203,18 @@ function ConvHeader({ activeProject, onNew }) {
       {open && (
         <div className="hist-pop" onClick={e=>e.stopPropagation()}>
           <div className="h-hd">
-            <span className="lab">chat history</span>
+            <span className="lab">history</span>
             <span className="scope">{projName}</span>
-            <span className="cnt">{sessions.length} runs</span>
           </div>
           {sessions.length === 0 ? (
-            <div className="h-empty">No runs yet in this project.<br/>Drop docs in or start with <span style={{color:'var(--ochre-2)'}}>/init</span>.</div>
+            <div className="h-empty">No sessions yet.</div>
           ) : (
             <div className="h-list">
               {sessions.map(s => (
                 <div key={s.id} className={'h-row '+(s.active?'active':'')}>
-                  <div className="top">
-                    <span className="kind">{s.kind}</span>
-                    <span className="lbl">{s.label}</span>
-                    <span className="ts">{s.ts}</span>
-                  </div>
-                  <div className="sm">{s.summary}</div>
+                  <span className="kind">{s.kind}</span>
+                  <span className="lbl">{s.label}</span>
+                  <span className="ts">{s.ts}</span>
                 </div>
               ))}
             </div>

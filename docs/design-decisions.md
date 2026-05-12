@@ -879,3 +879,53 @@ language, which the user explicitly referenced.
   `versions/`+`schema.json` presence, but Design should confirm the
   three buckets are the right partition.
 
+---
+
+### 2026-05-12 — UI vocabulary becomes task-type-agnostic (deferred-impl directive)
+
+- **Status**: 🟡 Pending — directive adopted, applies to all future UI work
+- **Area**: project-wide chrome — kind chips, slash-menu labels, button copy, empty states, popover headers
+- **Files**: `CLAUDE.md` (Engineering section, new bullet),
+  `docs/superpowers/plans/PROMPT-2026-05-12-chat-history.md` (§1a),
+  `docs/design/emerge-api/chats/chat2.md` (last user turn)
+- **Type**: copy + new-state (design directive)
+
+**What changed**
+A second `/sync-design` pass on 2026-05-12 introduced a strategic
+directive: this UI shell will host non-extraction task types
+(document matching, classification, etc.); only the API publish layer
+stays universal. Concrete consequences captured in the design:
+
+- Chat-history kind taxonomy switched from extraction-specific
+  (`extract`, `improve`) to generic verbs
+  (`init / run / tune / review / publish / ingest`).
+- History-popover row schema dropped `summary`; rows are now one line
+  (kind / label / ts).
+- Empty state copy: `"No sessions yet."` (was a multi-line `/init`-flavored hint).
+- Header is mono-uppercase `history` instead of italic-serif `chat history`.
+
+The directive is now codified in `CLAUDE.md` under Engineering and in
+the user's auto-memory (`feedback_task_type_agnostic_ui.md`). All
+future UI plans should honor it.
+
+**Why**
+User: "希望本设计能复用到其他非文档提取类任务，比如文档匹配等等，
+但API发布是通用。所以希望少一点专用的设计，多一点通用的".
+The chrome must read for users who arrive with non-extraction
+intents; reserving doc-extraction terms for the chrome would force a
+copy rewrite for every new task type.
+
+**Reference**
+- Source-of-truth design: `docs/design/emerge-api/{chats/chat2.md (last turn), project/data.jsx, project/index.html, project/pieces.jsx}` (this commit).
+- Planning input: `docs/superpowers/plans/PROMPT-2026-05-12-chat-history.md` (§1a captures the constraint; §6 lists the locked kind taxonomy).
+
+**Open questions for Design**
+- Grandfathered names: `/extract` slash-command and `/v1/{pid}/extract`
+  API path stay as-is for backward compat. Future task types will get
+  their own slash-commands but share the same kind-chip vocab. Confirm
+  this split (slash-cmd specific, kind generic) is acceptable.
+- Whether the kind taxonomy should be extensible (per-project or
+  per-task-type) or locked at the seven generic verbs. Current
+  recommendation: locked — pick a verb, don't invent a noun.
+
+

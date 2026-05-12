@@ -173,3 +173,28 @@ _[tool: done]_
 
 已移到右上角。
 
+## User
+
+历史记录 弹框 内容有点多。后续希望本设计能复用到 其他非 文档提取类任务，比如文档匹配等等，但API发布是通用。所以希望少一点文档提取专用的设计，多一点通用的
+
+## Assistant
+
+_[tool: snip]_
+
+_[tool: str_replace_edit]_
+
+_[tool: str_replace_edit]_
+
+_[tool: str_replace_edit]_
+
+_[tool: snip]_
+
+_[tool: done]_
+
+历史弹框内容已精简、去掉提取专用术语：
+- 标签改为通用动词：`init / run / tune / review / publish / ingest`
+- 每行只剩 kind / 标题 / 时间戳，移除冗长 summary
+- 弹框宽度从 340 → 280px，整体更轻
+
+API 发布相关的 `publish` 仍保留（通用），文档匹配等新场景未来直接复用这套 kind 标签即可。
+
