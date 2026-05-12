@@ -4,12 +4,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.experiment import Experiment, ExperimentEval
+from app.schemas.experiment import Experiment
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_experiment_id
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
-    experiment_extract_path,
     experiment_extracts_dir,
     experiment_dir,
     experiment_meta_path,
@@ -70,8 +69,8 @@ async def create_experiment(
     Validates that referenced prompt + model exist (raises PromptNotFoundError /
     ModelNotFoundError otherwise). Returns the new experiment_id.
     """
-    from app.tools.model import ModelNotFoundError, read_model
-    from app.tools.prompt import PromptNotFoundError, read_prompt
+    from app.tools.model import read_model
+    from app.tools.prompt import read_prompt
     from app.workspace.migrate import migrate_project_if_needed
 
     await migrate_project_if_needed(workspace, project_id)
@@ -128,7 +127,10 @@ async def list_experiments(
         meta_path = sub / "meta.json"
         if not meta_path.exists():
             continue
-        ex = Experiment(**json.loads(meta_path.read_text(encoding="utf-8")))
+        try:
+            ex = Experiment(**json.loads(meta_path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
         if ex.status == "archived" and not include_archived:
             continue
         rows.append({

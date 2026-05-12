@@ -139,3 +139,49 @@ async def test_list_experiments_returns_score_when_available(workspace: Path) ->
     rows = await list_experiments(workspace, pid)
     assert rows[0]["status"] == "ran"
     assert rows[0]["score"] == 0.91
+
+
+async def test_read_experiment_missing_raises(workspace: Path) -> None:
+    from app.tools.experiment import ExperimentNotFoundError, read_experiment
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    with pytest.raises(ExperimentNotFoundError):
+        await read_experiment(workspace, pid, "ex_missing00000")
+
+
+async def test_archive_experiment_idempotent_on_archived(workspace: Path) -> None:
+    """Archiving an already-archived experiment is a silent no-op."""
+    from app.tools.experiment import (
+        archive_experiment,
+        create_experiment,
+        read_experiment,
+    )
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    await archive_experiment(workspace, pid, eid)
+    # second call should not raise
+    await archive_experiment(workspace, pid, eid)
+    ex = await read_experiment(workspace, pid, eid)
+    assert ex.status == "archived"
+
+
+async def test_archive_experiment_blocks_promoted(workspace: Path) -> None:
+    """Cannot archive a promoted experiment — audit trail must survive."""
+    from app.tools.experiment import (
+        ExperimentInUseError,
+        archive_experiment,
+        create_experiment,
+    )
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    # promote_experiment isn't implemented yet (T6), so simulate by direct write
+    meta_path = experiment_meta_path(workspace, pid, eid)
+    meta = json.loads(meta_path.read_text())
+    meta["status"] = "promoted"
+    meta["promoted_at"] = _now()
+    atomic_write_json(meta_path, meta)
+
+    with pytest.raises(ExperimentInUseError):
+        await archive_experiment(workspace, pid, eid)
