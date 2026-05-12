@@ -26,6 +26,7 @@
 | **M9.x — extraction comparability family** (schema / extract-model / prompt — the unit of A/B variation, fork & share, drift detection — surface and disk layout all TBD) | brainstorm 2026-05-12 (no plan yet) | 🧠 design-stage | — |
 | **M9.1** — data model migration (prompt/model axes on disk, lazy migration, write_schema thin wrapper; backend-only) | `2026-05-12-m9-1-data-model-migration.md` | ✅ shipped | `4cf76a5..6fe9ae4` (13 task commits; T11 fixed 4 latent direct-schema-reads in score/runner/eval/accept-candidate) |
 | **M9.2** — prompt/model axis tools + UI (MCP tools + HTTP endpoints + FSSpine + ContextSurface; backend + frontend) | `2026-05-12-m9-2-axis-tools-and-ui.md` | ✅ shipped | `90ab2b6..ef3cac9` (15 task commits + 1 e2e fix + 1 TOCTOU follow-up) |
+| **M9.3** — experiments axis + Review-mode multi-tab (7 MCP tools + 4 HTTP routes + `useExperiments` store + `ExperimentTabStrip` + FSSpine group + read-only experiment tabs; closes M9.2 follow-up: delete_prompt/delete_model now block on non-archived experiment refs) | `2026-05-13-m9-3-experiments-and-review-tabs.md` | ✅ shipped | `f0f6f13..aa1847b` (25 commits — 18 feat/fix/test/docs + 7 polish from spec/code reviews) |
 
 ## What each milestone delivers
 
@@ -185,6 +186,50 @@
 - SSU over preservation when the data model needs to move.
 
 **Next step:** brainstorm session with use cases from the user.
+
+### M9.3 — experiments axis + Review-mode multi-tab
+
+**Goal:** an experiment is a `(prompt_id, model_id)` reference pair plus an optional eval blob and per-doc extract directory. Users isolate alternative combinations as experiments without touching the active pair, run extracts against single docs or the full reviewed set, compare results in Review-mode tabs (⭐ Active + N experiments), and promote an experiment to flip active + re-seed `predictions/_draft/` from its cached extracts.
+
+**Scope (see `2026-05-13-m9-3-experiments-and-review-tabs.md`):**
+- T1–T2: backend — `Experiment` + `ExperimentEval` pydantic models; `experiments/{exp_id}/{meta.json,extracts/{doc_id}.json}` disk paths; `new_experiment_id` (`ex_` prefix).
+- T3: backend — `create_experiment` (defaults to active prompt+model, validates existence), `read_experiment`, `list_experiments` (excludes archived by default; corrupt-meta guard mirrors `list_prompts` / `list_models`), `archive_experiment` (blocks if promoted — audit trail).
+- T4: backend — `extract_with_experiment` single-doc helper; `extract_one_with_schema` gains optional `params` keyword (preserves autoresearch's `temperature=0.0` fallback when `params is None`). Writes to `experiments/{exp_id}/extracts/{doc_id}.json` under `project_lock`.
+- T5: backend — `run_experiment_eval` foreground loop: reuses cached extracts when present (no redundant LLM call), per-doc + overall score via `score()`, writes `ExperimentEval` into `meta.json.eval` and flips status to `"ran"`. Silently skips reviewed docs whose underlying file is missing (per spec). Guards against re-eval on `"promoted"` (audit trail).
+- T6: backend — `promote_experiment` (spec §3.5 verbatim under one `project_lock`: set active_prompt_id + active_model_id, `rm -rf predictions/_draft/*`, copy experiment extracts to draft, mark status=`"promoted"` with `promoted_at`); `delete_experiment` (blocks promoted; physical `shutil.rmtree`).
+- T7: backend — `experiments_referencing_{prompt,model}` helpers; `delete_prompt` / `delete_model` now raise `*InUseError` when any non-archived experiment references them (archive first → unblock; promoted experiments stay blocking — audit). **Closes the M9.2 follow-up** that left those deletes only checking active.
+- T8: backend — HTTP routes `/lab/projects/{pid}/experiments` (list + include_archived), `/{eid}` (meta), `/{eid}/extracts/{did}` (GET + POST). All four call `safe_project_id` + `safe_doc_id` (spec-reviewer caught a security gap on initial commit, fixed in `6f08a69`) + `migrate_project_if_needed` (code-reviewer caught it on 3-of-4 routes, fixed in `d75b612`).
+- T9: backend — 7 MCP tool wrappers in `build_emerge_mcp` + names in `_EMERGE_TOOL_NAMES`. `extract_with_experiment` and `run_experiment_eval` resolve provider via `get_provider_for_model(model.provider_model_id)` (not the closure default).
+- T10: backend — `emerge_extractor.md` skill copy: new "Experiment axis" workflow section, 3 risk-gate entries (promote/delete/archive), one red-line bullet ("Experiments NEVER auto-promote").
+- T11: frontend — `Experiment*` types in `types/review.ts`; 4 fetch helpers (`listExperiments` / `getExperiment` / `getExperimentExtract` / `runExperimentExtract`) in `lib/api.ts` (404→null for GET extract, mirrors `getPrediction`/`getReviewed` shape).
+- T12: frontend — `useExperiments` Zustand store (`list` + `loading` + `load/invalidate/reset`, matches `usePrompts`/`useModels` shape exactly). Cross-store invalidation in `useChat.handleToolResult`: 4 mutators → invalidate experiments; `promote_experiment` cascade also reloads schema + prompts + models + docs.
+- T13: frontend — `useReview` extended with `attachedExperimentIds`, `activeTabKey`, `extractsByExp`, `attachExperiment`/`detachExperiment`/`setActiveTab`/`loadExperimentExtract`/`runExperimentExtract`. Tab state resets on `open(new_doc)`. Cache uses `in extractsByExp` check so 404s are cached (UI shows "no extract yet — run extract" without retrying every render).
+- T14: frontend — `ExperimentTabStrip` (segmented strip + `[+]` popover + right-click detach; popover excludes attached + archived; tooltip shows `${modelLabel} · ${prompt_id}`).
+- T15: frontend — `ReviewOverlay` mounts strip between `ReviewBar` and `rev-body` when `experimentList.length > 0`; `displayEntities` derived from `activeTabKey`; `readOnly` plumbed through `FieldEditor` → `Section` → `FieldRow` / `ObjectField` / `ArrayField` / `JsonView` (each `contentEditable={!readOnly}` + `if (!readOnly)` blur guard — defense in depth for contentEditable spans); save button disabled on experiment tabs with tooltip "save lives on the ⭐ Active tab". Evidence click-to-page (`onJumpToPage`) deliberately NOT gated by `readOnly` — PDF navigation still works on read-only tabs.
+- T16: frontend — `FSSpine` `experiments/` group between `models/` and `versions/`, status + score stamp (`"ran · 0.91"`), closed by default. Inert click-wise (no detail sheet in M9.3).
+- T17: e2e — `experiment-tabs.spec.ts` walks the full path (FSSpine group → review → `[+]` → attach → switch tab → assert read-only → switch back → save re-enabled). Seed extended in `e2e_seed.py` to create one experiment with a per-doc extract so the spec doesn't need a real LLM.
+
+**Decisions affirmed:**
+- **Extended `useReview` instead of new `useExperimentReview` store.** Tab state is doc-scoped (resets on `open(new_doc)` along with everything else); a separate store would duplicate `activeDocId`/`page`/`evidence`/`notes` and split the ground-truth save path across stores.
+- **`run_experiment_eval` is foreground synchronous, not a `JobRunner` job.** Lab projects typically have <20 reviewed docs (`us-invoice` M2A dogfood: 5–7), so the per-tool turn is acceptable. Lift into JobRunner only when projects routinely exceed ~50 reviewed.
+- **`promote_experiment` re-seeds `predictions/_draft/` from the experiment's cached extracts.** Costs a few KB per doc × N, buys immediate Review-mode visibility of the new active without forcing the user to re-extract. Experiment dir is preserved with status=`"promoted"` (audit trail).
+- **`delete_prompt` / `delete_model` blocked by non-archived experiments — promoted experiments DO block.** Archive the experiment first (recoverable) to unblock deletion of a draft variant. Promoted experiments stay blocking forever — their referenced prompt/model files must be queryable to interpret historical contracts.
+
+**Hard rules respected (red lines):**
+- Publish fast-path 0 改动 — `freeze_version` / `versions/v{N}.json` / `/v1/{pid}/extract` not touched.
+- `reviewed/` is project-scoped — shared across all experiments, ground truth is one set.
+- Experiments NEVER auto-promote — `promote_experiment` is the only path that flips active, requires user-mediated tool call (risk-gated in skill markdown).
+- Agent brain ↔ Extract LLM separation — `extract_with_experiment` calls provider adapter directly via `get_provider_for_model`, never re-enters the SDK.
+- Task-type-agnostic chrome — "experiment" is a generic verb; the experiment vocabulary works for matching/classification tasks as well as extraction.
+
+**Deferred / spun out:**
+- Autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant") → **M9.4**.
+- `fork_project` + `import_prompt` (cross-project clone) → **M9.5**.
+- `readiness_check` rule loosening (move some hard fails to soft warns) → **M9.6**.
+- Field-diff power-user view (spec §7.4.1 "compare with…") → M9.x follow-up.
+- Experiment detail sheet (clicking an FSSpine experiment row opens a quick-look-style modal) → M9.x follow-up; rows inert in M9.3.
+- `cost / latency` tracking per model → out of scope until user demand surfaces.
+- Global-notes wiring into the extract prompt (currently only `schema.fields[i].description` reaches the LLM) — separate cross-cutting concern, tracked outside the M9.x family.
 
 ## Open cross-cutting follow-ups
 

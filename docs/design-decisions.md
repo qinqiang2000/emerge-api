@@ -965,4 +965,59 @@ The user-reported papercut (`+ N more` not clickable, FSSpine rows inert) was th
 - M9c — schema A/B compare (per-schema eval columns + Quick-look picker).
 - M9d — autoresearch UI (review notes → proposed description tweaks; Quick-look notes-hint slot becomes `N notes · open`).
 
+### 2026-05-13 — ✅ experiments axis + Review-mode multi-tab (M9.3 shipped)
+
+**Status**: resolved — experiment is now a first-class `(prompt_id, model_id)` reference pair with per-doc extracts. 7 MCP tools, 4 HTTP routes, FSSpine `experiments/` group, Review-mode tab strip with read-only experiment tabs. Backend + frontend complete, e2e green, no regressions.
+
+**What changed**
+The user can now isolate alternative `(prompt, model)` combinations as named experiments without touching the project's active pair. Workflow: `create_experiment` (defaults to active axes) → `extract_with_experiment(doc_id)` for per-doc probes → `run_experiment_eval` for full reviewed/ scoring → `promote_experiment` to flip active and re-seed `predictions/_draft/` from the experiment's cached extracts → `archive_experiment` for rejected attempts. Review-mode shows a horizontal tab strip (⭐ Active + N attached experiments + `[+]` popover) above the field editor; tabs read from `predictions/_draft/{doc_id}.json` (active, editable, saves to `reviewed/`) or `experiments/{exp_id}/extracts/{doc_id}.json` (read-only, evidence click-to-page still works for PDF navigation).
+
+**Key design decisions (with rationale)**
+
+1. **Extended `useReview` instead of new `useExperimentReview` store.** Tab state is doc-scoped — `attachedExperimentIds`, `activeTabKey`, `extractsByExp` all reset on `open(new_doc)` alongside `entities` / `evidence` / `notes`. A separate store would duplicate `activeDocId`/`page` and split the ground-truth save path (which can only run on ⭐ Active) across stores, creating a tempting bug surface. The field-editor data source is a single derived `displayEntities` selected by `activeTabKey`.
+
+2. **`run_experiment_eval` is foreground synchronous, not a `JobRunner` job.** Lab projects typically have <20 reviewed docs (M2A `us-invoice` dogfood: 5–7). At ~3–5s per extract, a full eval is ~30–100s — acceptable for a tool turn. Defer to `JobRunner` only when projects routinely exceed ~50 reviewed.
+
+3. **`promote_experiment` re-seeds `predictions/_draft/` from the experiment's cached extracts** (spec §3.5 verbatim). Costs a few KB per doc × N but buys immediate Review-mode visibility of the new active without forcing the user to re-extract every doc. The experiment dir is preserved with status=`"promoted"` and `promoted_at` for audit trail; the prompt's `derived_from` lineage chain remains queryable.
+
+4. **`delete_prompt` / `delete_model` blocked by non-archived experiments — promoted DO block.** Archive (recoverable) to unblock deletion of a draft variant. Promoted experiments stay blocking forever — their referenced prompt/model files must be queryable to interpret historical contracts. Closes the M9.2 follow-up that left those deletes only checking active.
+
+5. **Defense-in-depth on `readOnly` for contentEditable spans.** Since React's `disabled` attribute doesn't work on contentEditable, the FieldRow / ObjectField / ArrayField components each independently apply `contentEditable={!readOnly}` at the DOM level AND `if (!readOnly) return` inside their `onBlur` handlers. Even if a parent component accidentally passes the wrong flag, the blur handler still won't mutate state.
+
+6. **Evidence click-to-page deliberately NOT gated by readOnly.** PDF navigation is read-out, not a write — users on experiment tabs still need to navigate the PDF while comparing. The `onJumpToPage` button stays unconditional.
+
+**Hard rules respected**
+- Publish fast-path 0 改动 — `freeze_version` / `versions/v{N}.json` / `/v1/{pid}/extract` not touched.
+- `reviewed/` is project-scoped — shared across all experiments, ground truth is one set, never duplicated per experiment.
+- Experiments NEVER auto-promote — `promote_experiment` is the only path that flips active and requires user-mediated tool call (risk-gated in `emerge_extractor.md` skill copy).
+- Agent brain ↔ Extract LLM separation — `extract_with_experiment` resolves provider via `get_provider_for_model(model.provider_model_id)` and calls the adapter directly. Never re-enters the SDK.
+- Task-type-agnostic chrome — "experiment" is a generic verb. The vocabulary works for matching/classification tasks as well as extraction.
+
+**Notable in-flight discoveries (filed during execution)**
+
+- **Spec-reviewer caught `doc_id` validation gap in HTTP routes.** The initial T8 commit (`8c08a17`) called `safe_project_id` but missed `safe_doc_id` on the two extract routes. Fix in `6f08a69` aligns with the pattern in `predictions.py` / `reviewed.py` / `docs.py`.
+- **Code-reviewer caught `migrate_project_if_needed` missing on 3-of-4 routes.** Only the list route called it; GET-single / GET-extract / POST-run-extract would 404 on pre-M9.1 projects hitting them directly without first going through list. Fix in `d75b612`.
+- **`_seed_doc` factoring landed in T5 per T4 reviewer's note.** The minimal-PNG + `meta.json` doc-stub setup is ~10 lines of boilerplate; factoring it out paid off across T6's 4 more tests and the e2e seed.
+- **Plan's test scaffolds invented a `fake_provider` fixture; `stub_provider` already existed.** The plan was written against the M2A test convention; T4 onwards rewrote each test to use the existing `stub_provider` (AsyncMock of the Provider protocol) and `make_provider_result(payload)` helper. This is the only sustained adaptation across the backend half.
+
+**Test footprint**
+- Backend: 469 → 482 passed (+13 experiment tests across T1/T3/T4/T5/T6/T7/T8/T9), 2 skipped (pre-existing).
+- Frontend: 309 → 333 passed across 45 files (+24: api 5, store 4+6, components 9+5, FSSpine 4, ReviewOverlay 5).
+- E2E: 7 → 8 specs, all passing (added `experiment-tabs.spec.ts`).
+- TypeScript: clean (`tsc --noEmit` no errors).
+
+**Reference**
+- Spec: `docs/superpowers/specs/2026-05-12-extraction-comparability-design.md` (§3.3 tools, §3.5 promote semantics, §7.4 review tabs, §7.1 FSSpine layout)
+- Plan: `docs/superpowers/plans/2026-05-13-m9-3-experiments-and-review-tabs.md` (18 tasks, TDD per task, subagent-driven with spec + code-quality review per task)
+- Range: `f0f6f13..aa1847b` (25 commits: 18 feat/fix/test/docs + 7 polish from review rounds)
+- **Live verify pending** — needs real LLM env to exercise scenario §4.3 (prompt-variant A/B) and §4.4 (model A/B). E2E + unit coverage stand in for now; live-screenshot pass to follow when the user runs it.
+
+**Spun out**
+- M9.4 — autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant").
+- M9.5 — `fork_project` + `import_prompt` (cross-project clone-at-time).
+- M9.6 — `readiness_check` rule loosening (some hard fails → soft warns).
+- Field-diff power-user view (spec §7.4.1 "compare with…") → M9.x follow-up; tab switch + chat-text score-delta already covers 80%.
+- Experiment detail sheet (clicking FSSpine experiment row opens quick-look-style modal) → M9.x follow-up; rows inert in M9.3.
+- Global-notes wiring into the extract prompt — `_build_field_instructions` currently consumes only `schema.fields[i].description`. Tracked outside the M9.x family.
+
 
