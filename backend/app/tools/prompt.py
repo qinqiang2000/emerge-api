@@ -177,12 +177,12 @@ async def switch_active_prompt(workspace: Path, project_id: str, prompt_id: str)
     """Set project.json.active_prompt_id = prompt_id. Raises PromptNotFoundError
     if the target prompt file does not exist.
     """
-    pp = prompt_path(workspace, project_id, prompt_id)
-    if not pp.exists():
-        raise PromptNotFoundError(
-            f"cannot switch active: {prompt_id} not found in project {project_id}"
-        )
     async with project_lock(workspace, project_id):
+        pp = prompt_path(workspace, project_id, prompt_id)
+        if not pp.exists():
+            raise PromptNotFoundError(
+                f"cannot switch active: {prompt_id} not found in project {project_id}"
+            )
         pj = project_json_path(workspace, project_id)
         blob = json.loads(pj.read_text(encoding="utf-8"))
         blob["active_prompt_id"] = prompt_id
@@ -194,10 +194,10 @@ async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> Non
     prompt (PromptInUseError). M9.3 will extend this with experiment-reference
     checks.
     """
-    pp = prompt_path(workspace, project_id, prompt_id)
-    if not pp.exists():
-        raise PromptNotFoundError(f"{prompt_id} not found in project {project_id}")
     async with project_lock(workspace, project_id):
+        pp = prompt_path(workspace, project_id, prompt_id)
+        if not pp.exists():
+            raise PromptNotFoundError(f"{prompt_id} not found in project {project_id}")
         project = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
         if project.get("active_prompt_id") == prompt_id:
             raise PromptInUseError(
