@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ExperimentEval(BaseModel):
     """Outcome of one run_experiment_eval call against the reviewed/ ground truth."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=False)
 
     ran_at: str
     score: float
@@ -23,7 +23,7 @@ class Experiment(BaseModel):
     Disk: experiments/{experiment_id}/meta.json (this blob) +
           experiments/{experiment_id}/extracts/{doc_id}.json (per-doc payloads).
     """
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=False)
 
     experiment_id: str
     label: str

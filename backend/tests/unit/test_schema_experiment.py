@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.schemas.experiment import Experiment, ExperimentEval
 
 
@@ -42,8 +45,6 @@ def test_experiment_with_eval_roundtrip():
 
 
 def test_experiment_rejects_unknown_status():
-    import pytest
-    from pydantic import ValidationError
     with pytest.raises(ValidationError):
         Experiment(
             experiment_id="ex_abcdef012345",
