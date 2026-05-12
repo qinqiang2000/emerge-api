@@ -119,9 +119,8 @@ async def list_models(workspace: Path, project_id: str) -> list[dict]:
 
 
 class ModelInUseError(Exception):
-    """Raised when delete_model targets the active model (or, in later milestones,
-    a model referenced by a non-archived experiment).
-    """
+    """Raised when delete_model targets the active model or a model referenced
+    by a non-archived experiment."""
 
 
 async def switch_active_model(workspace: Path, project_id: str, model_id: str) -> None:
@@ -142,7 +141,8 @@ async def switch_active_model(workspace: Path, project_id: str, model_id: str) -
 
 async def delete_model(workspace: Path, project_id: str, model_id: str) -> None:
     """Physically remove models/{model_id}.json. Blocks deletion of the active
-    model (ModelInUseError). M9.3 extends this with experiment-reference checks.
+    model (ModelInUseError) and of any model referenced by a non-archived
+    experiment (also ModelInUseError — archive the experiment first).
     """
     async with project_lock(workspace, project_id):
         mp = model_path(workspace, project_id, model_id)

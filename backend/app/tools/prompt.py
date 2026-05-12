@@ -112,8 +112,7 @@ async def list_prompts(workspace: Path, project_id: str) -> list[dict]:
 
 class PromptInUseError(Exception):
     """Raised when delete_prompt targets a prompt that is the active prompt
-    (or, in later milestones, is referenced by a non-archived experiment).
-    """
+    or is referenced by a non-archived experiment."""
 
 
 async def create_prompt(
@@ -191,8 +190,8 @@ async def switch_active_prompt(workspace: Path, project_id: str, prompt_id: str)
 
 async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> None:
     """Physically remove prompts/{prompt_id}.json. Blocks deletion of the active
-    prompt (PromptInUseError). M9.3 will extend this with experiment-reference
-    checks.
+    prompt (PromptInUseError) and of any prompt referenced by a non-archived
+    experiment (also PromptInUseError — archive the experiment first).
     """
     async with project_lock(workspace, project_id):
         pp = prompt_path(workspace, project_id, prompt_id)

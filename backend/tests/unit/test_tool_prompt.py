@@ -254,7 +254,6 @@ async def test_delete_prompt_blocked_by_non_archived_experiment_reference(
     """A prompt referenced by a non-archived experiment cannot be deleted.
     After archiving the experiment, deletion succeeds. Closes M9.2 follow-up."""
     from app.tools.experiment import archive_experiment, create_experiment
-    from app.tools.model import create_model
     from app.tools.prompt import (
         PromptInUseError,
         create_prompt,
@@ -264,14 +263,9 @@ async def test_delete_prompt_blocked_by_non_archived_experiment_reference(
     _seed_active_project(workspace, pid, schema=[
         {"name": "x", "type": "string", "description": "d", "required": False}
     ])
-    # seed an active model so create_experiment can resolve it
-    await create_model(
-        workspace, pid, label="Default",
-        provider="google", provider_model_id="gemini-2.0-flash",
-        params={},
-    )
-    # the M9.2 _seed_active_project sets active_model_id="m_default" but doesn't
-    # actually create the file. We need to seed m_default explicitly:
+    # _seed_active_project sets active_model_id=m_default in project.json but
+    # doesn't create the model file; create_experiment validates existence, so
+    # seed it explicitly.
     from app.workspace.paths import model_path
     atomic_write_json(model_path(workspace, pid, "m_default"), {
         "model_id": "m_default", "label": "Default",
