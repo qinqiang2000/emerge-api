@@ -1,8 +1,8 @@
 // frontend/src/stores/review.ts
 import { create } from 'zustand'
 
-import { getPrediction, getReviewed, saveReviewed } from '../lib/api'
-import type { ReviewedPayload } from '../types/review'
+import { getExperimentExtract, getPrediction, getReviewed, runExperimentExtract, saveReviewed } from '../lib/api'
+import type { ExperimentExtractPayload, ReviewedPayload } from '../types/review'
 import { useDocs } from './docs'
 
 type FieldsValue = Record<string, unknown>
@@ -18,6 +18,11 @@ interface State {
   entities: FieldsValue[]
   evidence: Record<string, number | null>[] | null
   notes: Record<string, string>
+  // ── M9.3 tab state ───────────────────────────────────────────────
+  attachedExperimentIds: string[]
+  activeTabKey: 'active' | string  // 'active' or experiment_id
+  extractsByExp: Record<string, ExperimentExtractPayload | null>
+  // ── existing methods ─────────────────────────────────────────────
   open: (projectId: string, docId: string) => Promise<void>
   close: () => void
   setField: (entityIdx: number, name: string, value: unknown) => void
@@ -27,6 +32,12 @@ interface State {
   goPage: (page: number) => void
   setPageCount: (n: number) => void
   save: () => Promise<void>
+  // ── M9.3 tab methods ─────────────────────────────────────────────
+  attachExperiment: (experimentId: string) => Promise<void>
+  detachExperiment: (experimentId: string) => void
+  setActiveTab: (key: 'active' | string) => void
+  loadExperimentExtract: (experimentId: string) => Promise<void>
+  runExperimentExtract: (experimentId: string) => Promise<void>
 }
 
 export const useReview = create<State>((set, get) => ({
@@ -40,6 +51,9 @@ export const useReview = create<State>((set, get) => ({
   entities: [],
   evidence: null,
   notes: {},
+  attachedExperimentIds: [],
+  activeTabKey: 'active',
+  extractsByExp: {},
   open: async (projectId, docId) => {
     set({
       activeProjectId: projectId,
@@ -51,6 +65,10 @@ export const useReview = create<State>((set, get) => ({
       entities: [],
       evidence: null,
       notes: {},
+      // ── tab state reset ──
+      attachedExperimentIds: [],
+      activeTabKey: 'active',
+      extractsByExp: {},
     })
     try {
       // Prefer reviewed payload (resume a partial review); fall back to draft.
@@ -102,5 +120,36 @@ export const useReview = create<State>((set, get) => ({
     } catch (e: unknown) {
       set({ err: String(e), saving: false })
     }
+  },
+
+  attachExperiment: async (experimentId) => {
+    const { attachedExperimentIds } = get()
+    if (attachedExperimentIds.includes(experimentId)) return
+    set((s) => ({ attachedExperimentIds: [...s.attachedExperimentIds, experimentId] }))
+    await get().loadExperimentExtract(experimentId)
+  },
+
+  detachExperiment: (experimentId) => {
+    set((s) => ({
+      attachedExperimentIds: s.attachedExperimentIds.filter((x) => x !== experimentId),
+      activeTabKey: s.activeTabKey === experimentId ? 'active' : s.activeTabKey,
+    }))
+  },
+
+  setActiveTab: (key) => set({ activeTabKey: key }),
+
+  loadExperimentExtract: async (experimentId) => {
+    const { activeProjectId, activeDocId, extractsByExp } = get()
+    if (!activeProjectId || !activeDocId) return
+    if (experimentId in extractsByExp) return  // already attempted (success or 404)
+    const payload = await getExperimentExtract(activeProjectId, experimentId, activeDocId)
+    set((s) => ({ extractsByExp: { ...s.extractsByExp, [experimentId]: payload } }))
+  },
+
+  runExperimentExtract: async (experimentId) => {
+    const { activeProjectId, activeDocId } = get()
+    if (!activeProjectId || !activeDocId) return
+    const payload = await runExperimentExtract(activeProjectId, experimentId, activeDocId)
+    set((s) => ({ extractsByExp: { ...s.extractsByExp, [experimentId]: payload } }))
   },
 }))
