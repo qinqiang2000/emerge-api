@@ -78,7 +78,11 @@ async def test_first_turn_persists_session_id(workspace: Path) -> None:
         await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
     meta = chat_meta_path(workspace, PID, CID)
     assert meta.exists()
-    assert json.loads(meta.read_text()) == {"sdk_session_id": "sess-abc"}
+    data = json.loads(meta.read_text())
+    # chat_turn sets {kind, label, created_at} on turn 1 (ensure_chat_meta) and
+    # merges {sdk_session_id} after the run — both halves coexist.
+    assert data["sdk_session_id"] == "sess-abc"
+    assert {"kind", "label", "created_at"} <= data.keys()
     assert read_chat_session_id(workspace, PID, CID) == "sess-abc"
 
 
@@ -135,7 +139,11 @@ async def test_no_retry_when_no_prior_session(workspace: Path) -> None:
     assert constructed == [None]
     joined = "".join(chunks)
     assert "agent_failure" in joined
-    assert not chat_meta_path(workspace, PID, CID).exists()
+    # ensure_chat_meta wrote {kind, label, created_at} before the agent ran; the
+    # failed turn never produced an sdk_session_id, so that key is absent.
+    meta = chat_meta_path(workspace, PID, CID)
+    assert meta.exists()
+    assert "sdk_session_id" not in json.loads(meta.read_text())
 
 
 async def test_no_retry_on_mid_stream_failure_of_resumed_turn(workspace: Path) -> None:

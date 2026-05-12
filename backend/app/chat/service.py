@@ -19,7 +19,12 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from app.chat.log import append_event, read_chat_session_id, write_chat_session_id
+from app.chat.log import (
+    append_event,
+    ensure_chat_meta,
+    read_chat_session_id,
+    write_chat_session_id,
+)
 from app.chat.redactor import EventRedactor
 from app.chat.stream import sse_event
 from app.jobs import get_runner
@@ -156,6 +161,13 @@ class ChatService:
             project_id,
             chat_id,
             {"type": "user", "text": user_message},
+        )
+        ensure_chat_meta(
+            self.workspace,
+            project_id,
+            chat_id,
+            first_user_message=user_message,
+            has_attachments=bool(attachments),
         )
         yield sse_event("user_acknowledged", {"text": user_message})
 
