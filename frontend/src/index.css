@@ -456,3 +456,17 @@ html, body, #root {
 .tstack .ts-node.done > .ts-dot{color:var(--moss);border-color:var(--moss-soft);background:var(--paper)}
 .tstack .ts-node.run > .ts-dot{color:var(--ochre-2);border-color:var(--ochre-soft)}
 .tstack .ts-node.err > .ts-dot{color:var(--rose);border-color:var(--rose-soft)}
+
+/* ── experiment tab strip (T14) ─────────────────────────────────── */
+.rev-tabstrip{display:flex;gap:4px;align-items:center;padding:6px 16px;border-bottom:1px solid var(--ink-5);background:var(--paper);font-family:var(--mono);font-size:12px;overflow-x:auto}
+.rev-tab{padding:4px 10px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--ink-3);cursor:pointer;white-space:nowrap;font-family:inherit;font-size:inherit}
+.rev-tab:hover{background:var(--paper-2)}
+.rev-tab.on{background:var(--paper-3);color:var(--ink);border-color:var(--ink-5)}
+.rev-tab .star{margin-right:4px}
+.rev-tab-add{position:relative;margin-left:4px}
+.rev-tab-plus{padding:4px 8px;border:1px dashed var(--ink-5);background:transparent;cursor:pointer;color:var(--ink-4)}
+.rev-tab-popover{position:absolute;top:100%;left:0;margin-top:4px;background:var(--paper);border:1px solid var(--ink-5);padding:4px;min-width:200px;z-index:5;display:flex;flex-direction:column;gap:2px}
+.rev-tab-popover-item{text-align:left;padding:6px 8px;background:transparent;border:none;cursor:pointer;font-family:inherit;font-size:inherit;color:var(--ink-2)}
+.rev-tab-popover-item:hover{background:var(--paper-2)}
+.rev-tab-popover-item .meta{float:right;color:var(--ink-4);font-size:11px}
+.rev-tab-empty{padding:6px 8px;color:var(--ink-4);font-style:italic}
