@@ -5,6 +5,7 @@ import SchemaQuickLook from '../../src/components/QuickLook/SchemaQuickLook'
 import { useQuickLook } from '../../src/stores/quicklook'
 import { useProjects } from '../../src/stores/projects'
 import { useSchema } from '../../src/stores/schema'
+import { usePrompts } from '../../src/stores/prompts'
 
 describe('SchemaQuickLook', () => {
   beforeEach(() => {
@@ -15,6 +16,11 @@ describe('SchemaQuickLook', () => {
     useSchema.setState({ byProject: { p_test: [
       { name: 'invoice_number', type: 'string', description: 'the id', required: true } as any,
     ] } })
+    usePrompts.setState({
+      list: { p_test: [] },
+      activeByProject: { p_test: { prompt_id: 'pr_baseline', label: 'Baseline', schema: [], global_notes: '', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
+      loading: {},
+    })
   })
 
   it('renders nothing when target is null', () => {
@@ -25,7 +31,7 @@ describe('SchemaQuickLook', () => {
   it('opens with fields tab by default', () => {
     useQuickLook.getState().openSchema('p_test')
     render(<SchemaQuickLook />)
-    expect(screen.getByText('schema.json')).toBeInTheDocument()
+    expect(screen.getByText('prompts/active')).toBeInTheDocument()
     expect(screen.getByText('invoice_number')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /fields/i })).toHaveClass('ql-tab--active')
   })
@@ -47,7 +53,7 @@ describe('SchemaQuickLook', () => {
   it('click on sheet body does not close', async () => {
     useQuickLook.getState().openSchema('p_test')
     render(<SchemaQuickLook />)
-    await userEvent.click(screen.getByText('schema.json'))
+    await userEvent.click(screen.getByText('prompts/active'))
     expect(useQuickLook.getState().target).not.toBeNull()
   })
 

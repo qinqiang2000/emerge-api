@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuickLook } from '../../stores/quicklook'
 import { useProjects } from '../../stores/projects'
+import { usePrompts } from '../../stores/prompts'
 import QuickLookHeader from './QuickLookHeader'
 import FieldsTab from './FieldsTab'
 import RawJsonTab from './RawJsonTab'
@@ -41,9 +42,16 @@ export default function SchemaQuickLook() {
     return unsub
   }, [])
 
+  const activePrompt = usePrompts(s => target ? s.activeByProject[target.pid] : undefined)
+  const loadPrompts = usePrompts(s => s.load)
+  useEffect(() => {
+    if (target && target.kind === 'schema') void loadPrompts(target.pid)
+  }, [target, loadPrompts])
+
   if (!target) return null
 
   const activeVersionId = projects.find(p => p.project_id === target.pid)?.active_version_id ?? null
+  const derivedFrom = target.kind === 'schema' ? (activePrompt?.derived_from ?? null) : null
 
   return createPortal(
     <div
@@ -52,7 +60,7 @@ export default function SchemaQuickLook() {
       onClick={e => { if (e.target === e.currentTarget) close() }}
     >
       <div className="ql-sheet" role="dialog" aria-modal="true">
-        <QuickLookHeader target={target} activeVersionId={activeVersionId} onClose={close} />
+        <QuickLookHeader target={target} activeVersionId={activeVersionId} derivedFrom={derivedFrom} onClose={close} />
 
         <div className="ql-tabs">
           <button
