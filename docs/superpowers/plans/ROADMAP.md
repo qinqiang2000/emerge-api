@@ -24,6 +24,7 @@
 | **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | ✅ shipped | `113f792..2fb545d` (12 commits; T2 also relaxed 2 chat-session-continuity assertions, T10 also unblocked `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1`) |
 | **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | ✅ shipped | `848cb8f..65dd377` (15 commits; T4 widened frontend `SchemaField` to match backend pydantic; T13 live-verify caught + fixed `schema`→`fields` remap in `?shape=fields`) |
 | **M9.x — extraction comparability family** (schema / extract-model / prompt — the unit of A/B variation, fork & share, drift detection — surface and disk layout all TBD) | brainstorm 2026-05-12 (no plan yet) | 🧠 design-stage | — |
+| **M9.1** — data model migration (prompt/model axes on disk, lazy migration, write_schema thin wrapper; backend-only) | `2026-05-12-m9-1-data-model-migration.md` | 🚧 in progress | — |
 
 ## What each milestone delivers
 
