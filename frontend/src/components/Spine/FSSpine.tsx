@@ -126,8 +126,8 @@ export default function FSSpine() {
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
     return rows.map(row => ({
       kind: 'file' as const,
-      name: row.label,
-      stamp: row.provider_model_id,
+      name: row.provider_model_id,
+      stamp: '',
       active: row.is_active,
       onClick: undefined,
     }))
