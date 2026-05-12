@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from app.workspace.ids import new_experiment_id
@@ -12,9 +13,7 @@ from app.workspace.paths import (
 
 def test_new_experiment_id_format():
     eid = new_experiment_id()
-    assert eid.startswith("ex_")
-    assert len(eid) == 3 + 12  # "ex_" + 12-char base36
-    assert eid[3:].isalnum() and eid[3:].islower()
+    assert re.match(r"^ex_[a-z0-9]{12}$", eid), eid
 
 
 def test_experiment_path_helpers(tmp_path: Path):
