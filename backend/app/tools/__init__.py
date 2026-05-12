@@ -17,6 +17,7 @@ from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
+from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
 
 if TYPE_CHECKING:
@@ -105,6 +106,81 @@ def build_emerge_mcp(
             fields,
             reason=args["reason"],
             allow_structural=args.get("allow_structural", False),
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "write_prompt",
+        "Write fields + global_notes to an existing prompt variant. "
+        "prompt_id=null targets the active prompt. Use this instead of write_schema "
+        "for any new code path — write_schema is the legacy wrapper.",
+        {
+            "project_id": str,
+            "prompt_id": str,  # accept "" for None (claude-agent-sdk doesn't pass typed null)
+            "schema": list,
+            "global_notes": str,
+        },
+    )
+    async def t_write_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        raw_pid_arg = args.get("prompt_id") or None  # "" → None
+        fields = [SchemaField(**f) for f in args["schema"]]
+        resolved = await prompt_mod.write_prompt(
+            workspace,
+            args["project_id"],
+            prompt_id=raw_pid_arg,
+            schema=fields,
+            global_notes=args.get("global_notes", ""),
+        )
+        return {"content": [{"type": "text", "text": resolved}]}
+
+    @tool(
+        "create_prompt",
+        "Create a new prompt variant by cloning either the current active prompt "
+        "(derived_from='') or a specific prompt_id. Cross-project lineage strings "
+        "({src_pid}/{src_prompt_id}) are recorded for display; actual cross-project "
+        "import lands in M9.5.",
+        {"project_id": str, "label": str, "derived_from": str},
+    )
+    async def t_create_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        derived = args.get("derived_from") or None
+        new_id = await prompt_mod.create_prompt(
+            workspace,
+            args["project_id"],
+            label=args["label"],
+            derived_from=derived,
+        )
+        return {"content": [{"type": "text", "text": new_id}]}
+
+    @tool(
+        "switch_active_prompt",
+        "Set the project's active prompt to the given prompt_id. Affects all "
+        "subsequent reads of the active prompt (extract, freeze, etc).",
+        {"project_id": str, "prompt_id": str},
+    )
+    async def t_switch_active_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        await prompt_mod.switch_active_prompt(
+            workspace, args["project_id"], args["prompt_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "list_prompts",
+        "List all prompt variants in a project with is_active flag.",
+        {"project_id": str},
+    )
+    async def t_list_prompts(args: dict[str, Any]) -> dict[str, Any]:
+        items = await prompt_mod.list_prompts(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": _json.dumps(items)}]}
+
+    @tool(
+        "delete_prompt",
+        "Physically remove a prompt variant file. Cannot delete the active prompt "
+        "(switch active first).",
+        {"project_id": str, "prompt_id": str},
+    )
+    async def t_delete_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        await prompt_mod.delete_prompt(
+            workspace, args["project_id"], args["prompt_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -304,6 +380,11 @@ def build_emerge_mcp(
             t_derive_schema,
             t_read_schema,
             t_write_schema,
+            t_write_prompt,
+            t_create_prompt,
+            t_switch_active_prompt,
+            t_list_prompts,
+            t_delete_prompt,
             t_extract_one,
             t_extract_batch,
             t_save_reviewed,
@@ -327,6 +408,7 @@ def build_emerge_mcp(
 _EMERGE_TOOL_NAMES = (
     "create_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
     "derive_schema", "read_schema", "write_schema",
+    "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "extract_one", "extract_batch",
     "save_reviewed", "list_reviewed", "get_reviewed", "get_prediction",
     "score",

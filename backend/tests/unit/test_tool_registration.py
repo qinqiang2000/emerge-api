@@ -64,3 +64,26 @@ async def _extract_tool_names(server) -> set[str]:
         raise AttributeError(f"No ListToolsRequest handler on {type(instance).__name__}")
     result = await handler(mcp_types.ListToolsRequest(method="tools/list"))
     return {t.name for t in result.root.tools}
+
+
+async def test_prompt_axis_tools_are_registered(
+    workspace: Path, stub_provider: AsyncMock
+) -> None:
+    from unittest.mock import MagicMock
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    names = await _extract_tool_names(server)
+    assert {
+        "write_prompt",
+        "create_prompt",
+        "switch_active_prompt",
+        "list_prompts",
+        "delete_prompt",
+    }.issubset(names), names
+
+
+def test_prompt_axis_tools_in_emerge_tool_names() -> None:
+    names = _emerge_tool_names()
+    for n in ("write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt"):
+        assert n in names, f"missing {n!r} in _EMERGE_TOOL_NAMES"
