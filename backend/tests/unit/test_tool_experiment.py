@@ -284,3 +284,97 @@ async def test_extract_with_experiment_passes_model_params(
     call_kwargs = stub_provider.extract.call_args.kwargs
     assert call_kwargs["params"] == {"temperature": 0.42}
     assert call_kwargs["model_id"] == "gemini-2.5-flash"
+
+
+# ---------------------------------------------------------------------------
+# T5 helpers
+# ---------------------------------------------------------------------------
+
+def _seed_doc(workspace: Path, pid: str, did: str) -> None:
+    """Seed a minimal .png stub + meta.json so read_doc / _doc_to_block accept the doc."""
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir
+    docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    # Minimal 8x8 transparent PNG (~70 bytes)
+    doc_path(workspace, pid, did, "png").write_bytes(
+        b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x08\x00\x00\x00\x08'
+        b'\x08\x06\x00\x00\x00\xc4\x0f\xbe\x8b\x00\x00\x00\x0cIDATx\x9cc\xf8'
+        b'\xcf\xc0\x00\x00\x00\x03\x00\x01]Z9o\x00\x00\x00\x00IEND\xaeB`\x82'
+    )
+    atomic_write_json(doc_meta_path(workspace, pid, did), {
+        "doc_id": did, "filename": f"{did}.png", "ext": "png",
+        "size_bytes": 70, "uploaded_at": _now(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# T5 tests
+# ---------------------------------------------------------------------------
+
+async def test_run_experiment_eval_writes_eval_meta_and_per_doc(
+    workspace: Path, stub_provider,
+):
+    from app.tools.experiment import create_experiment, read_experiment, run_experiment_eval
+    from app.workspace.paths import reviewed_dir, reviewed_path
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    reviewed_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    for did in ("d_aaaaaaaaaaaa", "d_bbbbbbbbbbbb"):
+        _seed_doc(workspace, pid, did)
+        atomic_write_json(reviewed_path(workspace, pid, did), {
+            "entities": [{"supplier": "ACME"}], "source": "manual",
+        })
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"supplier": "ACME"}]},
+    )
+    eid = await create_experiment(workspace, pid)
+    ev = await run_experiment_eval(workspace, pid, eid, provider=stub_provider)
+
+    assert ev["score"] >= 0.0
+    assert set(ev["per_doc"].keys()) == {"d_aaaaaaaaaaaa", "d_bbbbbbbbbbbb"}
+    assert ev["coverage"] == 2
+    ex = await read_experiment(workspace, pid, eid)
+    assert ex.status == "ran"
+    assert ex.eval is not None
+    assert ex.eval.score == ev["score"]
+
+
+async def test_run_experiment_eval_with_no_reviewed_raises(
+    workspace: Path, stub_provider,
+):
+    from app.tools.experiment import create_experiment, run_experiment_eval
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    with pytest.raises(ValueError, match="no reviewed docs"):
+        await run_experiment_eval(workspace, pid, eid, provider=stub_provider)
+
+
+async def test_run_experiment_eval_reuses_existing_extract_when_present(
+    workspace: Path, stub_provider,
+):
+    from app.tools.experiment import (
+        create_experiment,
+        extract_with_experiment,
+        run_experiment_eval,
+    )
+    from app.workspace.paths import reviewed_dir, reviewed_path
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    did = "d_aaaaaaaaaaaa"
+    _seed_doc(workspace, pid, did)
+    reviewed_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    atomic_write_json(reviewed_path(workspace, pid, did), {
+        "entities": [{"supplier": "ACME"}], "source": "manual",
+    })
+    eid = await create_experiment(workspace, pid)
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"supplier": "ACME"}]},
+    )
+    # priming extract — 1 provider call
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    primed_calls = stub_provider.extract.call_count
+    # second pass: the extract file is present, so run_experiment_eval reuses it
+    await run_experiment_eval(workspace, pid, eid, provider=stub_provider)
+    assert stub_provider.extract.call_count == primed_calls

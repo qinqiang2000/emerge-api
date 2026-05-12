@@ -206,3 +206,106 @@ async def extract_with_experiment(
             payload,
         )
     return payload
+
+
+async def run_experiment_eval(
+    workspace: Path,
+    project_id: str,
+    experiment_id: str,
+    *,
+    provider,
+) -> dict:
+    """Foreground loop: for each doc in reviewed/, ensure
+    experiments/{exp_id}/extracts/{doc}.json exists (extract if missing),
+    then score predictions vs reviewed (overall + per-doc). Writes the
+    resulting ExperimentEval into meta.json.eval, sets status='ran'.
+
+    Returns the eval dict (matching the persisted blob).
+
+    Reviewed docs with no underlying doc file (rare; usually means the doc was
+    deleted after review) are skipped silently — the eval coverage count
+    reflects only docs that were successfully extracted.
+    """
+    import time
+
+    from app.schemas.experiment import ExperimentEval
+    from app.tools.extract import extract_one_with_schema
+    from app.tools.model import read_model
+    from app.tools.prompt import read_prompt
+    from app.tools.score import score
+    from app.workspace.paths import (
+        doc_path,
+        reviewed_dir,
+    )
+
+    ex = await read_experiment(workspace, project_id, experiment_id)
+    prompt = await read_prompt(workspace, project_id, ex.prompt_id)
+    model = await read_model(workspace, project_id, ex.model_id)
+
+    rdir = reviewed_dir(workspace, project_id)
+    if not rdir.exists():
+        raise ValueError("project has no reviewed docs; nothing to eval against")
+    reviewed_files = sorted(rdir.glob("*.json"))
+    if not reviewed_files:
+        raise ValueError("project has no reviewed docs; nothing to eval against")
+
+    predictions: dict[str, list[dict]] = {}
+    reviewed_payloads: dict[str, list[dict]] = {}
+    per_doc: dict[str, float] = {}
+
+    for rfile in reviewed_files:
+        did = rfile.stem
+        reviewed_blob = json.loads(rfile.read_text(encoding="utf-8"))
+        reviewed_entities = reviewed_blob.get("entities", [])
+        # ensure underlying doc exists
+        if not any(
+            doc_path(workspace, project_id, did, ext).exists()
+            for ext in ("pdf", "png", "jpg", "jpeg")
+        ):
+            continue
+        # reuse cached extract if present
+        ep = experiment_extract_path(workspace, project_id, experiment_id, did)
+        if ep.exists():
+            payload = json.loads(ep.read_text(encoding="utf-8"))
+        else:
+            payload = await extract_one_with_schema(
+                workspace, project_id, did,
+                schema=prompt.schema,
+                provider=provider,
+                model_id=model.provider_model_id,
+                params=model.params or None,
+            )
+            experiment_extracts_dir(workspace, project_id, experiment_id).mkdir(
+                parents=True, exist_ok=True,
+            )
+            atomic_write_json(ep, payload)
+        predictions[did] = payload.get("entities", [])
+        reviewed_payloads[did] = reviewed_entities
+
+    # overall score
+    overall = score(prompt.schema, predictions, reviewed_payloads)
+    # per-doc: re-score one doc at a time (cheap; in-memory)
+    for did in predictions:
+        single = score(
+            prompt.schema,
+            {did: predictions[did]},
+            {did: reviewed_payloads[did]},
+        )
+        per_doc[did] = single.macro_f1
+
+    now = _now_iso()
+    eval_blob = ExperimentEval(
+        ran_at=now,
+        score=overall.macro_f1,
+        per_field={fs.field: fs.f1 for fs in overall.per_field},
+        per_doc=per_doc,
+        run_id=f"r_{int(time.time())}",
+        coverage=len(predictions),
+    )
+    async with project_lock(workspace, project_id):
+        updated = ex.model_copy(update={"status": "ran", "eval": eval_blob})
+        atomic_write_json(
+            experiment_meta_path(workspace, project_id, experiment_id),
+            updated.model_dump(mode="json"),
+        )
+    return eval_blob.model_dump(mode="json")
