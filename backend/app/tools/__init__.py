@@ -17,6 +17,7 @@ from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
+from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
 
@@ -181,6 +182,86 @@ def build_emerge_mcp(
     async def t_delete_prompt(args: dict[str, Any]) -> dict[str, Any]:
         await prompt_mod.delete_prompt(
             workspace, args["project_id"], args["prompt_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "write_model",
+        "Upsert a model config (create if missing, otherwise update label/params/provider_model_id). "
+        "provider is one of 'anthropic'|'openai'|'google'.",
+        {
+            "project_id": str,
+            "model_id": str,
+            "label": str,
+            "provider": str,
+            "provider_model_id": str,
+            "params": dict,
+        },
+    )
+    async def t_write_model(args: dict[str, Any]) -> dict[str, Any]:
+        await model_mod.write_model(
+            workspace,
+            args["project_id"],
+            model_id=args["model_id"],
+            label=args["label"],
+            provider=args["provider"],  # type: ignore[arg-type]
+            provider_model_id=args["provider_model_id"],
+            params=args.get("params") or {},
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "create_model",
+        "Create a new model config with an auto-minted model_id. Returns the new model_id.",
+        {
+            "project_id": str,
+            "label": str,
+            "provider": str,
+            "provider_model_id": str,
+            "params": dict,
+        },
+    )
+    async def t_create_model(args: dict[str, Any]) -> dict[str, Any]:
+        new_mid = await model_mod.create_model(
+            workspace,
+            args["project_id"],
+            label=args["label"],
+            provider=args["provider"],  # type: ignore[arg-type]
+            provider_model_id=args["provider_model_id"],
+            params=args.get("params") or {},
+        )
+        return {"content": [{"type": "text", "text": new_mid}]}
+
+    @tool(
+        "switch_active_model",
+        "Set the project's active model to the given model_id. Affects all "
+        "subsequent extract calls when model_id arg is not explicitly provided.",
+        {"project_id": str, "model_id": str},
+    )
+    async def t_switch_active_model(args: dict[str, Any]) -> dict[str, Any]:
+        await model_mod.switch_active_model(
+            workspace, args["project_id"], args["model_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "list_models",
+        "List all model configs in a project with is_active flag.",
+        {"project_id": str},
+    )
+    async def t_list_models(args: dict[str, Any]) -> dict[str, Any]:
+        items = await model_mod.list_models(workspace, args["project_id"])
+        return {"content": [{"type": "text", "text": _json.dumps(items)}]}
+
+    @tool(
+        "delete_model",
+        "Physically remove a model config file. Cannot delete the active model "
+        "(switch active first).",
+        {"project_id": str, "model_id": str},
+    )
+    async def t_delete_model(args: dict[str, Any]) -> dict[str, Any]:
+        await model_mod.delete_model(
+            workspace, args["project_id"], args["model_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -385,6 +466,11 @@ def build_emerge_mcp(
             t_switch_active_prompt,
             t_list_prompts,
             t_delete_prompt,
+            t_write_model,
+            t_create_model,
+            t_switch_active_model,
+            t_list_models,
+            t_delete_model,
             t_extract_one,
             t_extract_batch,
             t_save_reviewed,
@@ -409,6 +495,7 @@ _EMERGE_TOOL_NAMES = (
     "create_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
+    "write_model", "create_model", "switch_active_model", "list_models", "delete_model",
     "extract_one", "extract_batch",
     "save_reviewed", "list_reviewed", "get_reviewed", "get_prediction",
     "score",
