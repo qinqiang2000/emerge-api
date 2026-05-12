@@ -16,13 +16,20 @@ extraction APIs. Each project is a folder under `workspace/{project_id}/`.
   null/empty placeholders).
 - AutoResearch never auto-promotes — that's a separate skill (loaded via
   /improve). You do not optimize schemas yourself.
-- `schema.json` is mutated only via the `write_schema` tool.
+- The active prompt's schema + global_notes are mutated only via `write_prompt` (preferred)
+  or `write_schema` (legacy wrapper kept for backward compat). The on-disk file
+  is `prompts/{active_prompt_id}.json`. `schema.json` is retired for new projects.
 
 ## Risk gates (ALWAYS confirm with user before invoking)
 
-- Structural schema changes: `write_schema` with `allow_structural=true`
-  when adding, removing, renaming, or retyping a field. Pure description-text
-  edits do NOT require confirmation.
+- Structural prompt changes: `write_prompt` (or legacy `write_schema`) with
+  `allow_structural=true` when adding, removing, renaming, or retyping a field.
+  Pure description-text edits do NOT require confirmation. (`write_prompt` does
+  not yet take `allow_structural`; for structural changes, prefer the
+  `write_schema` wrapper one more milestone.)
+- Switching active prompt or model (`switch_active_prompt` / `switch_active_model`):
+  confirm with the user — these change what every subsequent extract uses.
+- Deleting a prompt or model (`delete_prompt` / `delete_model`): always confirm.
 - `delete_doc`.
 - Accepting an autoresearch candidate (overwriting `schema.json`).
 - Cancelling a job.
@@ -34,11 +41,16 @@ When the user types free-form text:
 1. If no project is selected and the user attaches docs + intent
    ("提取这些发票核心信息"), bootstrap a project end-to-end:
    `create_project` → `upload_doc × N` → `derive_schema(sample=3, intent=...)`
-   → `write_schema(allow_structural=true, reason="initial bootstrap")` →
-   `extract_batch`. Summarize results in chat.
+   → `write_schema(allow_structural=true, reason="initial bootstrap")` (writes
+   to the freshly-minted active prompt `pr_baseline`) → `extract_batch`.
+   Summarize results in chat.
 2. If a project is selected and the user describes a needed schema change
    (e.g. "客户反馈缺 BRN 字段"), propose a diff, present it to the user,
-   wait for confirmation before `write_schema(allow_structural=true)`.
+   wait for confirmation before `write_schema(allow_structural=true)`. For
+   isolated A/B testing of a description tweak, prefer
+   `create_prompt(label="…", derived_from="")` → `write_prompt(prompt_id=<new>, …)`
+   → user later promotes via `switch_active_prompt`. (Experiments + eval comparison
+   land in M9.3.)
 3. If the user edits description text only ("把 document_type 描述改为…"),
    apply directly via `write_schema` (no allow_structural needed) — no gate.
 
@@ -81,6 +93,28 @@ When the user types free-form text:
   - if no `per_field` entries have support > 0, say the reviewed examples
     do not cover fields enough yet instead of naming a worst field.
   - if `errors` is non-empty, surface them in the same sentence.
+
+## Prompt and model axes (M9.2+)
+
+A project has two independent axes that affect extraction behavior:
+
+1. **Prompts** (`prompts/{prompt_id}.json`) — bundles fields, descriptions, and
+   `global_notes` into a single named unit. `pr_baseline` is the default;
+   `create_prompt(label, derived_from)` mints additional variants. The active
+   one is recorded in `project.json.active_prompt_id`. Use `list_prompts` to
+   enumerate, `switch_active_prompt(prompt_id)` to select.
+2. **Models** (`models/{model_id}.json`) — `(provider, provider_model_id, params)`
+   triple. `m_default` is the default; `create_model(label, provider, …)` adds
+   more. The active one is recorded in `project.json.active_model_id`. Use
+   `list_models` and `switch_active_model`.
+
+When the user describes wanting to A/B test something ("试一下 Gemma 4", "改个
+描述看看效果"), prefer creating a fresh variant on the relevant axis rather
+than mutating the active one. This keeps a known-good baseline for comparison.
+Comparing extract outputs from two prompt/model combinations on the same docs
+is the *experiment* abstraction — that lands in M9.3. In M9.2 you can switch
+active back-and-forth to compare manually, but warn the user that
+`predictions/_draft/` will be overwritten by the latest extract.
 
 ## Slash commands handled by this skill
 
