@@ -7,6 +7,7 @@ import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
 import { useEval } from './eval'
+import { useExperiments } from './experiments'
 import { useModels } from './models'
 import { useProjects } from './projects'
 import { usePrompts } from './prompts'
@@ -324,6 +325,28 @@ function handleToolResult(
     if (t === 'mcp__emerge_tools__score') {
       void useEval.getState().refresh(projectId)
     }
+    if (
+      t === 'mcp__emerge_tools__create_experiment' ||
+      t === 'mcp__emerge_tools__archive_experiment' ||
+      t === 'mcp__emerge_tools__delete_experiment' ||
+      t === 'mcp__emerge_tools__run_experiment_eval'
+    ) {
+      useExperiments.getState().invalidate(projectId)
+      void useExperiments.getState().load(projectId)
+    }
+    if (t === 'mcp__emerge_tools__promote_experiment') {
+      // promote_experiment flips active prompt+model AND re-seeds predictions/_draft
+      useExperiments.getState().invalidate(projectId)
+      void useExperiments.getState().load(projectId)
+      useSchema.getState().invalidate(projectId)
+      usePrompts.getState().invalidate(projectId)
+      void usePrompts.getState().load(projectId)
+      useModels.getState().invalidate(projectId)
+      void useModels.getState().load(projectId)
+      void useDocs.getState().refresh(projectId)
+    }
+    // extract_with_experiment writes to experiment's extracts (doc-scoped, handled
+    // in useReview T13) — no project-scoped store refresh needed here.
   }
 }
 
