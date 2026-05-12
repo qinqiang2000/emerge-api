@@ -15,7 +15,6 @@ from app.workspace.paths import (
     predictions_draft_dir,
     project_dir,
     project_json_path,
-    schema_path,
     versions_dir,
 )
 
@@ -56,6 +55,10 @@ async def create_project(
     name: str,
     project_type: str = "extraction",
 ) -> str:
+    from app.schemas.model_config import ModelConfig, infer_provider_from_model_id
+    from app.schemas.prompt_variant import PromptVariant
+    from app.workspace.paths import model_path, models_dir, prompt_path, prompts_dir
+
     pid = new_project_id()
     pdir = project_dir(workspace, pid)
     pdir.mkdir(parents=True, exist_ok=False)
@@ -63,19 +66,47 @@ async def create_project(
     predictions_draft_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
     versions_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
     chats_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    prompts_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    models_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
 
     settings = get_settings()
+    now = _now_iso()
+
+    pv = PromptVariant(
+        prompt_id="pr_baseline",
+        label="Baseline",
+        schema=[],
+        global_notes="",
+        derived_from=None,
+        created_at=now,
+        updated_at=now,
+    )
+    atomic_write_json(prompt_path(workspace, pid, "pr_baseline"), pv.model_dump(mode="json"))
+
+    mc = ModelConfig(
+        model_id="m_default",
+        label=f"Default ({settings.default_extract_model})",
+        provider=infer_provider_from_model_id(settings.default_extract_model),
+        provider_model_id=settings.default_extract_model,
+        params={"temperature": 0.0},
+        created_at=now,
+    )
+    atomic_write_json(model_path(workspace, pid, "m_default"), mc.model_dump(mode="json"))
+
     blob = {
         "name": name,
         "project_type": project_type,
-        "created_at": _now_iso(),
+        "created_at": now,
+        "active_prompt_id": "pr_baseline",
+        "active_model_id": "m_default",
+        "active_version_id": None,
+        "autoresearch_proposer_model": None,
         "extract_model": settings.default_extract_model,
         "extract_params": {"temperature": 0.0},
-        "autoresearch_proposer_model": None,
-        "active_version_id": None,
     }
     atomic_write_json(project_json_path(workspace, pid), blob)
-    atomic_write_json(schema_path(workspace, pid), [])
+
+    # schema.json is intentionally NOT written for new projects.
     return pid
 
 

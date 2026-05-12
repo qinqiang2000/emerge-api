@@ -8,7 +8,7 @@ from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.projects import create_project
 from app.tools.schema import write_schema
 from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import candidate_dir, candidate_turn_path, schema_path
+from app.workspace.paths import candidate_dir, candidate_turn_path, prompt_path
 
 
 async def test_get_schema_returns_current(workspace: Path) -> None:
@@ -49,8 +49,8 @@ async def test_accept_candidate_overwrites_schema(workspace: Path) -> None:
         json={"job_id": job_id, "turn": 3},
     )
     assert r.status_code == 200
-    new_schema = json.loads(schema_path(workspace, pid).read_text())
-    assert new_schema[0]["description"] == "NEW"
+    pv = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    assert pv["schema"][0]["description"] == "NEW"
 
 
 async def test_accept_candidate_404_on_missing_candidate(workspace: Path) -> None:

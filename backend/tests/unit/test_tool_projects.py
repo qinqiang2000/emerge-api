@@ -16,12 +16,36 @@ async def test_create_project_writes_project_json(workspace: Path) -> None:
     assert blob["name"] == "inv-MY"
     assert blob["project_type"] == "extraction"
     assert blob["active_version_id"] is None
+    assert blob["active_prompt_id"] == "pr_baseline"
+    assert blob["active_model_id"] == "m_default"
 
 
-async def test_create_project_writes_empty_schema(workspace: Path) -> None:
+async def test_create_project_writes_active_prompt_and_model(workspace: Path) -> None:
+    """Post-M9.1: create_project writes prompts/pr_baseline.json (empty schema)
+    + models/m_default.json + sets project.json active pointers. schema.json
+    is NOT written for fresh projects (it has retired)."""
     pid = await create_project(workspace, name="x")
-    blob = json.loads((workspace / pid / "schema.json").read_text())
-    assert blob == []
+    pdir = workspace / pid
+
+    pp = pdir / "prompts" / "pr_baseline.json"
+    mp = pdir / "models" / "m_default.json"
+    assert pp.exists()
+    assert mp.exists()
+
+    pv = json.loads(pp.read_text())
+    assert pv["prompt_id"] == "pr_baseline"
+    assert pv["schema"] == []
+    assert pv["global_notes"] == ""
+
+    mc = json.loads(mp.read_text())
+    assert mc["model_id"] == "m_default"
+
+    project = json.loads((pdir / "project.json").read_text())
+    assert project["active_prompt_id"] == "pr_baseline"
+    assert project["active_model_id"] == "m_default"
+
+    # schema.json is NOT written for new projects (retired)
+    assert not (pdir / "schema.json").exists()
 
 
 async def test_list_projects_empty(workspace: Path) -> None:

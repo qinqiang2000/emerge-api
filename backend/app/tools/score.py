@@ -15,7 +15,6 @@ from app.workspace.paths import (
     metrics_path,
     predictions_draft_dir,
     reviewed_dir,
-    schema_path,
 )
 
 
@@ -133,10 +132,11 @@ def score(
 
 
 async def run_eval(workspace: Path, project_id: str) -> ScoreResult:
+    from app.tools.schema import read_schema
+
     _validate_project_id(project_id)
 
-    schema_blob = json.loads(schema_path(workspace, project_id).read_text())
-    schema = [SchemaField(**f) for f in schema_blob]
+    schema = await read_schema(workspace, project_id)
 
     predictions: dict[str, list[dict[str, Any]]] = {}
     pd = predictions_draft_dir(workspace, project_id)

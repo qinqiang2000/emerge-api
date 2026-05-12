@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,9 +9,8 @@ from app.jobs import autoresearch as ar
 from app.jobs.events import append_event_jsonl, now_iso_filename_safe
 from app.provider.base import Provider
 from app.schemas.job import JobEvent, JobInfo, JobStatus
-from app.schemas.schema_field import SchemaField
 from app.workspace.ids import new_job_id
-from app.workspace.paths import job_log_path, schema_path
+from app.workspace.paths import job_log_path
 
 
 class JobNotFoundError(KeyError):
@@ -49,9 +47,8 @@ class JobRunner:
     ) -> str:
         if skill != "autoresearch":
             raise UnknownSkillError(f"unknown skill: {skill!r}")
-        initial_schema = [
-            SchemaField(**f) for f in json.loads(schema_path(self.workspace, project_id).read_text())
-        ]
+        from app.tools.schema import read_schema
+        initial_schema = await read_schema(self.workspace, project_id)
         if not initial_schema:
             raise ValueError("project has empty schema; nothing to autoresearch")
         job_id = new_job_id()
