@@ -94,3 +94,27 @@ def test_version_raw_rejects_malformed_version_id(client: TestClient) -> None:
     resp = client.get("/lab/projects/p_versionaa098/versions/notaversion/raw")
     assert resp.status_code == 400
     assert resp.json()["detail"]["error_code"] == "invalid_version_id"
+
+
+def test_version_raw_shape_fields_remaps_schema_key(client: TestClient, tmp_path: Path) -> None:
+    """publish.py writes the frozen blob with key `schema` (see publish.py:331).
+    The ?shape=fields contract (spec §3.3) names the list `fields`, so the
+    endpoint remaps `schema` → `fields` and passes the rest through.
+    """
+    pid = "p_versionaa003"
+    blob = {
+        "version_id": "v6",
+        "schema": [{"name": "x", "type": "string", "description": "x field"}],
+        "model_id": "gemini-2.5-flash",
+        "frozen_at": "2026-05-10T00:00:00+00:00",
+    }
+    _write_version(tmp_path, pid, 6, blob)
+
+    resp = client.get(f"/lab/projects/{pid}/versions/v6/raw?shape=fields")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["fields"] == blob["schema"]
+    assert "schema" not in payload  # remapped, not duplicated
+    assert payload["frozen_at"] == blob["frozen_at"]
+    assert payload["model_id"] == blob["model_id"]
+    assert payload["version_id"] == "v6"

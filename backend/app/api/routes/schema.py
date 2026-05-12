@@ -83,8 +83,12 @@ async def get_project_version_raw(
         )
     parsed = json.loads(vp.read_text())
     if shape == "fields":
-        # passthrough: the frozen file is the source of truth; the Fields tab
-        # consumes `fields[]` directly and ignores extra keys it doesn't know.
-        return parsed
+        # Normalize to the spec §3.3 contract: { fields: SchemaField[], frozen_at, ... }.
+        # publish.py writes the frozen blob with key `schema`; the Fields tab + the
+        # spec both name the list `fields`, so we remap here as the wire-format adapter.
+        # If a future frozen-blob writer ever emits `fields` directly, that key wins.
+        out = {k: v for k, v in parsed.items() if k != "schema"}
+        out["fields"] = parsed.get("fields", parsed.get("schema", []))
+        return out
     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
     return PlainTextResponse(pretty, media_type="text/plain; charset=utf-8")
