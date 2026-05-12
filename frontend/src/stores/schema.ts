@@ -4,7 +4,10 @@ export interface SchemaField {
   name: string
   type: string
   description: string
+  required?: boolean
+  examples?: string[] | null
   enum?: string[] | null
+  children?: SchemaField[] | null
 }
 
 interface State {

@@ -1,0 +1,66 @@
+/* Quick-look modal sheet. Centered portal with scrim. */
+
+.ql-scrim {
+  position: fixed; inset: 0;
+  background: rgba(27, 26, 22, 0.32);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  animation: ql-fade-in 200ms ease-out;
+}
+
+.ql-sheet {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--paper-3);
+  border-radius: 8px;
+  width: min(720px, 92vw);
+  max-height: 86vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 12px 48px rgba(27, 26, 22, 0.18);
+  animation: ql-slide-in 200ms ease-out;
+}
+
+@keyframes ql-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes ql-slide-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
+
+/* Header */
+.ql-header { padding: 16px 20px 12px 20px; border-bottom: 1px solid var(--paper-3); }
+.ql-header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ql-title { font-family: var(--mono, ui-monospace, monospace); font-size: 14px; color: var(--ink-2); }
+.ql-badge { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); letter-spacing: 0.04em; text-transform: lowercase; }
+.ql-badge--active { color: var(--moss); }
+.ql-badge--frozen { color: var(--ink-3); }
+.ql-close { background: none; border: 0; cursor: pointer; font-size: 16px; color: var(--ink-3); padding: 4px; line-height: 1; }
+.ql-close:hover { color: var(--ink); }
+.ql-lineage { margin-top: 6px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); }
+
+/* Tabs */
+.ql-tabs { display: flex; gap: 4px; padding: 8px 20px 0 20px; border-bottom: 1px solid var(--paper-3); }
+.ql-tab { background: none; border: 0; cursor: pointer; padding: 8px 12px; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--ink-4); border-bottom: 2px solid transparent; }
+.ql-tab--active { color: var(--ink); border-bottom-color: var(--ochre); }
+
+/* Body */
+.ql-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+
+/* Field cards */
+.ql-field { padding: 10px 0; border-bottom: 1px dashed var(--paper-3); }
+.ql-field:last-child { border-bottom: 0; }
+.ql-field-head { display: flex; align-items: baseline; gap: 10px; }
+.ql-field-name { font-family: var(--mono, ui-monospace, monospace); font-size: 13px; color: var(--ink); }
+.ql-field-type { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--ink-4); font-style: italic; }
+.ql-field-required { font-family: var(--mono, ui-monospace, monospace); font-size: 10px; color: var(--ochre); letter-spacing: 0.08em; }
+.ql-field-desc { margin-top: 4px; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+.ql-field-desc--empty { color: var(--ink-5); font-style: italic; }
+.ql-field-examples, .ql-field-enum, .ql-field-notes { margin-top: 4px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); }
+.ql-field-disclosure { background: none; border: 0; cursor: pointer; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-3); padding: 4px 0 0 0; }
+.ql-field-children { margin-top: 8px; padding-left: 12px; border-left: 1px solid var(--paper-3); }
+
+/* Raw JSON tab */
+.ql-raw { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; background: var(--paper-2); padding: 12px; border-radius: 4px; white-space: pre; overflow-x: auto; }
+.ql-raw-copy { float: right; background: none; border: 1px solid var(--paper-3); padding: 2px 8px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; cursor: pointer; color: var(--ink-3); }
+.ql-raw-copy:hover { color: var(--ink); border-color: var(--ink-4); }
+.ql-raw-error { color: var(--rose); font-family: var(--mono, ui-monospace, monospace); font-size: 12px; padding: 8px 0; }
+.ql-raw-retry { background: none; border: 0; color: var(--ochre); cursor: pointer; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; padding: 0; margin-left: 8px; }
+
+/* Footer */
+.ql-footer { padding: 12px 20px; border-top: 1px solid var(--paper-3); font-size: 12px; color: var(--ink-4); line-height: 1.4; }
