@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +12,6 @@ from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
     predictions_draft_dir,
-    project_json_path,
-    schema_path,
 )
 
 
@@ -107,11 +104,19 @@ async def extract_one(
     provider: Provider,
     model_id: str | None = None,
 ) -> dict[str, Any]:
-    schema = [SchemaField(**f) for f in json.loads(schema_path(workspace, project_id).read_text())]
+    from app.tools.model import read_active_model
+    from app.tools.schema import read_schema
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, project_id)
+    schema = await read_schema(workspace, project_id)
     if not schema:
         raise ValueError("project has empty schema; nothing to extract")
-    project = json.loads(project_json_path(workspace, project_id).read_text())
-    mid = model_id or project["extract_model"]
+    if model_id is None:
+        mc = await read_active_model(workspace, project_id)
+        mid = mc.provider_model_id
+    else:
+        mid = model_id
 
     user_blocks: list[ContentBlock] = [
         TextBlock(text=_build_field_instructions(schema)),
