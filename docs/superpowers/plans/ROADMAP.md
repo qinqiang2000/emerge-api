@@ -22,6 +22,11 @@
 | **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | ✅ shipped | `576089f..81bd62d` (9 task commits) |
 | **M7.2** — metrics panel (`/eval` → right-rail `metrics/`) | `2026-05-11-m7-2-metrics-panel.md` | ✅ shipped | `2c9b798..eb2fc61` (6 task commits) |
 | **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | ✅ shipped | `113f792..2fb545d` (12 commits; T2 also relaxed 2 chat-session-continuity assertions, T10 also unblocked `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1`) |
+| **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | 🚧 in-progress | — |
+| **M9a** — schema first-class (workspace-global `schemas/<sid>/`, project references `sid`) | TBD | 🔮 proposed | — |
+| **M9b** — schema fork (clone-at-fork-time + lineage row in Quick-look) | TBD; blocked by M9a | 🔮 proposed | — |
+| **M9c** — schema A/B compare (multi-schema per project, per-schema eval columns) | TBD; blocked by M9a | 🔮 proposed | — |
+| **M9d** — autoresearch UI (review notes → proposed description tweaks; closes description-vs-notes confusion) | TBD | 🔮 proposed | — |
 
 ## What each milestone delivers
 
@@ -145,6 +150,54 @@
 - T10: e2e — seeded chat log + `chat-history.spec.ts` (popover lists sessions, switch round-trips, new-chat → events cleared, status dot, FS-collapse). Also unblocks `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1` by registering the real chat router alongside the stub (registration order keeps the stub on `POST /lab/chat`).
 
 **Decisions affirmed / out of scope:** no chat deletion, rename, search, or export (not in the design — if raised, add as a cross-cutting follow-up). The chrome-level genericization (kind taxonomy, popover copy) is in scope; the sample-data-level document-type generalization (chat2.md "Issue 3") stays deferred. No `summary` field anywhere (design revision 2 dropped it) — so no new redactor path.
+
+### M9.0 — schema quick-look (proposed)
+
+**Goal:** the user clicks `schema.json` or `versions/v{N}` in FSSpine, or the `schema.json` card title / `+ N more` row in the right rail, and a read-only modal sheet opens showing the full schema as field cards (default tab) or pretty-printed raw JSON (second tab). Esc / scrim / ✕ closes it.
+
+**Scope (see `../specs/2026-05-12-schema-quicklook-design.md`):**
+- New `frontend/src/components/QuickLook/` (sheet portal, header, fields tab, raw-json tab, copy button).
+- New Zustand store `quicklook.ts` with `{ kind, pid, versionId? }` target and lazy `loadRaw()`.
+- Two new backend endpoints `GET /lab/projects/{pid}/schema/raw` and `GET /lab/projects/{pid}/versions/{vid}/raw[?shape=fields]`.
+- Wire entry points: ContextSurface schema card title + `+ N more` row clickable; FSSpine `schema.json` and `versions/v{N}` leaves clickable. Other FSSpine rows stay inert.
+- Sheet is **schema-shaped, not project-shaped**: header takes a synthesised `schemaId`, reserves a `derived from: —` lineage row, and each field card reserves a `review-notes` hint slot — so M9b/M9d wiring is data swap, not redesign.
+- Bottom hint explains the difference between `description` (prompt) and `reviewed.notes` (AutoResearch input, never prompt) — closes the per-doc-vs-schema confusion at the UX layer until M9d closes it at the data layer.
+
+**Hard rules respected:** no edit affordance in the sheet (red line: schema mutations go through chat / `write_schema`); raw-json tab has `copy` (read-out, not mutation); no version diff (defer); no schema fork / multi-schema picker (M9a-c).
+
+**Decisions affirmed / out of scope:** drift detection (`schema.json` ≠ active version hash) folds into M9a; per-field copy button waits for user demand; ordinal field numbers wait for M9c.
+
+### M9a — schema first-class (proposed)
+
+**Goal:** lift schema from a project-local file (`workspace/{pid}/schema.json`) to a workspace-global object (`workspace/schemas/{sid}/v{N}.json`) referenced by `project.json.active_schema_id` (and frozen `versions/v{N}.json` references too). Unblocks M9b (fork) and M9c (compare).
+
+**Scope:** schema-object filesystem layout; project migration tool (existing projects → fresh sid, schema content moves, frozen `versions/` rewritten to point at sid); `write_schema` / `freeze_version` / Quick-look / Review / publish fast-path all read through a single `SchemaResolver`; `_keys.json` and audit log untouched.
+
+**Out of scope:** live-link / transclusion semantics (red line — fork is clone-at-time per user's UK/US example, not a reactive reference); cross-tenant schemas (single-workspace only).
+
+### M9b — schema fork (proposed, blocked by M9a)
+
+**Goal:** user can fork another project's schema into a new project. `/fork us-invoice@v6 as uk-invoice` (slash form TBD) clones the schema content into a new `sid`, records `lineage = { from: "us-invoice", version: "v6", forked_at }` on the new schema object, and creates / attaches a project. Quick-look's lineage row renders the recorded lineage.
+
+**Scope:** `fork_schema` tool (deterministic clone + lineage write); slash-command surface; Quick-look lineage row consumer.
+
+**Out of scope:** importing schemas from external sources (URL / file upload); rebase against upstream changes (forks are independent per user's stated model).
+
+### M9c — schema A/B compare (proposed, blocked by M9a)
+
+**Goal:** a single project can hold multiple candidate schemas (e.g. `sid_concise` and `sid_verbose`); each runs eval independently against the same `reviewed/` corpus; metrics panel grows per-schema columns; Quick-look gains a schema-picker chip.
+
+**Scope:** `project.json.candidate_schema_ids: [sid]`; `score` runs per-schema, persists `metrics/eval_{sid}_*.json`; ContextSurface metrics card shows side-by-side; Quick-look chip switches the displayed schema.
+
+**Out of scope:** automatic schema-recommendation across the candidates (defer until empirical signal needed).
+
+### M9d — autoresearch UI (proposed)
+
+**Goal:** close the description-vs-review-notes confusion at the data layer (M9.0's bottom-hint is a stopgap). Review notes (`reviewed.notes[field]`) are aggregated per-field, surfaced as "N notes propose updates on `<field>`" cards in a dedicated AutoResearch panel; clicking opens an autoresearch flow that proposes specific `description` tweaks. Quick-look field cards' notes-hint slot becomes `N notes · open`.
+
+**Scope:** review notes aggregator endpoint; autoresearch panel UI; Quick-look notes-slot data wiring; `/improve` integration so proposals draw on the aggregated counterexamples.
+
+**Hard rules respected:** counterexamples (review notes) still **never enter runtime prompt**; AutoResearch still never auto-promotes — user must explicitly accept any description tweak.
 
 ## Open cross-cutting follow-ups
 
