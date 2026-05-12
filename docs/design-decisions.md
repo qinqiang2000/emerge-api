@@ -928,4 +928,41 @@ copy rewrite for every new task type.
   per-task-type) or locked at the seven generic verbs. Current
   recommendation: locked — pick a verb, don't invent a noun.
 
+### 2026-05-12 — ✅ schema.json + frozen versions become one-click viewable (M9.0 shipped)
+
+**Status**: resolved — sheet ships behind FSSpine `schema.json`, FSSpine `versions/v{N}`, right-rail `schema.json` card title, and right-rail `+ N more`.
+
+**What changed**
+The right rail's schema card silently truncated the field list at 7 with a non-interactive `+ N more` hint, and `schema.json` rows in both the FSSpine and the right rail were inert — there was no path to the full schema short of `cat`-ing the file. M9.0 adds a read-only Quick-look sheet (centred modal, scrim, Esc/✕ close) reachable from those four surfaces, plus `versions/v{N}` leaves in the FSSpine for frozen versions.
+
+Two tabs: **fields** (default; per-field card with name + type + REQUIRED pill + description + examples + enum + reserved notes-hint slot rendered as `—`; `array<object>` discloses children recursively, no depth cap) and **raw json** (lazy-loaded pretty-printed from `/lab/projects/{pid}/schema/raw` or `/lab/projects/{pid}/versions/{vid}/raw`, with a `copy` button — read-out only, not mutation).
+
+The sheet is **schema-shaped, not project-shaped**: the header takes a synthesised `schemaId` (`pid` for live, `pid/versionId` for frozen), reserves a `derived from: —` lineage row in DOM today, and each field card reserves a per-field notes-hint slot. M9a (schema first-class) and M9b (fork lineage) plug into the same component contract — no redesign.
+
+**Why**
+The user-reported papercut (`+ N more` not clickable, FSSpine rows inert) was the surface symptom; the underlying complaint was that `schema.json` is treated as a string inside a project's folder, not as a first-class object the user wants to inspect, reuse, and compare. M9.0 deliberately under-commits to the *viewer* and files the data-model work (workspace-global schema, fork, A/B compare, autoresearch UI) as M9a-d. The viewer's schema-shape lets those follow-ups land without redesigning the rendering.
+
+**Hard rules respected**
+- No edit affordance anywhere in the sheet — schema mutations stay agent-mediated through chat / `write_schema`.
+- Raw-json `copy` is read-out (clipboard write), not a content edit.
+- No version diff between v5 and v6 (deferred); no schema fork / multi-schema picker (M9a-c).
+- AutoResearch + counterexample red lines untouched.
+
+**Notable in-flight discoveries (filed during execution)**
+- **Frontend `SchemaField` was narrower than backend pydantic.** T4 widened `frontend/src/stores/schema.ts` to add optional `required` / `examples` / `children` so the canonical type matches `backend/app/schemas/schema_field.py` (the single schema truth per `CLAUDE.md`). Existing consumers only read `name`/`type`/`description`/`enum`, so widening was non-breaking.
+- **Frozen-version blob uses `schema` key, not `fields`.** Live-verify on us-invoice v6 caught that `publish.py:331` writes `{ "schema": [...], "frozen_at": ..., ... }`, while spec §3.3 contracts `{ fields: SchemaField[], ... }` for `?shape=fields`. Fix: the `?shape=fields` route is now the wire-format adapter — remaps `schema` → `fields` and passes the rest through. `publish.py` and existing frozen version files untouched. Without this, every FSSpine `versions/v{N}` click would have rendered "empty version" on real workspaces.
+- **Gemini-style schema representation filed under M9a.** The user pointed at <https://ai.google.dev/gemini-api/docs/structured-output.md.txt> mid-implementation. Adopting Gemini's shape (`required` as parent-level array; `items` vs `properties` instead of bespoke `children`; type vocab swap; constraint fields) is a full data-model refactor that touches `write_schema` / extract provider adapters / eval / publish fast-path — the natural home is M9a (schema first-class) since the workspace-global re-layout already needs new bookkeeping. M9.0 viewer renders whatever the resolver returns; the component contract does not change when M9a adopts Gemini representation.
+
+**Reference**
+- Spec: `docs/superpowers/specs/2026-05-12-schema-quicklook-design.md`
+- Plan: `docs/superpowers/plans/2026-05-12-m9-0-schema-quicklook.md` (13 tasks, TDD per task)
+- Range: `848cb8f..65dd377` (15 commits incl. scaffold + Gemini-followup doc + live-verify fix)
+- Screenshots: `docs/screenshots/2026-05-12-m9-0-quicklook-{schema,rawjson,v6-frozen}.png`
+
+**Spun out**
+- M9a — schema first-class (workspace-global `schemas/<sid>/`, project references `sid`); folds in drift detection + Gemini-aligned representation.
+- M9b — schema fork (clone-at-fork-time + lineage row in Quick-look).
+- M9c — schema A/B compare (per-schema eval columns + Quick-look picker).
+- M9d — autoresearch UI (review notes → proposed description tweaks; Quick-look notes-hint slot becomes `N notes · open`).
+
 

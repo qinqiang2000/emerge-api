@@ -22,7 +22,7 @@
 | **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | ✅ shipped | `576089f..81bd62d` (9 task commits) |
 | **M7.2** — metrics panel (`/eval` → right-rail `metrics/`) | `2026-05-11-m7-2-metrics-panel.md` | ✅ shipped | `2c9b798..eb2fc61` (6 task commits) |
 | **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | ✅ shipped | `113f792..2fb545d` (12 commits; T2 also relaxed 2 chat-session-continuity assertions, T10 also unblocked `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1`) |
-| **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | 🚧 in-progress | — |
+| **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | ✅ shipped | `848cb8f..65dd377` (15 commits; T4 widened frontend `SchemaField` to match backend pydantic; T13 live-verify caught + fixed `schema`→`fields` remap in `?shape=fields`; Gemini schema-alignment filed under M9a follow-up) |
 | **M9a** — schema first-class (workspace-global `schemas/<sid>/`, project references `sid`) | TBD | 🔮 proposed | — |
 | **M9b** — schema fork (clone-at-fork-time + lineage row in Quick-look) | TBD; blocked by M9a | 🔮 proposed | — |
 | **M9c** — schema A/B compare (multi-schema per project, per-schema eval columns) | TBD; blocked by M9a | 🔮 proposed | — |
@@ -151,21 +151,25 @@
 
 **Decisions affirmed / out of scope:** no chat deletion, rename, search, or export (not in the design — if raised, add as a cross-cutting follow-up). The chrome-level genericization (kind taxonomy, popover copy) is in scope; the sample-data-level document-type generalization (chat2.md "Issue 3") stays deferred. No `summary` field anywhere (design revision 2 dropped it) — so no new redactor path.
 
-### M9.0 — schema quick-look (proposed)
+### M9.0 — schema quick-look
 
 **Goal:** the user clicks `schema.json` or `versions/v{N}` in FSSpine, or the `schema.json` card title / `+ N more` row in the right rail, and a read-only modal sheet opens showing the full schema as field cards (default tab) or pretty-printed raw JSON (second tab). Esc / scrim / ✕ closes it.
 
-**Scope (see `../specs/2026-05-12-schema-quicklook-design.md`):**
-- New `frontend/src/components/QuickLook/` (sheet portal, header, fields tab, raw-json tab, copy button).
-- New Zustand store `quicklook.ts` with `{ kind, pid, versionId? }` target and lazy `loadRaw()`.
-- Two new backend endpoints `GET /lab/projects/{pid}/schema/raw` and `GET /lab/projects/{pid}/versions/{vid}/raw[?shape=fields]`.
-- Wire entry points: ContextSurface schema card title + `+ N more` row clickable; FSSpine `schema.json` and `versions/v{N}` leaves clickable. Other FSSpine rows stay inert.
-- Sheet is **schema-shaped, not project-shaped**: header takes a synthesised `schemaId`, reserves a `derived from: —` lineage row, and each field card reserves a `review-notes` hint slot — so M9b/M9d wiring is data swap, not redesign.
-- Bottom hint explains the difference between `description` (prompt) and `reviewed.notes` (AutoResearch input, never prompt) — closes the per-doc-vs-schema confusion at the UX layer until M9d closes it at the data layer.
+**Scope (see `2026-05-12-m9-0-schema-quicklook.md`):**
+- T1-T2: backend — `GET /lab/projects/{pid}/schema/raw` (pretty-printed text/plain) and `GET /lab/projects/{pid}/versions/{vid}/raw[?shape=fields]`. The `?shape=fields` route normalises `publish.py`'s frozen-blob `schema` key to the spec-§3.3 `fields` key (live-verify discovery; backend is the wire-format adapter so `publish.py` and existing version files are untouched).
+- T3: `useQuickLook` Zustand store with `{ kind, pid, versionId? }` target + lazy `loadRaw()` + stale-target guard.
+- T4-T7: `FieldCard` (recursive, examples/enum/required pill/notes-hint slot), `FieldsTab`, `RawJsonTab`, `QuickLookHeader` (active/frozen/draft badge + lineage placeholder). T4 also widened `frontend/src/stores/schema.ts` `SchemaField` to match the backend pydantic model (added optional `required` / `examples` / `children`).
+- T8: `SchemaQuickLook` portal wrapper — esc / scrim / ✕ close, project-switch auto-close (via Zustand `subscribe` for sync close), tab switch.
+- T9-T10: entry-point wiring in `ContextSurface` (card title + `+ N more`) and `FSSpine` (`schema.json` + `versions/v{N}` leaves). Other FSSpine rows stay inert.
+- T11: mounted at `App.tsx` root.
+- T12: e2e covers both schema-side entry surfaces, tab switch, and both close affordances; the version entry point is covered by unit (FSSpine-quicklook + SchemaQuickLook tests) since the shared e2e seed has no frozen version.
+- T13: live-verified on us-invoice (8-field schema + v6 frozen with 7 fields, both surfaces, both tabs, both close paths). Screenshots at `docs/screenshots/2026-05-12-m9-0-quicklook-{schema,rawjson,v6-frozen}.png`.
+
+**Sheet is schema-shaped, not project-shaped:** header takes a synthesised `schemaId`, reserves a `derived from: —` lineage row, and each field card reserves a `review-notes` hint slot — so M9b/M9d wiring is a data swap, not a redesign. Bottom hint explains the difference between `description` (prompt) and `reviewed.notes` (AutoResearch input, never prompt) — closes the per-doc-vs-schema confusion at the UX layer until M9d closes it at the data layer.
 
 **Hard rules respected:** no edit affordance in the sheet (red line: schema mutations go through chat / `write_schema`); raw-json tab has `copy` (read-out, not mutation); no version diff (defer); no schema fork / multi-schema picker (M9a-c).
 
-**Decisions affirmed / out of scope:** drift detection (`schema.json` ≠ active version hash) folds into M9a; per-field copy button waits for user demand; ordinal field numbers wait for M9c.
+**Decisions affirmed / out of scope:** drift detection (`schema.json` ≠ active version hash) folds into M9a; per-field copy button waits for user demand; ordinal field numbers wait for M9c. Gemini-aligned schema representation (`required` as parent-level array, `items` vs `properties`, constraint fields) deliberately deferred to M9a — viewer renders whatever the resolver returns, no contract change needed.
 
 ### M9a — schema first-class (proposed)
 
