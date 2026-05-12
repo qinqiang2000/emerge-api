@@ -16,6 +16,7 @@ from app.api.routes import export as export_route
 from app.api.routes import jobs as jobs_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
+from app.api.routes import models as models_route
 from app.api.routes import prompts as prompts_route
 from app.api.routes import publish as publish_route
 from app.api.routes import reviewed as reviewed_route
@@ -53,6 +54,7 @@ app.include_router(projects_route.router)
 app.include_router(docs_route.router)
 app.include_router(predictions_route.router)
 app.include_router(prompts_route.router)
+app.include_router(models_route.router)
 app.include_router(reviewed_route.router)
 app.include_router(eval_route.router)
 app.include_router(jobs_route.router)
