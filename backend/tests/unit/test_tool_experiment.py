@@ -399,3 +399,122 @@ async def test_run_experiment_eval_blocks_promoted(workspace: Path, stub_provide
 
     with pytest.raises(ExperimentInUseError, match="promoted"):
         await run_experiment_eval(workspace, pid, eid, provider=stub_provider)
+
+
+# ---------------------------------------------------------------------------
+# T6 tests
+# ---------------------------------------------------------------------------
+
+async def test_promote_experiment_switches_active_and_seeds_predictions(
+    workspace: Path, stub_provider,
+):
+    from app.tools.experiment import (
+        create_experiment,
+        extract_with_experiment,
+        promote_experiment,
+        read_experiment,
+    )
+    from app.workspace.paths import predictions_draft_dir
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    # seed a variant prompt that the experiment will reference
+    atomic_write_json(prompt_path(workspace, pid, "pr_v2"), {
+        "prompt_id": "pr_v2", "label": "v2",
+        "schema": [{"name": "x", "type": "string", "description": "x", "required": False}],
+        "global_notes": "", "derived_from": "pr_baseline",
+        "created_at": _now(), "updated_at": _now(),
+    })
+    did = "d_aaaaaaaaaaaa"
+    _seed_doc(workspace, pid, did)
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"x": "1"}]},
+    )
+
+    eid = await create_experiment(workspace, pid, prompt_id="pr_v2")
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    await promote_experiment(workspace, pid, eid)
+
+    project = json.loads(project_json_path(workspace, pid).read_text())
+    assert project["active_prompt_id"] == "pr_v2"
+    # active_model_id stays the same (experiment defaulted to active model)
+
+    draft_dir = predictions_draft_dir(workspace, pid)
+    draft_file = draft_dir / f"{did}.json"
+    assert draft_file.exists()
+    assert json.loads(draft_file.read_text())["entities"][0]["x"] == "1"
+
+    ex = await read_experiment(workspace, pid, eid)
+    assert ex.status == "promoted"
+    assert ex.promoted_at is not None
+
+
+async def test_promote_experiment_replaces_existing_predictions_draft(
+    workspace: Path, stub_provider,
+):
+    """Spec §3.5 step 2: rm -rf predictions/_draft/* then re-fill from
+    experiment.extracts. Pre-existing draft files must be cleared."""
+    from app.tools.experiment import (
+        create_experiment,
+        extract_with_experiment,
+        promote_experiment,
+    )
+    from app.workspace.paths import predictions_draft_dir
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    # pre-existing draft from a previous active prompt
+    predictions_draft_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    stale = predictions_draft_dir(workspace, pid) / "d_old0000000.json"
+    stale.write_text(json.dumps({"entities": [{"supplier": "stale"}]}))
+
+    did = "d_aaaaaaaaaaaa"
+    _seed_doc(workspace, pid, did)
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"supplier": "fresh"}]},
+    )
+    eid = await create_experiment(workspace, pid)
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    await promote_experiment(workspace, pid, eid)
+    # stale file gone
+    assert not stale.exists()
+    # fresh file present
+    assert (predictions_draft_dir(workspace, pid) / f"{did}.json").exists()
+
+
+async def test_delete_experiment_blocks_promoted(workspace: Path, stub_provider):
+    from app.tools.experiment import (
+        ExperimentInUseError,
+        create_experiment,
+        delete_experiment,
+        extract_with_experiment,
+        promote_experiment,
+    )
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    did = "d_aaaaaaaaaaaa"
+    _seed_doc(workspace, pid, did)
+    stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
+    eid = await create_experiment(workspace, pid)
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    await promote_experiment(workspace, pid, eid)
+    with pytest.raises(ExperimentInUseError):
+        await delete_experiment(workspace, pid, eid)
+
+
+async def test_delete_experiment_physical_removal(workspace: Path):
+    from app.tools.experiment import (
+        ExperimentNotFoundError,
+        create_experiment,
+        delete_experiment,
+        read_experiment,
+    )
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    await delete_experiment(workspace, pid, eid)
+    with pytest.raises(ExperimentNotFoundError):
+        await read_experiment(workspace, pid, eid)
+    # directory gone
+    assert not experiment_meta_path(workspace, pid, eid).parent.exists()

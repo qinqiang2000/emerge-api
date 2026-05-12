@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.workspace.paths import (
     experiment_extracts_dir,
     experiment_meta_path,
     experiments_dir,
+    predictions_draft_dir,
     project_json_path,
 )
 
@@ -312,3 +314,66 @@ async def run_experiment_eval(
             updated.model_dump(mode="json"),
         )
     return eval_blob.model_dump(mode="json")
+
+
+async def promote_experiment(
+    workspace: Path,
+    project_id: str,
+    experiment_id: str,
+) -> None:
+    """Spec §3.5: set active_prompt_id + active_model_id from experiment,
+    clear predictions/_draft/, copy experiment extracts into predictions/_draft/,
+    mark experiment status='promoted' + promoted_at.
+
+    All under project_lock to guarantee no concurrent freeze_version observes a
+    half-state."""
+    async with project_lock(workspace, project_id):
+        ex = await read_experiment(workspace, project_id, experiment_id)
+
+        # 1. switch active
+        pj = project_json_path(workspace, project_id)
+        project = json.loads(pj.read_text(encoding="utf-8"))
+        project["active_prompt_id"] = ex.prompt_id
+        project["active_model_id"] = ex.model_id
+        atomic_write_json(pj, project)
+
+        # 2. wipe + repopulate predictions/_draft/
+        draft_dir = predictions_draft_dir(workspace, project_id)
+        if draft_dir.exists():
+            shutil.rmtree(draft_dir)
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        ex_extracts = experiment_extracts_dir(workspace, project_id, experiment_id)
+        if ex_extracts.exists():
+            for src in ex_extracts.glob("*.json"):
+                atomic_write_json(
+                    draft_dir / src.name,
+                    json.loads(src.read_text(encoding="utf-8")),
+                )
+
+        # 3. mark promoted
+        now = _now_iso()
+        updated = ex.model_copy(update={"status": "promoted", "promoted_at": now})
+        atomic_write_json(
+            experiment_meta_path(workspace, project_id, experiment_id),
+            updated.model_dump(mode="json"),
+        )
+
+
+async def delete_experiment(
+    workspace: Path,
+    project_id: str,
+    experiment_id: str,
+) -> None:
+    """Physically remove experiments/{exp_id}/. Blocks deletion of a promoted
+    experiment (audit trail must be preserved). Raises ExperimentNotFoundError
+    if the experiment doesn't exist; ExperimentInUseError if status='promoted'.
+    """
+    async with project_lock(workspace, project_id):
+        ex = await read_experiment(workspace, project_id, experiment_id)
+        if ex.status == "promoted":
+            raise ExperimentInUseError(
+                f"cannot delete {experiment_id}: status is 'promoted' (audit trail)"
+            )
+        edir = experiment_dir(workspace, project_id, experiment_id)
+        if edir.exists():
+            shutil.rmtree(edir)
