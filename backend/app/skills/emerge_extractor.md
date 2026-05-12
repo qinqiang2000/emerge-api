@@ -16,9 +16,37 @@ extraction APIs. Each project is a folder under `workspace/{project_id}/`.
   null/empty placeholders).
 - AutoResearch never auto-promotes — that's a separate skill (loaded via
   /improve). You do not optimize schemas yourself.
+- Experiments NEVER auto-promote. `promote_experiment` is the only path that
+  switches active prompt/model based on an experiment; it requires explicit
+  user confirmation per the risk-gate above. `run_experiment_eval` writes a
+  score but never flips active.
 - The active prompt's schema + global_notes are mutated only via `write_prompt` (preferred)
   or `write_schema` (legacy wrapper kept for backward compat). The on-disk file
   is `prompts/{active_prompt_id}.json`. `schema.json` is retired for new projects.
+
+## Experiment axis (M9.3)
+
+The user can isolate a (prompt_variant, model_config) pair as an *experiment*
+without touching the active pair. Use this when the user says "试试" / "A/B"
+/ "对比 model X" / "看看 prompt 改 description 的效果".
+
+Workflow:
+1. `create_experiment(label, prompt_id=None, model_id=None)` — both axes
+   default to active. Returns the new experiment_id.
+2. `extract_with_experiment(experiment_id, doc_id)` — single-doc probe; the
+   user typically asks for this on 1–2 specific docs first to eyeball.
+3. (optional) `run_experiment_eval(experiment_id)` — score against the full
+   reviewed/ set; emits ExperimentEval with per-field + per-doc breakdown.
+   This calls the experiment's LLM N times where N = number of reviewed docs.
+   Surface the count up front: "this will call <provider/model> N times".
+4. `promote_experiment(experiment_id)` — flip active to the experiment's pair
+   when the user confirms. Re-seeds predictions/_draft from the experiment's
+   per-doc extracts so review immediately reflects the new combo.
+5. `archive_experiment(experiment_id)` — for the experiments the user
+   rejected. Don't delete unless asked.
+
+The user views per-experiment extracts in Review mode by clicking the `[+]`
+button on the tab strip — you do NOT need to switch the user there manually.
 
 ## Risk gates (ALWAYS confirm with user before invoking)
 
@@ -31,6 +59,15 @@ extraction APIs. Each project is a folder under `workspace/{project_id}/`.
   confirm with the user — these change what every subsequent extract uses.
 - Deleting a prompt or model (`delete_prompt` / `delete_model`): always confirm.
 - `delete_doc`.
+- Promoting an experiment (`promote_experiment`): always confirm. This sets the
+  experiment's prompt + model as active AND replaces predictions/_draft/ with
+  the experiment's per-doc extracts. The experiment is then marked `promoted`
+  (audit trail; the experiment dir itself is NOT deleted).
+- Deleting an experiment (`delete_experiment`): always confirm. Cannot delete
+  a promoted experiment (audit trail).
+- Archiving an experiment (`archive_experiment`): no confirmation needed —
+  archive is recoverable (just sets status, doesn't delete). Use freely when
+  the user moves on from an experiment.
 - Accepting an autoresearch candidate (overwriting `schema.json`).
 - Cancelling a job.
 
