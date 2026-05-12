@@ -808,7 +808,7 @@ shapes the M7 UI actually renders.
 
 ### 2026-05-11 — Chat history survives page reload (per-project chatId + hydrate on entry)
 
-- **Status**: 🟡 Pending
+- **Status**: ✅ Resolved by M8 (`docs/superpowers/plans/2026-05-12-m8-chat-history.md`) — per-project chatId persistence still applies, but the single-chat model it described is superseded by multi-chat (`emerge.chatId.<pid>` → `emerge.activeChatId.<pid>`; chats are now server-listed via `GET /lab/chats/{pid}`).
 - **Area**: `Chat/ChatPanel`, `stores/chat`
 - **Files**: `frontend/src/stores/chat.ts`, `frontend/src/lib/api.ts`,
   `frontend/src/components/Chat/ChatPanel.tsx`, `frontend/tests/unit/chat-hydrate.test.ts`
