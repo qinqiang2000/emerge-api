@@ -11,11 +11,12 @@ interface Props {
   value: unknown
   active: boolean
   forceOpen?: boolean | null
+  readOnly?: boolean
   onChange: (value: unknown) => void
   onClick: (path: string) => void
 }
 
-export default function ObjectField({ path, name, value, active, forceOpen, onChange, onClick }: Props) {
+export default function ObjectField({ path, name, value, active, forceOpen, readOnly = false, onChange, onClick }: Props) {
   const [open, setOpen] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
 
@@ -62,10 +63,11 @@ export default function ObjectField({ path, name, value, active, forceOpen, onCh
         <div className="objbody">
           <pre
             ref={preRef}
-            contentEditable
+            contentEditable={!readOnly}
             suppressContentEditableWarning
             style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.55, color: 'var(--ink-2)', outline: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
             onBlur={(e) => {
+              if (readOnly) return
               try {
                 onChange(JSON.parse(e.currentTarget.textContent ?? '{}'))
               } catch {

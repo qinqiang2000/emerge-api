@@ -14,6 +14,7 @@ export interface FieldRowProps {
   evidencePage?: number | null
   active: boolean
   nested?: boolean
+  readOnly?: boolean
   onChange: (value: string) => void
   onSetNote?: (note: string) => void
   onJumpToPage?: (page: number) => void
@@ -29,6 +30,7 @@ export default function FieldRow({
   evidencePage,
   active,
   nested = false,
+  readOnly = false,
   onChange,
   onSetNote,
   onJumpToPage,
@@ -81,12 +83,14 @@ export default function FieldRow({
           <span
             ref={valRef}
             className={`val${isEdited ? ' edited' : ''}`}
-            contentEditable
+            contentEditable={!readOnly}
             suppressContentEditableWarning
             onFocus={() => setShowNotes(true)}
             onBlur={(e) => {
-              onChange(e.currentTarget.textContent ?? '')
-              setShowNotes(false)
+              if (!readOnly) {
+                onChange(e.currentTarget.textContent ?? '')
+                setShowNotes(false)
+              }
             }}
           >
             {displayValue}
@@ -98,9 +102,9 @@ export default function FieldRow({
         <span
           ref={noteRef}
           className="notes"
-          contentEditable
+          contentEditable={!readOnly}
           suppressContentEditableWarning
-          onBlur={(e) => onSetNote?.(e.currentTarget.textContent ?? '')}
+          onBlur={(e) => { if (!readOnly) onSetNote?.(e.currentTarget.textContent ?? '') }}
           onClick={(e) => e.stopPropagation()}
         >
           {note ?? ''}

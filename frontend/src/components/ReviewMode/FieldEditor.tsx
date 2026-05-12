@@ -32,6 +32,8 @@ interface Props {
   view?: 'form' | 'json'
   /** null = natural, true = expand all, false = collapse all */
   forceOpen?: boolean | null
+  /** When true, all fields are read-only (experiment tabs) */
+  readOnly?: boolean
 }
 
 export default function FieldEditor({
@@ -46,6 +48,7 @@ export default function FieldEditor({
   onJumpToPage,
   view = 'form',
   forceOpen = null,
+  readOnly = false,
 }: Props) {
   // Active field path for highlighting (local state — one-way field→page, not PDF→field)
   const [activeField, setActiveField] = useState<string | null>(null)
@@ -101,37 +104,41 @@ export default function FieldEditor({
             >
               ›
             </button>
-            <button
-              type="button"
-              aria-label={`remove entity ${safeIdx + 1}`}
-              onClick={() => {
-                onRemoveEntity(safeIdx)
-                setEntityIdx(i => Math.max(0, i - 1))
-              }}
-              className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 text-rose ml-1"
-            >
-              − remove
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label={`remove entity ${safeIdx + 1}`}
+                onClick={() => {
+                  onRemoveEntity(safeIdx)
+                  setEntityIdx(i => Math.max(0, i - 1))
+                }}
+                className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 text-rose ml-1"
+              >
+                − remove
+              </button>
+            )}
           </>
         ) : (
           <span className="font-mono text-xs text-ink-4">
             {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
           </span>
         )}
-        <button
-          type="button"
-          aria-label="add entity"
-          onClick={onAddEntity}
-          className="ml-auto font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
-        >
-          + entity
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            aria-label="add entity"
+            onClick={onAddEntity}
+            className="ml-auto font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
+          >
+            + entity
+          </button>
+        )}
       </header>
 
       {/* Main content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {view === 'json' ? (
-          <JsonView data={currentEntity} activeField={activeField} />
+          <JsonView data={currentEntity} activeField={activeField} readOnly={readOnly} />
         ) : (
           <div className="rev-fields">
             {sections.map((sect) => (
@@ -143,6 +150,7 @@ export default function FieldEditor({
                 activeField={activeField}
                 forceOpen={forceOpen}
                 entityIdx={safeIdx}
+                readOnly={readOnly}
                 onChange={onChange}
                 onSetNote={onSetNote}
                 onJumpToPage={onJumpToPage}

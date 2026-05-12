@@ -25,6 +25,7 @@ interface Props {
   forceOpen?: boolean | null
   flag?: string
   entityIdx: number
+  readOnly?: boolean
   onChange: (entityIdx: number, name: string, value: unknown) => void
   onSetNote?: (name: string, note: string) => void
   onJumpToPage?: (page: number) => void
@@ -39,6 +40,7 @@ export default function Section({
   forceOpen,
   flag,
   entityIdx,
+  readOnly = false,
   onChange,
   onSetNote,
   onJumpToPage,
@@ -76,6 +78,7 @@ export default function Section({
                   value={f.value}
                   active={isActive}
                   forceOpen={forceOpen}
+                  readOnly={readOnly}
                   onChange={(v) => onChange(entityIdx, f.name, v)}
                   onClick={onSetActiveField}
                 />
@@ -91,6 +94,7 @@ export default function Section({
                   value={f.value}
                   active={isActive}
                   forceOpen={forceOpen}
+                  readOnly={readOnly}
                   onChange={(v) => onChange(entityIdx, f.name, v)}
                   onClick={onSetActiveField}
                 />
@@ -107,6 +111,7 @@ export default function Section({
                 note={f.note}
                 evidencePage={f.evidencePage}
                 active={isActive}
+                readOnly={readOnly}
                 onChange={(v) => onChange(entityIdx, f.name, v)}
                 onSetNote={onSetNote ? (note) => onSetNote(f.name, note) : undefined}
                 onJumpToPage={onJumpToPage}

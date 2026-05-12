@@ -4,6 +4,7 @@ import type { DocSummary } from '../../types/review'
 type Props = {
   filename?: string
   saving: boolean
+  canSave: boolean
   view: 'form' | 'json'
   onSetView: (v: 'form' | 'json') => void
   forceOpen: boolean | null
@@ -19,6 +20,7 @@ type Props = {
 export default function ReviewBar({
   filename,
   saving,
+  canSave,
   view,
   onSetView,
   forceOpen,
@@ -91,7 +93,13 @@ export default function ReviewBar({
         <button className="arrow" onClick={handleNext} disabled={!hasNext} aria-label="next doc" type="button">›</button>
       </div>
 
-      <button className="save" onClick={onSave} disabled={saving} type="button">
+      <button
+        className="save"
+        onClick={onSave}
+        disabled={saving || !canSave}
+        type="button"
+        title={!canSave ? 'save lives on the ⭐ Active tab' : undefined}
+      >
         {saving ? 'saving…' : 'save'}
       </button>
     </div>

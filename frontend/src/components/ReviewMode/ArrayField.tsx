@@ -21,6 +21,7 @@ interface Props {
   value: unknown
   active: boolean
   forceOpen?: boolean | null
+  readOnly?: boolean
   onChange: (value: unknown) => void
   onClick: (path: string) => void
 }
@@ -29,11 +30,13 @@ function RowCard({
   index,
   entry,
   forceOpen,
+  readOnly = false,
   onChangeEntry,
 }: {
   index: number
   entry: ArrayEntry
   forceOpen?: boolean | null
+  readOnly?: boolean
   onChangeEntry: (v: unknown) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -68,10 +71,11 @@ function RowCard({
         <div className="rbody">
           <pre
             ref={preRef}
-            contentEditable
+            contentEditable={!readOnly}
             suppressContentEditableWarning
             style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.55, color: 'var(--ink-2)', outline: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '4px 8px' }}
             onBlur={(e) => {
+              if (readOnly) return
               try {
                 onChangeEntry(JSON.parse(e.currentTarget.textContent ?? 'null'))
               } catch {
@@ -87,7 +91,7 @@ function RowCard({
   )
 }
 
-export default function ArrayField({ path, name, value, active, forceOpen, onChange, onClick }: Props) {
+export default function ArrayField({ path, name, value, active, forceOpen, readOnly = false, onChange, onClick }: Props) {
   const [open, setOpen] = useState(true)
 
   useEffect(() => {
@@ -129,11 +133,13 @@ export default function ArrayField({ path, name, value, active, forceOpen, onCha
         <span className="cdot" title="confidence: high" />
         <span className="name">{name}</span>
         <span className="ty">array · {entries.length} rows</span>
-        <div className="actions" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="rowbtn" onClick={handleAddRow} aria-label="add row">
-            + row
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="actions" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="rowbtn" onClick={handleAddRow} aria-label="add row">
+              + row
+            </button>
+          </div>
+        )}
         <span className="caret">{open ? '▾' : '▸'}</span>
       </div>
       {open && (
@@ -149,26 +155,29 @@ export default function ArrayField({ path, name, value, active, forceOpen, onCha
                 index={idx}
                 entry={entry}
                 forceOpen={forceOpen}
+                readOnly={readOnly}
                 onChangeEntry={(v) => handleChangeEntry(idx, v)}
               />
-              <div className="rfoot">
-                <button
-                  type="button"
-                  className="rowbtn"
-                  aria-label={`duplicate row ${idx + 1}`}
-                  onClick={(e) => handleDuplicateRow(e, idx)}
-                >
-                  duplicate
-                </button>
-                <button
-                  type="button"
-                  className="rowbtn danger"
-                  aria-label={`delete row ${idx + 1}`}
-                  onClick={(e) => handleDeleteRow(e, idx)}
-                >
-                  delete row
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="rfoot">
+                  <button
+                    type="button"
+                    className="rowbtn"
+                    aria-label={`duplicate row ${idx + 1}`}
+                    onClick={(e) => handleDuplicateRow(e, idx)}
+                  >
+                    duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="rowbtn danger"
+                    aria-label={`delete row ${idx + 1}`}
+                    onClick={(e) => handleDeleteRow(e, idx)}
+                  >
+                    delete row
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

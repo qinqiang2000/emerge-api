@@ -5,6 +5,7 @@
 interface Props {
   data: Record<string, unknown>
   activeField: string | null
+  readOnly?: boolean
 }
 
 interface JsonLine {
@@ -55,7 +56,7 @@ function colorizeText(text: string): React.ReactNode {
   return <>{parts}</>
 }
 
-export default function JsonView({ data, activeField }: Props) {
+export default function JsonView({ data, activeField, readOnly: _readOnly }: Props) {
   const lines = buildLines(data)
 
   return (

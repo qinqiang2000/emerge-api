@@ -1,11 +1,14 @@
 // frontend/src/components/ReviewMode/ReviewOverlay.tsx
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useReview } from '../../stores/review'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
+import { useExperiments } from '../../stores/experiments'
+import { useModels } from '../../stores/models'
 
+import ExperimentTabStrip from './ExperimentTabStrip'
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
 import ReviewBar from './ReviewBar'
@@ -31,11 +34,32 @@ export default function ReviewOverlay({ onBack }: Props) {
     goPage,
     save,
     open,
+    attachedExperimentIds,
+    activeTabKey,
+    extractsByExp,
+    attachExperiment,
+    detachExperiment,
+    setActiveTab,
   } = useReview()
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
   const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
+  const loadExperiments = useExperiments((s) => s.load)
+  const loadModels = useModels((s) => s.load)
+
+  const experimentList = useExperiments(useShallow(s => activeProjectId ? s.list[activeProjectId] ?? [] : []))
+  const modelList = useModels(useShallow(s => activeProjectId ? s.list[activeProjectId] ?? [] : []))
+
+  const modelLabels = useMemo(
+    () => Object.fromEntries(modelList.map(m => [m.model_id, m.label])),
+    [modelList],
+  )
+
+  const displayEntities = activeTabKey === 'active'
+    ? entities
+    : (extractsByExp[activeTabKey]?.entities ?? [])
+  const readOnly = activeTabKey !== 'active'
 
   const [view, setView] = useState<'form' | 'json'>('form')
   const [forceOpen, setForceOpen] = useState<boolean | null>(null)
@@ -82,7 +106,9 @@ export default function ReviewOverlay({ onBack }: Props) {
   useEffect(() => {
     if (!activeProjectId) return
     void loadSchema(activeProjectId)
-  }, [activeProjectId, loadSchema])
+    void loadExperiments(activeProjectId)
+    void loadModels(activeProjectId)
+  }, [activeProjectId, loadSchema, loadExperiments, loadModels])
 
   const filename = docs.find(d => d.doc_id === activeDocId)?.filename
 
@@ -97,6 +123,7 @@ export default function ReviewOverlay({ onBack }: Props) {
       <ReviewBar
         filename={filename}
         saving={saving}
+        canSave={!readOnly}
         view={view}
         onSetView={handleSetView}
         forceOpen={forceOpen}
@@ -113,6 +140,18 @@ export default function ReviewOverlay({ onBack }: Props) {
         <div style={{ borderLeft: '2px solid var(--rose)', padding: '8px 16px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--rose)' }}>
           error: {err}
         </div>
+      )}
+
+      {experimentList.length > 0 && (
+        <ExperimentTabStrip
+          activeTabKey={activeTabKey}
+          attachedExperimentIds={attachedExperimentIds}
+          availableExperiments={experimentList}
+          onSwitch={setActiveTab}
+          onAttach={(eid) => void attachExperiment(eid)}
+          onDetach={detachExperiment}
+          modelLabels={modelLabels}
+        />
       )}
 
       <div
@@ -138,7 +177,7 @@ export default function ReviewOverlay({ onBack }: Props) {
           ) : (
             <FieldEditor
               schema={schema}
-              entities={entities}
+              entities={displayEntities}
               notes={notes}
               evidence={evidence ?? null}
               onChange={setField}
@@ -148,6 +187,7 @@ export default function ReviewOverlay({ onBack }: Props) {
               onJumpToPage={goPage}
               view={view}
               forceOpen={forceOpen}
+              readOnly={readOnly}
             />
           )}
         </div>

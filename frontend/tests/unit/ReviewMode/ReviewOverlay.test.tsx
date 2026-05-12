@@ -1,0 +1,125 @@
+import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import ReviewOverlay from '../../../src/components/ReviewMode/ReviewOverlay'
+import { useExperiments } from '../../../src/stores/experiments'
+import { useReview } from '../../../src/stores/review'
+import { useSchema } from '../../../src/stores/schema'
+import { useDocs } from '../../../src/stores/docs'
+import { useModels } from '../../../src/stores/models'
+
+const SCHEMA = [
+  { name: 'supplier', type: 'string', description: 'supplier name' },
+]
+
+function seedStores(opts: {
+  attached?: string[]
+  activeTab?: 'active' | string
+  extractsByExp?: Record<string, { entities: Record<string, unknown>[] } | null>
+  activeEntities?: Record<string, unknown>[]
+}) {
+  useSchema.setState({
+    byProject: { 'p_x': SCHEMA as never },
+  })
+  useDocs.setState({
+    byProject: { 'p_x': [
+      { doc_id: 'd_y', filename: 'sample.pdf', ext: 'pdf', page_count: 1,
+        uploaded_at: '2026-05-13', has_prediction: true, has_reviewed: false },
+    ] },
+  })
+  useExperiments.setState({
+    list: { 'p_x': [
+      { experiment_id: 'ex_a', label: 'gemma', prompt_id: 'pr', model_id: 'm',
+        status: 'draft', created_at: '2026-05-13', score: null },
+    ] },
+    loading: {},
+  })
+  useModels.setState({
+    list: { 'p_x': [
+      { model_id: 'm', label: 'Gemma 4', provider: 'google',
+        provider_model_id: 'gemma-4-12b-it', is_active: true, created_at: '2026-05-13' },
+    ] },
+    activeByProject: {},
+    loading: {},
+  })
+  useReview.setState({
+    activeProjectId: 'p_x', activeDocId: 'd_y',
+    entities: opts.activeEntities ?? [{ supplier: 'ACTIVE' }],
+    evidence: null, notes: {},
+    attachedExperimentIds: opts.attached ?? [],
+    activeTabKey: opts.activeTab ?? 'active',
+    extractsByExp: opts.extractsByExp ?? {},
+    loading: false, saving: false, err: null, page: 1, pageCount: 1,
+  })
+}
+
+describe('ReviewOverlay tab integration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => [],
+    }))
+  })
+
+  it('renders the experiment tab strip when project has experiments', () => {
+    seedStores({})
+    render(<ReviewOverlay onBack={() => {}} />)
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+    // The ⭐ Active tab button
+    expect(screen.getByRole('tab', { name: /Active/i })).toBeInTheDocument()
+  })
+
+  it('on the ⭐ Active tab, the field shows active entities and inputs are editable', () => {
+    seedStores({
+      attached: [],
+      activeTab: 'active',
+      activeEntities: [{ supplier: 'ACTIVE_VAL' }],
+    })
+    render(<ReviewOverlay onBack={() => {}} />)
+    expect(screen.getByText('ACTIVE_VAL')).toBeInTheDocument()
+    // value span has contentEditable=true on active tab
+    const val = screen.getByText('ACTIVE_VAL').closest('[contenteditable]') as HTMLElement
+    expect(val.getAttribute('contenteditable')).toBe('true')
+  })
+
+  it('switching to an experiment tab renders experiment extract entities, read-only', () => {
+    seedStores({
+      attached: ['ex_a'],
+      activeTab: 'ex_a',
+      extractsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EXPERIMENT' }] } },
+      activeEntities: [{ supplier: 'ACTIVE_VAL' }],
+    })
+    render(<ReviewOverlay onBack={() => {}} />)
+    expect(screen.getByText('FROM_EXPERIMENT')).toBeInTheDocument()
+    expect(screen.queryByText('ACTIVE_VAL')).not.toBeInTheDocument()
+    const val = screen.getByText('FROM_EXPERIMENT').closest('[contenteditable]') as HTMLElement
+    expect(val.getAttribute('contenteditable')).toBe('false')
+  })
+
+  it('save button is enabled on active tab, disabled on experiment tab', () => {
+    seedStores({ attached: ['ex_a'], activeTab: 'active' })
+    const { rerender } = render(<ReviewOverlay onBack={() => {}} />)
+    const saveBtn = screen.getByRole('button', { name: /save/i }) as HTMLButtonElement
+    expect(saveBtn.disabled).toBe(false)
+
+    seedStores({
+      attached: ['ex_a'],
+      activeTab: 'ex_a',
+      extractsByExp: { 'ex_a': { entities: [{}] } },
+    })
+    rerender(<ReviewOverlay onBack={() => {}} />)
+    const saveBtn2 = screen.getByRole('button', { name: /save/i }) as HTMLButtonElement
+    expect(saveBtn2.disabled).toBe(true)
+  })
+
+  it('experiment tab with no cached extract shows the field area gracefully', () => {
+    // ex_a is attached but extractsByExp['ex_a'] is null (404)
+    seedStores({
+      attached: ['ex_a'],
+      activeTab: 'ex_a',
+      extractsByExp: { 'ex_a': null },
+    })
+    render(<ReviewOverlay onBack={() => {}} />)
+    // The overlay should render without crashing; the tab strip is present
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+  })
+})
