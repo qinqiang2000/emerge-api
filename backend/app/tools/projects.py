@@ -27,6 +27,18 @@ def _now_iso() -> str:
 def _project_status(pdir: Path, blob: dict[str, Any]) -> str:
     if blob.get("active_version_id"):
         return "live"
+    # Post-M9.1: presence of non-empty schema lives in prompts/{active_prompt_id}.json
+    active_pid = blob.get("active_prompt_id")
+    if active_pid:
+        pp = pdir / "prompts" / f"{active_pid}.json"
+        if pp.exists():
+            try:
+                pv = json.loads(pp.read_text())
+                if isinstance(pv.get("schema"), list) and len(pv["schema"]) > 0:
+                    return "draft"
+            except (json.JSONDecodeError, OSError):
+                pass
+    # Legacy fallback (pre-migration): detect by schema.json
     sp = pdir / "schema.json"
     if sp.exists():
         try:
@@ -68,6 +80,8 @@ async def create_project(
 
 
 async def list_projects(workspace: Path) -> list[dict[str, Any]]:
+    from app.workspace.migrate import migrate_project_if_needed
+
     if not workspace.exists():
         return []
     out: list[dict[str, Any]] = []
@@ -77,6 +91,7 @@ async def list_projects(workspace: Path) -> list[dict[str, Any]]:
         pj = child / "project.json"
         if not pj.exists():
             continue
+        await migrate_project_if_needed(workspace, child.name)
         blob = json.loads(pj.read_text())
         out.append({
             "project_id": child.name,

@@ -10,7 +10,7 @@ from app.api.routes._safety import safe_job_id, safe_project_id
 from app.config import get_settings
 from app.schemas.schema_field import SchemaField
 from app.tools.schema import StructuralChangeError, write_schema
-from app.workspace.paths import candidate_turn_path, parse_version_id, schema_path, version_path
+from app.workspace.paths import candidate_turn_path, parse_version_id, version_path
 
 
 router = APIRouter()
@@ -50,13 +50,19 @@ async def accept_candidate(project_id: str, body: AcceptBody) -> dict:
 async def get_project_schema_raw(project_id: str) -> PlainTextResponse:
     safe_project_id(project_id)
     settings = get_settings()
-    sp = schema_path(settings.workspace_root, project_id)
-    if not sp.exists():
+    from app.tools.schema import read_schema
+    from app.workspace.migrate import migrate_project_if_needed
+    from app.workspace.paths import project_json_path
+
+    pj = project_json_path(settings.workspace_root, project_id)
+    if not pj.exists():
         raise HTTPException(
             status_code=404,
             detail={"error_code": "schema_not_found"},
         )
-    parsed = json.loads(sp.read_text())
+    await migrate_project_if_needed(settings.workspace_root, project_id)
+    fields = await read_schema(settings.workspace_root, project_id)
+    parsed = [f.model_dump(mode="json") for f in fields]
     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
     return PlainTextResponse(pretty, media_type="text/plain; charset=utf-8")
 
