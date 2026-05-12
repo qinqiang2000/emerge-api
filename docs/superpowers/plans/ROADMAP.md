@@ -22,11 +22,8 @@
 | **M7.1** — design-handoff wiring & polish (post-M7 verification fixes) | `2026-05-11-m7-1-handoff-wiring-fixes.md` | ✅ shipped | `576089f..81bd62d` (9 task commits) |
 | **M7.2** — metrics panel (`/eval` → right-rail `metrics/`) | `2026-05-11-m7-2-metrics-panel.md` | ✅ shipped | `2c9b798..eb2fc61` (6 task commits) |
 | **M8** — chat history + new-chat + left-rail slim | `2026-05-12-m8-chat-history.md` | ✅ shipped | `113f792..2fb545d` (12 commits; T2 also relaxed 2 chat-session-continuity assertions, T10 also unblocked `GET /lab/chats/{pid}` under `EMERGE_TEST_MODE=1`) |
-| **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | ✅ shipped | `848cb8f..65dd377` (15 commits; T4 widened frontend `SchemaField` to match backend pydantic; T13 live-verify caught + fixed `schema`→`fields` remap in `?shape=fields`; Gemini schema-alignment filed under M9a follow-up) |
-| **M9a** — schema first-class (workspace-global `schemas/<sid>/`, project references `sid`) | TBD | 🔮 proposed | — |
-| **M9b** — schema fork (clone-at-fork-time + lineage row in Quick-look) | TBD; blocked by M9a | 🔮 proposed | — |
-| **M9c** — schema A/B compare (multi-schema per project, per-schema eval columns) | TBD; blocked by M9a | 🔮 proposed | — |
-| **M9d** — autoresearch UI (review notes → proposed description tweaks; closes description-vs-notes confusion) | TBD | 🔮 proposed | — |
+| **M9.0** — schema quick-look (read-only sheet from FSSpine + ContextSurface) | `2026-05-12-m9-0-schema-quicklook.md` | ✅ shipped | `848cb8f..65dd377` (15 commits; T4 widened frontend `SchemaField` to match backend pydantic; T13 live-verify caught + fixed `schema`→`fields` remap in `?shape=fields`) |
+| **M9.x — extraction comparability family** (schema / extract-model / prompt — the unit of A/B variation, fork & share, drift detection — surface and disk layout all TBD) | brainstorm 2026-05-12 (no plan yet) | 🧠 design-stage | — |
 
 ## What each milestone delivers
 
@@ -169,39 +166,23 @@
 
 **Hard rules respected:** no edit affordance in the sheet (red line: schema mutations go through chat / `write_schema`); raw-json tab has `copy` (read-out, not mutation); no version diff (defer); no schema fork / multi-schema picker (M9a-c).
 
-**Decisions affirmed / out of scope:** drift detection (`schema.json` ≠ active version hash) folds into M9a; per-field copy button waits for user demand; ordinal field numbers wait for M9c. Gemini-aligned schema representation (`required` as parent-level array, `items` vs `properties`, constraint fields) deliberately deferred to M9a — viewer renders whatever the resolver returns, no contract change needed.
+**Decisions affirmed / out of scope:** drift detection (`schema.json` ≠ active version hash) deferred to the M9.x family brainstorm below; per-field copy button waits for user demand; ordinal field numbers wait until A/B compare lands. The viewer's `schemaId` synthesis + lineage row + per-field notes-hint slot are all reserved in DOM today, so any M9.x outcome that affects what the viewer renders is a data-source swap, not a redesign.
 
-### M9a — schema first-class (proposed)
+### M9.x — extraction comparability family (design-stage, 2026-05-12)
 
-**Goal:** lift schema from a project-local file (`workspace/{pid}/schema.json`) to a workspace-global object (`workspace/schemas/{sid}/v{N}.json`) referenced by `project.json.active_schema_id` (and frozen `versions/v{N}.json` references too). Unblocks M9b (fork) and M9c (compare).
+**Status:** open brainstorm — no plan yet. Earlier proposals (M9a "schema first-class" / M9b "fork" / M9c "A/B compare" / M9d "autoresearch UI") were retracted on 2026-05-12 because they pre-committed to schema being *the* unit of comparison and to a workspace-global `schemas/<sid>/` layout. The real question is broader.
 
-**Scope:** schema-object filesystem layout; project migration tool (existing projects → fresh sid, schema content moves, frozen `versions/` rewritten to point at sid); `write_schema` / `freeze_version` / Quick-look / Review / publish fast-path all read through a single `SchemaResolver`; `_keys.json` and audit log untouched.
+**Open design question:** what should be A/B-comparable, forkable, or shareable across projects? Schema is one candidate. Extract LLM (model + params) is another. Prompt phrasing is another. Each candidate has a different blast radius on disk layout, eval cost, and UI surface; the right unit isn't obvious without concrete use cases.
 
-**Out of scope:** live-link / transclusion semantics (red line — fork is clone-at-time per user's UK/US example, not a reactive reference); cross-tenant schemas (single-workspace only).
+**What's already wired in M9.0 (don't waste):** Quick-look's `schemaId` is synthesised, lineage row is a DOM placeholder, and the per-field notes-hint slot is reserved. Any data-model outcome plugs in without re-rendering the viewer.
 
-### M9b — schema fork (proposed, blocked by M9a)
+**Anchored constraints (apply regardless of outcome):**
+- Hard rule: forks are clone-at-time (user's UK/US mental model), no live-link / transclusion.
+- Three-layer LLM table (CLAUDE.md) stays — Agent brain is locked Anthropic; Extract LLM is per-project; comparison would be along the Extract axis, not the Agent axis.
+- AutoResearch never auto-promotes; counterexamples never enter runtime prompt.
+- SSU over preservation when the data model needs to move.
 
-**Goal:** user can fork another project's schema into a new project. `/fork us-invoice@v6 as uk-invoice` (slash form TBD) clones the schema content into a new `sid`, records `lineage = { from: "us-invoice", version: "v6", forked_at }` on the new schema object, and creates / attaches a project. Quick-look's lineage row renders the recorded lineage.
-
-**Scope:** `fork_schema` tool (deterministic clone + lineage write); slash-command surface; Quick-look lineage row consumer.
-
-**Out of scope:** importing schemas from external sources (URL / file upload); rebase against upstream changes (forks are independent per user's stated model).
-
-### M9c — schema A/B compare (proposed, blocked by M9a)
-
-**Goal:** a single project can hold multiple candidate schemas (e.g. `sid_concise` and `sid_verbose`); each runs eval independently against the same `reviewed/` corpus; metrics panel grows per-schema columns; Quick-look gains a schema-picker chip.
-
-**Scope:** `project.json.candidate_schema_ids: [sid]`; `score` runs per-schema, persists `metrics/eval_{sid}_*.json`; ContextSurface metrics card shows side-by-side; Quick-look chip switches the displayed schema.
-
-**Out of scope:** automatic schema-recommendation across the candidates (defer until empirical signal needed).
-
-### M9d — autoresearch UI (proposed)
-
-**Goal:** close the description-vs-review-notes confusion at the data layer (M9.0's bottom-hint is a stopgap). Review notes (`reviewed.notes[field]`) are aggregated per-field, surfaced as "N notes propose updates on `<field>`" cards in a dedicated AutoResearch panel; clicking opens an autoresearch flow that proposes specific `description` tweaks. Quick-look field cards' notes-hint slot becomes `N notes · open`.
-
-**Scope:** review notes aggregator endpoint; autoresearch panel UI; Quick-look notes-slot data wiring; `/improve` integration so proposals draw on the aggregated counterexamples.
-
-**Hard rules respected:** counterexamples (review notes) still **never enter runtime prompt**; AutoResearch still never auto-promotes — user must explicitly accept any description tweak.
+**Next step:** brainstorm session with use cases from the user.
 
 ## Open cross-cutting follow-ups
 
@@ -230,8 +211,6 @@ These don't fit a milestone but should be tracked:
 - **per-field confidence dots** — hard-coded to 'high' (moss); needs per-field score from extract LLM.
 - **PDF→field bidirectional binding** — current click-to-page (field→PDF) is one-way; clicking in the PDF doesn't activate the corresponding field row.
 - **review toolbar `<flagged>/<total> flagged` status** — design shows a flagged-field count between the expand-toggle and prev/next arrows; deferred until per-field confidence lands (a "flag" needs a confidence threshold to count against).
-- **schema model alignment with Gemini structured-output (M9a entry point)** — filed 2026-05-12 mid-M9.0. emerge's `SchemaField` diverges from JSON Schema / Gemini in load-bearing ways: (a) `required: bool` per-field instead of parent-level `required: [names]` array; (b) `children: list[SchemaField]` for `array<object>` instead of distinct `items` (array element) vs `properties` (object children); (c) bespoke type vocab (`array<object>`, `date`) vs Gemini's `string/number/integer/boolean/object/array/null` + `format`; (d) no constraint fields (`minimum/maximum/minItems/maxItems/format`). Reference: <https://ai.google.dev/gemini-api/docs/structured-output.md.txt>. Adopting Gemini shape is a full data-model refactor touching `write_schema` / `freeze_version` / extract provider adapters / eval / publish fast-path — natural home is **M9a** (schema first-class) since the workspace-global re-layout already needs to land new bookkeeping. M9.0 deliberately stays viewer-only and keeps the existing `name`/`required: bool`/`children` shape; the Quick-look component contract does not change when M9a adopts Gemini representation (FieldCard renders whatever the resolver returns).
-
 ## How to use this file
 
 1. **Before starting a plan**: read this file to know what comes next.
