@@ -74,3 +74,48 @@ async def test_derive_schema_calls_provider(workspace: Path, stub_provider: Asyn
     names = {f.name for f in fields}
     assert names == {"invoice_no", "total_amount"}
     stub_provider.extract.assert_awaited_once()
+
+
+async def test_write_schema_writes_to_active_prompt_not_schema_json(workspace: Path) -> None:
+    """After M9.1, write_schema is a thin wrapper over write_prompt; the canonical
+    storage for active descriptions is prompts/{active}.json, not schema.json."""
+    from app.workspace.paths import prompt_path
+    pid = await create_project(workspace, name="x")
+    await write_schema(
+        workspace, pid,
+        [_f("invoice_no")],
+        reason="initial",
+        allow_structural=True,
+    )
+    pp = prompt_path(workspace, pid, "pr_baseline")
+    assert pp.exists()
+    pv = json.loads(pp.read_text())
+    assert len(pv["schema"]) == 1
+    assert pv["schema"][0]["name"] == "invoice_no"
+
+
+async def test_write_schema_preserves_global_notes(workspace: Path) -> None:
+    """The wrapper must NOT clobber global_notes when only fields are being updated."""
+    from app.tools.prompt import write_prompt
+    from app.schemas.schema_field import FieldType, SchemaField
+    from app.workspace.paths import prompt_path
+    from app.workspace.migrate import migrate_project_if_needed
+    pid = await create_project(workspace, name="x")
+    # Ensure migration has run so active_prompt_id exists before writing directly
+    await migrate_project_if_needed(workspace, pid)
+    # Seed global_notes via write_prompt directly
+    await write_prompt(
+        workspace, pid,
+        prompt_id=None,
+        schema=[SchemaField(name="a", type=FieldType.STRING, description="d")],
+        global_notes="some legacy notes",
+    )
+    # Now agent does a schema-only change through write_schema
+    await write_schema(
+        workspace, pid,
+        [_f("a", description="new")],
+        reason="edit",
+    )
+    pv = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    assert pv["global_notes"] == "some legacy notes"
+    assert pv["schema"][0]["description"] == "new"

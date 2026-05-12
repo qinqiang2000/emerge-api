@@ -14,9 +14,7 @@ from app.provider.base import (
 )
 from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.docs import list_docs, read_doc
-from app.workspace.atomic import atomic_write_json
-from app.workspace.lock import project_lock
-from app.workspace.paths import doc_meta_path, schema_path
+from app.workspace.paths import doc_meta_path
 
 
 class StructuralChangeError(Exception):
@@ -25,8 +23,12 @@ class StructuralChangeError(Exception):
 
 
 async def read_schema(workspace: Path, project_id: str) -> list[SchemaField]:
-    raw = json.loads(schema_path(workspace, project_id).read_text())
-    return [SchemaField(**f) for f in raw]
+    from app.tools.prompt import read_active_prompt
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, project_id)
+    pv = await read_active_prompt(workspace, project_id)
+    return pv.schema
 
 
 def _is_structural_change(old: list[SchemaField], new: list[SchemaField]) -> bool:
@@ -48,16 +50,29 @@ async def write_schema(
     reason: str,
     allow_structural: bool = False,
 ) -> None:
-    async with project_lock(workspace, project_id):
-        sp = schema_path(workspace, project_id)
-        if sp.exists():
-            old = [SchemaField(**f) for f in json.loads(sp.read_text())]
-            if _is_structural_change(old, schema) and not allow_structural:
-                raise StructuralChangeError(
-                    "structural change requires allow_structural=True (gated by agent)"
-                )
-        payload = [f.model_dump(mode="json") for f in schema]
-        atomic_write_json(sp, payload)
+    """Thin wrapper over write_prompt — kept for one milestone for chat-tool backward compat.
+
+    After M9.1, schema lives in prompts/{active}.json. The structural-change gate
+    is preserved at this layer so the existing accept_candidate route and chat
+    flow keep their safety net. New code should call write_prompt directly.
+
+    The `reason` parameter is currently ignored (kept for signature compat).
+    """
+    from app.tools.prompt import read_active_prompt, write_prompt
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, project_id)
+    old_pv = await read_active_prompt(workspace, project_id)
+    if _is_structural_change(old_pv.schema, schema) and not allow_structural:
+        raise StructuralChangeError(
+            "structural change requires allow_structural=True (gated by agent)"
+        )
+    await write_prompt(
+        workspace, project_id,
+        prompt_id=None,
+        schema=schema,
+        global_notes=old_pv.global_notes,
+    )
 
 
 _DERIVE_SYSTEM = """You are designing a JSON extraction schema for a document type.
