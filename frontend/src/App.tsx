@@ -5,6 +5,7 @@ import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
 import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
+import SchemaQuickLook from './components/QuickLook/SchemaQuickLook'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useDocs } from './stores/docs'
@@ -57,6 +58,7 @@ export default function App() {
         leftHidden={effectiveLeftHidden}
         rightHidden={effectiveRightHidden}
       />
+      <SchemaQuickLook />
     </>
   )
 }
