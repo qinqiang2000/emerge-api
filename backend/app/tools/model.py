@@ -116,3 +116,41 @@ async def list_models(workspace: Path, project_id: str) -> list[dict]:
             "created_at": mc.created_at,
         })
     return out
+
+
+class ModelInUseError(Exception):
+    """Raised when delete_model targets the active model (or, in later milestones,
+    a model referenced by a non-archived experiment).
+    """
+
+
+async def switch_active_model(workspace: Path, project_id: str, model_id: str) -> None:
+    """Set project.json.active_model_id = model_id. Raises ModelNotFoundError if
+    the target model file does not exist.
+    """
+    async with project_lock(workspace, project_id):
+        mp = model_path(workspace, project_id, model_id)
+        if not mp.exists():
+            raise ModelNotFoundError(
+                f"cannot switch active: {model_id} not found in project {project_id}"
+            )
+        pj = project_json_path(workspace, project_id)
+        blob = json.loads(pj.read_text(encoding="utf-8"))
+        blob["active_model_id"] = model_id
+        atomic_write_json(pj, blob)
+
+
+async def delete_model(workspace: Path, project_id: str, model_id: str) -> None:
+    """Physically remove models/{model_id}.json. Blocks deletion of the active
+    model (ModelInUseError). M9.3 extends this with experiment-reference checks.
+    """
+    async with project_lock(workspace, project_id):
+        mp = model_path(workspace, project_id, model_id)
+        if not mp.exists():
+            raise ModelNotFoundError(f"{model_id} not found in project {project_id}")
+        project = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
+        if project.get("active_model_id") == model_id:
+            raise ModelInUseError(
+                f"cannot delete {model_id}: it is the active model; switch active first"
+            )
+        mp.unlink()

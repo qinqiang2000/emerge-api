@@ -111,3 +111,57 @@ async def test_list_models_marks_active(workspace: Path) -> None:
     by_label = {r["label"]: r for r in rows}
     assert by_label["Default (gemini-2.0-flash)"]["is_active"] is True
     assert by_label["Sonnet"]["is_active"] is False
+
+
+async def test_switch_active_model(workspace: Path) -> None:
+    from app.tools.model import create_model, switch_active_model
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    new_mid = await create_model(
+        workspace, pid,
+        label="Sonnet 4.6",
+        provider="anthropic",
+        provider_model_id="claude-sonnet-4-6",
+    )
+    await switch_active_model(workspace, pid, new_mid)
+    project = json.loads(project_json_path(workspace, pid).read_text())
+    assert project["active_model_id"] == new_mid
+
+
+async def test_switch_active_model_to_nonexistent_raises(workspace: Path) -> None:
+    from app.tools.model import ModelNotFoundError, switch_active_model
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(ModelNotFoundError):
+        await switch_active_model(workspace, pid, "m_nope")
+
+
+async def test_delete_model_removes_file(workspace: Path) -> None:
+    from app.tools.model import create_model, delete_model
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    new_mid = await create_model(
+        workspace, pid,
+        label="Gemma 4",
+        provider="google",
+        provider_model_id="gemma-4-12b-it",
+    )
+    assert model_path(workspace, pid, new_mid).exists()
+    await delete_model(workspace, pid, new_mid)
+    assert not model_path(workspace, pid, new_mid).exists()
+
+
+async def test_delete_model_blocks_active(workspace: Path) -> None:
+    from app.tools.model import ModelInUseError, delete_model
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(ModelInUseError):
+        await delete_model(workspace, pid, "m_default")
+
+
+async def test_delete_model_missing_raises(workspace: Path) -> None:
+    from app.tools.model import ModelNotFoundError, delete_model
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    with pytest.raises(ModelNotFoundError):
+        await delete_model(workspace, pid, "m_nope")
