@@ -5,6 +5,7 @@ export interface Project {
   name: string
   project_type: string
   active_version_id: string | null
+  status?: 'live' | 'draft' | 'empty'
 }
 
 const API = '' // same origin via vite proxy
@@ -146,6 +147,30 @@ export async function getChatEvents(projectId: string, chatId: string): Promise<
     return body.events ?? []
   } catch (err) {
     console.warn('getChatEvents threw', err)
+    return []
+  }
+}
+
+export interface ChatSummary {
+  chat_id: string
+  label: string
+  kind: string
+  ts_iso: string
+  n_events: number
+}
+
+// Chat list for the conv-header history popover. Permissive — any failure
+// degrades to an empty list, never throws into a render.
+export async function getChatList(projectId: string): Promise<ChatSummary[]> {
+  try {
+    const r = await fetch(`/lab/chats/${projectId}`)
+    if (!r.ok) {
+      if (r.status !== 404) console.warn('getChatList failed', r.status)
+      return []
+    }
+    return (await r.json()) as ChatSummary[]
+  } catch (err) {
+    console.warn('getChatList threw', err)
     return []
   }
 }
