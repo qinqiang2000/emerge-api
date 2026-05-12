@@ -139,6 +139,39 @@ describe('reduceEvents', () => {
   })
 })
 
+describe('deselect', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useChat.setState({ events: [], busy: false, chatId: 'c_initial', loadedProjectId: null, chatsByProject: {} })
+    vi.restoreAllMocks()
+  })
+
+  it('clears events / busy / loadedProjectId and mints a fresh chatId — used when user clicks "+ new project…"', () => {
+    useChat.setState({
+      events: [{ type: 'user', text: 'old project chat' }, { type: 'agent_text', text: 'reply' }],
+      busy: true,
+      loadedProjectId: 'p_prev',
+      chatId: 'c_stalexxxxxxx',
+    })
+    useChat.getState().deselect()
+    const after = useChat.getState()
+    expect(after.events).toEqual([])
+    expect(after.busy).toBe(false)
+    expect(after.loadedProjectId).toBe(null)
+    expect(after.chatId).not.toBe('c_stalexxxxxxx')
+    expect(after.chatId).toMatch(/^c_[0-9a-f]{12}$/)
+  })
+
+  it('is a no-op when already in the deselected baseline (nothing to clear)', () => {
+    useChat.setState({ events: [], busy: false, loadedProjectId: null, chatId: 'c_baseline0001' })
+    useChat.getState().deselect()
+    // chatId mints fresh either way — but events/loadedProjectId stay null/[].
+    const after = useChat.getState()
+    expect(after.events).toEqual([])
+    expect(after.loadedProjectId).toBe(null)
+  })
+})
+
 describe('chatIdFor', () => {
   beforeEach(() => {
     localStorage.clear()

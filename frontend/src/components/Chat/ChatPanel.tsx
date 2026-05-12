@@ -31,6 +31,7 @@ export default function ChatPanel() {
   // when already on this project, so the create-project flow is safe.
   useEffect(() => {
     if (selectedId) useChat.getState().enterProject(selectedId)
+    else useChat.getState().deselect()
   }, [selectedId])
   const docCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
   const fieldCount = useSchema(s => (s.byProject[selectedId ?? ''] ?? []).length)

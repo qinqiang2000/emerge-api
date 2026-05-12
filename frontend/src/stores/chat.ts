@@ -59,6 +59,7 @@ interface State {
   chatsByProject: Record<string, ChatSummary[]>
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
   enterProject: (projectId: string) => void
+  deselect: () => void
   listChats: (projectId: string) => Promise<void>
   switchChat: (projectId: string, chatId: string) => void
   newChat: (projectId: string) => void
@@ -110,6 +111,14 @@ export const useChat = create<State>((set, get) => ({
     // Fire-and-forget: refresh the chat list so the conv-header popover has
     // server-authoritative entries for this project.
     void get().listChats(projectId)
+  },
+  deselect: () => {
+    // Reset to the no-project-loaded baseline. Used when the user clicks
+    // "+ new project…" (selectedId → null) so the conv column doesn't keep
+    // showing the previous project's events. Fresh chatId so the next
+    // enterProject's adopt branch (loadedProjectId === null + events.length>0)
+    // works cleanly for any immediate in-flight conversation.
+    set({ events: [], busy: false, loadedProjectId: null, chatId: newChatId() })
   },
   listChats: async (projectId) => {
     if (projectId === 'p_unset') return

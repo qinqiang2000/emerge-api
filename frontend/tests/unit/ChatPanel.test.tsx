@@ -63,6 +63,7 @@ function setupStores({
     send: mockSend,
     busy: mockBusy,
     enterProject: mockEnterProject,
+    deselect: vi.fn(),
     chatId: 'c_test',
     chatsByProject: {} as Record<string, unknown[]>,
     listChats: vi.fn(),
