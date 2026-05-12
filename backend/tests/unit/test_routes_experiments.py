@@ -146,3 +146,25 @@ def test_run_extract_endpoint_writes_and_returns(
 def test_invalid_project_id_rejected(client: TestClient, tmp_path: Path) -> None:
     r = client.get("/lab/projects/..%2Fattacker/experiments")
     assert r.status_code in (400, 404, 422)
+
+
+def test_invalid_doc_id_rejected_on_extract_routes(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """doc_id must match d_[a-z0-9]{12}; reject path-traversal attempts."""
+    from app.tools.experiment import create_experiment
+    pid = "p_test12345678"
+    _seed_project_with_axes(tmp_path, pid)
+    eid = asyncio.run(create_experiment(tmp_path, pid))
+
+    # malformed doc_id with literal "/" — FastAPI rejects via 404 on routing
+    r1 = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/../../etc/passwd")
+    assert r1.status_code in (400, 404, 422)
+
+    # malformed doc_id matching the path component but not the d_ pattern —
+    # safe_doc_id() must reject this
+    r2 = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/notadocid")
+    assert r2.status_code in (400, 422)
+
+    r3 = client.post(f"/lab/projects/{pid}/experiments/{eid}/extracts/notadocid")
+    assert r3.status_code in (400, 422)

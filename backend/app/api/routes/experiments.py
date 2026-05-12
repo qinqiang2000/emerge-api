@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from app.api.routes._safety import safe_project_id
+from app.api.routes._safety import safe_doc_id, safe_project_id
 from app.config import get_settings
 from app.provider import get_provider_for_model
 from app.tools.experiment import (
@@ -65,6 +65,7 @@ async def get_experiment_extract(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
+    safe_doc_id(doc_id)
     try:
         await read_experiment(workspace, project_id, experiment_id)
     except ExperimentNotFoundError:
@@ -88,6 +89,7 @@ async def run_experiment_extract(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
+    safe_doc_id(doc_id)
     try:
         ex = await read_experiment(workspace, project_id, experiment_id)
     except ExperimentNotFoundError:
