@@ -10,6 +10,7 @@ import { useSchema } from '../../stores/schema'
 import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
 import ConvHeader from './ConvHeader'
+import ChatErrorBoundary from './ChatErrorBoundary'
 import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
@@ -100,7 +101,9 @@ export default function ChatPanel() {
       {hasContent ? (
         <div className="conv-scroll" ref={convScrollRef}>
           <div className="conv-inner">
-            <MessageList events={events} busy={busy} />
+            <ChatErrorBoundary key={`${selectedId ?? 'p_unset'}:${chatId}`}>
+              <MessageList events={events} busy={busy} />
+            </ChatErrorBoundary>
           </div>
         </div>
       ) : (

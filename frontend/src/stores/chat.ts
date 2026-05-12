@@ -302,6 +302,34 @@ function handleToolResult(
  * (no API-key reveal modal, no cross-store invalidation). `tool_call` and
  * `tool_result` arrive on separate lines and are paired here by `tool_use_id`.
  */
+
+/** Reshape the persist-side issue_api_key result_text (a JSON string with
+ *  key_plaintext already redacted) into the same trail shape SSE produces:
+ *  {redacted, key_prefix, key_hash_short, created_at} on success, or
+ *  {redacted, error} on backend error / unparseable. Never throws. */
+function _hydrateIssueApiKeyResult(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw ?? null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { redacted: true, error: 'parse_failed' }
+  }
+  if (!parsed || typeof parsed !== 'object') return { redacted: true, error: 'parse_failed' }
+  const p = parsed as Record<string, unknown>
+  const err = p.error as { error_code?: unknown } | undefined
+  if (err && typeof err === 'object' && typeof err.error_code === 'string') {
+    return { redacted: true, error: err.error_code }
+  }
+  const kp = typeof p.key_prefix === 'string' ? p.key_prefix : null
+  const kh = typeof p.key_hash === 'string' ? p.key_hash : null
+  const ca = typeof p.created_at === 'string' ? p.created_at : null
+  if (kp && kh && ca) {
+    return { redacted: true, key_prefix: kp, key_hash_short: kh.slice(-6), created_at: ca }
+  }
+  return { redacted: true, error: 'parse_failed' }
+}
+
 export function reduceEvents(raw: unknown[]): ChatEvent[] {
   const out: ChatEvent[] = []
   for (const item of raw) {
@@ -338,7 +366,13 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
         for (let i = out.length - 1; i >= 0; i--) {
           const e = out[i]
           if (e.type === 'tool_call' && e.tool_use_id === tuid) {
-            e.tool_result = o.result_text ?? null
+            // For issue_api_key: reshape the persist-side JSON-string into the
+            // same {redacted, key_prefix, key_hash_short, created_at} trail
+            // SSE handleToolResult emits — so PublishStageKeyAdapter sees one
+            // object shape across both code paths. Pure (no useApiKey reveal).
+            e.tool_result = e.tool_name === 'mcp__emerge_tools__issue_api_key'
+              ? _hydrateIssueApiKeyResult(o.result_text)
+              : (o.result_text ?? null)
             e.ok = typeof o.ok === 'boolean' ? o.ok : true
             break
           }

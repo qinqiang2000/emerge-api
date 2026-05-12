@@ -130,7 +130,11 @@ function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
     | { redacted: true; error: string }
     | undefined
 
-  if (!result || !('redacted' in result)) {
+  // `'redacted' in result` requires result to be a non-null object. A
+  // string-shaped tool_result (e.g. an older hydrate path or unexpected
+  // backend payload) would throw `Cannot use 'in' operator…` and crash the
+  // whole conv tree — fall through to the "running / unknown" pill instead.
+  if (!result || typeof result !== 'object' || !('redacted' in result)) {
     // Still running
     return (
       <div className="border-l-2 border-ochre bg-paper px-3 py-1.5 font-mono text-sm flex items-center gap-2">

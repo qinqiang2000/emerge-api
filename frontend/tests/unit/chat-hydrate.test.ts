@@ -70,6 +70,73 @@ describe('reduceEvents', () => {
     expect(out[0]).toMatchObject({ tool_use_id: 'tu_a', tool_result: 'AAA' })
     expect(out[1]).toMatchObject({ tool_use_id: 'tu_b', tool_result: null })
   })
+
+  it('reshapes issue_api_key tool_result into a redacted trail object (hydrate-side shape parity with SSE)', () => {
+    // Persist-side: redactor replaces key_plaintext with "[REDACTED]" but
+    // leaves key_hash / key_prefix / created_at intact. Hydrate must reshape
+    // to the same {redacted, key_prefix, key_hash_short, created_at} the SSE
+    // path produces — otherwise PublishStageKeyAdapter sees a string and
+    // `'redacted' in <string>` throws, crashing the whole conv.
+    const out = reduceEvents([
+      {
+        type: 'tool_call',
+        tool_use_id: 'tu_k',
+        tool_name: 'mcp__emerge_tools__issue_api_key',
+        tool_input: { project_id: 'p_x' },
+        ok: true,
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tu_k',
+        result_text: JSON.stringify({
+          key_plaintext: '[REDACTED]',
+          key_hash: 'bd16ea5cc18cc8c7772832ef2d353e809ba4ba9d566e3559e69cc15d0e9408b6',
+          key_prefix: 'ek_pqisz_w7',
+          created_at: '2026-05-11T09:37:22.405436Z',
+        }),
+        ok: true,
+      },
+    ])
+    expect(out[0]).toMatchObject({
+      type: 'tool_call',
+      tool_name: 'mcp__emerge_tools__issue_api_key',
+      tool_result: {
+        redacted: true,
+        key_prefix: 'ek_pqisz_w7',
+        key_hash_short: '9408b6',
+        created_at: '2026-05-11T09:37:22.405436Z',
+      },
+    })
+  })
+
+  it('issue_api_key with malformed result_text degrades to a parse_failed trail (does not throw)', () => {
+    const out = reduceEvents([
+      { type: 'tool_call', tool_use_id: 'tu_e', tool_name: 'mcp__emerge_tools__issue_api_key', tool_input: {}, ok: true },
+      { type: 'tool_result', tool_use_id: 'tu_e', result_text: 'not json', ok: true },
+    ])
+    expect(out[0]).toMatchObject({ tool_result: { redacted: true, error: 'parse_failed' } })
+  })
+
+  it('issue_api_key with an explicit error result emits an error-shaped trail', () => {
+    const out = reduceEvents([
+      { type: 'tool_call', tool_use_id: 'tu_x', tool_name: 'mcp__emerge_tools__issue_api_key', tool_input: {}, ok: false },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tu_x',
+        result_text: JSON.stringify({ error: { error_code: 'E_PERMISSION', error_message_en: 'nope' } }),
+        ok: false,
+      },
+    ])
+    expect(out[0]).toMatchObject({ ok: false, tool_result: { redacted: true, error: 'E_PERMISSION' } })
+  })
+
+  it('non-issue_api_key tool_result strings stay as-is (no over-eager reshaping)', () => {
+    const out = reduceEvents([
+      { type: 'tool_call', tool_use_id: 'tu_w', tool_name: 'mcp__emerge_tools__write_schema', tool_input: {}, ok: true },
+      { type: 'tool_result', tool_use_id: 'tu_w', result_text: '{"version_id":"v3"}', ok: true },
+    ])
+    expect(out[0]).toMatchObject({ tool_result: '{"version_id":"v3"}' })
+  })
 })
 
 describe('chatIdFor', () => {
