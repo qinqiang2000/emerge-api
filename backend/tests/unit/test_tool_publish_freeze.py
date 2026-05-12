@@ -118,3 +118,46 @@ async def test_freeze_includes_global_notes(tmp_path: Path) -> None:
     await freeze_version(tmp_path, pid)
     blob = json.loads(version_path(tmp_path, pid, 1).read_text())
     assert blob["global_notes"] == "Read carefully."
+
+
+async def test_freeze_version_writes_derived_from_audit_field(
+    workspace: Path,
+) -> None:
+    """The frozen version blob records which active prompt/model it was derived from."""
+    from app.tools.projects import create_project
+    from app.tools.publish import freeze_version
+    from app.tools.reviewed import save_reviewed
+    from app.tools.docs import upload_doc
+    from app.tools.prompt import write_prompt
+    from app.schemas.reviewed import ReviewedSource
+    from app.schemas.schema_field import FieldType, SchemaField
+    from app.workspace.paths import predictions_draft_dir, version_path
+    from app.workspace.atomic import atomic_write_json as _aw
+
+    pid = await create_project(workspace, name="x")
+    pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
+    did = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+    await write_prompt(
+        workspace, pid,
+        prompt_id=None,
+        schema=[SchemaField(name="invoice_no", type=FieldType.STRING, description="d", required=True)],
+    )
+    # Seed reviewed + prediction so readiness passes with force=True
+    _aw(predictions_draft_dir(workspace, pid) / f"{did}.json",
+        {"entities": [{"invoice_no": "X-1"}]})
+    await save_reviewed(
+        workspace, pid, did,
+        entities=[{"invoice_no": "X-1"}],
+        source=ReviewedSource.MANUAL,
+    )
+
+    out = await freeze_version(workspace, pid, force=True)
+    n = int(out["version_id"][1:])
+    v_blob = json.loads(version_path(workspace, pid, n).read_text())
+    assert v_blob["derived_from"]["prompt_id"] == "pr_baseline"
+    assert v_blob["derived_from"]["model_id"] == "m_default"
+    assert v_blob["derived_from"]["experiment_id"] is None
+    assert v_blob["version_id"] == out["version_id"]
+    assert v_blob["model_id"]  # provider_model_id from m_default
+    assert "schema" in v_blob
+    assert "global_notes" in v_blob

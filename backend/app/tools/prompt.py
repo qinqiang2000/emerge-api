@@ -58,10 +58,13 @@ async def write_prompt(
 ) -> str:
     """Mutate an existing prompt variant. Returns the resolved prompt_id.
 
-    - prompt_id=None resolves to project.active_prompt_id
+    - prompt_id=None resolves to project.active_prompt_id (triggers migration if needed)
     - prompt_id must reference an existing prompts/{id}.json — raises PromptNotFoundError otherwise
     - preserves prompt_id, label, derived_from, created_at; refreshes updated_at
     """
+    if prompt_id is None:
+        from app.workspace.migrate import migrate_project_if_needed
+        await migrate_project_if_needed(workspace, project_id)
     async with project_lock(workspace, project_id):
         resolved = await _resolve_prompt_id(workspace, project_id, prompt_id)
         pp = prompt_path(workspace, project_id, resolved)

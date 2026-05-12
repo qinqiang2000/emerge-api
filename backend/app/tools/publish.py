@@ -21,10 +21,8 @@ from app.workspace.paths import (
     metrics_dir,
     next_version_n,
     predictions_draft_dir,
-    project_dir,
     project_json_path,
     reviewed_dir,
-    schema_path,
     version_path,
 )
 from app.workspace.paths import parse_version_id
@@ -98,10 +96,6 @@ def _last_event_type(jsonl_path: Path) -> str | None:
     return None
 
 
-def _global_notes_path(workspace: Path, project_id: str) -> Path:
-    return project_dir(workspace, project_id) / "global_notes.md"
-
-
 def _load_reviewed(workspace: Path, project_id: str) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     rd = reviewed_dir(workspace, project_id)
@@ -126,8 +120,11 @@ def _load_predictions(workspace: Path, project_id: str) -> dict[str, list[dict]]
 
 async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
     """Run publish hard gates and soft warnings for the current lab schema."""
-    schema_blob = json.loads(schema_path(workspace, project_id).read_text(encoding="utf-8"))
-    schema = [SchemaField(**field) for field in schema_blob]
+    from app.tools.schema import read_schema
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, project_id)
+    schema = await read_schema(workspace, project_id)
     project = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
     threshold = float(project.get("publish_min_macro_f1") or 0.7)
     active_vid = project.get("active_version_id")
@@ -302,6 +299,10 @@ def _iso_now() -> str:
 
 async def freeze_version(workspace: Path, project_id: str, *, force: bool = False) -> dict[str, str]:
     """Freeze current lab state into immutable versions/v{n}.json."""
+    from app.tools.model import read_active_model
+    from app.tools.prompt import read_active_prompt
+    from app.workspace.migrate import migrate_project_if_needed
+
     if not force:
         readiness = await readiness_check(workspace, project_id)
         if not readiness["hard_pass"]:
@@ -312,15 +313,14 @@ async def freeze_version(workspace: Path, project_id: str, *, force: bool = Fals
                 checks=readiness["checks"],
             )
 
+    await migrate_project_if_needed(workspace, project_id)
+
     async with project_lock(workspace, project_id):
-        schema_blob = json.loads(schema_path(workspace, project_id).read_text(encoding="utf-8"))
+        pv = await read_active_prompt(workspace, project_id)
+        mc = await read_active_model(workspace, project_id)
+        schema_blob = [f.model_dump(mode="json") for f in pv.schema]
+
         project_blob = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
-        global_notes_path = _global_notes_path(workspace, project_id)
-        global_notes = (
-            global_notes_path.read_text(encoding="utf-8")
-            if global_notes_path.exists()
-            else ""
-        )
 
         n = next_version_n(workspace, project_id)
         version_id = f"v{n}"
@@ -329,10 +329,15 @@ async def freeze_version(workspace: Path, project_id: str, *, force: bool = Fals
         atomic_write_json(target, {
             "version_id": version_id,
             "schema": schema_blob,
-            "global_notes": global_notes,
-            "model_id": project_blob["extract_model"],
-            "params": project_blob.get("extract_params") or {},
+            "global_notes": pv.global_notes,
+            "model_id": mc.provider_model_id,
+            "params": mc.params,
             "frozen_at": _iso_now(),
+            "derived_from": {
+                "prompt_id": pv.prompt_id,
+                "model_id": mc.model_id,
+                "experiment_id": None,
+            },
         })
         target.chmod(0o444)
 
