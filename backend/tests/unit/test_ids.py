@@ -31,3 +31,21 @@ def test_job_id_format() -> None:
 def test_ids_are_unique() -> None:
     ids = {new_project_id() for _ in range(1000)}
     assert len(ids) == 1000
+
+
+def test_new_prompt_id_format() -> None:
+    from app.workspace.ids import new_prompt_id
+    pid = new_prompt_id()
+    assert re.match(r"^pr_[0-9a-z]{12}$", pid)
+
+
+def test_new_model_id_format() -> None:
+    from app.workspace.ids import new_model_id
+    mid = new_model_id()
+    assert re.match(r"^m_[0-9a-z]{12}$", mid)
+
+
+def test_new_prompt_id_unique() -> None:
+    from app.workspace.ids import new_prompt_id
+    ids = {new_prompt_id() for _ in range(50)}
+    assert len(ids) == 50

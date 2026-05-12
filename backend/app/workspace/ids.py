@@ -26,3 +26,11 @@ def new_chat_id() -> str:
 
 def new_job_id() -> str:
     return _new("j")
+
+
+def new_prompt_id() -> str:
+    return _new("pr")
+
+
+def new_model_id() -> str:
+    return _new("m")

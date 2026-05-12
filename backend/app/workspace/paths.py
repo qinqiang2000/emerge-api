@@ -37,6 +37,22 @@ def versions_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "versions"
 
 
+def prompts_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "prompts"
+
+
+def prompt_path(workspace: Path, project_id: str, prompt_id: str) -> Path:
+    return prompts_dir(workspace, project_id) / f"{prompt_id}.json"
+
+
+def models_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "models"
+
+
+def model_path(workspace: Path, project_id: str, model_id: str) -> Path:
+    return models_dir(workspace, project_id) / f"{model_id}.json"
+
+
 def chats_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "chats"
 

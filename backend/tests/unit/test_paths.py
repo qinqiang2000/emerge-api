@@ -156,3 +156,23 @@ def test_next_version_n_skips_candidate_and_unrelated(tmp_path: Path) -> None:
     (vd / "_candidate").mkdir()
     (vd / "notes.txt").write_text("ignored")
     assert next_version_n(tmp_path, pid) == 4
+
+
+def test_prompts_dir(workspace: Path) -> None:
+    from app.workspace.paths import prompts_dir
+    assert prompts_dir(workspace, "p_abc") == workspace / "p_abc" / "prompts"
+
+
+def test_prompt_path(workspace: Path) -> None:
+    from app.workspace.paths import prompt_path
+    assert prompt_path(workspace, "p_abc", "pr_baseline") == workspace / "p_abc" / "prompts" / "pr_baseline.json"
+
+
+def test_models_dir(workspace: Path) -> None:
+    from app.workspace.paths import models_dir
+    assert models_dir(workspace, "p_abc") == workspace / "p_abc" / "models"
+
+
+def test_model_path(workspace: Path) -> None:
+    from app.workspace.paths import model_path
+    assert model_path(workspace, "p_abc", "m_default") == workspace / "p_abc" / "models" / "m_default.json"
