@@ -208,11 +208,11 @@ def build_emerge_mcp(
         {"project_id": str},
     )
     async def t_contract_diff(args: dict[str, Any]) -> dict[str, Any]:
-        from app.workspace.paths import parse_version_id, project_json_path, schema_path, version_path
+        from app.tools.schema import read_schema
+        from app.workspace.paths import parse_version_id, project_json_path, version_path
 
         pid = args["project_id"]
-        schema_blob = _json.loads(schema_path(workspace, pid).read_text())
-        schema = [SchemaField(**field) for field in schema_blob]
+        schema = await read_schema(workspace, pid)
         project = _json.loads(project_json_path(workspace, pid).read_text())
         active_version_id = project.get("active_version_id")
         if not active_version_id:

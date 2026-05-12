@@ -84,3 +84,43 @@ def test_mixed_add_and_remove() -> None:
     assert sorted(diff["added"]) == ["c"]
     assert sorted(diff["removed"]) == ["b"]
     assert diff["is_breaking"] is True
+
+
+import pytest
+from pathlib import Path
+
+
+async def test_contract_diff_mcp_tool_works_on_fresh_project(
+    workspace: Path,
+    stub_provider,
+) -> None:
+    """Regression: the MCP-exposed `t_contract_diff` must read the active prompt
+    via read_schema, not schema.json directly. After M9.1 new projects don't
+    write schema.json, so the old code would FileNotFoundError."""
+    from unittest.mock import MagicMock
+    import json as _json
+    from app.tools import build_emerge_mcp
+    from app.tools.projects import create_project
+    from app.tools.prompt import write_prompt
+    from app.schemas.schema_field import FieldType, SchemaField
+    import mcp.types as mcp_types
+
+    pid = await create_project(workspace, name="x")
+    await write_prompt(
+        workspace, pid,
+        prompt_id=None,
+        schema=[SchemaField(name="invoice_no", type=FieldType.STRING, description="d")],
+    )
+
+    server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=MagicMock())
+    instance = server["instance"]
+    call_handler = instance.request_handlers[mcp_types.CallToolRequest]
+    req = mcp_types.CallToolRequest(
+        method="tools/call",
+        params=mcp_types.CallToolRequestParams(name="contract_diff", arguments={"project_id": pid}),
+    )
+    result = await call_handler(req)
+    payload_text = result.root.content[0].text  # type: ignore[index]
+    payload = _json.loads(payload_text)
+    assert payload["added"] == ["invoice_no"]
+    assert payload["is_breaking"] is False
