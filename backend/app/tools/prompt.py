@@ -203,4 +203,11 @@ async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> Non
             raise PromptInUseError(
                 f"cannot delete {prompt_id}: it is the active prompt; switch active first"
             )
+        from app.tools.experiment import experiments_referencing_prompt
+        refs = await experiments_referencing_prompt(workspace, project_id, prompt_id)
+        if refs:
+            raise PromptInUseError(
+                f"cannot delete {prompt_id}: referenced by experiment(s) {refs}; "
+                "archive them first"
+            )
         pp.unlink()

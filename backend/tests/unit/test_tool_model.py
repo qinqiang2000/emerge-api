@@ -165,3 +165,38 @@ async def test_delete_model_missing_raises(workspace: Path) -> None:
     _seed_active_project(workspace, pid)
     with pytest.raises(ModelNotFoundError):
         await delete_model(workspace, pid, "m_nope")
+
+
+async def test_delete_model_blocked_by_non_archived_experiment_reference(
+    workspace: Path,
+) -> None:
+    """A model referenced by a non-archived experiment cannot be deleted.
+    Closes M9.2 follow-up."""
+    from app.tools.experiment import archive_experiment, create_experiment
+    from app.tools.model import ModelInUseError, create_model, delete_model
+    from app.workspace.paths import prompt_path, prompts_dir
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid)
+    # seed pr_baseline so create_experiment can resolve active prompt
+    prompts_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    atomic_write_json(prompt_path(workspace, pid, "pr_baseline"), {
+        "prompt_id": "pr_baseline", "label": "Baseline",
+        "schema": [
+            {"name": "x", "type": "string", "description": "d", "required": False}
+        ],
+        "global_notes": "", "derived_from": None,
+        "created_at": _now(), "updated_at": _now(),
+    })
+
+    new_mid = await create_model(
+        workspace, pid, label="haiku",
+        provider="anthropic", provider_model_id="claude-haiku-4-5-20251001",
+        params={},
+    )
+    exp_id = await create_experiment(workspace, pid, model_id=new_mid)
+    with pytest.raises(ModelInUseError, match="referenced by experiment"):
+        await delete_model(workspace, pid, new_mid)
+
+    # after archive, deletion succeeds
+    await archive_experiment(workspace, pid, exp_id)
+    await delete_model(workspace, pid, new_mid)

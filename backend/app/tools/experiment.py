@@ -377,3 +377,63 @@ async def delete_experiment(
         edir = experiment_dir(workspace, project_id, experiment_id)
         if edir.exists():
             shutil.rmtree(edir)
+
+
+async def experiments_referencing_prompt(
+    workspace: Path,
+    project_id: str,
+    prompt_id: str,
+    *,
+    exclude_archived: bool = True,
+) -> list[str]:
+    """Return experiment_ids that reference this prompt. Archived experiments
+    are excluded by default; promoted ones are included (audit trail blocks
+    deletion of the prompt they point at)."""
+    edir = experiments_dir(workspace, project_id)
+    if not edir.exists():
+        return []
+    hits: list[str] = []
+    for sub in edir.iterdir():
+        if not sub.is_dir():
+            continue
+        meta = sub / "meta.json"
+        if not meta.exists():
+            continue
+        try:
+            ex = Experiment(**json.loads(meta.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if exclude_archived and ex.status == "archived":
+            continue
+        if ex.prompt_id == prompt_id:
+            hits.append(ex.experiment_id)
+    return hits
+
+
+async def experiments_referencing_model(
+    workspace: Path,
+    project_id: str,
+    model_id: str,
+    *,
+    exclude_archived: bool = True,
+) -> list[str]:
+    """Symmetric to experiments_referencing_prompt, keyed on model_id."""
+    edir = experiments_dir(workspace, project_id)
+    if not edir.exists():
+        return []
+    hits: list[str] = []
+    for sub in edir.iterdir():
+        if not sub.is_dir():
+            continue
+        meta = sub / "meta.json"
+        if not meta.exists():
+            continue
+        try:
+            ex = Experiment(**json.loads(meta.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if exclude_archived and ex.status == "archived":
+            continue
+        if ex.model_id == model_id:
+            hits.append(ex.experiment_id)
+    return hits

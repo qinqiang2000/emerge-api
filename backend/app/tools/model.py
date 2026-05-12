@@ -153,4 +153,11 @@ async def delete_model(workspace: Path, project_id: str, model_id: str) -> None:
             raise ModelInUseError(
                 f"cannot delete {model_id}: it is the active model; switch active first"
             )
+        from app.tools.experiment import experiments_referencing_model
+        refs = await experiments_referencing_model(workspace, project_id, model_id)
+        if refs:
+            raise ModelInUseError(
+                f"cannot delete {model_id}: referenced by experiment(s) {refs}; "
+                "archive them first"
+            )
         mp.unlink()
