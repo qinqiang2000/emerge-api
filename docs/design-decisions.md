@@ -832,3 +832,50 @@ random `chatId` was minted per page load (so the backend also saw a new chat).
   chatIdFor persistence, enterProject switch/adopt/no-op cases).
 - e2e reload-restore coverage is a follow-up (the e2e `/lab/chat` stub doesn't
   write the JSONL log, so it'd need harness work).
+
+---
+
+### 2026-05-12 — Design handoff introduces multi-chat history + left-rail slim (deferred to next milestone)
+
+- **Status**: 🟡 Pending — design adopted, implementation deferred
+- **Area**: `Chat/ConvHeader` (new), `Spine/FSSpine`, `stores/chat`
+- **Files**: `docs/design/emerge-api/project/{app,data,pieces}.jsx`,
+  `docs/design/emerge-api/project/index.html`,
+  `docs/design/emerge-api/chats/chat2.md`
+- **Type**: new-state + interaction
+
+**What changed**
+A `/sync-design` pull brought in two design changes for the conv column
+and left rail:
+1. New `ConvHeader` floating at conv top-right with two icon chips —
+   ⏱ Chat history (opens per-project sessions popover) and `+ New`
+   (jumps to EmptyHero). Hidden in Review mode.
+2. `FSSpine` slim: project rows lose the `42 docs` meta; active row
+   gets a 6 px status dot (`live/draft/empty`); FS tree default-opens
+   only `docs/`, collapses `reviewed/`/`versions/`/`metrics/` to one
+   row + count.
+
+This generalizes the M7.1 single-chat-per-project model (see preceding
+entry) to **multi-chat per project**, with read+write of chat-history
+metadata — a sizable module. Per user direction, code is not changed in
+this commit; a planning prompt was written at
+`docs/superpowers/plans/PROMPT-2026-05-12-chat-history.md` to be fed to
+`superpowers:writing-plans` in a follow-up session.
+
+**Why**
+The design conversation (`docs/design/emerge-api/chats/chat2.md`)
+identified history-recall as a high-frequency need not surfaced by the
+current FS-tree-only spine. The chosen pattern matches Claude's own UI
+language, which the user explicitly referenced.
+
+**Reference**
+- Source-of-truth design: `docs/design/emerge-api/{chats/chat2.md, project/pieces.jsx, project/index.html}` (this commit).
+- Planning input: `docs/superpowers/plans/PROMPT-2026-05-12-chat-history.md`.
+- Predecessor in this log: 2026-05-11 "Chat history survives page reload".
+
+**Open questions for Design**
+- Project `status` source ("live/draft/empty") — current backend has no
+  such field; the plan recommends an additive derivation from
+  `versions/`+`schema.json` presence, but Design should confirm the
+  three buckets are the right partition.
+

@@ -236,6 +236,33 @@ const IMPROVE_CANDIDATES = [
     delta:'+0.07 F1' },
 ];
 
+// chat history — per-project sessions/runs (most recent first)
+const SESSIONS = {
+  invoices: [
+    { id:'s1', label:'review weak fields',          ts:'14:08', summary:'/improve · line_items, vendor_tax_id', kind:'improve', active:true },
+    { id:'s2', label:'extract Q4 batch',            ts:'14:02', summary:'42 docs · 3 flagged for review',       kind:'extract' },
+    { id:'s3', label:'derive schema v3',            ts:'13:48', summary:'/init from 4 sampled docs',            kind:'init' },
+    { id:'s4', label:'publish v2 → live key',       ts:'Yesterday', summary:'minted key_p2_•••a91',             kind:'publish' },
+    { id:'s5', label:'tax_id formatting drift',     ts:'2d ago', summary:'/improve · +0.13 F1',                 kind:'improve' },
+    { id:'s6', label:'review 8 pending docs',       ts:'3d ago', summary:'accepted 6, corrected 2',             kind:'review' },
+    { id:'s7', label:'first 10 invoices ingested',  ts:'May 03', summary:'cp ~/Downloads/*.pdf docs/',          kind:'ingest' },
+  ],
+  leases:    [
+    { id:'l1', label:'extract renewal clauses', ts:'Yesterday', summary:'/extract · 18 docs',           kind:'extract' },
+    { id:'l2', label:'derive schema v1',        ts:'2d ago',    summary:'/init · 12 fields',            kind:'init' },
+  ],
+  labs:      [
+    { id:'a1', label:'schema draft',            ts:'4d ago',    summary:'/init · 7 fields',             kind:'init' },
+  ],
+  permits:   [
+    { id:'p1', label:'live key rotation',       ts:'Last week', summary:'/publish · key_p4_•••2c7',     kind:'publish' },
+    { id:'p2', label:'124-doc backfill',        ts:'2w ago',    summary:'/extract · 100% reviewed',    kind:'extract' },
+    { id:'p3', label:'initial schema',          ts:'1m ago',    summary:'/init · 22 fields',            kind:'init' },
+  ],
+  forms:     [],
+};
+
+window.SESSIONS = SESSIONS;
 window.PROJECTS = PROJECTS;
 window.TREE = TREE;
 window.SCHEMA_FIELDS = SCHEMA_FIELDS;

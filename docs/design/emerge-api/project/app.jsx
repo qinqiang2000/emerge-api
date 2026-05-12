@@ -118,6 +118,9 @@ function App() {
           if (id==='forms') go('empty'); else if (scene==='empty') go('default');
         }}/>
         <div className="conv">
+          {scene !== 'review' && (
+            <ConvHeader activeProject={activeProject} onNew={()=>go('empty')} />
+          )}
           {scene==='default'   && <DefaultConversation onReview={()=>go('review')} onEval={()=>go('eval')} onPublish={()=>go('publish_check')} onImprove={()=>go('improve')} />}
           {scene==='empty'     && <EmptyHero onInit={()=>go('default')} />}
           {scene==='improve'   && <ImproveConversation onReview={()=>go('review')} />}

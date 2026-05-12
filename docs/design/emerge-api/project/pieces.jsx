@@ -91,7 +91,24 @@ function Topbar({ projectName, status, onToggleImprove, improveRunning, leftHidd
 }
 
 // ─────────── filesystem spine ───────────
+const STATUS_DOT = { live:'var(--moss)', draft:'var(--ochre)', empty:'var(--ink-5)' };
+
 function FSSpine({ activeProject, onSwitchProject }) {
+  // dir open state — only docs/ open by default
+  const [openDirs, setOpenDirs] = useState({ 'docs/': true });
+  function toggleDir(name){ setOpenDirs(s => ({...s, [name]: !s[name]})); }
+
+  // group flat TREE into [{dir, items[]}, ...] + trailing root files
+  const groups = useMemo(()=>{
+    const out = []; let cur = null; const rootFiles = [];
+    for (const n of TREE){
+      if (n.kind==='dir'){ cur = { dir:n, items:[] }; out.push(cur); }
+      else if (n.depth===0){ rootFiles.push(n); cur = null; }
+      else if (cur){ cur.items.push(n); }
+    }
+    return { groups: out, rootFiles };
+  }, []);
+
   return (
     <div className="fs">
       <div className="fs-head">~/projects <span className="small">5</span></div>
@@ -101,31 +118,114 @@ function FSSpine({ activeProject, onSwitchProject }) {
              onClick={()=>onSwitchProject(p.id)}>
           <span className="glyph">{p.id===activeProject ? '▸' : '·'}</span>
           <span>{p.name}</span>
-          <span className="meta">{p.meta}</span>
+          {p.id===activeProject && (
+            <span className="status-dot" title={p.status}
+                  style={{marginLeft:'auto',width:6,height:6,borderRadius:'50%',
+                          background:STATUS_DOT[p.status]||'var(--ink-5)',flexShrink:0}}></span>
+          )}
         </div>
       ))}
       <hr/>
       <div className="fs-head">{PROJECTS.find(p=>p.id===activeProject)?.name || ''}<span className="small">ls</span></div>
       <div className="tree">
-        {TREE.map((n, i) => {
-          if (n.kind==='dir') return (
-            <div key={i} className="branch dir">
-              <span className="arrow">▾</span>
-              <span>{n.name}</span>
-              <span className="stamp">{n.count}</span>
-            </div>
-          );
-          if (n.kind==='ghost') return <div key={i} className="ghost">{n.name}</div>;
+        {groups.groups.map((g, i) => {
+          const open = !!openDirs[g.dir.name];
           return (
-            <div key={i} className="branch file">
-              <span style={{color:'var(--ink-5)'}}>·</span>
-              <span>{n.name}</span>
-              <span className="stamp">{n.stamp}</span>
-            </div>
+            <React.Fragment key={i}>
+              <div className="branch dir" onClick={()=>toggleDir(g.dir.name)} style={{cursor:'default'}}>
+                <span className="arrow">{open ? '▾' : '▸'}</span>
+                <span>{g.dir.name}</span>
+                <span className="stamp">{g.dir.count}</span>
+              </div>
+              {open && g.items.map((n, j) => {
+                if (n.kind==='ghost') return <div key={j} className="ghost">{n.name}</div>;
+                return (
+                  <div key={j} className="branch file">
+                    <span style={{color:'var(--ink-5)'}}>·</span>
+                    <span>{n.name}</span>
+                    <span className="stamp">{n.stamp}</span>
+                  </div>
+                );
+              })}
+            </React.Fragment>
           );
         })}
+        {groups.rootFiles.map((n, k) => (
+          <div key={'r'+k} className="branch file" style={{paddingLeft:18}}>
+            <span style={{color:'var(--ink-5)'}}>·</span>
+            <span>{n.name}</span>
+            <span className="stamp">{n.stamp}</span>
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+// ─────────── conv header (chat history + new) ───────────
+function ConvHeader({ activeProject, onNew }) {
+  const [open, setOpen] = useState(false);
+  const sessions = (window.SESSIONS && window.SESSIONS[activeProject]) || [];
+  const projName = (PROJECTS.find(p=>p.id===activeProject)||{}).name || '';
+  useEffect(()=>{
+    if (!open) return;
+    function onClick(e){ if (!e.target.closest('.hist-pop') && !e.target.closest('.conv-hd .hist-btn')) setOpen(false); }
+    function onKey(e){ if (e.key==='Escape') setOpen(false); }
+    setTimeout(()=>window.addEventListener('mousedown', onClick), 0);
+    window.addEventListener('keydown', onKey);
+    return ()=>{ window.removeEventListener('mousedown', onClick); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+  // close popover when active project changes
+  useEffect(()=>{ setOpen(false); }, [activeProject]);
+
+  return (
+    <>
+      <div className="conv-hd">
+        <button className={'chip hist-btn '+(open?'on':'')}
+                onClick={()=>setOpen(o=>!o)}
+                aria-label="Chat history">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="8" r="5.5"/>
+            <polyline points="8,4.5 8,8 10.5,9.5"/>
+          </svg>
+          <span className="tip">Chat history</span>
+        </button>
+        <button className="chip" onClick={onNew} aria-label="New chat">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+               strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="8" y1="3" x2="8" y2="13"/>
+            <line x1="3" y1="8" x2="13" y2="8"/>
+          </svg>
+          <span className="tip">New chat</span>
+        </button>
+      </div>
+      {open && (
+        <div className="hist-pop" onClick={e=>e.stopPropagation()}>
+          <div className="h-hd">
+            <span className="lab">chat history</span>
+            <span className="scope">{projName}</span>
+            <span className="cnt">{sessions.length} runs</span>
+          </div>
+          {sessions.length === 0 ? (
+            <div className="h-empty">No runs yet in this project.<br/>Drop docs in or start with <span style={{color:'var(--ochre-2)'}}>/init</span>.</div>
+          ) : (
+            <div className="h-list">
+              {sessions.map(s => (
+                <div key={s.id} className={'h-row '+(s.active?'active':'')}>
+                  <div className="top">
+                    <span className="kind">{s.kind}</span>
+                    <span className="lbl">{s.label}</span>
+                    <span className="ts">{s.ts}</span>
+                  </div>
+                  <div className="sm">{s.summary}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -401,6 +501,7 @@ function ImproveBanner({ pct, onOpen }) {
 
 window.Topbar = Topbar;
 window.FSSpine = FSSpine;
+window.ConvHeader = ConvHeader;
 window.ToolCall = ToolCall;
 window.ToolStack = ToolStack;
 window.ToolRow = ToolRow;
