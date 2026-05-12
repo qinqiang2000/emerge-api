@@ -5,6 +5,7 @@ import './spine.css'
 import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
+import { useQuickLook } from '../../stores/quicklook'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string }
@@ -73,6 +74,9 @@ export default function FSSpine() {
 
   const docsByProject = useDocs(s => s.byProject)
   const schemaByProject = useSchema(s => s.byProject)
+
+  const openSchema = useQuickLook(s => s.openSchema)
+  const openVersion = useQuickLook(s => s.openVersion)
 
   // Only docs/ open by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
@@ -158,27 +162,46 @@ export default function FSSpine() {
                     <span>{g.name}</span>
                     <span className="stamp">{g.count}</span>
                   </div>
-                  {open && g.items.map((n, j) => (
-                    n.kind === 'ghost'
-                      ? <div key={j} className="ghost">{n.name}</div>
-                      : (
-                        <div key={j} className="branch file">
-                          <span style={{ color: 'var(--ink-5)' }}>·</span>
-                          <span>{n.name}</span>
-                          {n.stamp && <span className="stamp">{n.stamp}</span>}
-                        </div>
-                      )
-                  ))}
+                  {open && g.items.map((n, j) => {
+                    if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
+                    const isVersion = g.name === 'versions/' && selectedId
+                    return (
+                      <div
+                        key={j}
+                        className="branch file"
+                        onClick={isVersion ? () => openVersion(selectedId!, n.name) : undefined}
+                        role={isVersion ? 'button' : undefined}
+                        tabIndex={isVersion ? 0 : undefined}
+                        onKeyDown={isVersion ? e => { if (e.key === 'Enter' || e.key === ' ') openVersion(selectedId!, n.name) } : undefined}
+                        style={isVersion ? { cursor: 'pointer' } : undefined}
+                      >
+                        <span style={{ color: 'var(--ink-5)' }}>·</span>
+                        <span>{n.name}</span>
+                        {n.stamp && <span className="stamp">{n.stamp}</span>}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
-            {tree.rootFiles.map((n, k) => (
-              <div key={'r' + k} className="branch file" style={{ paddingLeft: 18 }}>
-                <span style={{ color: 'var(--ink-5)' }}>·</span>
-                <span>{n.name}</span>
-                {n.stamp && <span className="stamp">{n.stamp}</span>}
-              </div>
-            ))}
+            {tree.rootFiles.map((n, k) => {
+              const isSchema = n.name === 'schema.json' && selectedId
+              return (
+                <div
+                  key={'r' + k}
+                  className="branch file"
+                  style={{ paddingLeft: 18, ...(isSchema ? { cursor: 'pointer' } : {}) }}
+                  onClick={isSchema ? () => openSchema(selectedId!) : undefined}
+                  role={isSchema ? 'button' : undefined}
+                  tabIndex={isSchema ? 0 : undefined}
+                  onKeyDown={isSchema ? e => { if (e.key === 'Enter' || e.key === ' ') openSchema(selectedId!) } : undefined}
+                >
+                  <span style={{ color: 'var(--ink-5)' }}>·</span>
+                  <span>{n.name}</span>
+                  {n.stamp && <span className="stamp">{n.stamp}</span>}
+                </div>
+              )
+            })}
           </div>
         </>
       )}
