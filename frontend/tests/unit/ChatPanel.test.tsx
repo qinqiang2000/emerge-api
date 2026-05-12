@@ -58,7 +58,17 @@ function setupStores({
       return selector ? selector(state) : state
     },
   )
-  const chatState = { events, send: mockSend, busy: mockBusy, enterProject: mockEnterProject }
+  const chatState = {
+    events,
+    send: mockSend,
+    busy: mockBusy,
+    enterProject: mockEnterProject,
+    chatId: 'c_test',
+    chatsByProject: {} as Record<string, unknown[]>,
+    listChats: vi.fn(),
+    switchChat: vi.fn(),
+    newChat: vi.fn(),
+  }
   ;(useChat as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
       return selector ? selector(chatState) : chatState

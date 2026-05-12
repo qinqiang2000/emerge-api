@@ -9,6 +9,7 @@ import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
+import ConvHeader from './ConvHeader'
 import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
@@ -20,6 +21,9 @@ export default function ChatPanel() {
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
   const busy = useChat(s => s.busy)
+  const chatId = useChat(s => s.chatId)
+  const chatsByProject = useChat(s => s.chatsByProject)
+  const chats = selectedId ? (chatsByProject[selectedId] ?? []) : []
 
   // Reload-restore: when a real project becomes selected, bind to its persisted
   // chatId and hydrate the chat log. enterProject is a no-op for 'p_unset' and
@@ -80,6 +84,16 @@ export default function ChatPanel() {
 
   return (
     <>
+      {selectedId && (
+        <ConvHeader
+          activeProject={projectName}
+          currentChatId={chatId}
+          chats={chats}
+          onNew={() => useChat.getState().newChat(selectedId)}
+          onSwitch={(cid) => useChat.getState().switchChat(selectedId, cid)}
+          onOpen={() => { void useChat.getState().listChats(selectedId) }}
+        />
+      )}
       {improveJob && (
         <ImproveBanner job={improveJob} onOpen={handleBannerOpen} />
       )}
