@@ -36,12 +36,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.api.routes import chat as chat_route
+
 if os.getenv("EMERGE_TEST_MODE") == "1":
+    # Register stub POST /lab/chat *before* the real router. FastAPI matches in
+    # registration order, so the stub wins for the SSE endpoint (no real LLM
+    # call), while the real chat router still serves GET /lab/chats/{pid} and
+    # GET /lab/chats/{pid}/{cid} — those read the filesystem and are safe.
     from app.api.routes import _test_stubs
     app.include_router(_test_stubs.router)
-else:
-    from app.api.routes import chat as chat_route
-    app.include_router(chat_route.router)
+app.include_router(chat_route.router)
 
 app.include_router(upload_route.router)
 app.include_router(projects_route.router)

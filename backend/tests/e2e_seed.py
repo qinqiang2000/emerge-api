@@ -6,6 +6,7 @@ import asyncio
 import os
 from pathlib import Path
 
+from app.chat.log import append_event, ensure_chat_meta
 from app.tools.docs import upload_doc
 from app.tools.projects import create_project
 from app.tools.reviewed import save_reviewed
@@ -55,6 +56,19 @@ async def main() -> None:
         source=ReviewedSource.MANUAL,
     )
     print(f"  + reviewed for {eval_did}")
+
+    # Seed a chat log + meta sidecar so the chat-history popover e2e has something to list.
+    seed_chat_id = "c_seed00000001"
+    await append_event(workspace, pid, seed_chat_id, {"type": "user", "text": "/improve weak fields"})
+    await append_event(workspace, pid, seed_chat_id, {"type": "agent_text", "text": "Seeded session for the e2e."})
+    ensure_chat_meta(
+        workspace,
+        pid,
+        seed_chat_id,
+        first_user_message="/improve weak fields",
+        has_attachments=False,
+    )
+    print(f"  + seeded chat {seed_chat_id}")
     print(f"SEEDED pid={pid} did={did}")
 
 
