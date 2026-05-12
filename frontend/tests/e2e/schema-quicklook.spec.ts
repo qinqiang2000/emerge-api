@@ -13,18 +13,18 @@ test('quick-look: schema entry points + tab switch + close affordances', async (
   await expect(projRow).toBeVisible({ timeout: 10_000 })
   await projRow.click()
 
-  // ── Entry 1: right-rail ContextSurface schema-card title ─────────────────
-  await expect(page.locator('.ctx-h', { hasText: 'schema.json' })).toBeVisible()
-  await page.locator('.ctx-h', { hasText: 'schema.json' }).click()
+  // ── Entry 1: right-rail ContextSurface Prompt-card title ─────────────────
+  await expect(page.locator('.ctx-h', { hasText: /Prompt:/ })).toBeVisible()
+  await page.locator('.ctx-h', { hasText: /Prompt:/ }).click()
   await expect(page.locator('.ql-sheet')).toBeVisible()
-  await expect(page.locator('.ql-title')).toHaveText('schema.json')
+  await expect(page.locator('.ql-title')).toHaveText('prompts/active')
 
   // Fields tab is default; both seeded fields render.
   await expect(page.locator('.ql-field-name', { hasText: 'invoice_number' })).toBeVisible()
   await expect(page.locator('.ql-field-name', { hasText: 'total_amount' })).toBeVisible()
 
-  // Lineage placeholder is rendered (M9b will fill this in).
-  await expect(page.locator('.ql-lineage')).toHaveText('derived from: —')
+  // Lineage row renders pr_baseline for a fresh project (M9.1 baseline lineage).
+  await expect(page.locator('.ql-lineage')).toContainText('derived from:')
 
   // Switch to raw json tab — non-empty <pre> renders.
   await page.getByRole('button', { name: 'raw json' }).click()
@@ -35,10 +35,13 @@ test('quick-look: schema entry points + tab switch + close affordances', async (
   await page.keyboard.press('Escape')
   await expect(page.locator('.ql-sheet')).toHaveCount(0)
 
-  // ── Entry 2: left-rail FSSpine schema.json leaf ──────────────────────────
-  await page.locator('.branch.file', { hasText: 'schema.json' }).click()
+  // ── Entry 2: left-rail FSSpine prompts/ active row ───────────────────────
+  // Expand prompts/ group first (closed by default in M9.2).
+  await page.locator('.branch.dir', { hasText: 'prompts/' }).click()
+  // Click the active Baseline prompt row.
+  await page.locator('.branch.file', { hasText: 'Baseline' }).click()
   await expect(page.locator('.ql-sheet')).toBeVisible()
-  await expect(page.locator('.ql-title')).toHaveText('schema.json')
+  await expect(page.locator('.ql-title')).toHaveText('prompts/active')
 
   // Footer hint (description-vs-notes) is present.
   await expect(page.locator('.ql-footer')).toContainText('description goes into the prompt')
