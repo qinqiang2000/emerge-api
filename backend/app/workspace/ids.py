@@ -34,3 +34,7 @@ def new_prompt_id() -> str:
 
 def new_model_id() -> str:
     return _new("m")
+
+
+def new_experiment_id() -> str:
+    return _new("ex")

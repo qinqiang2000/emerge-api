@@ -53,6 +53,28 @@ def model_path(workspace: Path, project_id: str, model_id: str) -> Path:
     return models_dir(workspace, project_id) / f"{model_id}.json"
 
 
+def experiments_dir(workspace: Path, project_id: str) -> Path:
+    return project_dir(workspace, project_id) / "experiments"
+
+
+def experiment_dir(workspace: Path, project_id: str, experiment_id: str) -> Path:
+    return experiments_dir(workspace, project_id) / experiment_id
+
+
+def experiment_meta_path(workspace: Path, project_id: str, experiment_id: str) -> Path:
+    return experiment_dir(workspace, project_id, experiment_id) / "meta.json"
+
+
+def experiment_extracts_dir(workspace: Path, project_id: str, experiment_id: str) -> Path:
+    return experiment_dir(workspace, project_id, experiment_id) / "extracts"
+
+
+def experiment_extract_path(
+    workspace: Path, project_id: str, experiment_id: str, doc_id: str,
+) -> Path:
+    return experiment_extracts_dir(workspace, project_id, experiment_id) / f"{doc_id}.json"
+
+
 def chats_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "chats"
 
