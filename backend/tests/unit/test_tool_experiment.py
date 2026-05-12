@@ -378,3 +378,24 @@ async def test_run_experiment_eval_reuses_existing_extract_when_present(
     # second pass: the extract file is present, so run_experiment_eval reuses it
     await run_experiment_eval(workspace, pid, eid, provider=stub_provider)
     assert stub_provider.extract.call_count == primed_calls
+
+
+async def test_run_experiment_eval_blocks_promoted(workspace: Path, stub_provider):
+    """Re-running eval on a promoted experiment would clobber audit trail."""
+    from app.tools.experiment import (
+        ExperimentInUseError,
+        create_experiment,
+        run_experiment_eval,
+    )
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    # simulate T6's promote semantics by direct write
+    meta_path = experiment_meta_path(workspace, pid, eid)
+    meta = json.loads(meta_path.read_text())
+    meta["status"] = "promoted"
+    meta["promoted_at"] = _now()
+    atomic_write_json(meta_path, meta)
+
+    with pytest.raises(ExperimentInUseError, match="promoted"):
+        await run_experiment_eval(workspace, pid, eid, provider=stub_provider)

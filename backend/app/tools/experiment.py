@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.experiment import Experiment
+from app.schemas.experiment import Experiment, ExperimentEval
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_experiment_id
 from app.workspace.lock import project_lock
@@ -226,12 +227,10 @@ async def run_experiment_eval(
     deleted after review) are skipped silently — the eval coverage count
     reflects only docs that were successfully extracted.
     """
-    import time
-
-    from app.schemas.experiment import ExperimentEval
     from app.tools.extract import extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
+    from app.tools.schema import _SUPPORTED_EXTS
     from app.tools.score import score
     from app.workspace.paths import (
         doc_path,
@@ -239,6 +238,10 @@ async def run_experiment_eval(
     )
 
     ex = await read_experiment(workspace, project_id, experiment_id)
+    if ex.status == "promoted":
+        raise ExperimentInUseError(
+            f"cannot re-eval {experiment_id}: status is 'promoted' (audit trail)"
+        )
     prompt = await read_prompt(workspace, project_id, ex.prompt_id)
     model = await read_model(workspace, project_id, ex.model_id)
 
@@ -260,7 +263,7 @@ async def run_experiment_eval(
         # ensure underlying doc exists
         if not any(
             doc_path(workspace, project_id, did, ext).exists()
-            for ext in ("pdf", "png", "jpg", "jpeg")
+            for ext in _SUPPORTED_EXTS
         ):
             continue
         # reuse cached extract if present
