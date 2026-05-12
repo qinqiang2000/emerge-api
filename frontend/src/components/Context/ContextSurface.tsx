@@ -7,6 +7,7 @@ import { useSchema } from '../../stores/schema'
 import { useDocs } from '../../stores/docs'
 import { useEval } from '../../stores/eval'
 import { useReview } from '../../stores/review'
+import { useQuickLook } from '../../stores/quicklook'
 import { docStatus } from '../../types/review'
 import type { DocSummary } from '../../types/review'
 import type { EvalSnapshot } from '../../lib/api'
@@ -74,6 +75,7 @@ export default function ContextSurface() {
   const loadEval = useEval(s => s.load)
 
   const { open: openReview } = useReview()
+  const openQuickLook = useQuickLook(s => s.openSchema)
   const project = projects.find(p => p.project_id === pid) ?? null
 
   useEffect(() => {
@@ -111,7 +113,14 @@ export default function ContextSurface() {
     <div className="ctx">
       {/* ── section 1: schema.json ───────────────────────────────── */}
       <div className="ctx-section">
-        <div className="ctx-h">
+        <div
+          className="ctx-h"
+          onClick={() => openQuickLook(pid)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openQuickLook(pid) }}
+          style={{ cursor: 'pointer' }}
+        >
           <span>schema.json</span>
           <span className="small">{schemaHint}</span>
         </div>
@@ -129,7 +138,14 @@ export default function ContextSurface() {
                 </div>
               ))}
               {fields.length > MAX_VISIBLE_FIELDS && (
-                <div className="schemaRow" style={{ color: 'var(--ink-5)', fontStyle: 'italic' }}>
+                <div
+                  className="schemaRow"
+                  onClick={() => openQuickLook(pid)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openQuickLook(pid) }}
+                  style={{ color: 'var(--ink-5)', fontStyle: 'italic', cursor: 'pointer' }}
+                >
                   + {fields.length - MAX_VISIBLE_FIELDS} more
                 </div>
               )}
