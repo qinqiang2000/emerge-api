@@ -7,7 +7,9 @@ import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
 import { useEval } from './eval'
+import { useModels } from './models'
 import { useProjects } from './projects'
+import { usePrompts } from './prompts'
 import { useSchema } from './schema'
 
 const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
@@ -286,6 +288,27 @@ function handleToolResult(
     const t = parent.tool_name
     if (t === 'mcp__emerge_tools__write_schema' || t === 'mcp__emerge_tools__accept_candidate') {
       useSchema.getState().invalidate(projectId)
+      usePrompts.getState().invalidate(projectId)
+      void usePrompts.getState().load(projectId)
+    }
+    if (
+      t === 'mcp__emerge_tools__write_prompt' ||
+      t === 'mcp__emerge_tools__create_prompt' ||
+      t === 'mcp__emerge_tools__switch_active_prompt' ||
+      t === 'mcp__emerge_tools__delete_prompt'
+    ) {
+      useSchema.getState().invalidate(projectId)
+      usePrompts.getState().invalidate(projectId)
+      void usePrompts.getState().load(projectId)
+    }
+    if (
+      t === 'mcp__emerge_tools__write_model' ||
+      t === 'mcp__emerge_tools__create_model' ||
+      t === 'mcp__emerge_tools__switch_active_model' ||
+      t === 'mcp__emerge_tools__delete_model'
+    ) {
+      useModels.getState().invalidate(projectId)
+      void useModels.getState().load(projectId)
     }
     if (
       t === 'mcp__emerge_tools__upload_doc' ||

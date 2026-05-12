@@ -5,10 +5,17 @@ import { useSchema } from '../../src/stores/schema'
 import { useDocs } from '../../src/stores/docs'
 import { useProjects } from '../../src/stores/projects'
 import { useEval } from '../../src/stores/eval'
+import { usePrompts } from '../../src/stores/prompts'
+import { useModels } from '../../src/stores/models'
 
 beforeEach(() => {
   useChat.setState({ events: [], busy: false, loadedProjectId: null })
   useSchema.getState().reset()
+  usePrompts.getState().reset()
+  useModels.getState().reset()
+  // Silence post-invalidate background load() fetches that fire in jsdom (no base URL).
+  // Fresh Response per call so .json() doesn't hit "Body already read" on parallel reads.
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(new Response('[]', { status: 200 }))))
 })
 
 describe('handleToolResult side effects', () => {
@@ -78,6 +85,46 @@ describe('handleToolResult side effects', () => {
     )
     expect(refresh).toHaveBeenCalledWith('p_a')
     refresh.mockRestore()
+  })
+
+  it.each([
+    'mcp__emerge_tools__write_prompt',
+    'mcp__emerge_tools__create_prompt',
+    'mcp__emerge_tools__switch_active_prompt',
+    'mcp__emerge_tools__delete_prompt',
+  ])('invalidates usePrompts (and useSchema) when %s completes', (toolName) => {
+    useChat.setState({ events: [{
+      type: 'tool_call', tool_use_id: 'tp', tool_name: toolName,
+      tool_input: {}, tool_result: null, ok: true,
+    }]})
+    usePrompts.setState({
+      list: { p_a: [{ prompt_id: 'pr_baseline', label: 'B', derived_from: null, is_active: true, created_at: 'x', updated_at: 'x' }] },
+      activeByProject: { p_a: { prompt_id: 'pr_baseline', label: 'B', schema: [], global_notes: '', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
+      loading: {},
+    })
+    useSchema.setState({ byProject: { p_a: [{ name: 'x', type: 'string', description: '' }] } })
+    _testUtils.handleToolResult({ tool_use_id: 'tp', result_text: 'ok', ok: true }, 'p_a', null)
+    expect(usePrompts.getState().list['p_a']).toBeUndefined()
+    expect(useSchema.getState().byProject['p_a']).toBeUndefined()
+  })
+
+  it.each([
+    'mcp__emerge_tools__write_model',
+    'mcp__emerge_tools__create_model',
+    'mcp__emerge_tools__switch_active_model',
+    'mcp__emerge_tools__delete_model',
+  ])('invalidates useModels when %s completes', (toolName) => {
+    useChat.setState({ events: [{
+      type: 'tool_call', tool_use_id: 'tm', tool_name: toolName,
+      tool_input: {}, tool_result: null, ok: true,
+    }]})
+    useModels.setState({
+      list: { p_a: [{ model_id: 'm_default', label: 'D', provider: 'google', provider_model_id: 'gemini-2.5-flash', is_active: true, created_at: 'x' }] },
+      activeByProject: { p_a: { model_id: 'm_default', label: 'D', provider: 'google', provider_model_id: 'gemini-2.5-flash', params: {}, created_at: 'x' } as any },
+      loading: {},
+    })
+    _testUtils.handleToolResult({ tool_use_id: 'tm', result_text: 'ok', ok: true }, 'p_a', null)
+    expect(useModels.getState().list['p_a']).toBeUndefined()
   })
 
   it('does not refresh useEval when score fails', () => {
