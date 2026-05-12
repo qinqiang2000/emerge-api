@@ -518,3 +518,40 @@ async def test_delete_experiment_physical_removal(workspace: Path):
         await read_experiment(workspace, pid, eid)
     # directory gone
     assert not experiment_meta_path(workspace, pid, eid).parent.exists()
+
+
+async def test_promote_experiment_flips_active_model(
+    workspace: Path, stub_provider,
+):
+    """promote_experiment must update active_model_id, not just active_prompt_id.
+    Without this test, the model-axis flip is silently uncovered."""
+    from app.tools.experiment import (
+        create_experiment,
+        extract_with_experiment,
+        promote_experiment,
+    )
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    # seed a second model the experiment will reference
+    atomic_write_json(model_path(workspace, pid, "m_other"), {
+        "model_id": "m_other", "label": "Other",
+        "provider": "anthropic",
+        "provider_model_id": "claude-haiku-4-5-20251001",
+        "params": {}, "created_at": _now(),
+    })
+    did = "d_aaaaaaaaaaaa"
+    _seed_doc(workspace, pid, did)
+    stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
+
+    eid = await create_experiment(workspace, pid, model_id="m_other")
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+
+    # Sanity: before promote, project's active_model_id is still the seeded default
+    project_before = json.loads(project_json_path(workspace, pid).read_text())
+    assert project_before["active_model_id"] == "m_default"
+
+    await promote_experiment(workspace, pid, eid)
+
+    project_after = json.loads(project_json_path(workspace, pid).read_text())
+    assert project_after["active_model_id"] == "m_other"
