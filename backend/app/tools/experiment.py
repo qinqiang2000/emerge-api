@@ -9,8 +9,9 @@ from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_experiment_id
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
-    experiment_extracts_dir,
     experiment_dir,
+    experiment_extract_path,
+    experiment_extracts_dir,
     experiment_meta_path,
     experiments_dir,
     project_json_path,
@@ -164,3 +165,44 @@ async def archive_experiment(
             experiment_meta_path(workspace, project_id, experiment_id),
             updated.model_dump(mode="json"),
         )
+
+
+async def extract_with_experiment(
+    workspace: Path,
+    project_id: str,
+    experiment_id: str,
+    doc_id: str,
+    *,
+    provider,
+) -> dict:
+    """Run the experiment's (prompt, model) pair on a single doc, writing the
+    payload to experiments/{exp_id}/extracts/{doc_id}.json. Returns the payload.
+
+    The caller is responsible for passing the right provider for the experiment's
+    model — the MCP wrapper / HTTP route uses get_provider_for_model(
+    experiment.model.provider_model_id).
+    """
+    from app.tools.extract import extract_one_with_schema
+    from app.tools.model import read_model
+    from app.tools.prompt import read_prompt
+
+    ex = await read_experiment(workspace, project_id, experiment_id)
+    prompt = await read_prompt(workspace, project_id, ex.prompt_id)
+    model = await read_model(workspace, project_id, ex.model_id)
+
+    payload = await extract_one_with_schema(
+        workspace, project_id, doc_id,
+        schema=prompt.schema,
+        provider=provider,
+        model_id=model.provider_model_id,
+        params=model.params or None,
+    )
+    async with project_lock(workspace, project_id):
+        experiment_extracts_dir(workspace, project_id, experiment_id).mkdir(
+            parents=True, exist_ok=True,
+        )
+        atomic_write_json(
+            experiment_extract_path(workspace, project_id, experiment_id, doc_id),
+            payload,
+        )
+    return payload

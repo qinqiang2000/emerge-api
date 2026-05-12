@@ -185,3 +185,102 @@ async def test_archive_experiment_blocks_promoted(workspace: Path) -> None:
 
     with pytest.raises(ExperimentInUseError):
         await archive_experiment(workspace, pid, eid)
+
+
+async def test_extract_with_experiment_writes_to_extracts_dir(
+    workspace: Path, stub_provider,
+):
+    from app.tools.experiment import create_experiment, extract_with_experiment
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir, experiment_extract_path
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    did = "d_doc000000000"
+    docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "invoice.png"})
+
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"supplier": "ACME"}]},
+    )
+
+    eid = await create_experiment(workspace, pid)
+    payload = await extract_with_experiment(
+        workspace, pid, eid, did, provider=stub_provider,
+    )
+    assert payload.get("entities") == [{"supplier": "ACME"}]
+    on_disk = json.loads(
+        experiment_extract_path(workspace, pid, eid, did).read_text(),
+    )
+    assert on_disk == payload
+
+
+async def test_extract_with_experiment_uses_experiment_prompt_not_active(
+    workspace: Path, stub_provider,
+):
+    """Even if active prompt has field 'supplier', if the experiment references
+    a variant with field 'marker', the extract instructions must mention 'marker'
+    (not 'supplier')."""
+    from app.tools.experiment import create_experiment, extract_with_experiment
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    # seed a variant prompt with a different field name
+    atomic_write_json(prompt_path(workspace, pid, "pr_variant"), {
+        "prompt_id": "pr_variant", "label": "variant",
+        "schema": [
+            {"name": "marker", "type": "string", "description": "unique field", "required": False},
+        ],
+        "global_notes": "", "derived_from": "pr_baseline",
+        "created_at": _now(), "updated_at": _now(),
+    })
+    did = "d_doc000000000"
+    docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "doc.png"})
+    stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
+
+    eid = await create_experiment(workspace, pid, prompt_id="pr_variant")
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+
+    # Inspect what was passed to provider.extract — user_content is a list of
+    # ContentBlock; the first block is TextBlock with the field instructions.
+    call_kwargs = stub_provider.extract.call_args.kwargs
+    user_content = call_kwargs["user_content"]
+    # find the TextBlock(s) and concatenate their text
+    text_payloads = " ".join(
+        getattr(b, "text", "") for b in user_content
+    )
+    assert "marker" in text_payloads
+    assert "supplier" not in text_payloads
+
+
+async def test_extract_with_experiment_passes_model_params(
+    workspace: Path, stub_provider,
+):
+    """The experiment's model.params (e.g. temperature override) must flow
+    through to provider.extract via the new `params` argument."""
+    from app.tools.experiment import create_experiment, extract_with_experiment
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir, model_path
+    from tests.conftest import make_provider_result
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    # override model.params to a distinctive value
+    atomic_write_json(model_path(workspace, pid, "m_default"), {
+        "model_id": "m_default", "label": "Default",
+        "provider": "google", "provider_model_id": "gemini-2.5-flash",
+        "params": {"temperature": 0.42}, "created_at": _now(),
+    })
+    did = "d_doc000000000"
+    docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "doc.png"})
+
+    stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
+    eid = await create_experiment(workspace, pid)
+    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+
+    call_kwargs = stub_provider.extract.call_args.kwargs
+    assert call_kwargs["params"] == {"temperature": 0.42}
+    assert call_kwargs["model_id"] == "gemini-2.5-flash"

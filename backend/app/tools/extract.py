@@ -150,6 +150,7 @@ async def extract_one_with_schema(
     schema: list[SchemaField],
     provider: Provider,
     model_id: str,
+    params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Like extract_one but uses an in-memory schema (does NOT read schema.json
     or write predictions/_draft/). Used by the autoresearch loop to grade
@@ -167,7 +168,7 @@ async def extract_one_with_schema(
         system_prompt=_EXTRACT_SYSTEM,
         user_content=user_blocks,
         response_schema=response_schema,
-        params={"temperature": 0.0},
+        params=params if params is not None else {"temperature": 0.0},
     )
     parsed = ExtractionOutput(**result.raw_json)
     return parsed.model_dump(by_alias=True, exclude_none=True, mode="json")
