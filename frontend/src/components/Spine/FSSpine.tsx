@@ -8,6 +8,7 @@ import { useSchema } from '../../stores/schema'
 import { useQuickLook } from '../../stores/quicklook'
 import { usePrompts } from '../../stores/prompts'
 import { useModels } from '../../stores/models'
+import { useExperiments } from '../../stores/experiments'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; onClick?: () => void }
@@ -27,6 +28,7 @@ function buildTree(
   activeVersionId: string | null,
   promptItems: LeafNode[],
   modelItems: LeafNode[],
+  experimentItems: LeafNode[],
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   const docsItems: LeafNode[] = []
@@ -66,6 +68,7 @@ function buildTree(
       { name: 'reviewed/', count: reviewedDocs.length, items: reviewedItems },
       { name: 'prompts/', count: promptItems.filter(n => n.kind === 'file').length, items: promptItems },
       { name: 'models/', count: modelItems.filter(n => n.kind === 'file').length, items: modelItems },
+      { name: 'experiments/', count: experimentItems.filter(n => n.kind === 'file').length, items: experimentItems },
       { name: 'versions/', count: activeVersionId ? 1 : 0, items: versionItems },
     ],
     rootFiles,
@@ -81,6 +84,7 @@ export default function FSSpine() {
 
   const promptListByProject = usePrompts(s => s.list)
   const modelListByProject = useModels(s => s.list)
+  const experimentListByProject = useExperiments(s => s.list)
 
   const openSchema = useQuickLook(s => s.openSchema)
   const openVersion = useQuickLook(s => s.openVersion)
@@ -99,6 +103,7 @@ export default function FSSpine() {
     void useSchema.getState().load(selectedId)
     void usePrompts.getState().load(selectedId)
     void useModels.getState().load(selectedId)
+    void useExperiments.getState().load(selectedId)
   }, [selectedId])
 
   const activeDocs = selectedId ? (docsByProject[selectedId] ?? []) : []
@@ -133,11 +138,27 @@ export default function FSSpine() {
     }))
   }, [selectedId, modelListByProject])
 
+  // Build experiments leaf nodes
+  const experimentItems: LeafNode[] = useMemo(() => {
+    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = experimentListByProject[selectedId]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    return rows.map(row => ({
+      kind: 'file' as const,
+      name: row.label,
+      stamp: row.score != null
+        ? `${row.status} · ${row.score.toFixed(2)}`
+        : row.status,
+      active: false,
+      onClick: undefined,
+    }))
+  }, [selectedId, experimentListByProject])
+
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
-      ? buildTree(activeDocs, activeProject.active_version_id ?? null, promptItems, modelItems)
+      ? buildTree(activeDocs, activeProject.active_version_id ?? null, promptItems, modelItems, experimentItems)
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems],
   )
 
   return (
