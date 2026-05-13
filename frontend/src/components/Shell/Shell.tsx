@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 
 import './shell.css'
 
 type ShellProps = {
-  topbar: ReactNode
   left: ReactNode
   center: ReactNode
   right: ReactNode
@@ -36,7 +35,7 @@ function readStored(key: string, fallback: number, min: number, max: number): nu
   return fallback
 }
 
-export default function Shell({ topbar, left, center, right, leftHidden = false, rightHidden = false }: ShellProps) {
+export default function Shell({ left, center, right, leftHidden = false, rightHidden = false }: ShellProps) {
   const [leftW, setLeftWState] = useState<number>(() => readStored(LEFT_W_KEY, LEFT_DEFAULT, LEFT_MIN, LEFT_MAX))
   const [rightW, setRightWState] = useState<number>(() => readStored(RIGHT_W_KEY, RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX))
   const [drag, setDrag] = useState<'left' | 'right' | null>(null)
@@ -106,9 +105,6 @@ export default function Shell({ topbar, left, center, right, leftHidden = false,
 
   return (
     <div className={shellClass} style={shellStyle}>
-      {/* topbar spans all columns */}
-      <div className="top">{topbar}</div>
-
       {/* left panel */}
       <aside className="fs" style={{ overflow: 'hidden' }}>
         {left}

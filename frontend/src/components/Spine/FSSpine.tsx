@@ -75,7 +75,20 @@ function buildTree(
   }
 }
 
-export default function FSSpine() {
+type FSSpineProps = {
+  onToggleLeft?: () => void
+}
+
+function IconCollapseLeft() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+      <line x1="6.5" y1="3.4" x2="6.5" y2="12.6"/>
+    </svg>
+  )
+}
+
+export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const projects = useProjects(s => s.projects)
   const selectedId = useProjects(s => s.selectedId)
 
@@ -166,6 +179,22 @@ export default function FSSpine() {
 
   return (
     <div className="fs">
+      {/* ── brand + collapse toggle ───────────────────────────────────── */}
+      <div className="fs-brand-row">
+        <div className="fs-brand"><span className="dot"></span>emerge</div>
+        {onToggleLeft && (
+          <button
+            type="button"
+            className="fs-toggle"
+            onClick={onToggleLeft}
+            title="Hide projects (⌘.)"
+            aria-label="Hide projects"
+          >
+            <IconCollapseLeft />
+          </button>
+        )}
+      </div>
+
       {/* ── ~/projects header ─────────────────────────────────────────── */}
       <div className="fs-head">
         ~/projects <span className="small">{projects.length}</span>

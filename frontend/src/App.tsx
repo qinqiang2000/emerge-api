@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import Shell from './components/Shell/Shell'
-import Topbar from './components/Shell/Topbar'
 import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
@@ -8,14 +7,30 @@ import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
 import SchemaQuickLook from './components/QuickLook/SchemaQuickLook'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
-import { useDocs } from './stores/docs'
 import { useChat } from './stores/chat'
+
+function IconExpandLeft() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="2.5" y1="4" x2="13.5" y2="4"/>
+      <line x1="2.5" y1="8" x2="13.5" y2="8"/>
+      <line x1="2.5" y1="12" x2="13.5" y2="12"/>
+    </svg>
+  )
+}
+
+function IconExpandRight() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+      <line x1="9.5" y1="3.4" x2="9.5" y2="12.6"/>
+    </svg>
+  )
+}
 
 export default function App() {
   const { activeDocId } = useReview()
-  const { selectedId, projects } = useProjects()
-  const project = projects.find(p => p.project_id === selectedId) ?? null
-  const watchingCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
+  const { selectedId } = useProjects()
 
   const [leftHidden, setLeftHidden] = useState(false)
   const [rightHidden, setRightHidden] = useState(false)
@@ -59,33 +74,39 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [selectedId, onToggleLeft, onToggleRight])
 
-  const schemaVersion = project?.active_version_id ?? 'v0'
-  const schemaState: 'draft' | 'frozen' = project?.active_version_id ? 'frozen' : 'draft'
-
   return (
     <>
       <Shell
-        topbar={
-          <Topbar
-            projectName={project?.name ?? ''}
-            schemaVersion={schemaVersion}
-            schemaState={schemaState}
-            watchingCount={watchingCount}
-            improveJob={undefined}
-            leftHidden={effectiveLeftHidden}
-            rightHidden={effectiveRightHidden}
-            onToggleLeft={onToggleLeft}
-            onToggleRight={onToggleRight}
-          />
-        }
-        left={<FSSpine />}
+        left={<FSSpine onToggleLeft={onToggleLeft} />}
         center={inReview
           ? <ReviewOverlay onBack={() => useReview.getState().close()} />
           : <ChatPanel />}
-        right={<ContextSurface />}
+        right={<ContextSurface onToggleRight={onToggleRight} />}
         leftHidden={effectiveLeftHidden}
         rightHidden={effectiveRightHidden}
       />
+      {effectiveLeftHidden && (
+        <button
+          type="button"
+          className="edge-toggle left"
+          onClick={onToggleLeft}
+          title="Show projects (⌘.)"
+          aria-label="Show projects"
+        >
+          <IconExpandLeft />
+        </button>
+      )}
+      {effectiveRightHidden && (
+        <button
+          type="button"
+          className="edge-toggle right"
+          onClick={onToggleRight}
+          title="Show context (⌘⇧.)"
+          aria-label="Show context"
+        >
+          <IconExpandRight />
+        </button>
+      )}
       <SchemaQuickLook />
     </>
   )

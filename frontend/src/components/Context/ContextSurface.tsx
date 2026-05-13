@@ -63,7 +63,20 @@ export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: st
 const MAX_VISIBLE_DOCS = 9
 const MAX_VISIBLE_FIELDS = 7
 
-export default function ContextSurface() {
+type ContextSurfaceProps = {
+  onToggleRight?: () => void
+}
+
+function IconCollapseRight() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+      <line x1="9.5" y1="3.4" x2="9.5" y2="12.6"/>
+    </svg>
+  )
+}
+
+export default function ContextSurface({ onToggleRight }: ContextSurfaceProps = {}) {
   const { selectedId, projects } = useProjects()
   const pid = selectedId ?? ''
 
@@ -106,9 +119,22 @@ export default function ContextSurface() {
   const visibleDocs = docs.slice(0, MAX_VISIBLE_DOCS)
   const docsHint = `${visibleDocs.length} of ${docs.length} shown`
 
+  const toggleNode = onToggleRight ? (
+    <button
+      type="button"
+      className="ctx-toggle"
+      onClick={onToggleRight}
+      title="Hide context (⌘⇧.)"
+      aria-label="Hide context"
+    >
+      <IconCollapseRight />
+    </button>
+  ) : null
+
   if (!selectedId) {
     return (
       <div className="ctx">
+        {toggleNode}
         <div className="ctx-section">
           <p className="micro" style={{ paddingTop: 24, textAlign: 'center' }}>
             select a project to see context
@@ -124,6 +150,7 @@ export default function ContextSurface() {
 
   return (
     <div className="ctx">
+      {toggleNode}
       {/* ── section 1a: Prompt ──────────────────────────────────── */}
       <div className="ctx-section">
         <div
