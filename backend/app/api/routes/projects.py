@@ -1,6 +1,7 @@
 import json
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.api.routes._safety import safe_project_id
 from app.config import get_settings
@@ -17,6 +18,33 @@ router = APIRouter()
 async def get_projects() -> list[dict]:
     settings = get_settings()
     return await list_projects(settings.workspace_root)
+
+
+class _ForkProjectBody(BaseModel):
+    src_pid: str
+    name: str
+    include_docs: bool = False
+
+
+@router.post("/lab/projects/fork")
+async def post_fork_project(body: _ForkProjectBody) -> dict:
+    safe_project_id(body.src_pid)
+    settings = get_settings()
+    from app.tools.fork import ForkSourceNotFoundError, fork_project
+
+    try:
+        new_pid = await fork_project(
+            settings.workspace_root,
+            src_pid=body.src_pid,
+            name=body.name,
+            include_docs=body.include_docs,
+        )
+    except ForkSourceNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+    return {"project_id": new_pid}
 
 
 @router.get("/lab/projects/{project_id}")
