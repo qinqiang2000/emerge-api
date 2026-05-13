@@ -11,7 +11,6 @@ A Software 3.0 document API platform. Drop documents into a project, talk to an 
 
 ## Design
 
-- [Spec (single source of truth)](docs/superpowers/specs/2026-05-08-agent-native-design.md)
 - Implementation plans under `docs/superpowers/plans/`
 
 ## Status

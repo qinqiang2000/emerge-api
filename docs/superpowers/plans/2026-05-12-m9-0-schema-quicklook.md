@@ -10,7 +10,6 @@
 
 **Reference docs:**
 - Spec: `docs/superpowers/specs/2026-05-12-schema-quicklook-design.md` — read this first
-- Parent spec: `docs/superpowers/specs/2026-05-08-agent-native-design.md`
 - Codebase rules: `/CLAUDE.md` (hard rules: no edit in sheet; copy button is the only mutation-shaped affordance and it's read-out only)
 
 **Conventions used in this plan:**

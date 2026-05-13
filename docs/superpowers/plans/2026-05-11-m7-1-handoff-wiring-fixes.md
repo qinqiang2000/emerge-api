@@ -567,7 +567,7 @@ git commit -m "fix(skills): defer eval/readiness rendering to the UI cards; no m
 **Files (likely):**
 - `backend/app/skills/emerge_publish.md`, `emerge_extractor.md`, `emerge_autoresearch.md`
 - `backend/app/chat/` — wherever skills are registered with the `ClaudeSDKClient` (grep for `skill`, `Skill`, `setting_sources`, `agents=`, `SKILL.md`)
-- The handoff/spec for the intended skill names: `docs/superpowers/specs/2026-05-08-agent-native-design.md`, `CLAUDE.md` (mentions `emerge-extractor / emerge-autoresearch / emerge-publish`)
+- The intended skill names live in `CLAUDE.md` (mentions `emerge-extractor / emerge-autoresearch / emerge-publish`)
 
 - [ ] **Step 1: Reproduce & capture the actual error**
 

@@ -1213,3 +1213,23 @@ The 2026-05-12 "terminal-style thread" decision (logged in the `chat-layout` E2E
 - Test compatibility: the e2e `chat-layout.spec.ts` only asserts `.msg.user` is visible and contains the typed text — both still hold. The unit `tests/unit/UserBubble.test.tsx` asserts `getByText('you')` / `getByText('agent')` and `.who` className, which the preserved `sr-only` `<span class="who">` continues to satisfy.
 - No E2E selector churn required; no test edits in this change.
 
+---
+
+### 2026-05-13 — Chat body shrinks to 15px / 1.6 (reverses "body stays at 17px" from the entry above)
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat` body typography
+- **Files**: `frontend/src/index.css`
+- **Type**: visual (reversal of prior decision in the same day's earlier entry)
+
+**What changed**
+`.msg` font-size 17px → 15px, line-height 1.7 → 1.6, paragraph margin .85em → .7em. Nothing else moved — bubble padding, composer 14.5px, slash chips, tool blocks unchanged.
+
+**Why**
+User did a direct side-by-side with claude.ai's shared-chat view and the 17px serif body still read noticeably larger and more breathy than claude.ai's body text, even after the italic/smart-quote/meta-rule reductions from the earlier entry today. The prior "the crowdedness was packing, not size" hypothesis turned out to be only half right: removing the packing helped, but the body itself is also genuinely too large for the three-pane shell. 15px / 1.6 is the size claude.ai uses for its chat prose; matching it removes the residual "bigger than the reference" feel without touching the editorial identity (still Lora serif, paper palette, paper-2 user pill, full-width agent prose).
+
+**Reference**
+- Reverses (partially): the prior 2026-05-13 entry above which kept body at 17px and earned breathing room via line-height/paragraph margin instead.
+- Composer remains at 14.5px (still a clear step below body, 15px → 14.5px is a half-step rather than the previous full step from 17px).
+- No selector or DOM changes; existing chat-layout E2E and UserBubble unit tests untouched.
+

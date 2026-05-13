@@ -8,8 +8,6 @@
 
 **Tech Stack:** No new tech. FastAPI + pydantic v2 backend; vitest only for the polish-side frontend test.
 
-**Spec reference:** `docs/superpowers/specs/2026-05-08-agent-native-design.md` §5.3 (`score` tool), §11 M2 deliverables. Out of scope: `metrics/eval_{ts}.json` UI viewer (deferred to M2C alongside autoresearch progress event stream); type-derived field controls (deferred to M2C); `_source_page` click-to-page (deferred to M2C); inline `_notes` UI (deferred to M2C — model already exists from M2A).
-
 ---
 
 ## Scope cuts (deferred)

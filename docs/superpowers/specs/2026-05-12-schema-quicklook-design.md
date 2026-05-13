@@ -1,7 +1,6 @@
 # Schema Quick-look — read-only viewer for `schema.json` + frozen versions
 
 > **Status**: design (2026-05-12)
-> **Parent spec**: `2026-05-08-agent-native-design.md`
 > **Milestone target**: **M9.0** — schema-quick-look prelude. Ships standalone before any M9a-d data-model work.
 
 The user can name a `schema.json` in the FSSpine and a `schema.json` card in the right rail, but neither responds to a click, and the right-rail card silently truncates the field list at 7 with a non-interactive `+ N more` hint. There is no path to see the full schema without opening a terminal and `cat`-ing the file.

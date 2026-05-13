@@ -10,7 +10,6 @@
 
 **Reference docs:**
 - Spec: `docs/superpowers/specs/2026-05-12-extraction-comparability-design.md` (committed `bd88af8`)
-- Parent spec: `docs/superpowers/specs/2026-05-08-agent-native-design.md`
 - INSIGHTS to respect (no behavior change in M9.1): #1 (`can_use_tool`), #2 (`setting_sources=[]`), #4 (Gemini `additionalProperties`), #8 (`safe_project_id`), #11 (`resume=...` + session sidecar)
 - CLAUDE.md hard rules — particularly **publish fast-path 0 改动** and **schema.json 只通过 write_schema 修改** (演化版本：M9.1 之后 `schema.json` 物理上 retire；新写入只通过 `write_prompt` 落 `prompts/{id}.json`，`write_schema` MCP tool 保留为 thin wrapper 委托 `write_prompt`)
 

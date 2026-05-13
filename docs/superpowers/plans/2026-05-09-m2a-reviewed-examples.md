@@ -8,8 +8,6 @@
 
 **Tech Stack:** No new tech. FastAPI + pydantic v2 on backend. Vite + React 19 + Zustand on frontend. PyMuPDF for PDF rendering already installed (used by `pdf_render_page`).
 
-**Spec reference:** `docs/superpowers/specs/2026-05-08-agent-native-design.md` §3.2 (filesystem layout for `reviewed/`), §5.4 (reviewed examples tools), §8.2 (review mode UX), §8.3 (field controls auto-derived — text input only in M2A; type-specific controls deferred to M2B).
-
 ---
 
 ## Scope cuts (deferred to M2B)

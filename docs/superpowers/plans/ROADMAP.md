@@ -1,6 +1,6 @@
 # emerge implementation roadmap
 
-> The chain of milestones. Spec for the design is `../specs/2026-05-08-agent-native-design.md`.
+> The chain of milestones.
 > Each milestone is a self-contained plan that produces working software.
 >
 > **Always read this file before starting a plan** so you know what comes after.

@@ -8,8 +8,6 @@
 
 **Tech Stack:** Python 3.12 + FastAPI + `claude_agent_sdk` + httpx + pydantic v2 + uv + pytest + pytest-asyncio + PyMuPDF / Vite + React 19 + TypeScript + Zustand + Tailwind v3 + Radix + Lucide + vitest + Playwright.
 
-**Spec reference:** `docs/superpowers/specs/2026-05-08-agent-native-design.md` §1–§8, §10, §11 (M1 row), §12.
-
 ---
 
 ## File structure

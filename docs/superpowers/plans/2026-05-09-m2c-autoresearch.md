@@ -8,8 +8,6 @@
 
 **Tech Stack:** Backend uses `asyncio.Event` for pause/cancel signaling, existing `provider.extract` adapter for the proposer call, existing `score()` for grading, existing `atomic_write_json` + `project_lock` for filesystem invariants. Frontend adds a `useJob` Zustand store that subscribes to the SSE route, a `JobProgressCard` chat-message component, and extends `Reviewed`/review-mode for `_evidence` + `_notes` round-trip.
 
-**Spec reference:** `docs/superpowers/specs/2026-05-08-agent-native-design.md` §4.2 (autoresearch discipline), §5.6 (job tools), §6.1 (`/improve`), §11 M2 deliverable, §12.3+§12.4 red lines (no auto-promote, no counterexample in runtime), Insight #7 (tool_use_id pairing). Roadmap row M2C (next) covers the same scope.
-
 ---
 
 ## Hard rules (red lines re-stated, never violate)
