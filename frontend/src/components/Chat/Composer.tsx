@@ -2,6 +2,19 @@ import { useState, useRef, useEffect, useMemo, type DragEvent, type KeyboardEven
 
 import SlashMenu, { COMMANDS } from './SlashMenu'
 
+// Phosphor-style icons lifted from claude.ai's composer so the send/stop
+// affordances are visually familiar. Both render at 14px in a 28x28 button.
+const SendIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256" aria-hidden>
+    <path d="M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z" />
+  </svg>
+)
+const StopIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256" aria-hidden>
+    <path d="M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm40-112v56a12,12,0,0,1-12,12H100a12,12,0,0,1-12-12V100a12,12,0,0,1,12-12h56A12,12,0,0,1,168,100Z" />
+  </svg>
+)
+
 // Mac shows ⌘, everything else shows Ctrl. Falls back to non-Mac when
 // `navigator` is unavailable (SSR, tests pre-jsdom-platform-shim).
 const IS_MAC =
@@ -17,9 +30,13 @@ interface Props {
   pending: { filename: string }[]
   onAttach: (files: File[]) => void
   onSubmit: (text: string) => void
+  /** When provided + `disabled` is true, renders a Stop pill + binds Esc at
+   *  window level to cancel the in-flight turn. Optional so existing call
+   *  sites (and tests) without cancel support still compile. */
+  onCancel?: () => void
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit }: Props) {
+export default function Composer({ disabled, pending, onAttach, onSubmit, onCancel }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -44,6 +61,21 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
 
   // Reset active index when slash menu opens/closes
   useEffect(() => { setActiveIdx(0) }, [showSlash])
+
+  // While the agent is responding (`disabled` true) and a cancel handler is
+  // wired, Esc at the window level stops the turn. The textarea is disabled
+  // and can't receive focus during streaming, so its own onKeyDown won't fire.
+  useEffect(() => {
+    if (!disabled || !onCancel) return
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCancel()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [disabled, onCancel])
 
   const slashMatches = useMemo(() => {
     if (!showSlash) return COMMANDS
@@ -168,9 +200,28 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
             <span className="slash"><b>/improve</b></span>
             <span className="slash"><b>/publish</b></span>
           </div>
-          <div className="send">
-            <kbd>{IS_MAC ? '⌘' : 'Ctrl'}</kbd><kbd>↵</kbd> send
-          </div>
+          {disabled && onCancel ? (
+            <button
+              type="button"
+              className="iconbtn stop"
+              onClick={onCancel}
+              title="Stop response  Esc"
+              aria-label="Stop response"
+            >
+              <StopIcon />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="iconbtn send"
+              onClick={submit}
+              disabled={!text.trim()}
+              title={`Send  ${IS_MAC ? '⌘' : 'Ctrl'}↵`}
+              aria-label="Send message"
+            >
+              <SendIcon />
+            </button>
+          )}
         </div>
       </div>
     </div>

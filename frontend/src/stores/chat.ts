@@ -60,7 +60,11 @@ interface State {
   busy: boolean
   loadedProjectId: string | null
   chatsByProject: Record<string, ChatSummary[]>
+  /** Live abort controller for the in-flight SSE turn; null when idle. */
+  abort: AbortController | null
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle. */
+  cancel: () => void
   enterProject: (projectId: string) => void
   deselect: () => void
   listChats: (projectId: string) => Promise<void>
@@ -76,6 +80,11 @@ export const useChat = create<State>((set, get) => ({
   busy: false,
   loadedProjectId: null,
   chatsByProject: {},
+  abort: null,
+  cancel: () => {
+    const a = get().abort
+    if (a) a.abort()
+  },
   enterProject: (projectId) => {
     if (projectId === 'p_unset') return
     if (projectId === get().loadedProjectId) return
@@ -177,7 +186,8 @@ export const useChat = create<State>((set, get) => ({
       _writeChatId(projectId, get().chatId)
       set({ loadedProjectId: projectId })
     }
-    set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true }))
+    const abortCtrl = new AbortController()
+    set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true, abort: abortCtrl }))
     try {
       for await (const ev of streamSSE('/lab/chat', {
         method: 'POST',
@@ -188,6 +198,7 @@ export const useChat = create<State>((set, get) => ({
           user_message: message,
           attachments,
         }),
+        signal: abortCtrl.signal,
       })) {
         if (ev.event === 'tool_result') {
           const d = ev.data as { tool_use_id: string; result_text: string; ok: boolean }
@@ -199,8 +210,14 @@ export const useChat = create<State>((set, get) => ({
         if (mapped.type === 'turn_end') break
         set(s => ({ events: [...s.events, mapped] }))
       }
+    } catch (e) {
+      // User-initiated cancel surfaces as AbortError — silent. Anything else re-raises.
+      const aborted = abortCtrl.signal.aborted
+        || (e instanceof DOMException && e.name === 'AbortError')
+        || (e instanceof Error && e.name === 'AbortError')
+      if (!aborted) throw e
     } finally {
-      set({ busy: false })
+      set({ busy: false, abort: null })
       if (projectId !== 'p_unset') void get().listChats(projectId)
     }
   },

@@ -122,6 +122,7 @@ export default function ChatPanel() {
           await send(selectedId ?? 'p_unset', text, pending.map(p => ({ filename: p.filename, doc_id: p.doc_id })))
           setPending([])
         }}
+        onCancel={() => useChat.getState().cancel()}
       />
     </>
   )

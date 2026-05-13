@@ -1143,3 +1143,50 @@ completed-command menu-dismissal logic survive.
   exactly once with the trimmed text.
 - E2E modifier: `textarea.press('ControlOrMeta+Enter')` works against
   both macOS (⌘) and Linux/Windows (Ctrl) runners.
+
+---
+
+### 2026-05-13 — Composer: Stop button + Esc cancels an in-flight chat turn
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/Composer`
+- **Files**: `frontend/src/stores/chat.ts`,
+  `frontend/src/components/Chat/Composer.tsx`,
+  `frontend/src/components/Chat/ChatPanel.tsx`,
+  `frontend/src/index.css`
+- **Type**: interaction (additive — new affordance)
+
+**What changed**
+1. The chat store now creates an `AbortController` per turn, threads its
+   signal into the SSE `fetch`, and exposes `cancel()`. Aborts surface
+   as `AbortError` and are swallowed silently (no `error` event added
+   to the chat log).
+2. The Composer's row2 swaps the `⌘↵ send` hint for a **Stop · Esc**
+   pill whenever `disabled` is true and `onCancel` is wired. Clicking
+   the pill or pressing **Esc** anywhere on the page (window-level
+   listener active only while busy) calls `cancel()`. Mirrors
+   claude.ai's stop affordance.
+3. Backend untouched. `sse_starlette` already detects client
+   disconnect; the cancellation propagates into `chat_turn`'s
+   `ClaudeSDKClient` context, which exits via `__aexit__`. The
+   `finally:` clause still persists `latest_sid` so the next turn can
+   resume normally.
+
+**Why**
+Once a turn is in flight, the textarea is disabled and there is no way
+to bail out of a long agent response or a runaway tool loop — users
+have to wait for `max_turns=20` to exhaust. Matching claude.ai's Stop
+button + Esc shortcut gives the user the same recovery they already
+have muscle memory for. SSU: frontend abort + relying on sse_starlette
+disconnect detection avoids exposing a separate `/lab/chat/cancel`
+endpoint or tracking per-request SDK clients.
+
+**Reference**
+- Cancel path: `AbortController.abort()` → `fetch` signal trips →
+  `reader.read()` rejects with `AbortError` in `streamSSE` → consumer
+  `catch` filters by `signal.aborted` to stay silent.
+- Tests: `frontend/tests/unit/Composer.test.tsx` 7/7 still pass — the
+  new `onCancel` prop is optional, so existing call sites compile and
+  the Stop pill only renders when both `disabled` and `onCancel` are
+  set (busy state only).
+
