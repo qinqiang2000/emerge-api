@@ -109,7 +109,7 @@ async def create_experiment(
         now = _now_iso()
         ex = Experiment(
             experiment_id=new_id,
-            label=f"{prompt.label} × {model.label}",
+            label=f"{prompt.label} × {model.provider_model_id}",
             prompt_id=pid_resolved,
             model_id=mid_resolved,
             status="draft",

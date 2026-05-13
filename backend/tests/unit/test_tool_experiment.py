@@ -59,8 +59,8 @@ async def test_create_experiment_defaults_to_active(workspace: Path) -> None:
     assert ex.model_id == "m_default"
     assert ex.status == "draft"
     assert ex.eval is None
-    # Label is auto-derived from prompt + model labels (Baseline + Default)
-    assert ex.label == "Baseline × Default"
+    # Label is auto-derived from prompt label + model provider_model_id
+    assert ex.label == "Baseline × gemini-2.5-flash"
 
 
 async def test_create_experiment_explicit_axes(workspace: Path) -> None:
@@ -84,7 +84,7 @@ async def test_create_experiment_explicit_axes(workspace: Path) -> None:
         workspace, pid, prompt_id="pr_v2", model_id="m_other",
     )
     ex = await read_experiment(workspace, pid, eid)
-    assert ex.label == "v2 × Other"
+    assert ex.label == "v2 × claude-haiku-4-5-20251001"
     assert ex.prompt_id == "pr_v2"
     assert ex.model_id == "m_other"
 
