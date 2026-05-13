@@ -296,7 +296,8 @@ function handleToolResult(
       t === 'mcp__emerge_tools__write_prompt' ||
       t === 'mcp__emerge_tools__create_prompt' ||
       t === 'mcp__emerge_tools__switch_active_prompt' ||
-      t === 'mcp__emerge_tools__delete_prompt'
+      t === 'mcp__emerge_tools__delete_prompt' ||
+      t === 'mcp__emerge_tools__import_prompt'
     ) {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
@@ -319,7 +320,11 @@ function handleToolResult(
     ) {
       void useDocs.getState().refresh(projectId)
     }
-    if (t === 'mcp__emerge_tools__create_project' || t === 'mcp__emerge_tools__freeze_version') {
+    if (
+      t === 'mcp__emerge_tools__create_project' ||
+      t === 'mcp__emerge_tools__freeze_version' ||
+      t === 'mcp__emerge_tools__fork_project'
+    ) {
       void useProjects.getState().refresh()
     }
     if (t === 'mcp__emerge_tools__score') {
