@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Shell from './components/Shell/Shell'
 import Topbar from './components/Shell/Topbar'
 import FSSpine from './components/Spine/FSSpine'
@@ -9,6 +9,7 @@ import SchemaQuickLook from './components/QuickLook/SchemaQuickLook'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useDocs } from './stores/docs'
+import { useChat } from './stores/chat'
 
 export default function App() {
   const { activeDocId } = useReview()
@@ -30,6 +31,33 @@ export default function App() {
 
   const onToggleLeft  = () => inReview ? setLeftPeek(v => !v)  : setLeftHidden(v => !v)
   const onToggleRight = () => inReview ? setRightPeek(v => !v) : setRightHidden(v => !v)
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      // Cmd/Ctrl+Shift+O → new chat (use e.code for macOS Cmd+Shift invariance)
+      if (e.shiftKey && e.code === 'KeyO' && selectedId) {
+        e.preventDefault()
+        useChat.getState().newChat(selectedId)
+        return
+      }
+      // Cmd/Ctrl+. → toggle left sidebar
+      if (!e.shiftKey && e.code === 'Period') {
+        e.preventDefault()
+        onToggleLeft()
+        return
+      }
+      // Cmd/Ctrl+Shift+. → toggle right sidebar
+      if (e.shiftKey && e.code === 'Period') {
+        e.preventDefault()
+        onToggleRight()
+        return
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedId, onToggleLeft, onToggleRight])
 
   const schemaVersion = project?.active_version_id ?? 'v0'
   const schemaState: 'draft' | 'frozen' = project?.active_version_id ? 'frozen' : 'draft'

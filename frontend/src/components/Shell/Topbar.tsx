@@ -65,7 +65,7 @@ export default function Topbar({
       <button
         className={`side-toggle left${leftHidden ? ' collapsed' : ''}`}
         onClick={onToggleLeft}
-        title={leftHidden ? 'Show projects' : 'Hide projects'}
+        title={leftHidden ? 'Show projects (⌘.)' : 'Hide projects (⌘.)'}
         type="button"
       >
         {leftHidden ? <IconLeftCollapsed /> : <IconLeftOpen />}
@@ -129,7 +129,7 @@ export default function Topbar({
       <button
         className={`side-toggle right${rightHidden ? ' collapsed' : ''}`}
         onClick={onToggleRight}
-        title={rightHidden ? 'Show documents' : 'Hide documents'}
+        title={rightHidden ? 'Show documents (⌘⇧.)' : 'Hide documents (⌘⇧.)'}
         type="button"
       >
         <IconRight />
