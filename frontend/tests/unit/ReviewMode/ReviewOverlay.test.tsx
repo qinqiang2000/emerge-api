@@ -13,7 +13,6 @@ const SCHEMA = [
 ]
 
 function seedStores(opts: {
-  attached?: string[]
   activeTab?: 'active' | string
   predictionsByExp?: Record<string, { entities: Record<string, unknown>[] } | null>
   activeEntities?: Record<string, unknown>[]
@@ -46,7 +45,6 @@ function seedStores(opts: {
     activeProjectId: 'p_x', activeDocId: 'd_y',
     entities: opts.activeEntities ?? [{ supplier: 'ACTIVE' }],
     evidence: null, notes: {},
-    attachedExperimentIds: opts.attached ?? [],
     activeTabKey: opts.activeTab ?? 'active',
     predictionsByExp: opts.predictionsByExp ?? {},
     loading: false, saving: false, err: null, page: 1, pageCount: 1,
@@ -70,7 +68,6 @@ describe('ReviewOverlay tab integration', () => {
 
   it('on the ⭐ Active tab, the field shows active entities and inputs are editable', () => {
     seedStores({
-      attached: [],
       activeTab: 'active',
       activeEntities: [{ supplier: 'ACTIVE_VAL' }],
     })
@@ -83,7 +80,6 @@ describe('ReviewOverlay tab integration', () => {
 
   it('switching to an experiment tab renders experiment extract entities, read-only', () => {
     seedStores({
-      attached: ['ex_a'],
       activeTab: 'ex_a',
       predictionsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EXPERIMENT' }] } },
       activeEntities: [{ supplier: 'ACTIVE_VAL' }],
@@ -96,13 +92,12 @@ describe('ReviewOverlay tab integration', () => {
   })
 
   it('save button is enabled on active tab, disabled on experiment tab', () => {
-    seedStores({ attached: ['ex_a'], activeTab: 'active' })
+    seedStores({ activeTab: 'active' })
     const { rerender } = render(<ReviewOverlay onBack={() => {}} />)
     const saveBtn = screen.getByRole('button', { name: /save/i }) as HTMLButtonElement
     expect(saveBtn.disabled).toBe(false)
 
     seedStores({
-      attached: ['ex_a'],
       activeTab: 'ex_a',
       predictionsByExp: { 'ex_a': { entities: [{}] } },
     })
@@ -112,9 +107,7 @@ describe('ReviewOverlay tab integration', () => {
   })
 
   it('experiment tab with no cached extract shows the field area gracefully', () => {
-    // ex_a is attached but predictionsByExp['ex_a'] is null (404)
     seedStores({
-      attached: ['ex_a'],
       activeTab: 'ex_a',
       predictionsByExp: { 'ex_a': null },
     })

@@ -18,11 +18,10 @@ interface State {
   entities: FieldsValue[]
   evidence: Record<string, number | null>[] | null
   notes: Record<string, string>
-  // ── M9.3 tab state ───────────────────────────────────────────────
-  attachedExperimentIds: string[]
+  // ── experiment-tab state ─────────────────────────────────────────
   activeTabKey: 'active' | string  // 'active' or experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
-  // ── existing methods ─────────────────────────────────────────────
+  // ── methods ──────────────────────────────────────────────────────
   open: (projectId: string, docId: string) => Promise<void>
   close: () => void
   setField: (entityIdx: number, name: string, value: unknown) => void
@@ -32,9 +31,6 @@ interface State {
   goPage: (page: number) => void
   setPageCount: (n: number) => void
   save: () => Promise<void>
-  // ── M9.3 tab methods ─────────────────────────────────────────────
-  attachExperiment: (experimentId: string) => Promise<void>
-  detachExperiment: (experimentId: string) => void
   setActiveTab: (key: 'active' | string) => void
   loadExperimentPrediction: (experimentId: string) => Promise<void>
   runExperimentPrediction: (experimentId: string) => Promise<void>
@@ -51,7 +47,6 @@ export const useReview = create<State>((set, get) => ({
   entities: [],
   evidence: null,
   notes: {},
-  attachedExperimentIds: [],
   activeTabKey: 'active',
   predictionsByExp: {},
   open: async (projectId, docId) => {
@@ -66,24 +61,31 @@ export const useReview = create<State>((set, get) => ({
       evidence: null,
       notes: {},
       // ── tab state reset ──
-      attachedExperimentIds: [],
       activeTabKey: 'active',
       predictionsByExp: {},
     })
     try {
-      // Prefer reviewed payload (resume a partial review); fall back to draft.
-      const reviewed = await getReviewed(projectId, docId)
-      if (reviewed) {
-        set({
-          entities: reviewed.entities ?? [],
-          evidence: reviewed._evidence ?? null,
-          notes: reviewed._notes ?? {},
-          loading: false,
-        })
-        return
-      }
-      const pred = await getPrediction(projectId, docId)
-      set({ entities: pred?.entities ?? [{}], evidence: pred?._evidence ?? null, notes: {}, loading: false })
+      // Fetch reviewed (user corrections) and prediction (latest extract) together.
+      // Reviewed wins per-key when present; prediction backfills fields the user
+      // never touched — including schema fields added after the doc was reviewed.
+      const [reviewed, pred] = await Promise.all([
+        getReviewed(projectId, docId),
+        getPrediction(projectId, docId),
+      ])
+      const reviewedEnts = reviewed?.entities
+      const predEnts = pred?.entities
+      const base = reviewedEnts ?? predEnts ?? [{}]
+      const entities = base.map((rev, i) => {
+        const predEnt = (predEnts?.[i] ?? {}) as Record<string, unknown>
+        const revEnt = (rev ?? {}) as Record<string, unknown>
+        return reviewedEnts ? { ...predEnt, ...revEnt } : revEnt
+      })
+      set({
+        entities,
+        evidence: reviewed?._evidence ?? pred?._evidence ?? null,
+        notes: reviewed?._notes ?? {},
+        loading: false,
+      })
     } catch (e: unknown) {
       set({ err: String(e), loading: false })
     }
@@ -120,20 +122,6 @@ export const useReview = create<State>((set, get) => ({
     } catch (e: unknown) {
       set({ err: String(e), saving: false })
     }
-  },
-
-  attachExperiment: async (experimentId) => {
-    const { attachedExperimentIds } = get()
-    if (attachedExperimentIds.includes(experimentId)) return
-    set((s) => ({ attachedExperimentIds: [...s.attachedExperimentIds, experimentId] }))
-    await get().loadExperimentPrediction(experimentId)
-  },
-
-  detachExperiment: (experimentId) => {
-    set((s) => ({
-      attachedExperimentIds: s.attachedExperimentIds.filter((x) => x !== experimentId),
-      activeTabKey: s.activeTabKey === experimentId ? 'active' : s.activeTabKey,
-    }))
   },
 
   setActiveTab: (key) => set({ activeTabKey: key }),

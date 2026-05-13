@@ -14,21 +14,23 @@ const EXPERIMENTS: ExperimentSummary[] = [
 ]
 
 describe('ExperimentTabStrip', () => {
-  it('renders the ⭐ Active tab + each attached experiment tab', () => {
+  it('renders ⭐ Active + every non-archived experiment by default', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="active"
-        attachedExperimentIds={['ex_a', 'ex_b']}
         availableExperiments={EXPERIMENTS}
         onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={() => {}}
         modelLabels={{ m_y: 'Gemma 4' }}
       />
     )
     expect(screen.getByText(/Active/i)).toBeInTheDocument()
-    expect(screen.getByText('try Gemma4')).toBeInTheDocument()
-    expect(screen.getByText('try notes')).toBeInTheDocument()
+    // both non-archived experiments are visible without any attach action
+    const tabs = screen.getAllByRole('tab')
+    const labels = tabs.map((t) => t.textContent)
+    expect(labels.some((l) => l?.includes('try Gemma4'))).toBe(true)
+    expect(labels.some((l) => l?.includes('try notes'))).toBe(true)
+    // archived one is hidden
+    expect(labels.some((l) => l?.includes('archived one'))).toBe(false)
   })
 
   it('clicking an experiment tab calls onSwitch with experiment_id', () => {
@@ -36,11 +38,8 @@ describe('ExperimentTabStrip', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="active"
-        attachedExperimentIds={['ex_a']}
         availableExperiments={EXPERIMENTS}
         onSwitch={onSwitch}
-        onAttach={() => {}}
-        onDetach={() => {}}
         modelLabels={{}}
       />
     )
@@ -53,11 +52,8 @@ describe('ExperimentTabStrip', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="ex_a"
-        attachedExperimentIds={['ex_a']}
         availableExperiments={EXPERIMENTS}
         onSwitch={onSwitch}
-        onAttach={() => {}}
-        onDetach={() => {}}
         modelLabels={{}}
       />
     )
@@ -65,109 +61,29 @@ describe('ExperimentTabStrip', () => {
     expect(onSwitch).toHaveBeenCalledWith('active')
   })
 
-  it('[+] popover lists unattached non-archived experiments', () => {
-    render(
-      <ExperimentTabStrip
-        activeTabKey="active"
-        attachedExperimentIds={['ex_a']}
-        availableExperiments={EXPERIMENTS}
-        onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={() => {}}
-        modelLabels={{}}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: '+' }))
-    // ex_a is already attached → only ex_b (non-archived) shown; ex_c (archived) excluded
-    const menu = screen.getByRole('menu')
-    expect(menu).toHaveTextContent('try notes')
-    expect(menu).not.toHaveTextContent('archived one')
-    expect(menu).not.toHaveTextContent('try Gemma4')
-  })
-
-  it('clicking a popover item calls onAttach and closes the popover', () => {
-    const onAttach = vi.fn()
-    render(
-      <ExperimentTabStrip
-        activeTabKey="active"
-        attachedExperimentIds={[]}
-        availableExperiments={EXPERIMENTS.slice(0, 1)}
-        onSwitch={() => {}}
-        onAttach={onAttach}
-        onDetach={() => {}}
-        modelLabels={{}}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: '+' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /try Gemma4/i }))
-    expect(onAttach).toHaveBeenCalledWith('ex_a')
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-  })
-
-  it('[+] popover shows empty state when no candidates remain', () => {
-    render(
-      <ExperimentTabStrip
-        activeTabKey="active"
-        attachedExperimentIds={['ex_a', 'ex_b']}
-        availableExperiments={EXPERIMENTS}
-        onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={() => {}}
-        modelLabels={{}}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: '+' }))
-    expect(screen.getByText(/no more experiments to attach/i)).toBeInTheDocument()
-  })
-
-  it('right-click on an experiment tab triggers detach', () => {
-    const onDetach = vi.fn()
-    render(
-      <ExperimentTabStrip
-        activeTabKey="ex_a"
-        attachedExperimentIds={['ex_a']}
-        availableExperiments={EXPERIMENTS}
-        onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={onDetach}
-        modelLabels={{}}
-      />
-    )
-    fireEvent.contextMenu(screen.getByText('try Gemma4'))
-    expect(onDetach).toHaveBeenCalledWith('ex_a')
-  })
-
-  it('right-click on the ⭐ Active tab does NOT trigger detach', () => {
-    const onDetach = vi.fn()
-    render(
-      <ExperimentTabStrip
-        activeTabKey="active"
-        attachedExperimentIds={[]}
-        availableExperiments={EXPERIMENTS}
-        onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={onDetach}
-        modelLabels={{}}
-      />
-    )
-    fireEvent.contextMenu(screen.getByText(/Active/i))
-    expect(onDetach).not.toHaveBeenCalled()
-  })
-
   it('selected tab gets aria-selected=true', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="ex_a"
-        attachedExperimentIds={['ex_a']}
         availableExperiments={EXPERIMENTS}
         onSwitch={() => {}}
-        onAttach={() => {}}
-        onDetach={() => {}}
         modelLabels={{}}
       />
     )
     const tabs = screen.getAllByRole('tab')
     const selected = tabs.find((t) => t.getAttribute('aria-selected') === 'true')
     expect(selected?.textContent).toContain('try Gemma4')
+  })
+
+  it('does NOT render an "add tab" button (no popover entry point)', () => {
+    render(
+      <ExperimentTabStrip
+        activeTabKey="active"
+        availableExperiments={EXPERIMENTS}
+        onSwitch={() => {}}
+        modelLabels={{}}
+      />
+    )
+    expect(screen.queryByRole('button', { name: '+' })).not.toBeInTheDocument()
   })
 })

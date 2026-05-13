@@ -8,7 +8,6 @@ import { useSchema } from '../../stores/schema'
 import { useExperiments } from '../../stores/experiments'
 import { useModels } from '../../stores/models'
 
-import ExperimentTabStrip from './ExperimentTabStrip'
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
 import ReviewBar from './ReviewBar'
@@ -34,11 +33,9 @@ export default function ReviewOverlay({ onBack }: Props) {
     goPage,
     save,
     open,
-    attachedExperimentIds,
     activeTabKey,
     predictionsByExp,
-    attachExperiment,
-    detachExperiment,
+    loadExperimentPrediction,
     setActiveTab,
   } = useReview()
 
@@ -110,6 +107,16 @@ export default function ReviewOverlay({ onBack }: Props) {
     void loadModels(activeProjectId)
   }, [activeProjectId, loadSchema, loadExperiments, loadModels])
 
+  // Auto-load every non-archived experiment's prediction so all tabs are
+  // immediately switchable; loadExperimentPrediction is idempotent per id.
+  useEffect(() => {
+    if (!activeProjectId || !activeDocId) return
+    for (const e of experimentList) {
+      if (e.status === 'archived') continue
+      void loadExperimentPrediction(e.experiment_id)
+    }
+  }, [activeProjectId, activeDocId, experimentList, loadExperimentPrediction])
+
   const filename = docs.find(d => d.doc_id === activeDocId)?.filename
 
   const handleToggleExpand = () => setForceOpen(v => (v === true ? false : true))
@@ -134,24 +141,16 @@ export default function ReviewOverlay({ onBack }: Props) {
         onOpen={open}
         onSave={() => void save()}
         onBack={onBack}
+        activeTabKey={activeTabKey}
+        availableExperiments={experimentList}
+        onSwitchTab={setActiveTab}
+        modelLabels={modelLabels}
       />
 
       {err && (
         <div style={{ borderLeft: '2px solid var(--rose)', padding: '8px 16px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--rose)' }}>
           error: {err}
         </div>
-      )}
-
-      {experimentList.length > 0 && (
-        <ExperimentTabStrip
-          activeTabKey={activeTabKey}
-          attachedExperimentIds={attachedExperimentIds}
-          availableExperiments={experimentList}
-          onSwitch={setActiveTab}
-          onAttach={(eid) => void attachExperiment(eid)}
-          onDetach={detachExperiment}
-          modelLabels={modelLabels}
-        />
       )}
 
       <div

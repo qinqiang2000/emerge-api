@@ -1,5 +1,8 @@
 // frontend/src/components/ReviewMode/ReviewBar.tsx
-import type { DocSummary } from '../../types/review'
+import { ArrowLeft } from 'lucide-react'
+
+import type { DocSummary, ExperimentSummary } from '../../types/review'
+import ExperimentTabStrip from './ExperimentTabStrip'
 
 type Props = {
   filename?: string
@@ -15,6 +18,11 @@ type Props = {
   onOpen: (pid: string, docId: string) => void
   onSave: () => void
   onBack: () => void
+  // ── inline tab strip ──
+  activeTabKey: 'active' | string
+  availableExperiments: ExperimentSummary[]
+  onSwitchTab: (key: 'active' | string) => void
+  modelLabels: Record<string, string>
 }
 
 export default function ReviewBar({
@@ -31,8 +39,12 @@ export default function ReviewBar({
   onOpen,
   onSave,
   onBack,
+  activeTabKey,
+  availableExperiments,
+  onSwitchTab,
+  modelLabels,
 }: Props) {
-  const idx = docs.findIndex(d => d.doc_id === activeDocId)
+  const idx = docs.findIndex((d) => d.doc_id === activeDocId)
   const total = docs.length
   const hasPrev = idx > 0
   const hasNext = idx >= 0 && idx < total - 1
@@ -50,14 +62,21 @@ export default function ReviewBar({
 
   return (
     <div className="rev-bar">
-      <button className="back" onClick={onBack} type="button">◂ back to chat</button>
+      <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat" title="back to chat">
+        <ArrowLeft size={16} strokeWidth={1.75} />
+      </button>
 
       <span className="title">
         <em>reviewing</em>
         <span className="doc">docs/{filename ?? activeDocId}</span>
       </span>
 
-      <div className="spacer" />
+      <ExperimentTabStrip
+        activeTabKey={activeTabKey}
+        availableExperiments={availableExperiments}
+        onSwitch={onSwitchTab}
+        modelLabels={modelLabels}
+      />
 
       <div className="rev-toolbar">
         <div className="seg">

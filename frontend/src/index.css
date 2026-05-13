@@ -241,13 +241,14 @@ html, body, #root {
 /* ── review overlay ──────────────────────────────────────────────── */
 .rev-overlay{position:absolute;inset:0;background:#FDFDFC;display:flex;flex-direction:column;animation:slideUp .35s ease-out}
 @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-.rev-bar{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--rule);background:var(--paper);flex-wrap:wrap}
+.rev-bar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--paper);flex-wrap:nowrap;min-width:0}
 .rev-bar .back{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px;cursor:default;padding:5px 9px;border-radius:5px;white-space:nowrap;flex-shrink:0}
 .rev-bar .back:hover{background:var(--paper-2);color:var(--ink)}
-.rev-bar .title{font-family:var(--serif);font-size:16px;font-style:italic;color:var(--ink);display:flex;align-items:baseline;gap:10px;white-space:nowrap;min-width:0;flex-shrink:1;overflow:hidden;text-overflow:ellipsis}
-.rev-bar .title .doc{font-family:var(--mono);font-size:12px;font-style:normal;color:var(--ink-3);background:var(--paper-2);padding:3px 8px;border-radius:4px;border:1px solid var(--rule)}
+.rev-bar .back-icon{padding:5px 7px}
+.rev-bar .title{font-family:var(--serif);font-size:15px;font-style:italic;color:var(--ink);display:flex;align-items:baseline;gap:8px;white-space:nowrap;min-width:0;flex-shrink:1;overflow:hidden;text-overflow:ellipsis}
+.rev-bar .title .doc{font-family:var(--mono);font-size:11.5px;font-style:normal;color:var(--ink-3);background:var(--paper-2);padding:3px 8px;border-radius:4px;border:1px solid var(--rule);max-width:240px;overflow:hidden;text-overflow:ellipsis}
 .rev-bar .spacer{flex:1}
-.rev-bar .nav{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap;flex-shrink:0}
+.rev-bar .nav{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap;flex-shrink:0}
 .rev-bar .nav .arrow{padding:4px 8px;border:1px solid var(--rule);border-radius:4px;cursor:default}
 .rev-bar .nav .arrow:hover{background:var(--paper-2)}
 .rev-bar .save{font-family:var(--mono);font-size:11.5px;padding:6px 12px;background:var(--ink);color:var(--paper);border-radius:5px;cursor:default;white-space:nowrap;flex-shrink:0}
@@ -503,17 +504,17 @@ html, body, #root {
 .tstack .ts-node.run > .ts-dot{color:var(--ochre-2);border-color:var(--ochre-soft)}
 .tstack .ts-node.err > .ts-dot{color:var(--rose);border-color:var(--rose-soft)}
 
-/* ── experiment tab strip (T14) ─────────────────────────────────── */
-.rev-tabstrip{display:flex;gap:4px;align-items:center;padding:6px 16px;border-bottom:1px solid var(--ink-5);background:var(--paper);font-family:var(--mono);font-size:12px}
-.rev-tab-scroller{display:flex;gap:4px;align-items:center;overflow-x:auto;min-width:0;flex:1}
-.rev-tab{padding:4px 10px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--ink-3);cursor:pointer;white-space:nowrap;font-family:inherit;font-size:inherit}
+/* ── inline tab strip (entity/experiment tabs in review bar) ────── */
+.rev-tabstrip{position:relative;display:flex;gap:4px;align-items:center;font-family:var(--mono);font-size:11.5px;min-width:0;flex:1 1 auto}
+.rev-tabstrip-inner{display:flex;gap:4px;align-items:center;overflow:hidden;min-width:0;flex:1 1 auto}
+.rev-tab{padding:4px 10px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--ink-3);cursor:default;white-space:nowrap;font-family:inherit;font-size:inherit;flex-shrink:0}
 .rev-tab:hover{background:var(--paper-2)}
 .rev-tab.on{background:var(--paper-3);color:var(--ink);border-color:var(--ink-5)}
-.rev-tab .star{margin-right:4px}
-.rev-tab-add{position:relative;margin-left:4px}
-.rev-tab-plus{padding:4px 8px;border:1px dashed var(--ink-5);background:transparent;cursor:pointer;color:var(--ink-4)}
-.rev-tab-popover{position:absolute;top:100%;left:0;margin-top:4px;background:var(--paper);border:1px solid var(--ink-5);padding:4px;min-width:200px;z-index:5;display:flex;flex-direction:column;gap:2px}
-.rev-tab-popover-item{text-align:left;padding:6px 8px;background:transparent;border:none;cursor:pointer;font-family:inherit;font-size:inherit;color:var(--ink-2)}
-.rev-tab-popover-item:hover{background:var(--paper-2)}
-.rev-tab-popover-item .meta{float:right;color:var(--ink-4);font-size:11px}
-.rev-tab-empty{padding:6px 8px;color:var(--ink-4);font-style:italic}
+.rev-tab-overflow{position:relative;margin-left:2px;flex-shrink:0}
+.rev-tab-overflow-trigger{padding:4px 8px;border-radius:4px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-3);cursor:default;font-family:inherit;font-size:inherit;white-space:nowrap}
+.rev-tab-overflow-trigger:hover{background:var(--paper-2);color:var(--ink-2)}
+.rev-tab-overflow-trigger.has-active{background:var(--paper-3);color:var(--ink);border-color:var(--ink-5)}
+.rev-tab-popover{position:absolute;top:100%;right:0;margin-top:4px;background:var(--paper);border:1px solid var(--rule);border-radius:5px;padding:4px;min-width:180px;max-width:280px;z-index:10;display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 14px rgba(31,27,20,.10)}
+.rev-tab-popover-item{text-align:left;padding:6px 10px;background:transparent;border:none;cursor:default;font-family:inherit;font-size:inherit;color:var(--ink-2);border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rev-tab-popover-item:hover{background:var(--paper-2);color:var(--ink)}
+.rev-tab-popover-item.on{background:var(--paper-3);color:var(--ink)}
