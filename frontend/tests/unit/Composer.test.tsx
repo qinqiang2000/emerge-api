@@ -22,11 +22,9 @@ describe('Composer', () => {
     render(<Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />)
     const input = screen.getByPlaceholderText(PLACEHOLDER)
     await userEvent.type(input, '/ext')
-    // The slash menu renders a .cmd span; the row2 chips also show /extract as <b>.
-    // getAllByText handles both; check at least one is in the slashmenu.
+    // The slash menu renders a .cmd span for the matched command.
     const matches = screen.getAllByText('/extract')
     expect(matches.length).toBeGreaterThanOrEqual(1)
-    // The .cmd span inside .slashmenu should be present
     expect(matches.some(el => el.className === 'cmd')).toBe(true)
   })
 

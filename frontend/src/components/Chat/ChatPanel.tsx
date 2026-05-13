@@ -118,6 +118,7 @@ export default function ChatPanel() {
         disabled={busy}
         pending={pending.map(p => ({ filename: p.filename }))}
         onAttach={(files: File[]) => { void attach(files) }}
+        onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onSubmit={async (text) => {
           await send(selectedId ?? 'p_unset', text, pending.map(p => ({ filename: p.filename, doc_id: p.doc_id })))
           setPending([])

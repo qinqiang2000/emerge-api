@@ -131,27 +131,100 @@ html, body, #root {
 .tool .t-btn.primary:hover{background:var(--ink-2)}
 .tool .t-btn.danger{color:var(--rose);border-color:var(--rose-soft)}
 
-/* ── composer ────────────────────────────────────────────────────── */
+/* ── composer (claude.ai styling) ────────────────────────────────── */
+/* Card uses a 20px radius and a dual box-shadow (soft drop + 0.5px hairline
+   ring), with the ring darkening on hover and the drop deepening on
+   focus-within — matches the layered shadow tokens captured from claude.ai. */
 .composer-wrap{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding:20px 56px 18px;background:linear-gradient(to top, #FDFDFC 70%, rgba(253,253,252,0));pointer-events:none}
-.composer{pointer-events:auto;position:relative;width:100%;max-width:720px;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 6px 24px rgba(31,27,20,.06);padding:0;display:flex;flex-direction:column}
-.composer .row1{display:flex;align-items:flex-start;gap:0;padding:12px 14px 6px}
-.composer .caret{font-family:var(--mono);color:var(--ochre);margin-right:8px;font-size:14px;padding-top:1px}
-.composer textarea{flex:1;font-family:var(--serif);font-size:14.5px;color:var(--ink);background:transparent;border:0;outline:none;resize:none;min-height:22px;line-height:1.55}
+.composer-wrap.dragover{background:linear-gradient(to top, var(--paper-2) 70%, rgba(253,253,252,0))}
+.composer{
+  pointer-events:auto;position:relative;
+  width:100%;max-width:720px;
+  background:#FFFFFF;
+  border:1px solid transparent;
+  border-radius:20px;
+  box-shadow:0 4px 20px rgba(0,0,0,.035), 0 0 0 .5px rgba(31,27,20,.15);
+  transition:box-shadow .2s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;
+  cursor:text;
+}
+.composer:hover{box-shadow:0 4px 20px rgba(0,0,0,.035), 0 0 0 .5px rgba(31,27,20,.3)}
+.composer:focus-within{box-shadow:0 4px 20px rgba(0,0,0,.075), 0 0 0 .5px rgba(31,27,20,.3)}
+.composer:hover:focus-within{box-shadow:0 4px 20px rgba(0,0,0,.075), 0 0 0 .5px rgba(31,27,20,.3)}
+
+.composer-body{display:flex;flex-direction:column;margin:14px;gap:12px}
+
+.composer-text{position:relative}
+.composer textarea{
+  width:100%;display:block;
+  font-family:var(--serif);
+  font-size:15px;color:var(--ink);
+  background:transparent;border:0;outline:none;resize:none;
+  min-height:24px;line-height:1.6;
+  padding:6px 0 0 6px;
+  max-height:24rem;
+}
 .composer textarea::placeholder{color:var(--ink-4)}
-.composer .row2{display:flex;align-items:center;gap:10px;padding:6px 12px 10px;border-top:1px solid var(--rule-soft);margin-top:4px}
-.composer .slashes{display:flex;gap:6px;flex-wrap:wrap}
-.composer .slash{font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--paper-2);border:1px solid var(--rule);padding:3px 8px;border-radius:4px;cursor:default}
-.composer .slash:hover{background:var(--paper-3);color:var(--ink)}
-.composer .slash b{color:var(--ochre-2);font-weight:500}
-.composer .iconbtn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;padding:0;line-height:0;cursor:pointer;transition:background .12s,border-color .12s,color .12s,opacity .12s,transform .08s}
+
+.composer-actions{display:flex;align-items:center;gap:8px;width:100%}
+.composer-actions .left{flex:1;display:flex;align-items:center;gap:4px;min-width:0}
+.composer-actions .right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.composer .iconbtn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:8px;padding:0;line-height:0;cursor:pointer;
+  background:transparent;border:1px solid transparent;color:var(--ink-2);
+  transition:background .2s,color .2s,border-color .12s,opacity .12s,transform .08s;
+}
 .composer .iconbtn:active:not(:disabled){transform:scale(.96)}
 .composer .iconbtn:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
-.composer .iconbtn:disabled{cursor:not-allowed}
-.composer .iconbtn.send{background:#C66240;border:1px solid #C66240;color:#FFFFFF}
+.composer .iconbtn:disabled{cursor:not-allowed;opacity:.5}
+.composer .iconbtn.ghost:hover:not(:disabled){background:var(--paper-2);color:var(--ink)}
+.composer .iconbtn.send{width:32px;height:32px;background:#C66240;border-color:#C66240;color:#FFFFFF}
 .composer .iconbtn.send:hover:not(:disabled){background:#B0512F;border-color:#B0512F}
-.composer .iconbtn.send:disabled{background:var(--paper-2);border-color:var(--rule);color:var(--ink-4)}
-.composer .iconbtn.stop{background:var(--paper-2);border:1px solid var(--rule);color:var(--ink)}
+.composer .iconbtn.send:disabled{background:var(--paper-2);border-color:var(--rule);color:var(--ink-4);opacity:1}
+.composer .iconbtn.stop{width:32px;height:32px;background:var(--paper-2);border-color:var(--rule);color:var(--ink)}
 .composer .iconbtn.stop:hover{background:var(--paper-3);border-color:var(--ink-4)}
+
+/* + menu (PDF / Image) — popover above the + button */
+.composer .plus-wrap{position:relative;display:inline-flex}
+.composer .plus-menu{
+  position:absolute;bottom:calc(100% + 6px);left:0;
+  min-width:184px;background:#FFFFFF;
+  border:1px solid var(--rule);border-radius:10px;
+  box-shadow:0 8px 28px rgba(31,27,20,.10);
+  padding:6px;z-index:7;
+  display:flex;flex-direction:column;gap:2px;
+  animation:ghostIn .12s ease-out;
+}
+.composer .plus-menu button{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 10px;border-radius:6px;
+  background:transparent;border:0;
+  font-family:var(--sans);font-size:13px;color:var(--ink);
+  cursor:pointer;text-align:left;
+  transition:background .08s;
+}
+.composer .plus-menu button:hover{background:var(--paper-2)}
+.composer .plus-menu .ic{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:var(--ink-3);flex-shrink:0}
+
+/* Pending attachment chips (with remove X) */
+.composer .att-row{display:flex;flex-wrap:wrap;gap:6px}
+.composer .att-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  font-family:var(--mono);font-size:11px;color:var(--ink-2);
+  background:var(--paper-2);border:1px solid var(--rule);
+  padding:3px 4px 3px 8px;border-radius:6px;
+  max-width:240px;
+}
+.composer .att-chip .att-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.composer .att-chip .att-x{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;border:0;background:transparent;color:var(--ink-4);
+  cursor:pointer;border-radius:3px;padding:0;line-height:0;
+  transition:background .08s,color .08s;
+}
+.composer .att-chip .att-x:hover{background:var(--paper-3);color:var(--ink)}
 
 .slashmenu{position:absolute;left:0;right:0;bottom:100%;margin-bottom:8px;display:flex;justify-content:center;padding:0;pointer-events:none;z-index:6;animation:ghostIn .12s ease-out}
 .slashmenu .inner{pointer-events:auto;width:100%;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 8px 28px rgba(31,27,20,.10);overflow:hidden;padding:6px}
@@ -201,7 +274,10 @@ html, body, #root {
 .diff .col .new{color:var(--ink);display:block;white-space:normal;background:linear-gradient(transparent 65%, var(--moss-soft) 65%);padding:0 2px;font-size:11px}
 
 /* ── empty hero ──────────────────────────────────────────────────── */
-.empty-hero{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:60px 56px;gap:20px;text-align:center}
+/* `safe center` falls back to flex-start when content overflows, so the top
+   isn't clipped on short viewports. Bottom padding clears the floating
+   composer (~104px card + 38px wrap padding + buffer for the fade-out). */
+.empty-hero{display:flex;flex-direction:column;align-items:center;justify-content:safe center;flex:1;min-height:0;overflow-y:auto;padding:60px 56px 240px;gap:20px;text-align:center}
 .empty-hero .ey{font-family:var(--mono);font-size:11px;color:var(--ochre-2);text-transform:uppercase;letter-spacing:.18em}
 .empty-hero h1{font-family:var(--serif);font-size:38px;line-height:1.18;letter-spacing:-.01em;color:var(--ink);font-weight:500;margin:0;max-width:580px;text-wrap:balance}
 .empty-hero h1 em{font-style:italic;color:var(--ochre-2)}
