@@ -55,8 +55,8 @@ html, body, #root {
 .conv-inner > .turn-you:first-child{margin-top:0}
 
 /* ── msg ─────────────────────────────────────────────────────────── */
-.msg{font-family:var(--serif);font-size:17px;line-height:1.7;color:var(--ink);letter-spacing:.005em}
-.msg p{margin:0 0 .85em}
+.msg{font-family:var(--serif);font-size:15px;line-height:1.6;color:var(--ink);letter-spacing:.005em}
+.msg p{margin:0 0 .7em}
 .msg p:last-child{margin-bottom:0}
 .msg code{font-family:var(--mono);font-size:.86em;background:var(--paper-2);border:1px solid var(--rule-soft);padding:1px 5px;border-radius:4px;color:var(--ochre-2)}
 
