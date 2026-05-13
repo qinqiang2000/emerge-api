@@ -58,15 +58,17 @@ describe('ReviewOverlay tab integration', () => {
     }))
   })
 
-  it('renders the experiment tab strip when project has experiments', () => {
+  it('renders the experiment tab strip with one card per experiment (no ⭐ Active chip)', () => {
     seedStores({})
     render(<ReviewOverlay onBack={() => {}} />)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
-    // The ⭐ Active tab button
-    expect(screen.getByRole('tab', { name: /Active/i })).toBeInTheDocument()
+    // No implicit Active tab — canonical view is the default state
+    expect(screen.queryByRole('tab', { name: /Active/i })).not.toBeInTheDocument()
+    // The seeded experiment card is present
+    expect(screen.getByRole('tab', { name: /gemma/i })).toBeInTheDocument()
   })
 
-  it('on the ⭐ Active tab, the field shows active entities and inputs are editable', () => {
+  it('in canonical mode (activeTabKey=active), the field shows active entities and inputs are editable', () => {
     seedStores({
       activeTab: 'active',
       activeEntities: [{ supplier: 'ACTIVE_VAL' }],
