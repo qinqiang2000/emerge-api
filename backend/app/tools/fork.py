@@ -60,6 +60,9 @@ async def fork_project(
     new_dir = project_dir(workspace, new_pid)
     new_dir.mkdir(parents=True, exist_ok=False)
 
+    # Lock is on the new pid only; src is treated as read-only / frozen
+    # during a fork (concurrent writers on src would race with our reads,
+    # but that's the spec's "clone-at-time" semantics).
     async with project_lock(workspace, new_pid):
         # Bootstrap only the whitelist subdirs; everything else (chats,
         # predictions, versions, reviewed, experiments, metrics, jobs) is

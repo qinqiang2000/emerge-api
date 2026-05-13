@@ -256,11 +256,11 @@ async def fork_project(
     new_dir.mkdir(parents=True, exist_ok=False)
 
     async with project_lock(workspace, new_pid):
-        # Bootstrap empty required subdirs (matches create_project shape)
+        # Bootstrap only the subdirs we populate or care about post-fork.
+        # predictions/_draft, versions/, chats/ are created lazily by their
+        # writers — every read path guards .exists() — so we don't pre-mkdir
+        # them here. (Matches the test contract.)
         docs_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
-        predictions_draft_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
-        versions_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
-        chats_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
         prompts_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
         models_dir(workspace, new_pid).mkdir(parents=True, exist_ok=True)
 
