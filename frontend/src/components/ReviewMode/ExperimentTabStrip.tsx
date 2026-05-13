@@ -36,33 +36,37 @@ export default function ExperimentTabStrip({
 
   return (
     <div className="rev-tabstrip" role="tablist">
-      <button
-        role="tab"
-        aria-selected={activeTabKey === 'active'}
-        className={'rev-tab' + (activeTabKey === 'active' ? ' on' : '')}
-        onClick={() => onSwitch('active')}
-        type="button"
-      >
-        <span className="star">⭐</span> Active
-      </button>
-
-      {attachedExperiments.map((e) => (
+      {/* Inner scroll container so tabs can overflow-x without clipping
+          the [+] popover, which lives in a sibling unscrolled container. */}
+      <div className="rev-tab-scroller">
         <button
-          key={e.experiment_id}
           role="tab"
-          aria-selected={activeTabKey === e.experiment_id}
-          className={'rev-tab' + (activeTabKey === e.experiment_id ? ' on' : '')}
-          onClick={() => onSwitch(e.experiment_id)}
-          onContextMenu={(ev) => {
-            ev.preventDefault()
-            onDetach(e.experiment_id)
-          }}
-          title={`${modelLabels[e.model_id] ?? e.model_id} · ${e.prompt_id}`}
+          aria-selected={activeTabKey === 'active'}
+          className={'rev-tab' + (activeTabKey === 'active' ? ' on' : '')}
+          onClick={() => onSwitch('active')}
           type="button"
         >
-          {e.label}
+          <span className="star">⭐</span> Active
         </button>
-      ))}
+
+        {attachedExperiments.map((e) => (
+          <button
+            key={e.experiment_id}
+            role="tab"
+            aria-selected={activeTabKey === e.experiment_id}
+            className={'rev-tab' + (activeTabKey === e.experiment_id ? ' on' : '')}
+            onClick={() => onSwitch(e.experiment_id)}
+            onContextMenu={(ev) => {
+              ev.preventDefault()
+              onDetach(e.experiment_id)
+            }}
+            title={`${modelLabels[e.model_id] ?? e.model_id} · ${e.prompt_id}`}
+            type="button"
+          >
+            {e.label}
+          </button>
+        ))}
+      </div>
 
       <div className="rev-tab-add">
         <button
