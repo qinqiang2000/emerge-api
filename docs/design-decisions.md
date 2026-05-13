@@ -1027,3 +1027,77 @@ The user can now isolate alternative `(prompt, model)` combinations as named exp
 - Global-notes wiring into the extract prompt — `_build_field_instructions` currently consumes only `schema.fields[i].description`. Tracked outside the M9.x family.
 
 
+
+
+### 2026-05-14 — ✅ cross-project fork + import_prompt (M9.4 shipped, pending live dogfood)
+
+**Status**: resolved — `fork_project` and `import_prompt` are two clone-at-time tools that let users reuse prompt/model setup across projects without any live link. Backend + frontend wiring complete, e2e green, 486/488 backend tests pass, 333/333 frontend tests pass. T8 live dogfood (UK invoice fork from us-invoice) is pending user execution; the chat path + skill section are in place.
+
+**What changed**
+Two new MCP tools:
+
+- `fork_project(src_pid, name, include_docs=False)` — clones an entire project's prompt/model setup into a fresh `project_id`. Whitelist copy: `project.json` (rewritten with the new name + `active_version_id=None`), all `prompts/*.json`, all `models/*.json`. Skips everything else (chats, reviewed, predictions/_draft, experiments, versions, metrics — all project-bound). `include_docs=True` hardlinks every `docs/` file into the new project with `shutil.copy2` fallback on `OSError`. `migrate_project_if_needed(src_pid)` runs first so legacy schema.json projects fork cleanly without carrying transition cruft. `ForkSourceNotFoundError` raised pre-mint to avoid phantom dirs on failure.
+
+- `import_prompt(src_pid, src_prompt_id, into_pid, new_label?)` — clones a single prompt variant from one project to another. Always mints a fresh `pr_*` id (never reuses `src_prompt_id` — would collide if dest already has the same name). Copies schema + global_notes verbatim. Sets `derived_from = "{src_pid}/{src_prompt_id}"` as lineage display string; no live link. `new_label` defaults to source label when None or empty.
+
+**Disk-layout decision matrix** (locked at plan time, validated by T1's spec reviewer):
+
+| Subdir / file | Action | Why |
+|---|---|---|
+| `project.json` | copy + rewrite (new pid, new name, `active_version_id=None`) | the whole point — fork starts from src's project metadata |
+| `prompts/*.json` | copy | named variants are what the fork carries forward |
+| `models/*.json` | copy | model configs are cheap and the fork user intent is "same setup, new domain" |
+| `prompts/_candidate/` | skip | autoresearch staging is session-bound to src |
+| `experiments/` | skip | per-doc extracts depend on docs (skipped); meta-only copy dangles |
+| `versions/` | skip | each project starts fresh publish lineage at v1; `derived_from` audit on future freeze records fork origin |
+| `predictions/_draft/` | skip | per spec §3.4 |
+| `reviewed/` | skip | ground truth tied to source docs not copied |
+| `docs/` | skip default; hardlink-or-copy with `include_docs=True` | per spec §3.4 |
+| `chats/` | skip | conversation history is personal/session state |
+| `metrics/` | skip | depends on reviewed which is not copied |
+| `_keys.json` | skip (workspace-global) | hard rule — keys never fork |
+
+**Decisions affirmed**
+
+- **Whitelist beats blacklist** for `fork_project`. A short explicit copy list survives future disk-layout additions without growing exclusion rules.
+- **Lean bootstrap.** Only `docs/`, `prompts/`, `models/` mkdir'd in the new project — `predictions/_draft/`, `versions/`, `chats/` are created lazily by their writers (every read path guards `.exists()`, verified by T1's spec reviewer across 8+ representative read paths in routes/projects, tools/predictions, tools/publish, tools/extract, tools/experiment, tools/score, chat/log, workspace/paths). Resolves a plan-internal contradiction.
+- **`versions/` not copied.** Each project's publish lineage is independent. The fork's first freeze will be `v1`, with `derived_from` audit field on `versions/v{N}.derived_from` recording "this came from src_pid" if needed (spec §6.1).
+- **`experiments/` not copied.** Even meta-only would be misleading without the per-doc extracts (which depend on docs not being copied).
+- **`import_prompt` always mints a fresh id**, never reuses `src_prompt_id`. Lineage is in `derived_from`, not in the id.
+- **`include_docs=True` uses hardlink with `copy2` fallback.** Cheapest "clone" of bytes; new project owns its filesystem entries. Known caller risk (documented in skill copy): re-uploading the same `doc_id` in src diverges silently.
+
+**Surface impact**
+
+- 2 new HTTP routes: `POST /lab/projects/fork` (validates `body.src_pid` via `safe_project_id`; maps `ForkSourceNotFoundError` → 404 `project_not_found`) and `POST /lab/projects/{pid}/prompts/import` (reuses `_project_or_404` for dest; maps `PromptNotFoundError` → 404 `prompt_not_found`).
+- 2 new MCP wrappers in `build_emerge_mcp` + 2 names appended to `_EMERGE_TOOL_NAMES` (allowlist).
+- Frontend `useChat.handleToolResult` (`chat.ts`) extends two existing OR-chains: `fork_project` joins the `useProjects.refresh()` branch (alongside `create_project`/`freeze_version`); `import_prompt` joins the prompt-mutation branch that invalidates schema + prompts and reloads prompts for the current project.
+- `emerge_extractor.md` skill copy gains a "Cross-project clone (M9.4)" section explaining when to use each tool and the typical post-import workflow chain (`create_experiment` → `extract_with_experiment` → user judgment → `promote_experiment` or `archive_experiment`), plus 2 new risk-gate entries (always confirm before fork or import).
+
+**Hard rules respected**
+
+- Forks are clone-at-time (no live link / no transclusion) — verified in T1/T2 tests.
+- `_keys.json` never forks (workspace-global; whitelist excludes implicitly).
+- `predictions/_draft/`, `chats/`, `reviewed/` never copied — protects audit / privacy / ground-truth boundaries.
+- Publish fast-path zero changes — `versions/` skipped, `freeze_version` / `/v1/{pid}/extract` untouched.
+- Task-type-agnostic vocabulary — "fork" / "import" are generic verbs.
+
+**Notable in-flight discoveries (filed during execution)**
+
+- **Plan-internal contradiction caught by T1's spec reviewer.** The plan's reference impl mkdir'd `predictions/_draft/`, `versions/`, `chats/` (matching `create_project`'s shape), but the plan's own test asserted those dirs do NOT exist after fork. The implementer kept the test contract (lean bootstrap) and the reviewer validated by checking 8+ representative read paths — none assume the dir exists. The plan was patched mid-execution to match the lean bootstrap (commit `b10bdec`).
+- **No actual implementation gaps found across T1–T7.** Plan executed straight-through with no BLOCKED or major rework — the spec was tight enough that each subagent just had to copy the plan code blocks. The two minor polish items (lock-scope comment on fork's `project_lock`, plan reference cleanup) landed in the same `b10bdec` commit.
+
+**Test footprint**
+- Backend: 482 → 486 passed (+4: 4 fork unit + 4 import_prompt unit + 5 fork-and-import route + 1 e2e + 1 registration assertion = 15 new tests; some adjacent counts shifted), 2 skipped (pre-existing).
+- Frontend: 333 / 0 changed (T5 was a behavioral extension to existing OR-chains; no test additions needed because the cross-store-refresh tests are integration-level via dogfood).
+- TypeScript: `tsc -b --noEmit` clean.
+
+**Reference**
+- Spec: `docs/superpowers/specs/2026-05-12-extraction-comparability-design.md` (§1.4 cross-project clone-at-time, §3.4 tool signatures, §4.1 UK invoice fork scenario, §4.2 multi-import scenario, §5.3 prompts/_candidate not importable, §10 YAGNI)
+- Plan: `docs/superpowers/plans/2026-05-14-m9-4-fork-and-import.md` (9 tasks, TDD per task, subagent-driven with spec + code-quality review per task)
+- Range: `1732f2e..4fe82f2` (8 task commits + 1 polish)
+- **Live verify pending** — T8 dogfood (fork us-invoice → uk-invoice, upload UK PDFs from `/Users/qinqiang02/job/产品/文档AI/海外发票样本/荣耀_金蝶发票测试样例_1.20/英德法V1/`) is user-driven. Will append a follow-up entry with results when run.
+
+**Spun out**
+- Frontend dedicated "Fork project" / "Import prompt" button surfaces (chat-only today) → wait for user signal.
+- `fork_project(include_reviewed=True)` opt-in from spec §3.4 — not implemented; defer until user demand surfaces.
+- Hardlink-aware "stale fork" warning (re-upload of same doc_id in src diverges silently) — only relevant if hardlinking becomes default.

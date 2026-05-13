@@ -27,6 +27,7 @@
 | **M9.1** — data model migration (prompt/model axes on disk, lazy migration, write_schema thin wrapper; backend-only) | `2026-05-12-m9-1-data-model-migration.md` | ✅ shipped | `4cf76a5..6fe9ae4` (13 task commits; T11 fixed 4 latent direct-schema-reads in score/runner/eval/accept-candidate) |
 | **M9.2** — prompt/model axis tools + UI (MCP tools + HTTP endpoints + FSSpine + ContextSurface; backend + frontend) | `2026-05-12-m9-2-axis-tools-and-ui.md` | ✅ shipped | `90ab2b6..ef3cac9` (15 task commits + 1 e2e fix + 1 TOCTOU follow-up) |
 | **M9.3** — experiments axis + Review-mode multi-tab (7 MCP tools + 4 HTTP routes + `useExperiments` store + `ExperimentTabStrip` + FSSpine group + read-only experiment tabs; closes M9.2 follow-up: delete_prompt/delete_model now block on non-archived experiment refs) | `2026-05-13-m9-3-experiments-and-review-tabs.md` | ✅ shipped | `f0f6f13..aa1847b` (25 commits — 18 feat/fix/test/docs + 7 polish from spec/code reviews) |
+| **M9.4** — cross-project fork + import_prompt (clone-at-time, hard rule "no live link"; whitelist-driven fork copies project.json + prompts/ + models/; import mints fresh prompt_id with `{src_pid}/{src_prompt_id}` lineage) | `2026-05-14-m9-4-fork-and-import.md` | ✅ shipped (pending T8 live dogfood) | `1732f2e..4fe82f2` (8 task commits + 1 polish) |
 
 ## What each milestone delivers
 
@@ -223,13 +224,51 @@
 - Task-type-agnostic chrome — "experiment" is a generic verb; the experiment vocabulary works for matching/classification tasks as well as extraction.
 
 **Deferred / spun out:**
-- `fork_project` + `import_prompt` (cross-project clone) → **M9.4**.
+- ~~`fork_project` + `import_prompt` (cross-project clone)~~ → **closed by M9.4** (`2026-05-14-m9-4-fork-and-import.md`).
 - Autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant") → **M9.5**.
 - `readiness_check` rule loosening (move some hard fails to soft warns) → **M9.6**.
 - Field-diff power-user view (spec §7.4.1 "compare with…") → M9.x follow-up.
 - Experiment detail sheet (clicking an FSSpine experiment row opens a quick-look-style modal) → M9.x follow-up; rows inert in M9.3.
 - `cost / latency` tracking per model → out of scope until user demand surfaces.
 - Global-notes wiring into the extract prompt (currently only `schema.fields[i].description` reaches the LLM) — separate cross-cutting concern, tracked outside the M9.x family.
+
+### M9.4 — cross-project fork + import_prompt
+
+**Goal:** two clone-at-time tools — `fork_project(src_pid, name, include_docs)` produces an independent new project with the same `prompts/` + `models/` setup; `import_prompt(src_pid, src_prompt_id, into_pid, new_label?)` clones a single prompt variant into an existing project, stamping `derived_from = "{src_pid}/{src_prompt_id}"`. No live link in either tool — hard rule respected.
+
+**Scope (see `2026-05-14-m9-4-fork-and-import.md`):**
+- T1: `app/tools/fork.py::fork_project` — whitelist copy of `project.json` + `prompts/*.json` + `models/*.json`; optional hardlink-or-copy for `docs/`. Blacklist (chats / reviewed / predictions/_draft / experiments / versions / metrics / jobs / legacy schema.json) is implicit because we only copy the whitelist. `ForkSourceNotFoundError` raised pre-mint to avoid phantom dirs. `migrate_project_if_needed(src_pid)` runs before reading source layout.
+- T2: `app/tools/prompt.py::import_prompt` — mints a fresh `pr_*` id (never reuses src id), copies schema + global_notes, sets cross-project `derived_from`. `new_label` defaults to source label when None/empty.
+- T3: HTTP routes — `POST /lab/projects/fork` (validates `body.src_pid` via `safe_project_id`; 404 maps `ForkSourceNotFoundError`) + `POST /lab/projects/{pid}/prompts/import` (reuses `_project_or_404` for dest; 404 maps `PromptNotFoundError`).
+- T4: 2 new MCP wrappers in `build_emerge_mcp` + 2 names appended to `_EMERGE_TOOL_NAMES`. Test asserts both names registered. Tool descriptions teach the agent the workflow + the whitelist/skip semantics.
+- T5: frontend `useChat.handleToolResult` — `fork_project` joins the `useProjects.refresh()` branch; `import_prompt` joins the prompt-mutation branch that invalidates schema + prompts and reloads prompts for the current project.
+- T6: `emerge_extractor.md` skill copy — new "Cross-project clone (M9.4)" section + 2 new risk-gate entries (always confirm before fork or import).
+- T7: integration spec covering §4.1 (fork → independent customize) and §4.2 (multi-import → list_prompts) shapes; passes first-try because T1–T4 land cleanly.
+- T8: live dogfood (pending, user-driven) — fork us-invoice → uk-invoice, upload 3 UK PDFs from the 海外发票 sample folder, edit a field, verify isolation back to source.
+- T9: this closeout.
+
+**Decisions affirmed:**
+- **Whitelist beats blacklist** for `fork_project`. A short explicit copy list (`project.json` + `prompts/` + `models/`) survives future disk-layout additions without growing exclusion rules.
+- **`versions/` not copied.** Each project's publish lineage starts at v1. The spec §6.1 `derived_from` audit field on a future `freeze_version` in the fork records "this came from src_pid" without us having to ship pre-existing frozen versions in a project that hasn't published yet.
+- **`experiments/` not copied.** Experiment per-doc extracts are tied to docs (which we don't copy); reviewed (which we don't copy) is the eval ground truth. Copying meta-only would dangle. User re-creates experiments in the fork fresh.
+- **Lean bootstrap.** Only `docs/`, `prompts/`, `models/` mkdir'd in the new project. `predictions/_draft/`, `versions/`, `chats/` are created lazily by their writers — every read path guards `.exists()`. Resolves a plan-internal contradiction caught by T1's spec reviewer.
+- **`include_docs=True` uses hardlink with copy fallback** — cheapest "clone" of bytes; the new project owns its filesystem entries. Caller risk: re-uploading the same doc_id in src diverges silently. Acceptable for now; documented in skill copy.
+- **`import_prompt` always mints a fresh id**, never reuses src_prompt_id — would collide when a user imports `pr_baseline` into a project that already has `pr_baseline`. Lineage is in `derived_from`, not in the id.
+
+**Hard rules respected:**
+- Forks are clone-at-time (no live link / no transclusion) — verified in T1/T2 tests.
+- `_keys.json` never forks (workspace-global; whitelist excludes implicitly).
+- `predictions/_draft/`, `chats/`, `reviewed/` never copied — protects audit / privacy / ground-truth boundaries.
+- Publish fast-path zero changes — `versions/` skipped means no risk of frozen-version contamination across pids.
+- Task-type-agnostic vocabulary — "fork" / "import" are generic verbs.
+
+**Test footprint:** backend 486 / 2 skipped (was 482 before M9.4 — added 4 fork unit + 4 import_prompt unit + 5 fork-and-import route + 1 e2e + 1 registration assertion = 15; subtract 11 cumulative because T7's e2e overlaps some route assertions covered by T3, and T4 added only 1 assert to an existing test). Frontend 333 / 0 changed (T5 was a behavioral extension, no test additions). `tsc -b --noEmit` clean.
+
+**Deferred / spun out:**
+- Frontend dedicated "Fork project" / "Import prompt" button surfaces (currently chat-only; only the cross-store refresh wiring lands in T5) → follow-up; depends on user signal.
+- `fork_project(..., include_reviewed=True)` opt-in flag from spec §3.4 — not implemented this milestone; raise as follow-up if user demand surfaces.
+- Hardlink-aware "stale fork" warning (if src doc replaces a hardlinked file, fork still sees the old inode) → only relevant if hardlinking becomes default; defer.
+- T8 live dogfood is pending user execution (user-driven step; the chat path + skill section is in place).
 
 ## Open cross-cutting follow-ups
 
