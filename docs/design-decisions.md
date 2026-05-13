@@ -1019,8 +1019,8 @@ The user can now isolate alternative `(prompt, model)` combinations as named exp
   - Scenario §4.4 (model A/B) skipped — the workspace's second model (`m_2xpcm8cm1wdx` = `gemini-3-flash-preview`) is a placeholder for an unreleased model, so a real A/B against it would 404. Trivially extensible via the same path once a second real model is configured.
 
 **Spun out**
-- M9.4 — autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant").
-- M9.5 — `fork_project` + `import_prompt` (cross-project clone-at-time).
+- M9.4 — `fork_project` + `import_prompt` (cross-project clone-at-time). Swapped with the original M9.4 numbering on 2026-05-13 — fork has real dogfood data (海外发票 samples) ready and is more user-visible than the autoresearch path migration.
+- M9.5 — autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant"). Originally numbered M9.4; demoted to M9.5 to avoid a numbering skip.
 - M9.6 — `readiness_check` rule loosening (some hard fails → soft warns).
 - Field-diff power-user view (spec §7.4.1 "compare with…") → M9.x follow-up; tab switch + chat-text score-delta already covers 80%.
 - Experiment detail sheet (clicking FSSpine experiment row opens quick-look-style modal) → M9.x follow-up; rows inert in M9.3.

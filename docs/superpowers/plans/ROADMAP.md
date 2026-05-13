@@ -223,8 +223,8 @@
 - Task-type-agnostic chrome — "experiment" is a generic verb; the experiment vocabulary works for matching/classification tasks as well as extraction.
 
 **Deferred / spun out:**
-- Autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant") → **M9.4**.
-- `fork_project` + `import_prompt` (cross-project clone) → **M9.5**.
+- `fork_project` + `import_prompt` (cross-project clone) → **M9.4**.
+- Autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant") → **M9.5**.
 - `readiness_check` rule loosening (move some hard fails to soft warns) → **M9.6**.
 - Field-diff power-user view (spec §7.4.1 "compare with…") → M9.x follow-up.
 - Experiment detail sheet (clicking an FSSpine experiment row opens a quick-look-style modal) → M9.x follow-up; rows inert in M9.3.
