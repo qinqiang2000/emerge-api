@@ -376,6 +376,46 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
+        "fork_project",
+        "Clone-at-time fork of an existing project. Copies project.json + "
+        "prompts/ + models/ into a fresh project_id. Skips chats, reviewed, "
+        "predictions/_draft, experiments, versions, metrics. Set include_docs=true "
+        "to also hardlink docs/ files. Returns the new project_id.",
+        {"src_pid": str, "name": str, "include_docs": bool},
+    )
+    async def t_fork_project(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.fork import fork_project as fork_project_impl
+        new_pid = await fork_project_impl(
+            workspace,
+            src_pid=args["src_pid"],
+            name=args["name"],
+            include_docs=bool(args.get("include_docs", False)),
+        )
+        return {"content": [{"type": "text", "text": new_pid}]}
+
+    @tool(
+        "import_prompt",
+        "Cross-project clone of a single prompt variant. Mints a fresh "
+        "prompt_id in into_pid, copies schema + global_notes, sets "
+        "derived_from='{src_pid}/{src_prompt_id}'. new_label defaults to "
+        "the source prompt's label when empty.",
+        {
+            "src_pid": str, "src_prompt_id": str,
+            "into_pid": str, "new_label": str,
+        },
+    )
+    async def t_import_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        raw_label = args.get("new_label") or None  # "" -> None
+        new_id = await prompt_mod.import_prompt(
+            workspace,
+            src_pid=args["src_pid"],
+            src_prompt_id=args["src_prompt_id"],
+            into_pid=args["into_pid"],
+            new_label=raw_label,
+        )
+        return {"content": [{"type": "text", "text": new_id}]}
+
+    @tool(
         "extract_one",
         "Extract from a single document.",
         {"project_id": str, "doc_id": str},
@@ -588,6 +628,8 @@ def build_emerge_mcp(
             t_archive_experiment,
             t_list_experiments,
             t_delete_experiment,
+            t_fork_project,
+            t_import_prompt,
             t_extract_one,
             t_extract_batch,
             t_save_reviewed,
@@ -615,6 +657,7 @@ _EMERGE_TOOL_NAMES = (
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment", "archive_experiment", "list_experiments", "delete_experiment",
+    "fork_project", "import_prompt",
     "extract_one", "extract_batch",
     "save_reviewed", "list_reviewed", "get_reviewed", "get_prediction",
     "score",

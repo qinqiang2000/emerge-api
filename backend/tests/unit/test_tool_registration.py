@@ -143,3 +143,9 @@ def test_experiment_axis_tools_in_emerge_tool_names() -> None:
         "delete_experiment",
     ):
         assert n in names, f"missing {n!r} in _EMERGE_TOOL_NAMES"
+
+
+def test_fork_and_import_in_emerge_tool_names() -> None:
+    from app.tools import _EMERGE_TOOL_NAMES
+    assert "fork_project" in _EMERGE_TOOL_NAMES
+    assert "import_prompt" in _EMERGE_TOOL_NAMES
