@@ -7,6 +7,7 @@
 // - Notes editing preserved via onSetNote
 // - add/remove entity preserved
 
+import { ArrowLeftToLine } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
@@ -36,6 +37,12 @@ interface Props {
   readOnly?: boolean
   /** Document filename — rendered next to entity count for context */
   filename?: string
+  /** Bulk-copy the current display (a prediction) into the annotation and
+   *  switch to the annotation tab. Only shown when readOnly. */
+  onAdopt?: () => void
+  /** Per-field copy — used when readOnly to import one prediction value
+   *  into the annotation without leaving the comparison tab. */
+  onAdoptField?: (entityIdx: number, name: string, value: unknown, evidencePage?: number | null) => void
 }
 
 export default function FieldEditor({
@@ -52,6 +59,8 @@ export default function FieldEditor({
   forceOpen = null,
   readOnly = false,
   filename,
+  onAdopt,
+  onAdoptField,
 }: Props) {
   // Active field path for highlighting (local state — one-way field→page, not PDF→field)
   const [activeField, setActiveField] = useState<string | null>(null)
@@ -142,6 +151,18 @@ export default function FieldEditor({
             + entity
           </button>
         )}
+        {readOnly && onAdopt && (
+          <button
+            type="button"
+            aria-label="adopt this prediction as the annotation"
+            onClick={onAdopt}
+            title="overwrite the annotation with these values and switch to it"
+            className="ml-auto adopt-all-btn"
+          >
+            <ArrowLeftToLine size={11} strokeWidth={1.7} />
+            <span>adopt as annotation</span>
+          </button>
+        )}
       </header>
 
       {/* Main content */}
@@ -164,6 +185,7 @@ export default function FieldEditor({
                 onSetNote={onSetNote}
                 onJumpToPage={onJumpToPage}
                 onSetActiveField={handleSetActiveField}
+                onAdoptField={onAdoptField}
               />
             ))}
           </div>

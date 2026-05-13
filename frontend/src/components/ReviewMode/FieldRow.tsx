@@ -3,6 +3,7 @@
 // Confidence dots are hard-coded to 'high' (moss) — backend doesn't emit per-field
 // confidence yet. See design-decisions.md 2026-05-10 entry.
 
+import { ArrowLeftToLine } from 'lucide-react'
 import { useRef, useState, useEffect } from 'react'
 
 export interface FieldRowProps {
@@ -19,6 +20,9 @@ export interface FieldRowProps {
   onSetNote?: (note: string) => void
   onJumpToPage?: (page: number) => void
   onClick: (path: string) => void
+  /** When readOnly, render a hover-revealed button to copy this single value
+   *  from the prediction into the annotation. */
+  onAdopt?: () => void
 }
 
 export default function FieldRow({
@@ -35,6 +39,7 @@ export default function FieldRow({
   onSetNote,
   onJumpToPage,
   onClick,
+  onAdopt,
 }: FieldRowProps) {
   const [showNotes, setShowNotes] = useState(false)
   const valRef = useRef<HTMLSpanElement>(null)
@@ -109,6 +114,18 @@ export default function FieldRow({
         >
           {note ?? ''}
         </span>
+      )}
+      {readOnly && onAdopt && (
+        <button
+          type="button"
+          className="copy-pred-btn"
+          aria-label={`copy ${name} to annotation`}
+          title="copy this value to annotation"
+          onClick={(e) => { e.stopPropagation(); onAdopt() }}
+        >
+          <ArrowLeftToLine size={11} strokeWidth={1.7} />
+          <span>use</span>
+        </button>
       )}
     </div>
   )

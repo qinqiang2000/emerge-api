@@ -506,6 +506,13 @@ html, body, #root {
 .rev-tabstrip{position:relative;display:flex;gap:4px;align-items:center;font-family:var(--mono);min-width:0;flex:1 1 auto}
 .rev-tabstrip-inner{display:flex;gap:4px;align-items:center;overflow:hidden;min-width:0;flex:1 1 auto}
 .rev-tab{flex-shrink:0;cursor:default;font-family:inherit;background:transparent;border:1px solid transparent;border-radius:5px}
+/* ✏ annotation tab — editable ground truth; visually distinct from
+   read-only prediction cards (single line + leading pencil icon). */
+.rev-tab-annotation{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;font-size:11.5px;color:var(--ink-3);border:1px solid var(--rule);background:var(--paper);font-weight:500}
+.rev-tab-annotation:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule)}
+.rev-tab-annotation.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.rev-tab-annotation.on svg{color:var(--paper)}
+.rev-tab-annotation svg{flex-shrink:0;color:var(--ink-3)}
 .rev-tab-card{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;color:var(--ink-3);max-width:240px;text-align:left}
 .rev-tab-card:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule-soft)}
 .rev-tab-card.on{background:var(--ochre-soft);color:var(--ink);border-color:var(--ochre)}
@@ -524,3 +531,15 @@ html, body, #root {
 .rev-tab-popover-item{background:transparent;border:1px solid transparent;border-radius:4px}
 .rev-tab-popover-item:hover{background:var(--paper-2)}
 .rev-tab-popover-item.on{background:var(--ochre-soft);border-color:var(--ochre)}
+
+/* ── adopt-from-prediction affordances ──────────────────────────── */
+/* Header-level "adopt as annotation" button (FieldEditor top bar). */
+.adopt-all-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;padding:4px 10px;border:1px solid var(--ochre);background:var(--ochre-soft);color:var(--ochre-2);border-radius:5px;cursor:default;white-space:nowrap}
+.adopt-all-btn:hover{background:var(--ochre);color:var(--paper)}
+.adopt-all-btn:hover svg{color:var(--paper)}
+.adopt-all-btn svg{flex-shrink:0;color:var(--ochre-2)}
+/* Per-field "← use" button, hover-revealed at the right edge of a row. */
+.rev-fld .copy-pred-btn{position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);color:var(--ink-3);font-family:var(--mono);font-size:10px;cursor:default;opacity:0;transition:opacity .12s,background .12s,color .12s,border-color .12s;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;z-index:2}
+.rev-fld:hover .copy-pred-btn,.rev-fld .copy-pred-btn:focus-visible{opacity:1}
+.rev-fld .copy-pred-btn:hover{background:var(--ochre-soft);color:var(--ochre-2);border-color:var(--ochre)}
+.rev-fld .copy-pred-btn svg{flex-shrink:0}

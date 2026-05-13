@@ -62,6 +62,55 @@ describe('useReview tab state', () => {
     expect(s.predictionsByExp).toEqual({})
   })
 
+  it('adoptPrediction overwrites annotation entities + switches to active tab', () => {
+    useReview.setState({
+      activeTabKey: 'ex_a',
+      entities: [{ supplier: 'OLD_USER_EDIT' }],
+      evidence: [{ supplier: 1 }],
+    })
+    const predEntities = [{ supplier: 'FROM_EX_A', invoice_no: 'X-1' }]
+    const predEvidence = [{ supplier: 2, invoice_no: 1 }]
+    useReview.getState().adoptPrediction(predEntities, predEvidence)
+    const s = useReview.getState()
+    expect(s.activeTabKey).toBe('active')
+    expect(s.entities[0]).toEqual({ supplier: 'FROM_EX_A', invoice_no: 'X-1' })
+    expect(s.evidence?.[0]).toEqual({ supplier: 2, invoice_no: 1 })
+    // and the inputs are deep-copied (mutating source does NOT touch state)
+    predEntities[0].supplier = 'MUTATED'
+    expect(useReview.getState().entities[0]).toEqual({ supplier: 'FROM_EX_A', invoice_no: 'X-1' })
+  })
+
+  it('adoptPredictionField sets a single field without touching siblings', () => {
+    useReview.setState({
+      entities: [{ supplier: 'KEEP_ME', total: 100 }],
+      evidence: [{ supplier: 1, total: 1 }],
+    })
+    useReview.getState().adoptPredictionField(0, 'total', 250, 3)
+    const s = useReview.getState()
+    expect(s.entities[0]).toEqual({ supplier: 'KEEP_ME', total: 250 })
+    expect(s.evidence?.[0]).toEqual({ supplier: 1, total: 3 })
+  })
+
+  it('adoptPredictionField grows entities/evidence arrays as needed', () => {
+    useReview.setState({ entities: [], evidence: null })
+    useReview.getState().adoptPredictionField(1, 'first_name', 'Ada', 7)
+    const s = useReview.getState()
+    expect(s.entities).toHaveLength(2)
+    expect(s.entities[1]).toEqual({ first_name: 'Ada' })
+    expect(s.evidence?.[1]).toEqual({ first_name: 7 })
+  })
+
+  it('adoptPredictionField without evidencePage leaves evidence untouched', () => {
+    useReview.setState({
+      entities: [{}],
+      evidence: [{ k: 5 }],
+    })
+    useReview.getState().adoptPredictionField(0, 'k', 'NEW')
+    const s = useReview.getState()
+    expect(s.entities[0]).toEqual({ k: 'NEW' })
+    expect(s.evidence?.[0]).toEqual({ k: 5 }) // unchanged
+  })
+
   it('runExperimentPrediction POSTs and overrides cached extract', async () => {
     let postCalled = false
     vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, opts?: { method?: string }) => {

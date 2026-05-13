@@ -30,6 +30,8 @@ interface Props {
   onSetNote?: (name: string, note: string) => void
   onJumpToPage?: (page: number) => void
   onSetActiveField: (path: string) => void
+  /** Per-field copy from prediction → annotation (only meaningful when readOnly). */
+  onAdoptField?: (entityIdx: number, name: string, value: unknown, evidencePage?: number | null) => void
 }
 
 export default function Section({
@@ -45,6 +47,7 @@ export default function Section({
   onSetNote,
   onJumpToPage,
   onSetActiveField,
+  onAdoptField,
 }: Props) {
   const [open, setOpen] = useState(true)
 
@@ -116,6 +119,11 @@ export default function Section({
                 onSetNote={onSetNote ? (note) => onSetNote(f.name, note) : undefined}
                 onJumpToPage={onJumpToPage}
                 onClick={onSetActiveField}
+                onAdopt={
+                  onAdoptField
+                    ? () => onAdoptField(entityIdx, f.name, f.value, f.evidencePage ?? null)
+                    : undefined
+                }
               />
             )
           })}

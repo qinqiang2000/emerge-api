@@ -114,7 +114,7 @@ export default function ReviewBar({
         onClick={onSave}
         disabled={saving || !canSave}
         type="button"
-        title={!canSave ? 'save lives on the ⭐ Active tab' : undefined}
+        title={!canSave ? 'save only persists on the ✏ annotation tab — switch to it, or use “adopt as annotation”' : undefined}
       >
         {saving ? 'saving…' : 'save'}
       </button>

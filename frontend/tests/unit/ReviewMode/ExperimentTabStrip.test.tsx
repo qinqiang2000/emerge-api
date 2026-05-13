@@ -14,7 +14,7 @@ const EXPERIMENTS: ExperimentSummary[] = [
 ]
 
 describe('ExperimentTabStrip', () => {
-  it('renders one card per non-archived experiment (no implicit Active tab)', () => {
+  it('renders the ✏ annotation tab first, then one card per non-archived experiment', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="active"
@@ -24,17 +24,17 @@ describe('ExperimentTabStrip', () => {
       />
     )
     const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(2)
+    expect(tabs).toHaveLength(3) // annotation + 2 non-archived
+    // first tab is annotation
+    expect(tabs[0]).toHaveTextContent(/annotation/i)
     // archived experiment is excluded
     expect(screen.queryByText(/archived one/)).not.toBeInTheDocument()
-    // each card shows model on top, prompt label on bottom
-    expect(screen.getAllByText('Gemma 4').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('try Gemma4')).toBeInTheDocument()
     expect(screen.getByText('try notes')).toBeInTheDocument()
   })
 
-  it('no "⭐ Active" chip — canonical view is implicit', () => {
-    render(
+  it('annotation tab is rendered with role=tab, aria-selected reflects active state', () => {
+    const { rerender } = render(
       <ExperimentTabStrip
         activeTabKey="active"
         availableExperiments={EXPERIMENTS}
@@ -42,24 +42,20 @@ describe('ExperimentTabStrip', () => {
         modelLabels={{}}
       />
     )
-    expect(screen.queryByRole('tab', { name: /Active/i })).not.toBeInTheDocument()
-  })
-
-  it('clicking an unselected card calls onSwitch with the experiment_id', () => {
-    const onSwitch = vi.fn()
-    render(
+    const annot = screen.getByRole('tab', { name: /annotation/i })
+    expect(annot.getAttribute('aria-selected')).toBe('true')
+    rerender(
       <ExperimentTabStrip
-        activeTabKey="active"
+        activeTabKey="ex_a"
         availableExperiments={EXPERIMENTS}
-        onSwitch={onSwitch}
+        onSwitch={() => {}}
         modelLabels={{}}
       />
     )
-    fireEvent.click(screen.getByText('try Gemma4'))
-    expect(onSwitch).toHaveBeenCalledWith('ex_a')
+    expect(screen.getByRole('tab', { name: /annotation/i }).getAttribute('aria-selected')).toBe('false')
   })
 
-  it('clicking the already-selected card toggles back to canonical (active)', () => {
+  it('clicking the annotation tab calls onSwitch with "active"', () => {
     const onSwitch = vi.fn()
     render(
       <ExperimentTabStrip
@@ -69,11 +65,26 @@ describe('ExperimentTabStrip', () => {
         modelLabels={{}}
       />
     )
-    fireEvent.click(screen.getByText('try Gemma4'))
+    fireEvent.click(screen.getByRole('tab', { name: /annotation/i }))
     expect(onSwitch).toHaveBeenCalledWith('active')
   })
 
-  it('selected tab gets aria-selected=true and includes its prompt label', () => {
+  it('clicking a prediction card calls onSwitch with its experiment_id (no toggle)', () => {
+    const onSwitch = vi.fn()
+    render(
+      <ExperimentTabStrip
+        activeTabKey="ex_a"
+        availableExperiments={EXPERIMENTS}
+        onSwitch={onSwitch}
+        modelLabels={{}}
+      />
+    )
+    // clicking the already-selected card is a no-op switch (same key), not a toggle
+    fireEvent.click(screen.getByText('try Gemma4'))
+    expect(onSwitch).toHaveBeenCalledWith('ex_a')
+  })
+
+  it('selected prediction card has aria-selected=true and contains its prompt label', () => {
     render(
       <ExperimentTabStrip
         activeTabKey="ex_a"

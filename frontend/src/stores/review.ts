@@ -34,6 +34,17 @@ interface State {
   setActiveTab: (key: 'active' | string) => void
   loadExperimentPrediction: (experimentId: string) => Promise<void>
   runExperimentPrediction: (experimentId: string) => Promise<void>
+  // ── adopt-from-prediction (label-studio-style) ───────────────────
+  adoptPrediction: (
+    entities: FieldsValue[],
+    evidence?: Record<string, number | null>[] | null,
+  ) => void
+  adoptPredictionField: (
+    entityIdx: number,
+    name: string,
+    value: unknown,
+    evidencePage?: number | null,
+  ) => void
 }
 
 export const useReview = create<State>((set, get) => ({
@@ -140,4 +151,26 @@ export const useReview = create<State>((set, get) => ({
     const payload = await runExperimentPrediction(activeProjectId, experimentId, activeDocId)
     set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
+
+  adoptPrediction: (entities, evidence) => set({
+    entities: entities.map((e) => ({ ...(e ?? {}) })),
+    evidence: evidence ? evidence.map((e) => ({ ...(e ?? {}) })) : null,
+    // Switch to the editable annotation tab so the user sees the result.
+    activeTabKey: 'active',
+  }),
+
+  adoptPredictionField: (entityIdx, name, value, evidencePage) => set((s) => {
+    const nextEntities = s.entities.slice()
+    while (nextEntities.length <= entityIdx) nextEntities.push({})
+    nextEntities[entityIdx] = { ...nextEntities[entityIdx], [name]: value }
+
+    let nextEvidence = s.evidence
+    if (evidencePage !== undefined) {
+      const base = (s.evidence ?? []).slice() as Record<string, number | null>[]
+      while (base.length <= entityIdx) base.push({})
+      base[entityIdx] = { ...base[entityIdx], [name]: evidencePage }
+      nextEvidence = base
+    }
+    return { entities: nextEntities, evidence: nextEvidence }
+  }),
 }))

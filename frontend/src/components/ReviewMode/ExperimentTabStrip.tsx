@@ -1,15 +1,14 @@
-// Experiment tab strip — inlined into ReviewBar's row.
+// Tab strip rendered inside ReviewBar.
 //
-// Renders every non-archived experiment as a 2-line card (model on top,
-// prompt label below). There is no explicit "Active" tab — the canonical
-// editable view is the default state when no experiment is selected.
-// Clicking the currently-selected tab again toggles back to canonical.
+// First tab is ✏ annotation — the editable ground-truth view (label-studio
+// terminology). Subsequent tabs are model/prompt predictions for comparison,
+// rendered as 2-line cards (model on top, prompt below). Annotation has a
+// distinct visual treatment so users always see where the editable view is.
 //
-// Overflow handling: a ResizeObserver compares each card's bounding rect
-// against the inner container; clipped cards collapse behind a » N
-// dropdown. Hidden tabs use visibility:hidden so their widths stay stable
-// across re-measurements and avoid layout oscillation.
-import { FlaskConical } from 'lucide-react'
+// Overflow handling: a ResizeObserver compares each tab's bounding rect
+// against the inner container; clipped tabs collapse behind a » N dropdown.
+// The annotation tab is always pinned visible (visibleN >= 1).
+import { FlaskConical, Pencil } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { ExperimentSummary } from '../../types/review'
@@ -21,12 +20,9 @@ type Props = {
   modelLabels: Record<string, string>
 }
 
-type TabSpec = {
-  key: string
-  model: string
-  prompt: string
-  title: string
-}
+type TabSpec =
+  | { kind: 'annotation'; key: 'active' }
+  | { kind: 'prediction'; key: string; model: string; prompt: string; title: string }
 
 const GAP = 4
 
@@ -36,33 +32,33 @@ export default function ExperimentTabStrip({
   onSwitch,
   modelLabels,
 }: Props) {
-  const tabs: TabSpec[] = availableExperiments
-    .filter((e) => e.status !== 'archived')
-    .map((e) => {
-      const model = modelLabels[e.model_id] ?? e.model_id
-      // label is "{prompt_name} × {model_label}"; strip the model suffix so
-      // the prompt line is just the prompt's own name and doesn't repeat the
-      // top line.
-      const prompt = e.label.includes(' × ') ? e.label.split(' × ')[0] : e.label
-      return {
-        key: e.experiment_id,
-        model,
-        prompt,
-        title: `${model} · ${prompt}`,
-      }
-    })
+  const tabs: TabSpec[] = [
+    { kind: 'annotation', key: 'active' },
+    ...availableExperiments
+      .filter((e) => e.status !== 'archived')
+      .map<TabSpec>((e) => {
+        const model = modelLabels[e.model_id] ?? e.model_id
+        // label is typically "{prompt_name} × {model_label}"; strip the model
+        // suffix so the second line is just the prompt's own name.
+        const prompt = e.label.includes(' × ') ? e.label.split(' × ')[0] : e.label
+        return {
+          kind: 'prediction',
+          key: e.experiment_id,
+          model,
+          prompt,
+          title: `${model} · ${prompt}`,
+        }
+      }),
+  ]
 
   const innerRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [popoverOpen, setPopoverOpen] = useState(false)
 
-  // Click-to-toggle: clicking the already-selected tab returns to canonical.
-  const onTabClick = (key: string) => {
-    onSwitch(activeTabKey === key ? 'active' : key)
-  }
-
-  const tabsKey = tabs.map((t) => t.key + '|' + t.model + '|' + t.prompt).join('::')
+  const tabsKey = tabs
+    .map((t) => (t.kind === 'annotation' ? 'annot' : `p:${t.key}|${t.model}|${t.prompt}`))
+    .join('::')
 
   useLayoutEffect(() => {
     const inner = innerRef.current
@@ -87,6 +83,8 @@ export default function ExperimentTabStrip({
         cum = next
         visibleN = i + 1
       }
+      // Pin the ✏ annotation tab (index 0) — it's the editable anchor.
+      visibleN = Math.max(1, visibleN)
 
       const next = new Set(tabs.slice(visibleN).map((t) => t.key))
       setHiddenIds((prev) => {
@@ -117,39 +115,68 @@ export default function ExperimentTabStrip({
   const hidden = tabs.filter((t) => hiddenIds.has(t.key))
   const activeHidden = hidden.some((t) => t.key === activeTabKey)
 
+  const renderTab = (t: TabSpec, isPopover = false) => {
+    const isOn = activeTabKey === t.key
+    const isClipped = !isPopover && hiddenIds.has(t.key)
+    const commonProps = {
+      role: isPopover ? 'menuitem' : 'tab',
+      'aria-selected': isPopover ? undefined : isOn,
+      'aria-hidden': isClipped || undefined,
+      tabIndex: isClipped ? -1 : 0,
+      style: isClipped ? { visibility: 'hidden' as const, pointerEvents: 'none' as const } : undefined,
+      type: 'button' as const,
+      onClick: () => {
+        onSwitch(t.key)
+        if (isPopover) setPopoverOpen(false)
+      },
+      ref: isPopover ? undefined : (el: HTMLButtonElement | null) => {
+        if (el) tabRefs.current.set(t.key, el)
+        else tabRefs.current.delete(t.key)
+      },
+    }
+    if (t.kind === 'annotation') {
+      return (
+        <button
+          {...commonProps}
+          key={t.key}
+          className={
+            'rev-tab rev-tab-annotation' +
+            (isOn ? ' on' : '') +
+            (isPopover ? ' rev-tab-popover-item' : '')
+          }
+          title="✏ editable ground truth — your annotation"
+        >
+          <Pencil size={12} strokeWidth={1.7} aria-hidden="true" />
+          <span>annotation</span>
+        </button>
+      )
+    }
+    return (
+      <button
+        {...commonProps}
+        key={t.key}
+        className={
+          'rev-tab rev-tab-card' +
+          (isOn ? ' on' : '') +
+          (isPopover ? ' rev-tab-popover-item' : '')
+        }
+        title={t.title}
+      >
+        <span className="rev-tab-ico" aria-hidden="true">
+          <FlaskConical size={12} strokeWidth={1.6} />
+        </span>
+        <span className="rev-tab-text">
+          <span className="rev-tab-model">{t.model}</span>
+          <span className="rev-tab-prompt">{t.prompt}</span>
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="rev-tabstrip" role="tablist">
       <div className="rev-tabstrip-inner" ref={innerRef}>
-        {tabs.map((t) => {
-          const isClipped = hiddenIds.has(t.key)
-          const isOn = activeTabKey === t.key
-          return (
-            <button
-              key={t.key}
-              ref={(el) => {
-                if (el) tabRefs.current.set(t.key, el)
-                else tabRefs.current.delete(t.key)
-              }}
-              role="tab"
-              aria-selected={isOn}
-              aria-hidden={isClipped || undefined}
-              className={'rev-tab rev-tab-card' + (isOn ? ' on' : '')}
-              style={isClipped ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
-              tabIndex={isClipped ? -1 : 0}
-              onClick={() => onTabClick(t.key)}
-              title={isOn ? 'click again to return to editable view' : t.title}
-              type="button"
-            >
-              <span className="rev-tab-ico" aria-hidden="true">
-                <FlaskConical size={12} strokeWidth={1.6} />
-              </span>
-              <span className="rev-tab-text">
-                <span className="rev-tab-model">{t.model}</span>
-                <span className="rev-tab-prompt">{t.prompt}</span>
-              </span>
-            </button>
-          )
-        })}
+        {tabs.map((t) => renderTab(t))}
       </div>
 
       {hidden.length > 0 && (
@@ -164,30 +191,7 @@ export default function ExperimentTabStrip({
           </button>
           {popoverOpen && (
             <div className="rev-tab-popover" role="menu">
-              {hidden.map((t) => {
-                const isOn = activeTabKey === t.key
-                return (
-                  <button
-                    key={t.key}
-                    role="menuitem"
-                    className={'rev-tab-popover-item rev-tab-card' + (isOn ? ' on' : '')}
-                    onClick={() => {
-                      onTabClick(t.key)
-                      setPopoverOpen(false)
-                    }}
-                    title={t.title}
-                    type="button"
-                  >
-                    <span className="rev-tab-ico" aria-hidden="true">
-                      <FlaskConical size={12} strokeWidth={1.6} />
-                    </span>
-                    <span className="rev-tab-text">
-                      <span className="rev-tab-model">{t.model}</span>
-                      <span className="rev-tab-prompt">{t.prompt}</span>
-                    </span>
-                  </button>
-                )
-              })}
+              {hidden.map((t) => renderTab(t, true))}
             </div>
           )}
         </div>

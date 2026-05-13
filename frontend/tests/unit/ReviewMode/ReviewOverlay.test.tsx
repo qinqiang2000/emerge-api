@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ReviewOverlay from '../../../src/components/ReviewMode/ReviewOverlay'
@@ -58,13 +58,11 @@ describe('ReviewOverlay tab integration', () => {
     }))
   })
 
-  it('renders the experiment tab strip with one card per experiment (no ⭐ Active chip)', () => {
+  it('renders the ✏ annotation tab + one card per experiment', () => {
     seedStores({})
     render(<ReviewOverlay onBack={() => {}} />)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
-    // No implicit Active tab — canonical view is the default state
-    expect(screen.queryByRole('tab', { name: /Active/i })).not.toBeInTheDocument()
-    // The seeded experiment card is present
+    expect(screen.getByRole('tab', { name: /annotation/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /gemma/i })).toBeInTheDocument()
   })
 
@@ -116,5 +114,47 @@ describe('ReviewOverlay tab integration', () => {
     render(<ReviewOverlay onBack={() => {}} />)
     // The overlay should render without crashing; the tab strip is present
     expect(screen.getByRole('tablist')).toBeInTheDocument()
+  })
+
+  it('shows the "adopt as annotation" button only on prediction tabs', () => {
+    seedStores({ activeTab: 'active' })
+    const { rerender } = render(<ReviewOverlay onBack={() => {}} />)
+    expect(screen.queryByRole('button', { name: /adopt this prediction/i })).not.toBeInTheDocument()
+
+    seedStores({
+      activeTab: 'ex_a',
+      predictionsByExp: { 'ex_a': { entities: [{ supplier: 'EX' }] } },
+    })
+    rerender(<ReviewOverlay onBack={() => {}} />)
+    expect(screen.getByRole('button', { name: /adopt this prediction/i })).toBeInTheDocument()
+  })
+
+  it('clicking "adopt as annotation" copies the prediction into entities + switches to active', () => {
+    seedStores({
+      activeTab: 'ex_a',
+      activeEntities: [{ supplier: 'OLD_ANNOTATION' }],
+      predictionsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EX_A' }] } },
+    })
+    render(<ReviewOverlay onBack={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /adopt this prediction/i }))
+    const s = useReview.getState()
+    expect(s.activeTabKey).toBe('active')
+    expect(s.entities[0]).toEqual({ supplier: 'FROM_EX_A' })
+  })
+
+  it('per-row "use" button on a prediction tab copies the single value into annotation', () => {
+    seedStores({
+      activeTab: 'ex_a',
+      activeEntities: [{ supplier: 'OLD' }],
+      predictionsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EX_A' }] } },
+    })
+    render(<ReviewOverlay onBack={() => {}} />)
+    // hover button is rendered with aria-label "copy {field} to annotation"
+    const useBtn = screen.getByRole('button', { name: /copy supplier to annotation/i })
+    fireEvent.click(useBtn)
+    const s = useReview.getState()
+    // single-field copy does NOT switch tabs
+    expect(s.activeTabKey).toBe('ex_a')
+    expect(s.entities[0]).toEqual({ supplier: 'FROM_EX_A' })
   })
 })

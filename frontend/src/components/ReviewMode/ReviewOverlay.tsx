@@ -37,6 +37,8 @@ export default function ReviewOverlay({ onBack }: Props) {
     predictionsByExp,
     loadExperimentPrediction,
     setActiveTab,
+    adoptPrediction,
+    adoptPredictionField,
   } = useReview()
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
@@ -59,7 +61,18 @@ export default function ReviewOverlay({ onBack }: Props) {
   const displayEntities = activeTabKey === 'active'
     ? entities
     : (predictionsByExp[activeTabKey]?.entities ?? [])
+  const displayEvidence = activeTabKey === 'active'
+    ? evidence
+    : (predictionsByExp[activeTabKey]?._evidence ?? null)
   const readOnly = activeTabKey !== 'active'
+
+  const handleAdoptAll = readOnly
+    ? () => adoptPrediction(displayEntities, displayEvidence ?? null)
+    : undefined
+  const handleAdoptField = readOnly
+    ? (entityIdx: number, name: string, value: unknown, evidencePage?: number | null) =>
+        adoptPredictionField(entityIdx, name, value, evidencePage)
+    : undefined
 
   const [view, setView] = useState<'form' | 'json'>('form')
   const [forceOpen, setForceOpen] = useState<boolean | null>(null)
@@ -180,7 +193,7 @@ export default function ReviewOverlay({ onBack }: Props) {
               schema={schema}
               entities={displayEntities}
               notes={notes}
-              evidence={evidence ?? null}
+              evidence={displayEvidence ?? null}
               onChange={setField}
               onSetNote={setNote}
               onAddEntity={addEntity}
@@ -190,6 +203,8 @@ export default function ReviewOverlay({ onBack }: Props) {
               forceOpen={forceOpen}
               readOnly={readOnly}
               filename={filename}
+              onAdopt={handleAdoptAll}
+              onAdoptField={handleAdoptField}
             />
           )}
         </div>
