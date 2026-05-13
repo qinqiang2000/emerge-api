@@ -42,6 +42,7 @@ backend/.tmp_workspace/
 !backend/app/workspace/
 test-results/
 playwright-report/
+frontend/tests/dogfood-out/
 
 # Build artifacts
 *.tsbuildinfo
