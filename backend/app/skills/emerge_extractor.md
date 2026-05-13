@@ -31,8 +31,10 @@ without touching the active pair. Use this when the user says "试试" / "A/B"
 / "对比 model X" / "看看 prompt 改 description 的效果".
 
 Workflow:
-1. `create_experiment(label, prompt_id=None, model_id=None)` — both axes
-   default to active. Returns the new experiment_id.
+1. `create_experiment(prompt_id=None, model_id=None)` — upsert by axes pair;
+   both default to active. Returns the experiment_id for that (prompt, model)
+   pair (existing if one already exists, freshly minted otherwise). Label is
+   auto-derived from prompt + model labels — don't pass a label argument.
 2. `extract_with_experiment(experiment_id, doc_id)` — single-doc probe; the
    user typically asks for this on 1–2 specific docs first to eyeball.
 3. (optional) `run_experiment_eval(experiment_id)` — score against the full

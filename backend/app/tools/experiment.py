@@ -64,14 +64,17 @@ async def create_experiment(
     workspace: Path,
     project_id: str,
     *,
-    label: str | None = None,
     prompt_id: str | None = None,
     model_id: str | None = None,
 ) -> str:
-    """Create an experiment referencing (prompt_id or active, model_id or active).
+    """Upsert an experiment by (prompt_id, model_id) pair.
 
-    Validates that referenced prompt + model exist (raises PromptNotFoundError /
-    ModelNotFoundError otherwise). Returns the new experiment_id.
+    If an experiment with this exact (prompt, model) pair already exists (any
+    status, incl. archived/promoted), returns its existing experiment_id. Else
+    mints a new one with derived label `{prompt.label} × {model.label}`.
+
+    Both axes default to the project's active. Validates that referenced prompt
+    and model exist (raises PromptNotFoundError / ModelNotFoundError otherwise).
     """
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
@@ -82,15 +85,31 @@ async def create_experiment(
     async with project_lock(workspace, project_id):
         pid_resolved = prompt_id or await _resolve_active_prompt_id(workspace, project_id)
         mid_resolved = model_id or await _resolve_active_model_id(workspace, project_id)
-        # validate existence
-        await read_prompt(workspace, project_id, pid_resolved)
-        await read_model(workspace, project_id, mid_resolved)
+        prompt = await read_prompt(workspace, project_id, pid_resolved)
+        model = await read_model(workspace, project_id, mid_resolved)
 
+        # Upsert by axes: scan for existing experiment with same (prompt, model)
+        edir = experiments_dir(workspace, project_id)
+        if edir.exists():
+            for sub in edir.iterdir():
+                if not sub.is_dir():
+                    continue
+                meta = sub / "meta.json"
+                if not meta.exists():
+                    continue
+                try:
+                    existing = Experiment(**json.loads(meta.read_text(encoding="utf-8")))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if existing.prompt_id == pid_resolved and existing.model_id == mid_resolved:
+                    return existing.experiment_id
+
+        # No match — mint new
         new_id = new_experiment_id()
         now = _now_iso()
         ex = Experiment(
             experiment_id=new_id,
-            label=label or f"trial_{now}",
+            label=f"{prompt.label} × {model.label}",
             prompt_id=pid_resolved,
             model_id=mid_resolved,
             status="draft",

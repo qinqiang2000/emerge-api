@@ -78,12 +78,13 @@ def test_list_experiments_after_create(client: TestClient, tmp_path: Path) -> No
     from app.tools.experiment import create_experiment
     pid = "p_test12345678"
     _seed_project_with_axes(tmp_path, pid)
-    asyncio.run(create_experiment(tmp_path, pid, label="trial 1"))
+    asyncio.run(create_experiment(tmp_path, pid))
     r = client.get(f"/lab/projects/{pid}/experiments")
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) == 1
-    assert rows[0]["label"] == "trial 1"
+    # Label derives from prompt + model labels in the seeded fixture
+    assert rows[0]["label"] == "Baseline × Default"
     assert rows[0]["status"] == "draft"
 
 
@@ -177,8 +178,15 @@ def test_list_experiments_include_archived_query_param(
     from app.tools.experiment import archive_experiment, create_experiment
     pid = "p_test12345678"
     _seed_project_with_axes(tmp_path, pid)
-    e1 = asyncio.run(create_experiment(tmp_path, pid, label="keep"))
-    e2 = asyncio.run(create_experiment(tmp_path, pid, label="hide"))
+    # Two distinct axes pairs — upsert dedups same-axes, so test needs different pairs
+    atomic_write_json(prompt_path(tmp_path, pid, "pr_v2"), {
+        "prompt_id": "pr_v2", "label": "v2",
+        "schema": [{"name": "x", "type": "string", "description": "x", "required": False}],
+        "global_notes": "", "derived_from": None,
+        "created_at": _now(), "updated_at": _now(),
+    })
+    e1 = asyncio.run(create_experiment(tmp_path, pid))
+    e2 = asyncio.run(create_experiment(tmp_path, pid, prompt_id="pr_v2"))
     asyncio.run(archive_experiment(tmp_path, pid, e2))
 
     # default — only the live experiment

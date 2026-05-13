@@ -268,14 +268,15 @@ def build_emerge_mcp(
 
     @tool(
         "create_experiment",
-        "Create an experiment referencing a (prompt_id, model_id) pair. Both axes "
-        "default to the project's active. Returns the new experiment_id.",
-        {"project_id": str, "label": str, "prompt_id": str, "model_id": str},
+        "Upsert an experiment by (prompt_id, model_id) pair. If one already "
+        "exists for this exact pair, returns its existing experiment_id; else "
+        "mints a new one. Both axes default to the project's active. Label is "
+        "derived from prompt + model labels (not user-provided).",
+        {"project_id": str, "prompt_id": str, "model_id": str},
     )
     async def t_create_experiment(args: dict[str, Any]) -> dict[str, Any]:
         eid = await experiment_mod.create_experiment(
             workspace, args["project_id"],
-            label=args.get("label") or None,
             prompt_id=args.get("prompt_id") or None,
             model_id=args.get("model_id") or None,
         )

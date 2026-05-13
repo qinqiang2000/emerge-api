@@ -59,7 +59,8 @@ async def test_create_experiment_defaults_to_active(workspace: Path) -> None:
     assert ex.model_id == "m_default"
     assert ex.status == "draft"
     assert ex.eval is None
-    assert ex.label.startswith("trial_")
+    # Label is auto-derived from prompt + model labels (Baseline + Default)
+    assert ex.label == "Baseline × Default"
 
 
 async def test_create_experiment_explicit_axes(workspace: Path) -> None:
@@ -80,12 +81,51 @@ async def test_create_experiment_explicit_axes(workspace: Path) -> None:
         "params": {}, "created_at": _now(),
     })
     eid = await create_experiment(
-        workspace, pid, label="custom", prompt_id="pr_v2", model_id="m_other",
+        workspace, pid, prompt_id="pr_v2", model_id="m_other",
     )
     ex = await read_experiment(workspace, pid, eid)
-    assert ex.label == "custom"
+    assert ex.label == "v2 × Other"
     assert ex.prompt_id == "pr_v2"
     assert ex.model_id == "m_other"
+
+
+async def test_create_experiment_is_upsert_by_axes_pair(workspace: Path) -> None:
+    """Calling create_experiment twice with the same (prompt, model) returns
+    the same experiment_id — by-axes upsert, no duplicate experiments."""
+    from app.tools.experiment import create_experiment
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid1 = await create_experiment(workspace, pid)
+    eid2 = await create_experiment(workspace, pid)
+    assert eid1 == eid2
+
+    # Same upsert behavior for explicit axes
+    atomic_write_json(prompt_path(workspace, pid, "pr_v2"), {
+        "prompt_id": "pr_v2", "label": "v2",
+        "schema": [{"name": "x", "type": "string", "description": "x", "required": False}],
+        "global_notes": "", "derived_from": None,
+        "created_at": _now(), "updated_at": _now(),
+    })
+    eid3 = await create_experiment(workspace, pid, prompt_id="pr_v2")
+    eid4 = await create_experiment(workspace, pid, prompt_id="pr_v2")
+    assert eid3 == eid4
+    # Different axes pair → different experiment
+    assert eid3 != eid1
+
+
+async def test_create_experiment_upsert_returns_archived_match(workspace: Path) -> None:
+    """If an archived experiment matches the (prompt, model), it's still
+    returned — caller can revive it by running eval again."""
+    from app.tools.experiment import archive_experiment, create_experiment, read_experiment
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    eid = await create_experiment(workspace, pid)
+    await archive_experiment(workspace, pid, eid)
+    # Upsert returns the archived one (no new mint)
+    eid2 = await create_experiment(workspace, pid)
+    assert eid2 == eid
+    ex = await read_experiment(workspace, pid, eid)
+    assert ex.status == "archived"  # status unchanged by upsert
 
 
 async def test_create_experiment_missing_prompt_raises(workspace: Path) -> None:
@@ -114,8 +154,15 @@ async def test_list_experiments_excludes_archived_by_default(workspace: Path) ->
     )
     pid = "p_test12345678"
     _seed_axes(workspace, pid)
-    e1 = await create_experiment(workspace, pid, label="keep")
-    e2 = await create_experiment(workspace, pid, label="hide")
+    # Two experiments must have DIFFERENT axes pairs (upsert dedups same-axes)
+    atomic_write_json(prompt_path(workspace, pid, "pr_v2"), {
+        "prompt_id": "pr_v2", "label": "v2",
+        "schema": [{"name": "x", "type": "string", "description": "x", "required": False}],
+        "global_notes": "", "derived_from": None,
+        "created_at": _now(), "updated_at": _now(),
+    })
+    e1 = await create_experiment(workspace, pid)  # (baseline, default)
+    e2 = await create_experiment(workspace, pid, prompt_id="pr_v2")  # (v2, default)
     await archive_experiment(workspace, pid, e2)
     rows_default = await list_experiments(workspace, pid)
     assert [r["experiment_id"] for r in rows_default] == [e1]
