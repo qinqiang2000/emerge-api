@@ -19,6 +19,12 @@ class PromptNotFoundError(Exception):
     """Raised when read_prompt or write_prompt targets a prompt_id that does not exist on disk."""
 
 
+class PromptClearError(Exception):
+    """Raised when write_prompt would overwrite a non-empty schema with an
+    empty one without explicit `allow_clear=True`. Guards against accidental
+    schema wipes via agent tool calls or buggy flows."""
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -55,12 +61,15 @@ async def write_prompt(
     prompt_id: str | None,
     schema: list[SchemaField],
     global_notes: str = "",
+    allow_clear: bool = False,
 ) -> str:
     """Mutate an existing prompt variant. Returns the resolved prompt_id.
 
     - prompt_id=None resolves to project.active_prompt_id (triggers migration if needed)
     - prompt_id must reference an existing prompts/{id}.json — raises PromptNotFoundError otherwise
     - preserves prompt_id, label, derived_from, created_at; refreshes updated_at
+    - refuses to overwrite a non-empty schema with an empty one unless
+      allow_clear=True — guards against accidental wipes via agent tool calls
     """
     if prompt_id is None:
         from app.workspace.migrate import migrate_project_if_needed
@@ -71,6 +80,11 @@ async def write_prompt(
         if not pp.exists():
             raise PromptNotFoundError(f"{resolved} not found in project {project_id}")
         existing = PromptVariant(**json.loads(pp.read_text(encoding="utf-8")))
+        if existing.schema and not schema and not allow_clear:
+            raise PromptClearError(
+                f"refusing to clear non-empty schema on {resolved} "
+                f"({len(existing.schema)} fields → 0); pass allow_clear=True to override"
+            )
         updated = PromptVariant(
             prompt_id=existing.prompt_id,
             label=existing.label,

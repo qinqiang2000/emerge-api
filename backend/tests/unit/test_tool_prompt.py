@@ -9,6 +9,7 @@ import pytest
 from app.schemas.prompt_variant import PromptVariant
 from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.prompt import (
+    PromptClearError,
     PromptNotFoundError,
     list_prompts,
     read_active_prompt,
@@ -93,6 +94,67 @@ async def test_write_prompt_to_active_when_prompt_id_none(workspace: Path) -> No
     assert blob["schema"][0]["name"] == "supplier"
     assert blob["global_notes"] == "some notes"
     assert "updated_at" in blob
+
+
+async def test_write_prompt_refuses_clearing_non_empty_schema(workspace: Path) -> None:
+    """Guard against accidental schema wipes — write_prompt must refuse to
+    overwrite a non-empty active prompt with an empty schema unless the
+    caller explicitly passes allow_clear=True. Without this guard, an agent
+    tool call (or a buggy /init flow on an empty doc set) can silently zero
+    out the user's labeled schema, breaking /extract and the right-rail UI."""
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "invoice_no", "type": "string", "description": "d", "required": False},
+        {"name": "total", "type": "number", "description": "d", "required": False},
+    ])
+
+    with pytest.raises(PromptClearError):
+        await write_prompt(
+            workspace, pid,
+            prompt_id=None,
+            schema=[],
+            global_notes="",
+        )
+
+    # Disk is unchanged
+    blob = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    assert len(blob["schema"]) == 2
+
+
+async def test_write_prompt_allows_clearing_with_allow_clear(workspace: Path) -> None:
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "invoice_no", "type": "string", "description": "d", "required": False},
+    ])
+
+    await write_prompt(
+        workspace, pid,
+        prompt_id=None,
+        schema=[],
+        global_notes="",
+        allow_clear=True,
+    )
+
+    blob = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    assert blob["schema"] == []
+
+
+async def test_write_prompt_empty_to_empty_does_not_trigger_guard(workspace: Path) -> None:
+    """Writing [] when current schema is already [] is a noop in semantics —
+    guard only fires on real clearing of populated schemas."""
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[])
+
+    await write_prompt(
+        workspace, pid,
+        prompt_id=None,
+        schema=[],
+        global_notes="initial notes",
+    )
+
+    blob = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    assert blob["schema"] == []
+    assert blob["global_notes"] == "initial notes"
 
 
 async def test_write_prompt_preserves_derived_from_and_created_at(workspace: Path) -> None:
