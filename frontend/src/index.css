@@ -43,9 +43,16 @@ html, body, #root {
 .conv > .conv-scroll{padding-top:54px}
 
 /* ── Turn ────────────────────────────────────────────────────────── */
+/* Spacing mirrors claude.ai: after-assistant breathing room (~pb-3 +
+   action-bar slot + mt-6 ≈ 68px between assistant text and next user
+   bubble). conv-inner gap stays at 28px for non-transition flow; the
+   extra margin/padding here lifts user turns away from the prior
+   assistant block. */
 .turn{display:flex;flex-direction:column;gap:6px}
-.turn-you{align-items:flex-end}
-.turn-agent{align-items:stretch}
+.turn-you{align-items:flex-end;margin-top:32px}
+.turn-agent{align-items:stretch;padding-bottom:8px}
+/* first turn shouldn't get the after-assistant lift */
+.conv-inner > .turn-you:first-child{margin-top:0}
 
 /* ── msg ─────────────────────────────────────────────────────────── */
 .msg{font-family:var(--serif);font-size:17px;line-height:1.7;color:var(--ink);letter-spacing:.005em}
@@ -53,10 +60,11 @@ html, body, #root {
 .msg p:last-child{margin-bottom:0}
 .msg code{font-family:var(--mono);font-size:.86em;background:var(--paper-2);border:1px solid var(--rule-soft);padding:1px 5px;border-radius:4px;color:var(--ochre-2)}
 
-/* user bubble — right-aligned, paper-2 pill, no italic, no smart quotes */
+/* user bubble — right-aligned, paper-2 pill, no italic, no smart quotes.
+   border-radius matches claude.ai's rounded-xl (12px). */
 .msg.user{
   background:var(--paper-2);
-  border-radius:14px;
+  border-radius:12px;
   padding:10px 16px;
   max-width:min(75ch,85%);
   color:var(--ink);
