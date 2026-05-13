@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export type QuickLookTarget =
   | { kind: 'schema'; pid: string }
   | { kind: 'version'; pid: string; versionId: string }
+  | { kind: 'prompt'; pid: string; promptId: string }
 
 interface RawJsonSlot {
   value: string | null
@@ -16,6 +17,7 @@ interface QuickLookState {
 
   openSchema: (pid: string) => void
   openVersion: (pid: string, versionId: string) => void
+  openPrompt: (pid: string, promptId: string) => void
   close: () => void
   loadRaw: () => Promise<void>
 }
@@ -29,33 +31,50 @@ export const useQuickLook = create<QuickLookState>((set, get) => ({
   openSchema: pid => set({ target: { kind: 'schema', pid }, rawJson: EMPTY_RAW }),
   openVersion: (pid, versionId) =>
     set({ target: { kind: 'version', pid, versionId }, rawJson: EMPTY_RAW }),
+  openPrompt: (pid, promptId) =>
+    set({ target: { kind: 'prompt', pid, promptId }, rawJson: EMPTY_RAW }),
   close: () => set({ target: null, rawJson: EMPTY_RAW }),
 
   loadRaw: async () => {
     const t = get().target
     if (!t) return
     set({ rawJson: { value: null, loading: true, error: null } })
-    const url =
-      t.kind === 'schema'
-        ? `/lab/projects/${t.pid}/schema/raw`
-        : `/lab/projects/${t.pid}/versions/${t.versionId}/raw`
-    try {
-      const resp = await fetch(url)
-      if (!resp.ok) {
-        let code = `http_${resp.status}`
-        try {
-          const j = await resp.json()
-          code = j?.detail?.error_code ?? code
-        } catch { /* not json */ }
-        if (get().target !== t) return
-        set({ rawJson: { value: null, loading: false, error: code } })
-        return
+    // For schema (= active prompt) and frozen version we have dedicated
+    // pretty-printed text/plain endpoints. For a specific prompt variant we
+    // fetch the JSON object and pretty-print it client-side — keeps the
+    // backend surface small.
+    const fetchText = async (): Promise<string> => {
+      if (t.kind === 'schema') {
+        const resp = await fetch(`/lab/projects/${t.pid}/schema/raw`)
+        if (!resp.ok) throw resp
+        return resp.text()
       }
-      const text = await resp.text()
+      if (t.kind === 'version') {
+        const resp = await fetch(`/lab/projects/${t.pid}/versions/${t.versionId}/raw`)
+        if (!resp.ok) throw resp
+        return resp.text()
+      }
+      const resp = await fetch(`/lab/projects/${t.pid}/prompts/${t.promptId}`)
+      if (!resp.ok) throw resp
+      const blob = await resp.json()
+      return JSON.stringify(blob, null, 2)
+    }
+
+    try {
+      const text = await fetchText()
       if (get().target !== t) return
       set({ rawJson: { value: text, loading: false, error: null } })
     } catch (e) {
       if (get().target !== t) return
+      if (e instanceof Response) {
+        let code = `http_${e.status}`
+        try {
+          const j = await e.json()
+          code = j?.detail?.error_code ?? code
+        } catch { /* not json */ }
+        set({ rawJson: { value: null, loading: false, error: code } })
+        return
+      }
       set({ rawJson: { value: null, loading: false, error: (e as Error).message ?? 'fetch_failed' } })
     }
   },

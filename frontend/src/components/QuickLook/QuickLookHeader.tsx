@@ -8,11 +8,20 @@ interface Props {
 }
 
 export default function QuickLookHeader({ target, activeVersionId, derivedFrom, onClose }: Props) {
-  const title = target.kind === 'schema' ? 'prompts/active' : `versions/${target.versionId}`
+  let title: string
+  if (target.kind === 'version') {
+    title = `versions/${target.versionId}`
+  } else if (target.kind === 'prompt') {
+    title = `prompts/${target.promptId}`
+  } else {
+    title = 'prompts/active'
+  }
 
   let badge: { text: string; tone: 'active' | 'frozen' | 'draft' }
   if (target.kind === 'version') {
     badge = { text: `${target.versionId} · frozen`, tone: 'frozen' }
+  } else if (target.kind === 'prompt') {
+    badge = { text: 'variant', tone: 'draft' }
   } else if (activeVersionId) {
     badge = { text: `${activeVersionId} · active`, tone: 'active' }
   } else {

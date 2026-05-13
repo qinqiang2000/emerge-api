@@ -43,15 +43,21 @@ export default function SchemaQuickLook() {
   }, [])
 
   const activePrompt = usePrompts(s => target ? s.activeByProject[target.pid] : undefined)
+  const promptList = usePrompts(s => target ? s.list[target.pid] : undefined)
   const loadPrompts = usePrompts(s => s.load)
   useEffect(() => {
-    if (target && target.kind === 'schema') void loadPrompts(target.pid)
+    if (target && (target.kind === 'schema' || target.kind === 'prompt')) void loadPrompts(target.pid)
   }, [target, loadPrompts])
 
   if (!target) return null
 
   const activeVersionId = projects.find(p => p.project_id === target.pid)?.active_version_id ?? null
-  const derivedFrom = target.kind === 'schema' ? (activePrompt?.derived_from ?? null) : null
+  let derivedFrom: string | null = null
+  if (target.kind === 'schema') {
+    derivedFrom = activePrompt?.derived_from ?? null
+  } else if (target.kind === 'prompt') {
+    derivedFrom = promptList?.find(p => p.prompt_id === target.promptId)?.derived_from ?? null
+  }
 
   return createPortal(
     <div

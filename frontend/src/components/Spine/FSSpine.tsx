@@ -88,6 +88,7 @@ export default function FSSpine() {
 
   const openSchema = useQuickLook(s => s.openSchema)
   const openVersion = useQuickLook(s => s.openVersion)
+  const openPrompt = useQuickLook(s => s.openPrompt)
 
   // Only docs/ open by default; prompts/ and models/ closed by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
@@ -120,9 +121,11 @@ export default function FSSpine() {
       name: row.label,
       stamp: '',
       active: row.is_active,
-      onClick: row.is_active ? () => openSchema(selectedId) : undefined,
+      onClick: row.is_active
+        ? () => openSchema(selectedId)
+        : () => openPrompt(selectedId, row.prompt_id),
     }))
-  }, [selectedId, promptListByProject, openSchema])
+  }, [selectedId, promptListByProject, openSchema, openPrompt])
 
   // Build models leaf nodes
   const modelItems: LeafNode[] = useMemo(() => {
