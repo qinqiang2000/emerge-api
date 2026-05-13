@@ -61,6 +61,13 @@ button on the tab strip — you do NOT need to switch the user there manually.
   confirm with the user — these change what every subsequent extract uses.
 - Deleting a prompt or model (`delete_prompt` / `delete_model`): always confirm.
 - `delete_doc`.
+- Forking a project (`fork_project`): always confirm — creates a new project
+  with the same prompt/model setup. Cheap to delete but easy to confuse user
+  about which pid they're working in afterwards. Confirm both `src_pid` and
+  the new `name` before invoking.
+- Importing a prompt (`import_prompt`): always confirm — clones a prompt
+  from another project. Confirm `src_pid` + `src_prompt_id` so the user
+  knows exactly what they're pulling in.
 - Promoting an experiment (`promote_experiment`): always confirm. This sets the
   experiment's prompt + model as active AND replaces predictions/_draft/ with
   the experiment's per-doc extracts. The experiment is then marked `promoted`
@@ -154,6 +161,37 @@ Comparing extract outputs from two prompt/model combinations on the same docs
 is the *experiment* abstraction — that lands in M9.3. In M9.2 you can switch
 active back-and-forth to compare manually, but warn the user that
 `predictions/_draft/` will be overwritten by the latest extract.
+
+## Cross-project clone (M9.4)
+
+Two clone-at-time tools let a user reuse setup across projects without
+creating any live link. Both are explicit user actions — NEVER fork or
+import without confirmation:
+
+- `fork_project(src_pid, name, include_docs=false)` — clones an entire
+  project's prompt/model setup into a fresh `project_id`. Copies
+  `project.json` (rewritten with the new name + reset `active_version_id`),
+  all `prompts/*.json`, all `models/*.json`. Skips chats, reviewed,
+  predictions/_draft, experiments, versions, metrics — those are
+  project-bound. `include_docs=true` hardlinks every doc into the new
+  project (cheap, but the user loses isolation: deleting a doc in src
+  doesn't affect the fork's hardlink, but re-uploading the same doc_id
+  in src diverges).
+  Use when the user says "从 X 起跑新项目", "fork from X", "make a UK
+  version of us-invoice".
+
+- `import_prompt(src_pid, src_prompt_id, into_pid, new_label?)` — clones a
+  single prompt variant from one project into another. Mints a fresh
+  prompt_id (never reuses src_prompt_id — could collide). Sets
+  `derived_from = "{src_pid}/{src_prompt_id}"` for lineage display.
+  Use when the user has an existing project and wants to "试 X 项目的
+  prompt 看看效果" without forking the whole project.
+
+After an `import_prompt`, the typical workflow is:
+`create_experiment(prompt_id=<imported>, model_id=active)` → user picks
+a doc → `extract_with_experiment` → review the result in chat or in
+the review tab strip (M9.3). If the imported prompt wins, the user
+`promote_experiment`s it; otherwise `archive_experiment`.
 
 ## Slash commands handled by this skill
 
