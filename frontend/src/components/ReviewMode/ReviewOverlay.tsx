@@ -131,7 +131,6 @@ export default function ReviewOverlay({ onBack }: Props) {
   return (
     <div className="rev-overlay">
       <ReviewBar
-        filename={filename}
         saving={saving}
         canSave={!readOnly}
         view={view}
@@ -190,6 +189,7 @@ export default function ReviewOverlay({ onBack }: Props) {
               view={view}
               forceOpen={forceOpen}
               readOnly={readOnly}
+              filename={filename}
             />
           )}
         </div>

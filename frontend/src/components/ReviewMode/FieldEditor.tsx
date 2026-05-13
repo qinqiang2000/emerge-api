@@ -34,6 +34,8 @@ interface Props {
   forceOpen?: boolean | null
   /** When true, all fields are read-only (experiment tabs) */
   readOnly?: boolean
+  /** Document filename — rendered next to entity count for context */
+  filename?: string
 }
 
 export default function FieldEditor({
@@ -49,6 +51,7 @@ export default function FieldEditor({
   view = 'form',
   forceOpen = null,
   readOnly = false,
+  filename,
 }: Props) {
   // Active field path for highlighting (local state — one-way field→page, not PDF→field)
   const [activeField, setActiveField] = useState<string | null>(null)
@@ -121,6 +124,12 @@ export default function FieldEditor({
         ) : (
           <span className="font-mono text-xs text-ink-4">
             {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
+          </span>
+        )}
+        {filename && (
+          <span className="font-mono text-xs text-ink-4 truncate min-w-0" title={filename}>
+            <span className="text-ink-5 mx-1.5">·</span>
+            {filename}
           </span>
         )}
         {!readOnly && (

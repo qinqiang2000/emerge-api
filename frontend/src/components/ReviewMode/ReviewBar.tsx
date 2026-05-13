@@ -5,7 +5,6 @@ import type { DocSummary, ExperimentSummary } from '../../types/review'
 import ExperimentTabStrip from './ExperimentTabStrip'
 
 type Props = {
-  filename?: string
   saving: boolean
   canSave: boolean
   view: 'form' | 'json'
@@ -26,7 +25,6 @@ type Props = {
 }
 
 export default function ReviewBar({
-  filename,
   saving,
   canSave,
   view,
@@ -65,10 +63,6 @@ export default function ReviewBar({
       <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat" title="back to chat">
         <ArrowLeft size={16} strokeWidth={1.75} />
       </button>
-
-      <span className="title">
-        <span className="doc">docs/{filename ?? activeDocId}</span>
-      </span>
 
       {availableExperiments.some((e) => e.status !== 'archived') ? (
         <ExperimentTabStrip
