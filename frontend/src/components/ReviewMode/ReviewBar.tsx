@@ -71,12 +71,16 @@ export default function ReviewBar({
         <span className="doc">docs/{filename ?? activeDocId}</span>
       </span>
 
-      <ExperimentTabStrip
-        activeTabKey={activeTabKey}
-        availableExperiments={availableExperiments}
-        onSwitch={onSwitchTab}
-        modelLabels={modelLabels}
-      />
+      {availableExperiments.some((e) => e.status !== 'archived') ? (
+        <ExperimentTabStrip
+          activeTabKey={activeTabKey}
+          availableExperiments={availableExperiments}
+          onSwitch={onSwitchTab}
+          modelLabels={modelLabels}
+        />
+      ) : (
+        <div className="spacer" />
+      )}
 
       <div className="rev-toolbar">
         <div className="seg">
