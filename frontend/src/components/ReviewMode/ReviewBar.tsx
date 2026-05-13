@@ -67,7 +67,6 @@ export default function ReviewBar({
       </button>
 
       <span className="title">
-        <em>reviewing</em>
         <span className="doc">docs/{filename ?? activeDocId}</span>
       </span>
 

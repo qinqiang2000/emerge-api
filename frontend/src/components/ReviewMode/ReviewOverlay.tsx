@@ -48,8 +48,11 @@ export default function ReviewOverlay({ onBack }: Props) {
   const experimentList = useExperiments(useShallow(s => activeProjectId ? s.list[activeProjectId] ?? [] : []))
   const modelList = useModels(useShallow(s => activeProjectId ? s.list[activeProjectId] ?? [] : []))
 
+  // For the tab strip's top line we want a compact, recognizable model name.
+  // The user-supplied `label` often duplicates the model_id ("Default (gemini-
+  // 2.5-flash)"); the bare provider_model_id reads better in a tight chip.
   const modelLabels = useMemo(
-    () => Object.fromEntries(modelList.map(m => [m.model_id, m.label])),
+    () => Object.fromEntries(modelList.map(m => [m.model_id, m.provider_model_id])),
     [modelList],
   )
 
