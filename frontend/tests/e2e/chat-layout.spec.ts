@@ -11,7 +11,7 @@ test('chat layout: user line distinct from agent, consecutive plumbing tools gro
 
   const textarea = page.getByRole('textbox')
   await textarea.fill('/extract')
-  await textarea.press('Enter')
+  await textarea.press('ControlOrMeta+Enter')
 
   await expect(page.getByText('Running batch extract...')).toBeVisible({ timeout: 10_000 })
 

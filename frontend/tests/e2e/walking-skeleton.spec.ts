@@ -7,10 +7,10 @@ test('drag a PDF and submit chat — stubbed flow', async ({ page }) => {
   // in several places, which would trip strict mode.)
   await expect(page.getByRole('textbox')).toBeVisible()
 
-  // type a chat message and hit Enter (plain message, no slash → submits on Enter)
+  // type a chat message and submit with ⌘/Ctrl+Enter (plain Enter is now newline-only).
   const textarea = page.getByRole('textbox')
   await textarea.fill('extract core invoice info')
-  await textarea.press('Enter')
+  await textarea.press('ControlOrMeta+Enter')
 
   // expect the stub agent_text to appear
   await expect(page.getByText('Stub run complete')).toBeVisible({ timeout: 10_000 })

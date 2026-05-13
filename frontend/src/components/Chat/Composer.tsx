@@ -2,6 +2,16 @@ import { useState, useRef, useEffect, useMemo, type DragEvent, type KeyboardEven
 
 import SlashMenu, { COMMANDS } from './SlashMenu'
 
+// Mac shows ⌘, everything else shows Ctrl. Falls back to non-Mac when
+// `navigator` is unavailable (SSR, tests pre-jsdom-platform-shim).
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/i.test(
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+      navigator.platform ||
+      navigator.userAgent,
+  )
+
 interface Props {
   disabled: boolean
   pending: { filename: string }[]
@@ -17,10 +27,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
 
   // The autocomplete menu is open only while the user is still typing a command
   // name. Once a full command prefixes the text (`/eval` or `/eval …`), the
-  // choice is locked in: the menu closes, and plain Enter submits — consistent
-  // with the "⌘ ↵ send" footer hint (⌘/Ctrl+Enter always submits regardless).
-  // This also kills the old re-pick loop: pickSlash sets text to "/eval " which
-  // is a completedCommand, so the next Enter falls through to submit().
+  // menu closes and plain Enter inserts a newline like a normal textarea —
+  // only ⌘/Ctrl+Enter submits, matching the footer hint.
   const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
   const showSlash = text.startsWith('/') && !completedCommand
 
@@ -90,12 +98,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
         return
       }
     } else {
-      // Plain Enter submits when menu is closed
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        submit()
-        return
-      }
+      // Plain Enter inserts a newline (default textarea behavior);
+      // submission requires ⌘/Ctrl+Enter, handled at the top of this function.
       // Esc blurs
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -165,7 +169,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit }: Prop
             <span className="slash"><b>/publish</b></span>
           </div>
           <div className="send">
-            <kbd>⌘</kbd><kbd>↵</kbd> send
+            <kbd>{IS_MAC ? '⌘' : 'Ctrl'}</kbd><kbd>↵</kbd> send
           </div>
         </div>
       </div>

@@ -1101,3 +1101,45 @@ Two new MCP tools:
 - Frontend dedicated "Fork project" / "Import prompt" button surfaces (chat-only today) → wait for user signal.
 - `fork_project(include_reviewed=True)` opt-in from spec §3.4 — not implemented; defer until user demand surfaces.
 - Hardlink-aware "stale fork" warning (re-upload of same doc_id in src diverges silently) — only relevant if hardlinking becomes default.
+
+---
+
+### 2026-05-13 — Composer: plain Enter inserts newline; ⌘/Ctrl+Enter is the only submit; OS-aware footer
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/Composer`
+- **Files**: `frontend/src/components/Chat/Composer.tsx`,
+  `frontend/tests/unit/Composer.test.tsx`,
+  `frontend/tests/e2e/{walking-skeleton,chat-layout,publish-modal}.spec.ts`
+- **Type**: interaction (intentional behavior change)
+
+**What changed**
+1. Plain Enter no longer submits when the slash menu is closed — it now
+   inserts a newline like a normal textarea. Submission is **only**
+   ⌘+Enter (macOS) / Ctrl+Enter (Win/Linux), matching the footer hint.
+   Inside the open slash menu, Enter still picks the active command
+   (autocomplete affordance), which closes the menu without submitting.
+2. The footer kbd glyph is OS-aware: shows `⌘` on Mac, `Ctrl` elsewhere.
+   Detection uses `navigator.userAgentData.platform` with fallbacks to
+   `navigator.platform` / `userAgent` — non-Mac is the safe default if
+   `navigator` is unavailable.
+3. Tests updated: unit suite now asserts plain Enter is a no-op and
+   ⌘/Ctrl+Enter is required; e2e specs press `ControlOrMeta+Enter`
+   (cross-platform Playwright modifier) instead of `Enter`.
+
+**Why**
+Reverses the "plain Enter falls through to submit() once a full command
+is typed" branch from the 2026-05-11 fix. The footer always advertised
+`⌘ ↵`, but plain Enter was secretly also wired up, which made the hint
+misleading and surprised users who expected Enter to wrap a line in a
+multi-line textarea. The 2026-05-11 change can be considered superseded
+by this entry — only the slash-menu pick-on-Enter and the
+completed-command menu-dismissal logic survive.
+
+**Reference**
+- Updated tests: `frontend/tests/unit/Composer.test.tsx` — 7/7 pass;
+  the renamed "plain Enter does not submit — only ⌘/Ctrl+Enter does"
+  test types `hello{Enter}{Ctrl+Enter}` and confirms `onSubmit` fires
+  exactly once with the trimmed text.
+- E2E modifier: `textarea.press('ControlOrMeta+Enter')` works against
+  both macOS (⌘) and Linux/Windows (Ctrl) runners.

@@ -24,7 +24,7 @@ test('publish flow: key card appears inline, plaintext stays out of chat jsonl e
 
   const textarea = page.getByRole('textbox')
   await textarea.fill('/publish')
-  await textarea.press('Enter')
+  await textarea.press('ControlOrMeta+Enter')
 
   // PublishStage key card renders inline in the chat thread (not a dialog).
   // It shows the "KEY MINTED" eyebrow and the one-time plaintext key.
