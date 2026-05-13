@@ -1010,7 +1010,13 @@ The user can now isolate alternative `(prompt, model)` combinations as named exp
 - Spec: `docs/superpowers/specs/2026-05-12-extraction-comparability-design.md` (§3.3 tools, §3.5 promote semantics, §7.4 review tabs, §7.1 FSSpine layout)
 - Plan: `docs/superpowers/plans/2026-05-13-m9-3-experiments-and-review-tabs.md` (18 tasks, TDD per task, subagent-driven with spec + code-quality review per task)
 - Range: `f0f6f13..aa1847b` (25 commits: 18 feat/fix/test/docs + 7 polish from review rounds)
-- **Live verify pending** — needs real LLM env to exercise scenario §4.3 (prompt-variant A/B) and §4.4 (model A/B). E2E + unit coverage stand in for now; live-screenshot pass to follow when the user runs it.
+- **Live verify done** (2026-05-13) — scenario §4.3 (prompt-variant A/B) ran end-to-end on `us-invoice` workspace against real Gemini-2.5-flash:
+  - Created variant `pr_7tqzwqvjx1p3` ("issuer top-right hint") cloned from `pr_baseline` with the `issuer` field description extended by ". Usually appears in the top-right or top-left letterhead of the page".
+  - Created experiment `ex_6hxiqgvl3ajd` binding (variant, gemini-2.5-flash) and ran `run_experiment_eval` against the 5 reviewed docs.
+  - **Result: macro_f1 = 0.6861 vs baseline 0.85 — variant scored WORSE by 0.16.** Per-field breakdown showed `issuer` itself stayed at 0.80 (the hint didn't help), while `supplier_brn` / `page_number` dropped to 0.0 (model failed to extract these on the variant prompt — a regression from baseline). Verdict: do NOT promote. Exactly the kind of negative signal the experiments axis was designed to surface before the user touches `freeze_version`.
+  - FSSpine `experiments/` group rendered the new row with stamp `ran · 0.69` as expected (screenshot `docs/screenshots/2026-05-13-m9-3-experiments-with-real-score.png`).
+  - **Note (UI nit, not blocking):** in Phase 1's read-only experiment tab, FieldRow's "edited" red-dot indicator (`●`) appeared on the experiment-tab values because the component compares the rendered value to the captured `originalValue` from mount — but the experiment tab swaps the value via prop change, not via user edit. Cosmetic; deferred as M9.x follow-up if it surfaces again in dogfood.
+  - Scenario §4.4 (model A/B) skipped — the workspace's second model (`m_2xpcm8cm1wdx` = `gemini-3-flash-preview`) is a placeholder for an unreleased model, so a real A/B against it would 404. Trivially extensible via the same path once a second real model is configured.
 
 **Spun out**
 - M9.4 — autoresearch path migration (`versions/_candidate/` → `prompts/_candidate/`, "Accept turn N" → "Save turn N as variant").
