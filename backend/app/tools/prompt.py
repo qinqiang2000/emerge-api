@@ -210,3 +210,62 @@ async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> Non
                 "archive them first"
             )
         pp.unlink()
+
+
+async def import_prompt(
+    workspace: Path,
+    *,
+    src_pid: str,
+    src_prompt_id: str,
+    into_pid: str,
+    new_label: str | None = None,
+) -> str:
+    """Clone-at-time copy of a single prompt variant from src_pid to into_pid.
+
+    - new prompt_id is freshly minted (never reuses src_prompt_id, to avoid
+      collision with same-named prompts in dest)
+    - schema + global_notes are copied verbatim
+    - derived_from = f"{src_pid}/{src_prompt_id}" — purely informational lineage
+      string; no live link
+    - label defaults to src.label when new_label is None
+    - autoresearch _candidate/ entries are never importable (out of scope of
+      named variants; would be incoherent without the originating job context)
+    """
+    from app.workspace.ids import new_prompt_id
+    from app.workspace.migrate import migrate_project_if_needed
+
+    # Migrate both to current layout so legacy schema.json doesn't surprise us.
+    await migrate_project_if_needed(workspace, src_pid)
+    await migrate_project_if_needed(workspace, into_pid)
+
+    src_path = prompt_path(workspace, src_pid, src_prompt_id)
+    if not src_path.exists():
+        raise PromptNotFoundError(
+            f"source prompt {src_prompt_id} not found in project {src_pid}"
+        )
+    src = PromptVariant(**json.loads(src_path.read_text(encoding="utf-8")))
+
+    dst_pj = project_json_path(workspace, into_pid)
+    if not dst_pj.exists():
+        raise PromptNotFoundError(
+            f"destination project {into_pid} not found"
+        )
+
+    async with project_lock(workspace, into_pid):
+        new_id = new_prompt_id()
+        now = _now_iso()
+        pv = PromptVariant(
+            prompt_id=new_id,
+            label=new_label if new_label else src.label,
+            schema=src.schema,
+            global_notes=src.global_notes,
+            derived_from=f"{src_pid}/{src_prompt_id}",
+            created_at=now,
+            updated_at=now,
+        )
+        prompts_dir(workspace, into_pid).mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            prompt_path(workspace, into_pid, new_id),
+            pv.model_dump(mode="json"),
+        )
+    return new_id
