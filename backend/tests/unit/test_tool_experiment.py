@@ -187,11 +187,11 @@ async def test_archive_experiment_blocks_promoted(workspace: Path) -> None:
         await archive_experiment(workspace, pid, eid)
 
 
-async def test_extract_with_experiment_writes_to_extracts_dir(
+async def test_extract_with_experiment_writes_to_predictions_dir(
     workspace: Path, stub_provider,
 ):
     from app.tools.experiment import create_experiment, extract_with_experiment
-    from app.workspace.paths import doc_meta_path, doc_path, docs_dir, experiment_extract_path
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir, experiment_prediction_path
     from tests.conftest import make_provider_result
     pid = "p_test12345678"
     _seed_axes(workspace, pid)
@@ -210,7 +210,7 @@ async def test_extract_with_experiment_writes_to_extracts_dir(
     )
     assert payload.get("entities") == [{"supplier": "ACME"}]
     on_disk = json.loads(
-        experiment_extract_path(workspace, pid, eid, did).read_text(),
+        experiment_prediction_path(workspace, pid, eid, did).read_text(),
     )
     assert on_disk == payload
 

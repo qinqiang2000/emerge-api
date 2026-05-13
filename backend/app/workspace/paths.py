@@ -65,14 +65,14 @@ def experiment_meta_path(workspace: Path, project_id: str, experiment_id: str) -
     return experiment_dir(workspace, project_id, experiment_id) / "meta.json"
 
 
-def experiment_extracts_dir(workspace: Path, project_id: str, experiment_id: str) -> Path:
-    return experiment_dir(workspace, project_id, experiment_id) / "extracts"
+def experiment_predictions_dir(workspace: Path, project_id: str, experiment_id: str) -> Path:
+    return experiment_dir(workspace, project_id, experiment_id) / "predictions"
 
 
-def experiment_extract_path(
+def experiment_prediction_path(
     workspace: Path, project_id: str, experiment_id: str, doc_id: str,
 ) -> Path:
-    return experiment_extracts_dir(workspace, project_id, experiment_id) / f"{doc_id}.json"
+    return experiment_predictions_dir(workspace, project_id, experiment_id) / f"{doc_id}.json"
 
 
 def chats_dir(workspace: Path, project_id: str) -> Path:

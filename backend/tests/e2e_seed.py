@@ -16,7 +16,7 @@ from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import FieldType, SchemaField
 from app.workspace.atomic import atomic_write_json
 from app.workspace.migrate import migrate_project_if_needed
-from app.workspace.paths import experiment_extract_path, experiment_extracts_dir, predictions_draft_dir
+from app.workspace.paths import experiment_prediction_path, experiment_predictions_dir, predictions_draft_dir
 
 
 async def main() -> None:
@@ -64,10 +64,10 @@ async def main() -> None:
     await migrate_project_if_needed(workspace, pid)
     # project now has prompts/pr_baseline.json + models/m_default.json after migration
     exp_id = await create_experiment(workspace, pid, label="try gemma")
-    extracts_dir = experiment_extracts_dir(workspace, pid, exp_id)
-    extracts_dir.mkdir(parents=True, exist_ok=True)
+    predictions_dir = experiment_predictions_dir(workspace, pid, exp_id)
+    predictions_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
-        experiment_extract_path(workspace, pid, exp_id, did),
+        experiment_prediction_path(workspace, pid, exp_id, did),
         {
             "entities": [{"invoice_number": "FROM_EXPERIMENT", "total_amount": 999.99}],
             "_evidence": [{"invoice_number": 1, "total_amount": 1}],

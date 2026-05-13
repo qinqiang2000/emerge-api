@@ -99,21 +99,21 @@ def test_get_experiment_meta(client: TestClient, tmp_path: Path) -> None:
     assert body["prompt_id"] == "pr_baseline"
 
 
-def test_get_extract_404_when_not_run(client: TestClient, tmp_path: Path) -> None:
+def test_get_prediction_404_when_not_run(client: TestClient, tmp_path: Path) -> None:
     from app.tools.experiment import create_experiment
     pid = "p_test12345678"
     _seed_project_with_axes(tmp_path, pid)
     eid = asyncio.run(create_experiment(tmp_path, pid))
     did = "d_doc000000000"
-    r = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/{did}")
+    r = client.get(f"/lab/projects/{pid}/experiments/{eid}/predictions/{did}")
     assert r.status_code == 404
-    assert r.json()["detail"]["error_code"] == "experiment_extract_not_found"
+    assert r.json()["detail"]["error_code"] == "experiment_prediction_not_found"
 
 
-def test_run_extract_endpoint_writes_and_returns(
+def test_run_prediction_endpoint_writes_and_returns(
     client: TestClient, tmp_path: Path, monkeypatch,
 ) -> None:
-    """POST .../extracts/{doc_id} runs extract_with_experiment.
+    """POST .../predictions/{doc_id} runs extract_with_experiment.
     Monkeypatch get_provider_for_model so the route doesn't hit a real LLM."""
     from app.tools.experiment import create_experiment
     pid = "p_test12345678"
@@ -133,13 +133,13 @@ def test_run_extract_endpoint_writes_and_returns(
     import app.api.routes.experiments as exp_route
     monkeypatch.setattr(exp_route, "get_provider_for_model", lambda *_a, **_k: stub)
 
-    r = client.post(f"/lab/projects/{pid}/experiments/{eid}/extracts/{did}")
+    r = client.post(f"/lab/projects/{pid}/experiments/{eid}/predictions/{did}")
     assert r.status_code == 200
     body = r.json()
     assert body["entities"][0]["supplier"] == "ACME"
 
     # subsequent GET now returns 200
-    r2 = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/{did}")
+    r2 = client.get(f"/lab/projects/{pid}/experiments/{eid}/predictions/{did}")
     assert r2.status_code == 200
 
 
@@ -148,7 +148,7 @@ def test_invalid_project_id_rejected(client: TestClient, tmp_path: Path) -> None
     assert r.status_code in (400, 404, 422)
 
 
-def test_invalid_doc_id_rejected_on_extract_routes(
+def test_invalid_doc_id_rejected_on_prediction_routes(
     client: TestClient, tmp_path: Path,
 ) -> None:
     """doc_id must match d_[a-z0-9]{12}; reject path-traversal attempts."""
@@ -158,15 +158,15 @@ def test_invalid_doc_id_rejected_on_extract_routes(
     eid = asyncio.run(create_experiment(tmp_path, pid))
 
     # malformed doc_id with literal "/" — FastAPI rejects via 404 on routing
-    r1 = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/../../etc/passwd")
+    r1 = client.get(f"/lab/projects/{pid}/experiments/{eid}/predictions/../../etc/passwd")
     assert r1.status_code in (400, 404, 422)
 
     # malformed doc_id matching the path component but not the d_ pattern —
     # safe_doc_id() must reject this
-    r2 = client.get(f"/lab/projects/{pid}/experiments/{eid}/extracts/notadocid")
+    r2 = client.get(f"/lab/projects/{pid}/experiments/{eid}/predictions/notadocid")
     assert r2.status_code in (400, 422)
 
-    r3 = client.post(f"/lab/projects/{pid}/experiments/{eid}/extracts/notadocid")
+    r3 = client.post(f"/lab/projects/{pid}/experiments/{eid}/predictions/notadocid")
     assert r3.status_code in (400, 422)
 
 

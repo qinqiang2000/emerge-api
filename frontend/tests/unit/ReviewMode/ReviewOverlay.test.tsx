@@ -15,7 +15,7 @@ const SCHEMA = [
 function seedStores(opts: {
   attached?: string[]
   activeTab?: 'active' | string
-  extractsByExp?: Record<string, { entities: Record<string, unknown>[] } | null>
+  predictionsByExp?: Record<string, { entities: Record<string, unknown>[] } | null>
   activeEntities?: Record<string, unknown>[]
 }) {
   useSchema.setState({
@@ -48,7 +48,7 @@ function seedStores(opts: {
     evidence: null, notes: {},
     attachedExperimentIds: opts.attached ?? [],
     activeTabKey: opts.activeTab ?? 'active',
-    extractsByExp: opts.extractsByExp ?? {},
+    predictionsByExp: opts.predictionsByExp ?? {},
     loading: false, saving: false, err: null, page: 1, pageCount: 1,
   })
 }
@@ -85,7 +85,7 @@ describe('ReviewOverlay tab integration', () => {
     seedStores({
       attached: ['ex_a'],
       activeTab: 'ex_a',
-      extractsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EXPERIMENT' }] } },
+      predictionsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EXPERIMENT' }] } },
       activeEntities: [{ supplier: 'ACTIVE_VAL' }],
     })
     render(<ReviewOverlay onBack={() => {}} />)
@@ -104,7 +104,7 @@ describe('ReviewOverlay tab integration', () => {
     seedStores({
       attached: ['ex_a'],
       activeTab: 'ex_a',
-      extractsByExp: { 'ex_a': { entities: [{}] } },
+      predictionsByExp: { 'ex_a': { entities: [{}] } },
     })
     rerender(<ReviewOverlay onBack={() => {}} />)
     const saveBtn2 = screen.getByRole('button', { name: /save/i }) as HTMLButtonElement
@@ -112,11 +112,11 @@ describe('ReviewOverlay tab integration', () => {
   })
 
   it('experiment tab with no cached extract shows the field area gracefully', () => {
-    // ex_a is attached but extractsByExp['ex_a'] is null (404)
+    // ex_a is attached but predictionsByExp['ex_a'] is null (404)
     seedStores({
       attached: ['ex_a'],
       activeTab: 'ex_a',
-      extractsByExp: { 'ex_a': null },
+      predictionsByExp: { 'ex_a': null },
     })
     render(<ReviewOverlay onBack={() => {}} />)
     // The overlay should render without crashing; the tab strip is present

@@ -1,8 +1,8 @@
 // frontend/src/stores/review.ts
 import { create } from 'zustand'
 
-import { getExperimentExtract, getPrediction, getReviewed, runExperimentExtract, saveReviewed } from '../lib/api'
-import type { ExperimentExtractPayload, ReviewedPayload } from '../types/review'
+import { getExperimentPrediction, getPrediction, getReviewed, runExperimentPrediction, saveReviewed } from '../lib/api'
+import type { ExperimentPredictionPayload, ReviewedPayload } from '../types/review'
 import { useDocs } from './docs'
 
 type FieldsValue = Record<string, unknown>
@@ -21,7 +21,7 @@ interface State {
   // ── M9.3 tab state ───────────────────────────────────────────────
   attachedExperimentIds: string[]
   activeTabKey: 'active' | string  // 'active' or experiment_id
-  extractsByExp: Record<string, ExperimentExtractPayload | null>
+  predictionsByExp: Record<string, ExperimentPredictionPayload | null>
   // ── existing methods ─────────────────────────────────────────────
   open: (projectId: string, docId: string) => Promise<void>
   close: () => void
@@ -36,8 +36,8 @@ interface State {
   attachExperiment: (experimentId: string) => Promise<void>
   detachExperiment: (experimentId: string) => void
   setActiveTab: (key: 'active' | string) => void
-  loadExperimentExtract: (experimentId: string) => Promise<void>
-  runExperimentExtract: (experimentId: string) => Promise<void>
+  loadExperimentPrediction: (experimentId: string) => Promise<void>
+  runExperimentPrediction: (experimentId: string) => Promise<void>
 }
 
 export const useReview = create<State>((set, get) => ({
@@ -53,7 +53,7 @@ export const useReview = create<State>((set, get) => ({
   notes: {},
   attachedExperimentIds: [],
   activeTabKey: 'active',
-  extractsByExp: {},
+  predictionsByExp: {},
   open: async (projectId, docId) => {
     set({
       activeProjectId: projectId,
@@ -68,7 +68,7 @@ export const useReview = create<State>((set, get) => ({
       // ── tab state reset ──
       attachedExperimentIds: [],
       activeTabKey: 'active',
-      extractsByExp: {},
+      predictionsByExp: {},
     })
     try {
       // Prefer reviewed payload (resume a partial review); fall back to draft.
@@ -126,7 +126,7 @@ export const useReview = create<State>((set, get) => ({
     const { attachedExperimentIds } = get()
     if (attachedExperimentIds.includes(experimentId)) return
     set((s) => ({ attachedExperimentIds: [...s.attachedExperimentIds, experimentId] }))
-    await get().loadExperimentExtract(experimentId)
+    await get().loadExperimentPrediction(experimentId)
   },
 
   detachExperiment: (experimentId) => {
@@ -138,18 +138,18 @@ export const useReview = create<State>((set, get) => ({
 
   setActiveTab: (key) => set({ activeTabKey: key }),
 
-  loadExperimentExtract: async (experimentId) => {
-    const { activeProjectId, activeDocId, extractsByExp } = get()
+  loadExperimentPrediction: async (experimentId) => {
+    const { activeProjectId, activeDocId, predictionsByExp } = get()
     if (!activeProjectId || !activeDocId) return
-    if (experimentId in extractsByExp) return  // already attempted (success or 404)
-    const payload = await getExperimentExtract(activeProjectId, experimentId, activeDocId)
-    set((s) => ({ extractsByExp: { ...s.extractsByExp, [experimentId]: payload } }))
+    if (experimentId in predictionsByExp) return  // already attempted (success or 404)
+    const payload = await getExperimentPrediction(activeProjectId, experimentId, activeDocId)
+    set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
 
-  runExperimentExtract: async (experimentId) => {
+  runExperimentPrediction: async (experimentId) => {
     const { activeProjectId, activeDocId } = get()
     if (!activeProjectId || !activeDocId) return
-    const payload = await runExperimentExtract(activeProjectId, experimentId, activeDocId)
-    set((s) => ({ extractsByExp: { ...s.extractsByExp, [experimentId]: payload } }))
+    const payload = await runExperimentPrediction(activeProjectId, experimentId, activeDocId)
+    set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
 }))

@@ -18,10 +18,10 @@ class ExperimentEval(BaseModel):
 
 
 class Experiment(BaseModel):
-    """A (prompt_id, model_id) reference pair plus optional eval + per-doc extracts.
+    """A (prompt_id, model_id) reference pair plus optional eval + per-doc predictions.
 
     Disk: experiments/{experiment_id}/meta.json (this blob) +
-          experiments/{experiment_id}/extracts/{doc_id}.json (per-doc payloads).
+          experiments/{experiment_id}/predictions/{doc_id}.json (per-doc payloads).
     """
     model_config = ConfigDict(extra="forbid", frozen=False)
 

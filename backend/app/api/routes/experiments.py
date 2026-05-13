@@ -16,7 +16,7 @@ from app.tools.experiment import (
 )
 from app.tools.model import read_model
 from app.workspace.migrate import migrate_project_if_needed
-from app.workspace.paths import experiment_extract_path, project_json_path
+from app.workspace.paths import experiment_prediction_path, project_json_path
 
 
 router = APIRouter()
@@ -60,9 +60,9 @@ async def get_project_experiment(project_id: str, experiment_id: str) -> dict:
 
 
 @router.get(
-    "/lab/projects/{project_id}/experiments/{experiment_id}/extracts/{doc_id}",
+    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{doc_id}",
 )
-async def get_experiment_extract(
+async def get_experiment_prediction(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
@@ -75,19 +75,19 @@ async def get_experiment_extract(
             status_code=404,
             detail={"error_code": "experiment_not_found"},
         )
-    p = experiment_extract_path(workspace, project_id, experiment_id, doc_id)
+    p = experiment_prediction_path(workspace, project_id, experiment_id, doc_id)
     if not p.exists():
         raise HTTPException(
             status_code=404,
-            detail={"error_code": "experiment_extract_not_found"},
+            detail={"error_code": "experiment_prediction_not_found"},
         )
     return json.loads(p.read_text(encoding="utf-8"))
 
 
 @router.post(
-    "/lab/projects/{project_id}/experiments/{experiment_id}/extracts/{doc_id}",
+    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{doc_id}",
 )
-async def run_experiment_extract(
+async def run_experiment_prediction(
     project_id: str, experiment_id: str, doc_id: str,
 ) -> dict:
     workspace = _project_or_404(project_id)

@@ -8,7 +8,7 @@ describe('useReview tab state', () => {
       activeProjectId: null, activeDocId: null,
       page: 1, pageCount: 1, loading: false, saving: false, err: null,
       entities: [], evidence: null, notes: {},
-      attachedExperimentIds: [], activeTabKey: 'active', extractsByExp: {},
+      attachedExperimentIds: [], activeTabKey: 'active', predictionsByExp: {},
     })
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -21,8 +21,8 @@ describe('useReview tab state', () => {
     await useReview.getState().attachExperiment('ex_a')
     const s = useReview.getState()
     expect(s.attachedExperimentIds).toContain('ex_a')
-    expect(s.extractsByExp['ex_a']).toBeTruthy()
-    expect(s.extractsByExp['ex_a']?.entities[0]).toEqual({ supplier: 'EX' })
+    expect(s.predictionsByExp['ex_a']).toBeTruthy()
+    expect(s.predictionsByExp['ex_a']?.entities[0]).toEqual({ supplier: 'EX' })
   })
 
   it('attachExperiment is idempotent (same id twice = single entry)', async () => {
@@ -68,16 +68,16 @@ describe('useReview tab state', () => {
     useReview.setState({
       activeProjectId: 'p_x', activeDocId: 'd_old',
       attachedExperimentIds: ['ex_a'], activeTabKey: 'ex_a',
-      extractsByExp: { ex_a: { entities: [{}] } },
+      predictionsByExp: { ex_a: { entities: [{}] } },
     })
     await useReview.getState().open('p_x', 'd_new')
     const s = useReview.getState()
     expect(s.attachedExperimentIds).toEqual([])
     expect(s.activeTabKey).toBe('active')
-    expect(s.extractsByExp).toEqual({})
+    expect(s.predictionsByExp).toEqual({})
   })
 
-  it('runExperimentExtract POSTs and overrides cached extract', async () => {
+  it('runExperimentPrediction POSTs and overrides cached extract', async () => {
     let postCalled = false
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (opts?.method === 'POST') {
@@ -93,9 +93,9 @@ describe('useReview tab state', () => {
     }))
     useReview.setState({ activeProjectId: 'p_x', activeDocId: 'd_y' })
     await useReview.getState().attachExperiment('ex_a')  // GET → OLD
-    await useReview.getState().runExperimentExtract('ex_a')  // POST → FRESH
+    await useReview.getState().runExperimentPrediction('ex_a')  // POST → FRESH
     expect(postCalled).toBe(true)
-    const cached = useReview.getState().extractsByExp['ex_a']
+    const cached = useReview.getState().predictionsByExp['ex_a']
     expect((cached?.entities[0] as Record<string, unknown>)?.supplier).toBe('FRESH')
   })
 })

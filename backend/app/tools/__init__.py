@@ -284,7 +284,7 @@ def build_emerge_mcp(
     @tool(
         "extract_with_experiment",
         "Run an experiment's (prompt, model) pair on a single doc; writes "
-        "experiments/{experiment_id}/extracts/{doc_id}.json. Returns the payload.",
+        "experiments/{experiment_id}/predictions/{doc_id}.json. Returns the payload.",
         {"project_id": str, "experiment_id": str, "doc_id": str},
     )
     async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:

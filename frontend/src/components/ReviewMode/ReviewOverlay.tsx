@@ -36,7 +36,7 @@ export default function ReviewOverlay({ onBack }: Props) {
     open,
     attachedExperimentIds,
     activeTabKey,
-    extractsByExp,
+    predictionsByExp,
     attachExperiment,
     detachExperiment,
     setActiveTab,
@@ -58,7 +58,7 @@ export default function ReviewOverlay({ onBack }: Props) {
 
   const displayEntities = activeTabKey === 'active'
     ? entities
-    : (extractsByExp[activeTabKey]?.entities ?? [])
+    : (predictionsByExp[activeTabKey]?.entities ?? [])
   const readOnly = activeTabKey !== 'active'
 
   const [view, setView] = useState<'form' | 'json'>('form')

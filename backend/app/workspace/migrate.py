@@ -34,23 +34,30 @@ def _global_notes_path(workspace: Path, project_id: str) -> Path:
 
 
 async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
-    """Idempotent lazy migration from pre-M9.1 layout to the prompts/+models/ layout.
+    """Idempotent lazy migration to the current on-disk layout.
 
-    Trigger this at every read entry point that touches schema or model config.
-    Safe under concurrent invocations: uses project_lock + double-check.
+    Trigger this at every read entry point that touches schema, model config,
+    or experiment data. Safe under concurrent invocations: uses project_lock +
+    double-check. Each migration step has its own gate so callers don't need
+    to know which ones apply.
 
-    What it does (only when prompts/ does not exist):
-      1. Reads legacy schema.json -> builds prompts/pr_baseline.json
-      2. Reads legacy global_notes.md (if present) -> folds into pr_baseline.global_notes
-      3. Reads legacy project.extract_model + extract_params -> builds models/m_default.json
-      4. Stamps project.json with active_prompt_id='pr_baseline', active_model_id='m_default'
-      5. Leaves schema.json + global_notes.md on disk (cleanup deferred to later milestone)
+    Steps:
+      - M9.1: legacy schema.json -> prompts/pr_baseline.json + models/m_default.json
+              (only when prompts/ does not exist)
+      - M9.4: rename experiments/{eid}/extracts/ -> experiments/{eid}/predictions/
+              (only when the legacy extracts/ dir is present)
     """
     pdir = project_dir(workspace, project_id)
     if not pdir.exists():
         return  # nothing to migrate
+
+    await _migrate_to_m91(workspace, project_id, pdir)
+    await _migrate_experiment_predictions(workspace, project_id, pdir)
+
+
+async def _migrate_to_m91(workspace: Path, project_id: str, pdir: Path) -> None:
     if prompts_dir(workspace, project_id).exists():
-        return  # fast path: already migrated
+        return  # already migrated
 
     async with project_lock(workspace, project_id):
         # Re-check under lock
@@ -121,3 +128,31 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
             "migrate: project %s -> prompts/pr_baseline.json + models/m_default.json (provider=%s)",
             project_id, mc.provider,
         )
+
+
+async def _migrate_experiment_predictions(workspace: Path, project_id: str, pdir: Path) -> None:
+    """M9.4: rename experiments/{eid}/extracts/ -> experiments/{eid}/predictions/.
+
+    Each experiment dir is migrated independently; the lock is per-project so
+    concurrent reads are safe. Skipped on projects without an experiments/ dir.
+    """
+    edir = pdir / "experiments"
+    if not edir.exists():
+        return
+
+    candidates = [
+        sub for sub in edir.iterdir()
+        if sub.is_dir() and (sub / "extracts").exists() and not (sub / "predictions").exists()
+    ]
+    if not candidates:
+        return
+
+    async with project_lock(workspace, project_id):
+        for sub in candidates:
+            legacy = sub / "extracts"
+            target = sub / "predictions"
+            # Re-check under lock
+            if not legacy.exists() or target.exists():
+                continue
+            legacy.rename(target)
+            _log.info("migrate: %s/extracts -> %s/predictions", sub.name, sub.name)

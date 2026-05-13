@@ -12,9 +12,9 @@ from app.workspace.ids import new_experiment_id
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
     experiment_dir,
-    experiment_extract_path,
-    experiment_extracts_dir,
     experiment_meta_path,
+    experiment_prediction_path,
+    experiment_predictions_dir,
     experiments_dir,
     predictions_draft_dir,
     project_json_path,
@@ -100,7 +100,7 @@ async def create_experiment(
             eval=None,
         )
         experiment_dir(workspace, project_id, new_id).mkdir(parents=True, exist_ok=True)
-        experiment_extracts_dir(workspace, project_id, new_id).mkdir(
+        experiment_predictions_dir(workspace, project_id, new_id).mkdir(
             parents=True, exist_ok=True,
         )
         atomic_write_json(
@@ -179,7 +179,7 @@ async def extract_with_experiment(
     provider,
 ) -> dict:
     """Run the experiment's (prompt, model) pair on a single doc, writing the
-    payload to experiments/{exp_id}/extracts/{doc_id}.json. Returns the payload.
+    payload to experiments/{exp_id}/predictions/{doc_id}.json. Returns the payload.
 
     The caller is responsible for passing the right provider for the experiment's
     model — the MCP wrapper / HTTP route uses get_provider_for_model(
@@ -201,11 +201,11 @@ async def extract_with_experiment(
         params=model.params or None,
     )
     async with project_lock(workspace, project_id):
-        experiment_extracts_dir(workspace, project_id, experiment_id).mkdir(
+        experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
             parents=True, exist_ok=True,
         )
         atomic_write_json(
-            experiment_extract_path(workspace, project_id, experiment_id, doc_id),
+            experiment_prediction_path(workspace, project_id, experiment_id, doc_id),
             payload,
         )
     return payload
@@ -219,7 +219,7 @@ async def run_experiment_eval(
     provider,
 ) -> dict:
     """Foreground loop: for each doc in reviewed/, ensure
-    experiments/{exp_id}/extracts/{doc}.json exists (extract if missing),
+    experiments/{exp_id}/predictions/{doc}.json exists (extract if missing),
     then score predictions vs reviewed (overall + per-doc). Writes the
     resulting ExperimentEval into meta.json.eval, sets status='ran'.
 
@@ -269,7 +269,7 @@ async def run_experiment_eval(
         ):
             continue
         # reuse cached extract if present
-        ep = experiment_extract_path(workspace, project_id, experiment_id, did)
+        ep = experiment_prediction_path(workspace, project_id, experiment_id, did)
         if ep.exists():
             payload = json.loads(ep.read_text(encoding="utf-8"))
         else:
@@ -280,7 +280,7 @@ async def run_experiment_eval(
                 model_id=model.provider_model_id,
                 params=model.params or None,
             )
-            experiment_extracts_dir(workspace, project_id, experiment_id).mkdir(
+            experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
                 parents=True, exist_ok=True,
             )
             atomic_write_json(ep, payload)
@@ -342,9 +342,9 @@ async def promote_experiment(
         if draft_dir.exists():
             shutil.rmtree(draft_dir)
         draft_dir.mkdir(parents=True, exist_ok=True)
-        ex_extracts = experiment_extracts_dir(workspace, project_id, experiment_id)
-        if ex_extracts.exists():
-            for src in ex_extracts.glob("*.json"):
+        ex_predictions = experiment_predictions_dir(workspace, project_id, experiment_id)
+        if ex_predictions.exists():
+            for src in ex_predictions.glob("*.json"):
                 atomic_write_json(
                     draft_dir / src.name,
                     json.loads(src.read_text(encoding="utf-8")),

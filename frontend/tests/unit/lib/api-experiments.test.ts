@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getExperiment,
-  getExperimentExtract,
+  getExperimentPrediction,
   listExperiments,
-  runExperimentExtract,
+  runExperimentPrediction,
 } from '../../../src/lib/api'
 
 describe('experiment api', () => {
@@ -32,26 +32,26 @@ describe('experiment api', () => {
     expect(calledUrl).toContain('include_archived=true')
   })
 
-  it('getExperimentExtract returns null on 404', async () => {
+  it('getExperimentPrediction returns null on 404', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false, status: 404, json: async () => ({
-        detail: { error_code: 'experiment_extract_not_found' },
+        detail: { error_code: 'experiment_prediction_not_found' },
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const out = await getExperimentExtract('p_x', 'ex_y', 'd_z')
+    const out = await getExperimentPrediction('p_x', 'ex_y', 'd_z')
     expect(out).toBeNull()
   })
 
-  it('runExperimentExtract POSTs and returns payload', async () => {
+  it('runExperimentPrediction POSTs and returns payload', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true, status: 200, json: async () => ({ entities: [{ x: 1 }] }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const out = await runExperimentExtract('p_x', 'ex_y', 'd_z')
+    const out = await runExperimentPrediction('p_x', 'ex_y', 'd_z')
     expect((out.entities[0] as Record<string, unknown>).x).toBe(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/lab/projects/p_x/experiments/ex_y/extracts/d_z'),
+      expect.stringContaining('/lab/projects/p_x/experiments/ex_y/predictions/d_z'),
       expect.objectContaining({ method: 'POST' }),
     )
   })

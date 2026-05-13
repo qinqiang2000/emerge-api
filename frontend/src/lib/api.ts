@@ -1,7 +1,7 @@
 import type {
   DocSummary,
   Experiment,
-  ExperimentExtractPayload,
+  ExperimentPredictionPayload,
   ExperimentSummary,
   PredictionPayload,
   ReviewedPayload,
@@ -201,28 +201,28 @@ export async function getExperiment(
   return r.json()
 }
 
-export async function getExperimentExtract(
+export async function getExperimentPrediction(
   projectId: string,
   experimentId: string,
   docId: string,
-): Promise<ExperimentExtractPayload | null> {
+): Promise<ExperimentPredictionPayload | null> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/extracts/${docId}`,
+    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${docId}`,
   )
   if (r.status === 404) return null
-  if (!r.ok) throw new Error(`getExperimentExtract ${r.status}`)
+  if (!r.ok) throw new Error(`getExperimentPrediction ${r.status}`)
   return r.json()
 }
 
-export async function runExperimentExtract(
+export async function runExperimentPrediction(
   projectId: string,
   experimentId: string,
   docId: string,
-): Promise<ExperimentExtractPayload> {
+): Promise<ExperimentPredictionPayload> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/extracts/${docId}`,
+    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${docId}`,
     { method: 'POST' },
   )
-  if (!r.ok) throw new Error(`runExperimentExtract ${r.status}`)
+  if (!r.ok) throw new Error(`runExperimentPrediction ${r.status}`)
   return r.json()
 }

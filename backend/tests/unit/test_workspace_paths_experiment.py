@@ -4,9 +4,9 @@ from pathlib import Path
 from app.workspace.ids import new_experiment_id
 from app.workspace.paths import (
     experiment_dir,
-    experiment_extract_path,
-    experiment_extracts_dir,
     experiment_meta_path,
+    experiment_prediction_path,
+    experiment_predictions_dir,
     experiments_dir,
 )
 
@@ -24,6 +24,6 @@ def test_experiment_path_helpers(tmp_path: Path):
     assert experiments_dir(ws, pid) == ws / pid / "experiments"
     assert experiment_dir(ws, pid, eid) == ws / pid / "experiments" / eid
     assert experiment_meta_path(ws, pid, eid) == ws / pid / "experiments" / eid / "meta.json"
-    assert experiment_extracts_dir(ws, pid, eid) == ws / pid / "experiments" / eid / "extracts"
-    assert experiment_extract_path(ws, pid, eid, did) == \
-        ws / pid / "experiments" / eid / "extracts" / f"{did}.json"
+    assert experiment_predictions_dir(ws, pid, eid) == ws / pid / "experiments" / eid / "predictions"
+    assert experiment_prediction_path(ws, pid, eid, did) == \
+        ws / pid / "experiments" / eid / "predictions" / f"{did}.json"

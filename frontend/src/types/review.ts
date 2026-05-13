@@ -62,7 +62,7 @@ export interface Experiment {
   eval: ExperimentEval | null
 }
 
-export interface ExperimentExtractPayload {
+export interface ExperimentPredictionPayload {
   entities: Record<string, unknown>[]
   _evidence?: Record<string, number | null>[] | null
   _notes?: Record<string, string>
