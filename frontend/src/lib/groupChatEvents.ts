@@ -35,13 +35,10 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
     }
     flushTools()
     if (e.type === 'user') {
-      const prev = out[out.length - 1]
-      if (prev && prev.kind === 'user') {
-        // merge consecutive user messages
-        prev.text = prev.text + '\n\n' + e.text
-      } else {
-        out.push({ kind: 'user', text: e.text })
-      }
+      // Each user event = one bubble. Consecutive user messages (e.g. after
+      // interrupting the agent multiple times in a row) must stay separate so
+      // retry/edit only operates on the most recent one.
+      out.push({ kind: 'user', text: e.text })
     } else if (e.type === 'agent_text') {
       const prev = out[out.length - 1]
       if (prev && prev.kind === 'agent') {

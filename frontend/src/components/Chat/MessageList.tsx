@@ -15,6 +15,7 @@ import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import ToolStack from './ToolStack'
 import Turn from './Turn'
+import UserMessage from './UserMessage'
 
 interface Props { events: ChatEvent[]; busy?: boolean }
 
@@ -215,13 +216,24 @@ function PlumbingToolCard({ call }: { call: ToolCallEvent }) {
 
 export default function MessageList({ events, busy }: Props) {
   const items = groupChatEvents(events)
+  // Pre-pass: map each user-item position → its 0-indexed ordinal among user
+  // items. UserMessage passes this back to rewindAndSend so retry/edit can
+  // target any user bubble, not just the latest.
+  const userOrdinals = new Map<number, number>()
+  let userCount = 0
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].kind === 'user') {
+      userOrdinals.set(i, userCount)
+      userCount++
+    }
+  }
   return (
     <div data-testid="message-list">
       {items.map((item, i) => {
         if (item.kind === 'user') {
           return (
             <Turn key={i} who="you" ts="just now">
-              <div className="msg user">{item.text}</div>
+              <UserMessage text={item.text} userIndex={userOrdinals.get(i) ?? 0} />
             </Turn>
           )
         }

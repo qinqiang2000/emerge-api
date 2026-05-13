@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { getChatEvents, getChatList, type ChatSummary } from '../lib/api'
+import { getChatEvents, getChatList, rewindChat, type ChatSummary } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import type { ChatEvent } from '../types/chat'
@@ -62,7 +62,18 @@ interface State {
   chatsByProject: Record<string, ChatSummary[]>
   /** Live abort controller for the in-flight SSE turn; null when idle. */
   abort: AbortController | null
+  /** True iff the most recent turn was cancelled by the user (Stop/Esc) and
+   *  no new send has reset state. The next send — whether via composer, retry,
+   *  or edit-save — must rewind the chat log first so the abandoned user
+   *  message + partial agent response are dropped rather than stacking. */
+  interrupted: boolean
   send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  /** Drop the user message at `userIndex` (0-indexed ordinal among user
+   *  events) + everything after, locally and on disk, clear the SDK session
+   *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
+   *  targets the *last* user message. Powers retry (text = original) /
+   *  edit-save (text = edited) on any user bubble. No-op when busy. */
+  rewindAndSend: (projectId: string, text: string, userIndex?: number) => Promise<void>
   /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle. */
   cancel: () => void
   enterProject: (projectId: string) => void
@@ -81,9 +92,43 @@ export const useChat = create<State>((set, get) => ({
   loadedProjectId: null,
   chatsByProject: {},
   abort: null,
+  interrupted: false,
   cancel: () => {
     const a = get().abort
-    if (a) a.abort()
+    if (!a) return
+    a.abort()
+    set({ interrupted: true })
+  },
+  rewindAndSend: async (projectId, text, userIndex) => {
+    if (get().busy) return
+    // rewindAndSend owns the rewind; clear the flag so send() doesn't try to
+    // rewind a second time on the (already-cleaned) tail.
+    set({ interrupted: false })
+    try {
+      await rewindChat(projectId, get().chatId, userIndex)
+    } catch (e) {
+      set(s => ({
+        events: [...s.events, {
+          type: 'error',
+          error_code: 'rewind_failed',
+          error_message_en: e instanceof Error ? e.message : String(e),
+        }],
+      }))
+      return
+    }
+    // Local truncate: find the Nth user event (or the last when undefined),
+    // drop it and everything after.
+    set(s => {
+      const userIdxs: number[] = []
+      for (let i = 0; i < s.events.length; i++) {
+        if (s.events[i].type === 'user') userIdxs.push(i)
+      }
+      if (userIdxs.length === 0) return s
+      const ordinal = typeof userIndex === 'number' ? userIndex : userIdxs.length - 1
+      if (ordinal < 0 || ordinal >= userIdxs.length) return s
+      return { events: s.events.slice(0, userIdxs[ordinal]) }
+    })
+    await get().send(projectId, text)
   },
   enterProject: (projectId) => {
     if (projectId === 'p_unset') return
@@ -103,7 +148,7 @@ export const useChat = create<State>((set, get) => ({
     // Real project switch (or first entry into a project with no in-flight convo):
     // bind to that project's persisted chatId, clear, then fire-and-forget hydrate.
     const cid = chatIdFor(projectId)
-    set({ loadedProjectId: projectId, chatId: cid, events: [], busy: false })
+    set({ loadedProjectId: projectId, chatId: cid, events: [], busy: false, interrupted: false })
     // Snapshot the prefix length right after the clear so the apply branch can
     // tell whether the user sent anything during the hydration window. If they
     // did, events.length will have grown past prefixLen → prepend rather than
@@ -130,7 +175,7 @@ export const useChat = create<State>((set, get) => ({
     // showing the previous project's events. Fresh chatId so the next
     // enterProject's adopt branch (loadedProjectId === null + events.length>0)
     // works cleanly for any immediate in-flight conversation.
-    set({ events: [], busy: false, loadedProjectId: null, chatId: newChatId() })
+    set({ events: [], busy: false, loadedProjectId: null, chatId: newChatId(), interrupted: false })
   },
   listChats: async (projectId) => {
     if (projectId === 'p_unset') return
@@ -141,7 +186,7 @@ export const useChat = create<State>((set, get) => ({
     if (projectId === 'p_unset') return
     if (chatId === get().chatId) return
     _writeChatId(projectId, chatId)
-    set({ loadedProjectId: projectId, chatId, events: [], busy: false })
+    set({ loadedProjectId: projectId, chatId, events: [], busy: false, interrupted: false })
     // Same in-flight-tail race-safety pattern as enterProject's switch branch:
     // snapshot prefixLen post-clear, re-check chatId + loadedProjectId on apply.
     const prefixLen = get().events.length
@@ -158,7 +203,7 @@ export const useChat = create<State>((set, get) => ({
     if (projectId === 'p_unset') return
     const fresh = newChatId()
     _writeChatId(projectId, fresh)
-    set({ loadedProjectId: projectId, chatId: fresh, events: [], busy: false })
+    set({ loadedProjectId: projectId, chatId: fresh, events: [], busy: false, interrupted: false })
   },
   lastUserMessage: () => {
     const events = get().events
@@ -185,6 +230,28 @@ export const useChat = create<State>((set, get) => ({
     if (projectId !== 'p_unset' && get().loadedProjectId === null) {
       _writeChatId(projectId, get().chatId)
       set({ loadedProjectId: projectId })
+    }
+    // Consume the interrupted flag: if the last turn was cancelled, drop its
+    // user message + partial agent tail before sending the new turn. This
+    // makes composer-after-Stop visually equivalent to retry — the abandoned
+    // bubble doesn't stack. The rewind endpoint accepts `p_unset` too, so
+    // pre-adoption chats clean up identically.
+    if (get().interrupted) {
+      try {
+        await rewindChat(projectId, get().chatId)
+      } catch {
+        // Server-side rewind failed — local truncate still proceeds; if the
+        // log on disk drifts, getChatEvents hydration is permissive (skips
+        // junk lines) so render won't crash.
+      }
+      set(s => {
+        let lastUserIdx = -1
+        for (let i = s.events.length - 1; i >= 0; i--) {
+          if (s.events[i].type === 'user') { lastUserIdx = i; break }
+        }
+        if (lastUserIdx < 0) return { interrupted: false }
+        return { events: s.events.slice(0, lastUserIdx), interrupted: false }
+      })
     }
     const abortCtrl = new AbortController()
     set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true, abort: abortCtrl }))

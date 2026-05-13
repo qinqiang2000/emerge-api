@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.routes._safety import safe_chat_id, safe_project_id
-from app.chat.log import list_chats, read_chat_events
+from app.chat.log import list_chats, read_chat_events, rewind_to_user
 from app.chat.service import ChatService
 from app.config import get_settings
 from app.provider import get_provider_for_model
@@ -77,3 +78,32 @@ async def lab_chat_history(project_id: str, chat_id: str) -> dict[str, Any]:
     safe_chat_id(chat_id)
     workspace_root = get_settings().workspace_root
     return {"events": read_chat_events(workspace_root, project_id, chat_id)}
+
+
+_REWIND_PROJECT_ID = re.compile(r"^(p_unset|p_[a-z0-9]{12})$")
+
+
+@router.post("/lab/chats/{project_id}/{chat_id}/rewind")
+async def lab_chat_rewind(
+    project_id: str,
+    chat_id: str,
+    target_user_index: int | None = None,
+) -> dict[str, Any]:
+    """Truncate events.jsonl at a `user` line and clear the SDK session
+    sidecar. Powers retry / edit on any user bubble.
+
+    `target_user_index` is a 0-indexed ordinal among user lines. When omitted,
+    truncates at the last user line (composer-after-Stop default).
+
+    Accepts `p_unset` alongside committed `p_*` ids: pre-adoption chats live
+    under `workspace/p_unset/chats/{chat_id}.jsonl` (see ChatService.chat_turn)
+    and must be rewindable too — the rewind operation is conceptually
+    chat-scoped, not project-scoped."""
+    if not _REWIND_PROJECT_ID.match(project_id):
+        raise HTTPException(status_code=400, detail="invalid project_id")
+    safe_chat_id(chat_id)
+    workspace_root = get_settings().workspace_root
+    new_size = rewind_to_user(
+        workspace_root, project_id, chat_id, target_user_index=target_user_index,
+    )
+    return {"ok": True, "rewound_to": new_size}

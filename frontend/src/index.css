@@ -64,6 +64,32 @@ html, body, #root {
   word-break:break-word;
 }
 
+/* hover actions row under the latest user bubble (retry / edit / copy).
+   Only rendered for the most recent user item while chat is idle — see
+   UserMessage.tsx. Mirrors claude.ai's affordance. */
+.msg-actions{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .15s ease;margin-top:2px}
+.umsg:hover .msg-actions,
+.umsg:focus-within .msg-actions{opacity:1}
+.msg-actions button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:0;background:transparent;color:var(--ink-4);cursor:pointer;transition:background .12s,color .12s}
+.msg-actions button:hover{background:var(--paper-2);color:var(--ink)}
+.msg-actions button:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
+.msg-actions button:disabled{cursor:not-allowed;opacity:.5}
+.msg-actions .copied{color:var(--moss)}
+
+/* edit-mode form replaces the bubble with a textarea + Cancel/Save row */
+.msg-edit{width:100%;max-width:min(75ch,85%);background:var(--paper-2);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.msg-edit textarea{width:100%;font-family:var(--serif);font-size:15px;line-height:1.55;color:var(--ink);background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;outline:none;resize:none;min-height:44px;max-height:220px;letter-spacing:.005em}
+.msg-edit textarea:focus{border-color:var(--ochre)}
+.msg-edit .row{display:flex;align-items:center;gap:10px}
+.msg-edit .hint{display:inline-flex;align-items:center;gap:6px;color:var(--ink-4);font-family:var(--serif);font-style:italic;font-size:12.5px;flex:1;min-width:0}
+.msg-edit .btns{display:flex;gap:8px;flex-shrink:0}
+.msg-edit button{font-family:var(--sans);font-size:13px;font-weight:500;padding:6px 14px;border-radius:8px;cursor:pointer;transition:background .12s,border-color .12s,opacity .12s}
+.msg-edit .cancel{background:#FFFFFF;border:1px solid var(--rule);color:var(--ink)}
+.msg-edit .cancel:hover{background:var(--paper-3)}
+.msg-edit .save{background:#C66240;border:1px solid #C66240;color:#FFFFFF}
+.msg-edit .save:hover:not(:disabled){background:#B0512F;border-color:#B0512F}
+.msg-edit .save:disabled{background:var(--paper-3);border-color:var(--rule);color:var(--ink-4);cursor:not-allowed}
+
 /* ── tool calls ──────────────────────────────────────────────────── */
 .tool{border:1px solid var(--rule);background:var(--paper-2);border-radius:6px;font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow:hidden}
 .tool .t-head{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:default;border-bottom:1px solid transparent}

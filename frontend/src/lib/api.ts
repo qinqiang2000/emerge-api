@@ -158,6 +158,21 @@ export async function getChatEvents(projectId: string, chatId: string): Promise<
   }
 }
 
+// Truncate events.jsonl at a user line and clear the SDK session sidecar.
+// `targetUserIndex` is a 0-indexed ordinal among user lines; omitted = last.
+// Powers retry / edit on any user bubble. Idempotent on the server.
+export async function rewindChat(
+  projectId: string,
+  chatId: string,
+  targetUserIndex?: number,
+): Promise<void> {
+  const qs = typeof targetUserIndex === 'number'
+    ? `?target_user_index=${targetUserIndex}`
+    : ''
+  const r = await fetch(`/lab/chats/${projectId}/${chatId}/rewind${qs}`, { method: 'POST' })
+  if (!r.ok) throw new Error(`rewindChat ${r.status}`)
+}
+
 export interface ChatSummary {
   chat_id: string
   label: string

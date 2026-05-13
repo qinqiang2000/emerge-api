@@ -28,6 +28,81 @@ async def append_event(
             f.write(line)
 
 
+def rewind_to_user(
+    workspace: Path,
+    project_id: str,
+    chat_id: str,
+    *,
+    target_user_index: int | None = None,
+) -> int:
+    """Truncate events.jsonl at the start of a ``{"type":"user"}`` line and
+    clear the SDK session-id sidecar so the next turn starts a fresh session.
+
+    ``target_user_index`` is a 0-indexed ordinal counting only user lines from
+    the file start (so 0 = first user line, 1 = second, ...). When ``None``,
+    truncates at the *last* user line — the default for composer-after-Stop
+    auto-cleanup. Out-of-range index → no-op truncate (sidecar still cleared).
+
+    Returns the new file size in bytes. Idempotent: missing file, empty file,
+    or no matching user line → 0 / current size, no-op truncate (sidecar still
+    cleared so the call is safe to retry). Pairs with the UI's retry / edit
+    flow on any user bubble — see ``useChat.rewindAndSend``.
+    """
+    log_path = chats_dir(workspace, project_id) / f"{chat_id}.jsonl"
+    new_size = 0
+    if log_path.exists():
+        try:
+            raw = log_path.read_bytes()
+        except OSError:
+            raw = b""
+        # Walk the file collecting `(line_start_offset)` for every user line.
+        user_offsets: list[int] = []
+        line_start = 0
+        for idx, byte in enumerate(raw):
+            if byte == 0x0A:  # '\n'
+                stripped = raw[line_start:idx].strip()
+                if stripped:
+                    try:
+                        obj = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        obj = None
+                    if isinstance(obj, dict) and obj.get("type") == "user":
+                        user_offsets.append(line_start)
+                line_start = idx + 1
+        # Trailing line without a final newline (partial write).
+        if line_start < len(raw):
+            stripped = raw[line_start:].strip()
+            if stripped:
+                try:
+                    obj = json.loads(stripped)
+                except json.JSONDecodeError:
+                    obj = None
+                if isinstance(obj, dict) and obj.get("type") == "user":
+                    user_offsets.append(line_start)
+
+        cut_at: int | None = None
+        if user_offsets:
+            if target_user_index is None:
+                cut_at = user_offsets[-1]
+            elif 0 <= target_user_index < len(user_offsets):
+                cut_at = user_offsets[target_user_index]
+        if cut_at is not None:
+            try:
+                with log_path.open("r+b") as f:
+                    f.truncate(cut_at)
+                new_size = cut_at
+            except OSError:
+                new_size = len(raw)
+        else:
+            new_size = len(raw)
+    write_chat_session_id(workspace, project_id, chat_id, None)
+    return new_size
+
+
+# Back-compat alias for tests / callers using the old name.
+rewind_to_last_user = rewind_to_user
+
+
 def read_chat_events(workspace: Path, project_id: str, chat_id: str) -> list[dict[str, Any]]:
     """Read back the JSONL chat log for UI replay. Returns [] if no/unreadable log file."""
     log_path = chats_dir(workspace, project_id) / f"{chat_id}.jsonl"
