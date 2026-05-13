@@ -1190,3 +1190,26 @@ endpoint or tracking per-request SDK clients.
   the Stop pill only renders when both `disabled` and `onCancel` are
   set (busy state only).
 
+---
+
+### 2026-05-13 — Chat thread: right-aligned user bubble + sr-only turn meta (reverses 2026-05-12 terminal-style decision)
+
+- **Status**: 🟡 Pending
+- **Area**: `Chat/Turn`, chat thread visual identity
+- **Files**: `frontend/src/components/Chat/Turn.tsx`,
+  `frontend/src/index.css`
+- **Type**: visual (reversal of prior decision)
+
+**What changed**
+1. **`Turn.tsx`** — the per-turn `<div class="turn-meta">…<span class="who">you</span> · <span class="ts">…</span> <span class="rule"/>…</div>` header is gone from the visual layout. The `<span class="who">` (and a sibling `sr-only` "who · ts" descriptor) are still emitted in the DOM as screen-reader-only nodes, so a11y plus existing unit tests that assert on the `you` / `agent` text nodes and `.who.agent` className still pass. The container className branches: `turn-you` for user turns (right-aligned), `turn-agent` for agent turns (full-width).
+2. **`index.css`** — `.turn` simplified to a column flex with `gap:6px`; new `.turn-you{align-items:flex-end}` and `.turn-agent{align-items:stretch}`. `.msg` body stays at 17px but gets claude.ai-style breathing room: `line-height` 1.6 → 1.7 and paragraph margin `.65em` → `.85em`. `.msg.user` becomes a right-aligned `var(--paper-2)` pill (`border-radius:14px; padding:10px 16px; max-width:min(75ch,85%)`) — the smart-quote `::before/::after` pseudo-elements and `font-style:italic` are removed. Composer textarea drops italic and shrinks from 16px to 14.5px (placeholder no longer italic) so the input sits a clear step below the body in the visual hierarchy.
+3. The `▸` ochre caret in the composer row stays; slash chips, send/stop button styling, and `conv-inner gap:28px` are untouched.
+
+**Why**
+The 2026-05-12 "terminal-style thread" decision (logged in the `chat-layout` E2E realignment entry above) intentionally removed the right-aligned bubble in favor of an all-left, italic, smart-quoted user line. After a week of dogfooding the user requested the visual move closer to claude.ai — right-aligned paper-2 pill for the user, full-width prose for the agent, no per-turn metadata line — while keeping emerge's editorial identity (Lora serif, paper palette, no neutral-grey UI grey). This reversal restores role-by-alignment as the primary visual cue. The "crowded" feedback turned out to be about the italic + smart-quotes + meta-rule packing (now gone), not body size — body stays at 17px and instead earns its breathing through line-height 1.7 and paragraph spacing .85em, matching the claude.ai prose feel. Composer alone shrinks to 14.5px so the input doesn't compete with the thread for typographic weight.
+
+**Reference**
+- Reverses: `2026-05-12 — E2E specs realigned to M7 UI…` (above), which had documented the terminal-style `.msg.user` italic + smart-quote rendering as the post-M7 state.
+- Test compatibility: the e2e `chat-layout.spec.ts` only asserts `.msg.user` is visible and contains the typed text — both still hold. The unit `tests/unit/UserBubble.test.tsx` asserts `getByText('you')` / `getByText('agent')` and `.who` className, which the preserved `sr-only` `<span class="who">` continues to satisfy.
+- No E2E selector churn required; no test edits in this change.
+
