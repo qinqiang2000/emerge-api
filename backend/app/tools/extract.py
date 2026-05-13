@@ -20,7 +20,7 @@ _EXTRACT_SYSTEM = """You extract structured data from a document.
 Output rules:
 - top-level: array of objects (entities). One PDF may contain multiple entities (e.g. multiple receipts).
 - snake_case English keys only.
-- omit fields when uncertain (do NOT return null or empty strings as placeholders).
+- ALWAYS include every field declared in the schema for each entity. Use null when the value is absent from the document or you are uncertain. Do NOT omit keys.
 - emit `_evidence` parallel to `entities`: per-entity dict mapping field_name -> page integer (1-based).
   Use the page where you saw the value. For derived fields (sums, formatted dates) emit null.
 
@@ -28,19 +28,18 @@ Use the emit_extraction tool to return the result."""
 
 
 def _build_response_schema(schema: list[SchemaField]) -> dict[str, Any]:
-    """Convert SchemaField[] to JSON schema for tool input."""
-    field_props: dict[str, Any] = {}
-    required: list[str] = []
-    for f in schema:
-        field_props[f.name] = _field_jsonschema(f)
-        if f.required:
-            required.append(f.name)
+    """Convert SchemaField[] to JSON schema for tool input.
+
+    Every schema field is marked `required` and `nullable:true` so that Gemini
+    always emits the key (with null when absent). The user-facing schema
+    definition == prediction key set; SchemaField.required only documents
+    intent and is not enforced at this layer.
+    """
     entity_schema: dict[str, Any] = {
         "type": "object",
-        "properties": field_props,
+        "properties": {f.name: _field_jsonschema(f) for f in schema},
+        "required": [f.name for f in schema],
     }
-    if required:
-        entity_schema["required"] = required
 
     # `_evidence` is intentionally omitted from the formal response_schema:
     # Gemini's OpenAPI-3.0 dialect rejects `additionalProperties` (which we'd need
@@ -76,11 +75,13 @@ def _field_jsonschema(f: SchemaField) -> dict[str, Any]:
             "items": {
                 "type": "object",
                 "properties": {c.name: _field_jsonschema(c) for c in children},
+                "required": [c.name for c in children],
             },
         }
     else:
         base = {"type": "string"}
     base["description"] = f.description
+    base["nullable"] = True
     return base
 
 
