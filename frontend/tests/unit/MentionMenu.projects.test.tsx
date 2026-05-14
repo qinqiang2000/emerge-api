@@ -139,4 +139,43 @@ describe('Composer @ mention — projects category', () => {
     expect(screen.queryByText('美国发票项目')).toBeNull()
     expect(screen.queryByText('DE Invoices')).toBeNull()
   })
+
+  it('empty hero (no projectId) — typing @ still surfaces the projects section', async () => {
+    // Regression: a prior gate (`!projectId`) suppressed the entire menu when
+    // no project was selected, breaking the digital-colleague entry path
+    // where the user picks a project by `@<slug>` before any other context.
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={() => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER)
+    await userEvent.type(input, '@')
+    await waitFor(() => {
+      expect(container.querySelector('.mentionmenu')).not.toBeNull()
+    })
+    expect(screen.getByText('US Invoice')).toBeInTheDocument()
+    expect(screen.getByText('CN Invoice')).toBeInTheDocument()
+    expect(screen.getByText('DE Invoices')).toBeInTheDocument()
+    // No tree-side affordances in projects-only mode.
+    expect(container.querySelector('.mentionmenu .crumb')).toBeNull()
+    expect(listProjectTreeMock).not.toHaveBeenCalled()
+  })
+
+  it('empty hero — selecting a project inserts @<slug> without touching selectedSlug', async () => {
+    // The mention is a textual handle for the agent, not a UI navigation
+    // action; selecting a project from the menu must not implicitly switch
+    // the currently-selected project (composer stays in p_unset until the
+    // user clicks the sidebar or sends the message).
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={() => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    const selectedBefore = useProjects.getState().selectedSlug
+    await userEvent.type(input, '@美')
+    await waitFor(() => {
+      expect(container.querySelector('.mentionmenu')).not.toBeNull()
+    })
+    await userEvent.keyboard('{Enter}')
+    expect(input.value).toBe('@美国发票项目 ')
+    expect(useProjects.getState().selectedSlug).toBe(selectedBefore)
+  })
 })

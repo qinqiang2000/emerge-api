@@ -71,8 +71,10 @@ interface Props {
    *  window level to cancel the in-flight turn. Optional so existing call
    *  sites (and tests) without cancel support still compile. */
   onCancel?: () => void
-  /** Current project id — needed for `@` mention's tree fetch. When absent
-   *  or `p_unset`, the mention menu does not open (typing `@` is plain text). */
+  /** Current project id — when present and not `p_unset`, the `@` mention
+   *  menu also renders a per-project file tree below the projects section.
+   *  When absent / `p_unset` (empty hero), the menu still opens but only
+   *  surfaces the projects section so the user can jump in via `@<slug>`. */
   projectId?: string
 }
 
@@ -143,16 +145,16 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const showSlash = text.startsWith('/') && !completedCommand
 
   // `@` mention state is derived from the textarea content + caret position.
-  // The mention menu opens only when a project is selected and the slash menu
-  // is closed (the two are mutually exclusive). Inside the menu we now also
-  // surface a "projects/" category at the top so users can jump between
-  // projects with `@<slug>` — but the menu only opens at all when there's a
-  // project context.
+  // The mention menu opens whenever the slash menu is closed (the two are
+  // mutually exclusive) — including the empty-hero state with no project
+  // selected, so the user can jump in via `@<slug>`. When a project IS
+  // selected, the menu also renders that project's file tree below the
+  // projects section.
   const hasProject = !!projectId && projectId !== 'p_unset'
   const mentionToken = useMemo(() => {
-    if (!hasProject || showSlash) return null
+    if (showSlash) return null
     return parseMentionToken(text, caret)
-  }, [hasProject, showSlash, text, caret])
+  }, [showSlash, text, caret])
   // Clear an Esc-dismissal once the user removes the `@` token or starts a new
   // one at a different position — those are signals that the previous dismissal
   // no longer applies.
@@ -192,8 +194,10 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
 
   // Lazy fetch: when the active dir changes (or projectId changes), pull entries
   // from cache or hit `/lab/projects/{slug}/tree?dir=…`. 404 → "no such directory".
+  // Skipped when there's no project context (empty hero) — the menu still
+  // opens for project picking, but there's no tree to fetch.
   useEffect(() => {
-    if (!showMention || !mentionToken || !projectId) {
+    if (!showMention || !mentionToken || !hasProject || !projectId) {
       setMentionEntries([])
       setMentionLoading(false)
       setMentionMissing(false)
@@ -231,7 +235,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     return () => {
       alive = false
     }
-  }, [showMention, projectId, mentionToken?.dir])
+  }, [showMention, hasProject, projectId, mentionToken?.dir])
 
   // Auto-grow textarea up to 384px (claude.ai max-h-96). Recalc on text
   // change AND on container resize — without the resize hook the textarea
@@ -490,6 +494,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
             activeIdx={activeIdx}
             dir={mentionToken.dir}
             loading={mentionLoading}
+            hasProject={hasProject}
             emptyHint={mentionMissing ? 'no such directory' : (mentionToken.query ? 'no match' : 'empty')}
             onPick={pickMention}
             onHover={setActiveIdx}
