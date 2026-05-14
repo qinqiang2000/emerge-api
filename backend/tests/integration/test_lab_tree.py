@@ -124,10 +124,12 @@ async def test_tree_unknown_dir_404(workspace: Path) -> None:
     assert r.status_code == 404
 
 
-def test_tree_bad_pid_400() -> None:
+def test_tree_unknown_slug_404() -> None:
+    """Slug shapes (incl. legacy-pid-shaped values) pass safe_slug; existence
+    check returns 404."""
     client = TestClient(app)
     r = client.get("/lab/projects/p_INVALIDPATH/tree")
-    assert r.status_code == 400
+    assert r.status_code == 404
 
 
 def test_tree_unknown_project_404() -> None:

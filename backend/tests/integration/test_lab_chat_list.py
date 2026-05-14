@@ -45,7 +45,17 @@ async def test_chat_list_empty_for_project_with_no_chats(workspace: Path) -> Non
     assert r.json() == []
 
 
-def test_chat_list_rejects_malformed_project_id() -> None:
-    # `safe_project_id` validation — matches the existing per-chat route's behavior.
-    r = client.get("/lab/chats/not-a-valid-id")
+def test_chat_list_rejects_unsafe_slug() -> None:
+    """safe_slug only rejects filesystem-hostile characters (slash / NUL /
+    control / `.` / `..`). A NUL injection trips it; `not-a-valid-id` would
+    NOT — the slug namespace is intentionally permissive."""
+    r = client.get("/lab/chats/bad%00ctrl")
     assert r.status_code == 400
+
+
+def test_chat_list_returns_empty_for_unknown_slug() -> None:
+    """An unknown but valid-shape slug returns 200 with [] — there's no
+    project, but the list response is permissive."""
+    r = client.get("/lab/chats/not-a-valid-id")
+    assert r.status_code == 200
+    assert r.json() == []

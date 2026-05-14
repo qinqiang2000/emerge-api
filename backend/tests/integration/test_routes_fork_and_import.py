@@ -58,14 +58,21 @@ def test_fork_route_creates_new_project(workspace: Path) -> None:
         json={"src_pid": src_pid, "name": "uk-invoice"},
     )
     assert r.status_code == 200, r.text
-    new_pid = r.json()["project_id"]
-    assert new_pid.startswith("p_") and new_pid != src_pid
+    body = r.json()
+    # The new project's slug is derived from `name`. Back-compat: the legacy
+    # `project_id` response key now carries the slug; `slug` and `pid` are
+    # also present for callers that want them explicitly.
+    new_slug = body["slug"]
+    assert new_slug == body["project_id"]
+    assert new_slug == "uk-invoice"
+    assert new_slug != src_pid
+    assert body["pid"].startswith("p_")
 
-    new_blob = json.loads(project_json_path(workspace, new_pid).read_text())
+    new_blob = json.loads(project_json_path(workspace, new_slug).read_text())
     assert new_blob["name"] == "uk-invoice"
     assert new_blob["active_version_id"] is None
-    assert prompt_path(workspace, new_pid, "pr_baseline").exists()
-    assert model_path(workspace, new_pid, "m_default").exists()
+    assert prompt_path(workspace, new_slug, "pr_baseline").exists()
+    assert model_path(workspace, new_slug, "m_default").exists()
 
 
 def test_fork_route_404_on_missing_source(workspace: Path) -> None:

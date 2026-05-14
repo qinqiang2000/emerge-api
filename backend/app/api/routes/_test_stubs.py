@@ -34,12 +34,12 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         yield {"event": "tool_call", "data": json.dumps({
             "tool_name": "create_project",
             "tool_input": {"name": "stubbed"},
-            "tool_result": {"project_id": "p_stub"},
+            "tool_result": {"project_id": "p_stubbed1234", "slug": "stubbed"},
             "ok": True,
         })}
         yield {"event": "tool_call", "data": json.dumps({
             "tool_name": "extract_batch",
-            "tool_input": {"project_id": "p_stub", "filenames": []},
+            "tool_input": {"slug": "stubbed", "filenames": []},
             "tool_result": {"ok_count": 0, "err_count": 0, "per_doc": {}},
             "ok": True,
         })}
@@ -76,7 +76,7 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_pub_readiness",
             "tool_name": "mcp__emerge_tools__readiness_check",
-            "tool_input": {"project_id": body.project_id},
+            "tool_input": {"slug": body.project_id},
             "tool_result": json.dumps(readiness),
             "ok": True,
         })}
@@ -86,7 +86,7 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_pub_freeze",
             "tool_name": "mcp__emerge_tools__freeze_version",
-            "tool_input": {"project_id": body.project_id},
+            "tool_input": {"slug": body.project_id},
             "tool_result": None,
             "ok": True,
         })}
@@ -101,7 +101,7 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_pub_key",
             "tool_name": "mcp__emerge_tools__issue_api_key",
-            "tool_input": {"project_id": body.project_id},
+            "tool_input": {"slug": body.project_id},
             "tool_result": None,
             "ok": True,
         })}
@@ -129,14 +129,14 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_ext_list",
             "tool_name": "mcp__emerge_tools__list_docs",
-            "tool_input": {"project_id": body.project_id},
+            "tool_input": {"slug": body.project_id},
             "tool_result": "[{'filename':'a.pdf'},{'filename':'b.pdf'}]",
             "ok": True,
         })}
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_ext_batch",
             "tool_name": "mcp__emerge_tools__extract_batch",
-            "tool_input": {"project_id": body.project_id, "filenames": ["a.pdf", "b.pdf"]},
+            "tool_input": {"slug": body.project_id, "filenames": ["a.pdf", "b.pdf"]},
             "tool_result": json.dumps({"ok_count": 2, "err_count": 0, "per_doc": {}}),
             "ok": True,
         })}

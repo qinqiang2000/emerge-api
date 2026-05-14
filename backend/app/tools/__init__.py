@@ -33,34 +33,35 @@ def build_emerge_mcp(
 ) -> McpSdkServerConfig:
     """Construct an in-process MCP server exposing all emerge tools.
 
-    Each tool closes over the workspace path and provider instance so the
-    SDK-driven agent doesn't need to know either.
+    Every tool that needs a project handle takes a `slug` — the
+    human-readable folder name (`us-invoice`, `美国发票`) — never the opaque
+    `p_xxx` pid. The agent reads / writes via filesystem paths keyed on
+    slug; the pid is internal audit metadata persisted only inside
+    `project.json` and chat/jobs jsonl event streams.
     """
 
     @tool("create_project", "Create a new extraction project.", {"name": str})
     async def t_create_project(args: dict[str, Any]) -> dict[str, Any]:
         out = await projects_mod.create_project(workspace, name=args["name"])
-        # Surface the slug back to the agent — that's the only handle every
-        # other tool takes. The minted pid is for chat-log audit; the agent
-        # doesn't drive flow with it.
+        # `out` is `{project_id, slug}`. The slug is the only handle every
+        # subsequent tool takes; the pid is audit metadata. Returning both
+        # lets the agent quote the slug back to the user without having to
+        # call list_projects.
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "rename_project",
-        "Set a project's display name. Use this on the first turn after the "
-        "user drops files into an empty-hero state (the project was auto-minted "
-        "with a placeholder name like 'Untitled-251205-093012'); rename to "
-        "whatever the user's intent suggests. Pure metadata — does not move "
-        "the project_id or any files.",
-        {"project_id": str, "name": str},
+        "Rename a project: pass its current slug and the new display name. "
+        "The folder is renamed to a slug derived from `name` (single-concept "
+        "rename — name and slug stay locked). Use this on the first turn after "
+        "the user drops files into an empty-hero state (the project was "
+        "auto-minted with a placeholder name like 'Untitled-251205-093012'); "
+        "rename to whatever the user's intent suggests.",
+        {"slug": str, "name": str},
     )
     async def t_rename_project(args: dict[str, Any]) -> dict[str, Any]:
-        # `project_id` arg name is retained transitionally; agents pass the
-        # slug here (the folder name). The underlying function derives a new
-        # slug from the new name so the project's folder + display name stay
-        # locked together (single-concept rename).
         out = await projects_mod.rename_project(
-            workspace, args["project_id"], name=args["name"]
+            workspace, args["slug"], name=args["name"]
         )
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
@@ -74,59 +75,59 @@ def build_emerge_mcp(
         "Register a previously-uploaded doc by its temp path. Returns the "
         "on-disk filename (collisions get `(1)`, `(2)`, …). Filename is the "
         "only doc handle — pass it as-is to extract/predict/review tools.",
-        {"project_id": str, "tmp_path": str, "filename": str},
+        {"slug": str, "tmp_path": str, "filename": str},
     )
     async def t_upload_doc(args: dict[str, Any]) -> dict[str, Any]:
         data = Path(args["tmp_path"]).read_bytes()
-        meta = await docs_mod.upload_doc(workspace, args["project_id"], data, args["filename"])
+        meta = await docs_mod.upload_doc(workspace, args["slug"], data, args["filename"])
         return {"content": [{"type": "text", "text": meta["filename"]}]}
 
-    @tool("list_docs", "List documents in a project.", {"project_id": str})
+    @tool("list_docs", "List documents in a project.", {"slug": str})
     async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
-        items = await docs_mod.list_docs(workspace, args["project_id"])
+        items = await docs_mod.list_docs(workspace, args["slug"])
         return {"content": [{"type": "text", "text": str(items)}]}
 
     @tool(
         "pdf_render_page",
         "Render a PDF page as PNG; returns the path.",
-        {"project_id": str, "filename": str, "page": int},
+        {"slug": str, "filename": str, "page": int},
     )
     async def t_pdf_render_page(args: dict[str, Any]) -> dict[str, Any]:
         p = await docs_mod.pdf_render_page(
-            workspace, args["project_id"], args["filename"], page=args["page"]
+            workspace, args["slug"], args["filename"], page=args["page"]
         )
         return {"content": [{"type": "text", "text": str(p)}]}
 
     @tool(
         "derive_schema",
         "Propose a schema from sample documents and a user intent.",
-        {"project_id": str, "sample_filenames": list, "intent": str},
+        {"slug": str, "sample_filenames": list, "intent": str},
     )
     async def t_derive_schema(args: dict[str, Any]) -> dict[str, Any]:
         fields = await schema_mod.derive_schema(
             workspace,
-            args["project_id"],
+            args["slug"],
             sample_filenames=args["sample_filenames"],
             intent=args["intent"],
             provider=provider,
         )
         return {"content": [{"type": "text", "text": str([f.model_dump(mode="json") for f in fields])}]}
 
-    @tool("read_schema", "Read the current schema for a project.", {"project_id": str})
+    @tool("read_schema", "Read the current schema for a project.", {"slug": str})
     async def t_read_schema(args: dict[str, Any]) -> dict[str, Any]:
-        fields = await schema_mod.read_schema(workspace, args["project_id"])
+        fields = await schema_mod.read_schema(workspace, args["slug"])
         return {"content": [{"type": "text", "text": str([f.model_dump(mode="json") for f in fields])}]}
 
     @tool(
         "write_schema",
         "Write a new schema. Set allow_structural=true to add/remove/rename/retype fields.",
-        {"project_id": str, "schema": list, "reason": str, "allow_structural": bool},
+        {"slug": str, "schema": list, "reason": str, "allow_structural": bool},
     )
     async def t_write_schema(args: dict[str, Any]) -> dict[str, Any]:
         fields = [SchemaField(**f) for f in args["schema"]]
         await schema_mod.write_schema(
             workspace,
-            args["project_id"],
+            args["slug"],
             fields,
             reason=args["reason"],
             allow_structural=args.get("allow_structural", False),
@@ -139,7 +140,7 @@ def build_emerge_mcp(
         "prompt_id=null targets the active prompt. Use this instead of write_schema "
         "for any new code path — write_schema is the legacy wrapper.",
         {
-            "project_id": str,
+            "slug": str,
             "prompt_id": str,  # accept "" for None (claude-agent-sdk doesn't pass typed null)
             "schema": list,
             "global_notes": str,
@@ -150,7 +151,7 @@ def build_emerge_mcp(
         fields = [SchemaField(**f) for f in args["schema"]]
         resolved = await prompt_mod.write_prompt(
             workspace,
-            args["project_id"],
+            args["slug"],
             prompt_id=raw_pid_arg,
             schema=fields,
             global_notes=args.get("global_notes", ""),
@@ -161,15 +162,15 @@ def build_emerge_mcp(
         "create_prompt",
         "Create a new prompt variant by cloning either the current active prompt "
         "(derived_from='') or a specific prompt_id. Cross-project lineage strings "
-        "({src_pid}/{src_prompt_id}) are recorded for display; actual cross-project "
+        "({src_slug}/{src_prompt_id}) are recorded for display; actual cross-project "
         "import lands in M9.5.",
-        {"project_id": str, "label": str, "derived_from": str},
+        {"slug": str, "label": str, "derived_from": str},
     )
     async def t_create_prompt(args: dict[str, Any]) -> dict[str, Any]:
         derived = args.get("derived_from") or None
         new_id = await prompt_mod.create_prompt(
             workspace,
-            args["project_id"],
+            args["slug"],
             label=args["label"],
             derived_from=derived,
         )
@@ -179,32 +180,32 @@ def build_emerge_mcp(
         "switch_active_prompt",
         "Set the project's active prompt to the given prompt_id. Affects all "
         "subsequent reads of the active prompt (extract, freeze, etc).",
-        {"project_id": str, "prompt_id": str},
+        {"slug": str, "prompt_id": str},
     )
     async def t_switch_active_prompt(args: dict[str, Any]) -> dict[str, Any]:
         await prompt_mod.switch_active_prompt(
-            workspace, args["project_id"], args["prompt_id"],
+            workspace, args["slug"], args["prompt_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "list_prompts",
         "List all prompt variants in a project with is_active flag.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_list_prompts(args: dict[str, Any]) -> dict[str, Any]:
-        items = await prompt_mod.list_prompts(workspace, args["project_id"])
+        items = await prompt_mod.list_prompts(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(items)}]}
 
     @tool(
         "delete_prompt",
         "Physically remove a prompt variant file. Cannot delete the active prompt "
         "(switch active first).",
-        {"project_id": str, "prompt_id": str},
+        {"slug": str, "prompt_id": str},
     )
     async def t_delete_prompt(args: dict[str, Any]) -> dict[str, Any]:
         await prompt_mod.delete_prompt(
-            workspace, args["project_id"], args["prompt_id"],
+            workspace, args["slug"], args["prompt_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -213,7 +214,7 @@ def build_emerge_mcp(
         "Upsert a model config (create if missing, otherwise update label/params/provider_model_id). "
         "provider is one of 'anthropic'|'openai'|'google'.",
         {
-            "project_id": str,
+            "slug": str,
             "model_id": str,
             "label": str,
             "provider": str,
@@ -224,7 +225,7 @@ def build_emerge_mcp(
     async def t_write_model(args: dict[str, Any]) -> dict[str, Any]:
         await model_mod.write_model(
             workspace,
-            args["project_id"],
+            args["slug"],
             model_id=args["model_id"],
             label=args["label"],
             provider=args["provider"],  # type: ignore[arg-type]
@@ -237,7 +238,7 @@ def build_emerge_mcp(
         "create_model",
         "Create a new model config with an auto-minted model_id. Returns the new model_id.",
         {
-            "project_id": str,
+            "slug": str,
             "label": str,
             "provider": str,
             "provider_model_id": str,
@@ -247,7 +248,7 @@ def build_emerge_mcp(
     async def t_create_model(args: dict[str, Any]) -> dict[str, Any]:
         new_mid = await model_mod.create_model(
             workspace,
-            args["project_id"],
+            args["slug"],
             label=args["label"],
             provider=args["provider"],  # type: ignore[arg-type]
             provider_model_id=args["provider_model_id"],
@@ -259,32 +260,32 @@ def build_emerge_mcp(
         "switch_active_model",
         "Set the project's active model to the given model_id. Affects all "
         "subsequent extract calls when model_id arg is not explicitly provided.",
-        {"project_id": str, "model_id": str},
+        {"slug": str, "model_id": str},
     )
     async def t_switch_active_model(args: dict[str, Any]) -> dict[str, Any]:
         await model_mod.switch_active_model(
-            workspace, args["project_id"], args["model_id"],
+            workspace, args["slug"], args["model_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "list_models",
         "List all model configs in a project with is_active flag.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_list_models(args: dict[str, Any]) -> dict[str, Any]:
-        items = await model_mod.list_models(workspace, args["project_id"])
+        items = await model_mod.list_models(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(items)}]}
 
     @tool(
         "delete_model",
         "Physically remove a model config file. Cannot delete the active model "
         "(switch active first).",
-        {"project_id": str, "model_id": str},
+        {"slug": str, "model_id": str},
     )
     async def t_delete_model(args: dict[str, Any]) -> dict[str, Any]:
         await model_mod.delete_model(
-            workspace, args["project_id"], args["model_id"],
+            workspace, args["slug"], args["model_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -294,11 +295,11 @@ def build_emerge_mcp(
         "exists for this exact pair, returns its existing experiment_id; else "
         "mints a new one. Both axes default to the project's active. Label is "
         "derived from prompt + model labels (not user-provided).",
-        {"project_id": str, "prompt_id": str, "model_id": str},
+        {"slug": str, "prompt_id": str, "model_id": str},
     )
     async def t_create_experiment(args: dict[str, Any]) -> dict[str, Any]:
         eid = await experiment_mod.create_experiment(
-            workspace, args["project_id"],
+            workspace, args["slug"],
             prompt_id=args.get("prompt_id") or None,
             model_id=args.get("model_id") or None,
         )
@@ -308,19 +309,19 @@ def build_emerge_mcp(
         "extract_with_experiment",
         "Run an experiment's (prompt, model) pair on a single doc; writes "
         "experiments/{experiment_id}/predictions/{filename}.json. Returns the payload.",
-        {"project_id": str, "experiment_id": str, "filename": str},
+        {"slug": str, "experiment_id": str, "filename": str},
     )
     async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:
         ex = await experiment_mod.read_experiment(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
         )
         model = await model_mod.read_model(
-            workspace, args["project_id"], ex.model_id,
+            workspace, args["slug"], ex.model_id,
         )
         from app.provider import get_provider_for_model
         exp_provider = get_provider_for_model(model.provider_model_id)
         payload = await experiment_mod.extract_with_experiment(
-            workspace, args["project_id"], args["experiment_id"], args["filename"],
+            workspace, args["slug"], args["experiment_id"], args["filename"],
             provider=exp_provider,
         )
         return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
@@ -330,19 +331,19 @@ def build_emerge_mcp(
         "Loop reviewed/ docs through the experiment's (prompt, model); writes "
         "per-doc extracts and computes overall + per-field + per-doc scores. "
         "Returns the eval dict and sets status='ran'.",
-        {"project_id": str, "experiment_id": str},
+        {"slug": str, "experiment_id": str},
     )
     async def t_run_experiment_eval(args: dict[str, Any]) -> dict[str, Any]:
         ex = await experiment_mod.read_experiment(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
         )
         model = await model_mod.read_model(
-            workspace, args["project_id"], ex.model_id,
+            workspace, args["slug"], ex.model_id,
         )
         from app.provider import get_provider_for_model
         exp_provider = get_provider_for_model(model.provider_model_id)
         ev = await experiment_mod.run_experiment_eval(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
             provider=exp_provider,
         )
         return {"content": [{"type": "text", "text": _json.dumps(ev)}]}
@@ -352,11 +353,11 @@ def build_emerge_mcp(
         "Set the experiment's (prompt_id, model_id) as the project's active pair; "
         "clear predictions/_draft/ and re-seed from the experiment's extracts. "
         "Marks experiment status='promoted' (audit trail).",
-        {"project_id": str, "experiment_id": str},
+        {"slug": str, "experiment_id": str},
     )
     async def t_promote_experiment(args: dict[str, Any]) -> dict[str, Any]:
         await experiment_mod.promote_experiment(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -364,11 +365,11 @@ def build_emerge_mcp(
         "archive_experiment",
         "Mark an experiment as archived (excluded from default lists, not deleted). "
         "Cannot archive a promoted experiment.",
-        {"project_id": str, "experiment_id": str},
+        {"slug": str, "experiment_id": str},
     )
     async def t_archive_experiment(args: dict[str, Any]) -> dict[str, Any]:
         await experiment_mod.archive_experiment(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -376,11 +377,11 @@ def build_emerge_mcp(
         "list_experiments",
         "List experiments in a project. Archived experiments excluded unless "
         "include_archived=true.",
-        {"project_id": str, "include_archived": bool},
+        {"slug": str, "include_archived": bool},
     )
     async def t_list_experiments(args: dict[str, Any]) -> dict[str, Any]:
         rows = await experiment_mod.list_experiments(
-            workspace, args["project_id"],
+            workspace, args["slug"],
             include_archived=bool(args.get("include_archived", False)),
         )
         return {"content": [{"type": "text", "text": _json.dumps(rows)}]}
@@ -389,29 +390,27 @@ def build_emerge_mcp(
         "delete_experiment",
         "Physically remove an experiment directory. Cannot delete a promoted "
         "experiment (audit trail).",
-        {"project_id": str, "experiment_id": str},
+        {"slug": str, "experiment_id": str},
     )
     async def t_delete_experiment(args: dict[str, Any]) -> dict[str, Any]:
         await experiment_mod.delete_experiment(
-            workspace, args["project_id"], args["experiment_id"],
+            workspace, args["slug"], args["experiment_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "fork_project",
         "Clone-at-time fork of an existing project. Copies project.json + "
-        "prompts/ + models/ into a fresh project_id. Skips chats, reviewed, "
-        "predictions/_draft, experiments, versions, metrics. Set include_docs=true "
-        "to also hardlink docs/ files. Returns the new project_id.",
-        {"src_pid": str, "name": str, "include_docs": bool},
+        "prompts/ + models/ into a fresh project (new slug + pid). Skips chats, "
+        "reviewed, predictions/_draft, experiments, versions, metrics. Set "
+        "include_docs=true to also hardlink docs/ files. Returns {project_id, slug}.",
+        {"src_slug": str, "name": str, "include_docs": bool},
     )
     async def t_fork_project(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.fork import fork_project as fork_project_impl
-        # `src_pid` is the legacy arg name; after slug transparency it carries
-        # the source project's slug. Agent-3 will rename the wrapper arg.
         out = await fork_project_impl(
             workspace,
-            src_slug=args["src_pid"],
+            src_slug=args["src_slug"],
             name=args["name"],
             include_docs=bool(args.get("include_docs", False)),
         )
@@ -420,21 +419,21 @@ def build_emerge_mcp(
     @tool(
         "import_prompt",
         "Cross-project clone of a single prompt variant. Mints a fresh "
-        "prompt_id in into_pid, copies schema + global_notes, sets "
-        "derived_from='{src_pid}/{src_prompt_id}'. new_label defaults to "
+        "prompt_id in into_slug, copies schema + global_notes, sets "
+        "derived_from='{src_slug}/{src_prompt_id}'. new_label defaults to "
         "the source prompt's label when empty.",
         {
-            "src_pid": str, "src_prompt_id": str,
-            "into_pid": str, "new_label": str,
+            "src_slug": str, "src_prompt_id": str,
+            "into_slug": str, "new_label": str,
         },
     )
     async def t_import_prompt(args: dict[str, Any]) -> dict[str, Any]:
         raw_label = args.get("new_label") or None  # "" -> None
         new_id = await prompt_mod.import_prompt(
             workspace,
-            src_pid=args["src_pid"],
+            src_slug=args["src_slug"],
             src_prompt_id=args["src_prompt_id"],
-            into_pid=args["into_pid"],
+            into_slug=args["into_slug"],
             new_label=raw_label,
         )
         return {"content": [{"type": "text", "text": new_id}]}
@@ -443,11 +442,11 @@ def build_emerge_mcp(
         "extract_one",
         "Extract from a single document. `filename` is the doc handle (the "
         "on-disk filename, e.g. `2025VP00413.pdf`).",
-        {"project_id": str, "filename": str},
+        {"slug": str, "filename": str},
     )
     async def t_extract_one(args: dict[str, Any]) -> dict[str, Any]:
         out = await extract_mod.extract_one(
-            workspace, args["project_id"], args["filename"], provider=provider
+            workspace, args["slug"], args["filename"], provider=provider
         )
         return {"content": [{"type": "text", "text": str(out)}]}
 
@@ -455,11 +454,11 @@ def build_emerge_mcp(
         "extract_batch",
         "Extract over a list of documents (foreground). `filenames` is a list "
         "of on-disk filenames (the doc handles).",
-        {"project_id": str, "filenames": list},
+        {"slug": str, "filenames": list},
     )
     async def t_extract_batch(args: dict[str, Any]) -> dict[str, Any]:
         summary = await extract_mod.extract_batch(
-            workspace, args["project_id"], args["filenames"], provider=provider
+            workspace, args["slug"], args["filenames"], provider=provider
         )
         return {"content": [{"type": "text", "text": str(summary)}]}
 
@@ -467,7 +466,7 @@ def build_emerge_mcp(
         "save_reviewed",
         "Save a corrected extraction as ground truth for a doc.",
         {
-            "project_id": str,
+            "slug": str,
             "filename": str,
             "entities": list,
             "source": str,  # "manual" | "feedback"
@@ -477,7 +476,7 @@ def build_emerge_mcp(
     async def t_save_reviewed(args: dict[str, Any]) -> dict[str, Any]:
         await reviewed_mod.save_reviewed(
             workspace,
-            args["project_id"],
+            args["slug"],
             args["filename"],
             entities=args["entities"],
             source=ReviewedSource(args.get("source", "manual")),
@@ -488,31 +487,31 @@ def build_emerge_mcp(
     @tool(
         "list_reviewed",
         "List all reviewed examples in a project.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_list_reviewed(args: dict[str, Any]) -> dict[str, Any]:
-        items = await reviewed_mod.list_reviewed(workspace, args["project_id"])
+        items = await reviewed_mod.list_reviewed(workspace, args["slug"])
         return {"content": [{"type": "text", "text": str(items)}]}
 
     @tool(
         "get_reviewed",
         "Get the reviewed payload for one doc or null if not reviewed.",
-        {"project_id": str, "filename": str},
+        {"slug": str, "filename": str},
     )
     async def t_get_reviewed(args: dict[str, Any]) -> dict[str, Any]:
         payload = await reviewed_mod.get_reviewed(
-            workspace, args["project_id"], args["filename"]
+            workspace, args["slug"], args["filename"]
         )
         return {"content": [{"type": "text", "text": str(payload)}]}
 
     @tool(
         "get_prediction",
         "Get the latest draft prediction for a doc or null if not extracted.",
-        {"project_id": str, "filename": str},
+        {"slug": str, "filename": str},
     )
     async def t_get_prediction(args: dict[str, Any]) -> dict[str, Any]:
         payload = await predictions_mod.get_prediction(
-            workspace, args["project_id"], args["filename"]
+            workspace, args["slug"], args["filename"]
         )
         text = _json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
         return {"content": [{"type": "text", "text": text}]}
@@ -520,33 +519,33 @@ def build_emerge_mcp(
     @tool(
         "score",
         "Compute precision/recall/F1 by comparing draft predictions against reviewed examples. Persists a metrics snapshot under metrics/eval_{ts}.json. Returns ScoreResult.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
-        result = await score_mod.run_eval(workspace, args["project_id"])
+        result = await score_mod.run_eval(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(result.model_dump(mode='json'))}]}
 
     @tool(
         "readiness_check",
         "Run the publish readiness checklist for a project.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_readiness_check(args: dict[str, Any]) -> dict[str, Any]:
-        out = await publish_mod.readiness_check(workspace, args["project_id"])
+        out = await publish_mod.readiness_check(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "contract_diff",
         "Diff current schema against the active version's frozen schema.",
-        {"project_id": str},
+        {"slug": str},
     )
     async def t_contract_diff(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.schema import read_schema
         from app.workspace.paths import parse_version_id, project_json_path, version_path
 
-        pid = args["project_id"]
-        schema = await read_schema(workspace, pid)
-        project = _json.loads(project_json_path(workspace, pid).read_text())
+        slug = args["slug"]
+        schema = await read_schema(workspace, slug)
+        project = _json.loads(project_json_path(workspace, slug).read_text())
         active_version_id = project.get("active_version_id")
         if not active_version_id:
             out = {
@@ -560,20 +559,22 @@ def build_emerge_mcp(
         else:
             prev: list[SchemaField] = []
             n = parse_version_id(active_version_id)
-            if n is not None and version_path(workspace, pid, n).exists():
-                prev_blob = _json.loads(version_path(workspace, pid, n).read_text())
+            if n is not None and version_path(workspace, slug, n).exists():
+                prev_blob = _json.loads(version_path(workspace, slug, n).read_text())
                 prev = [SchemaField(**field) for field in prev_blob.get("schema", [])]
             out = publish_mod.contract_diff(prev, schema)
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "freeze_version",
-        "Freeze the current schema as the next immutable versions/v{n}.json. GATED.",
-        {"project_id": str},
+        "Freeze the current schema. Writes both versions/v{n}.json (lab lineage) "
+        "and _published/{pub_xxx}.json (frozen artifact servable by POST /v1/extract). "
+        "Returns {version_id, published_id}. GATED — readiness checks must pass.",
+        {"slug": str},
     )
     async def t_freeze_version(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            out = await publish_mod.freeze_version(workspace, args["project_id"])
+            out = await publish_mod.freeze_version(workspace, args["slug"])
         except publish_mod.PublishNotReadyError as exc:
             out = {
                 "error": {
@@ -586,25 +587,27 @@ def build_emerge_mcp(
 
     @tool(
         "issue_api_key",
-        "Issue or rotate an API key. Plaintext appears exactly once in this tool result.",
-        {"project_id": str},
+        "Issue or rotate an API key for a user. Keys are user-scoped (not "
+        "project-scoped) — one key calls any published_id the user wants. "
+        "Pass `user_id` to scope; defaults to the single-user placeholder "
+        "\"default\". Plaintext appears exactly once in this tool result.",
+        {"user_id": str},
     )
     async def t_issue_api_key(args: dict[str, Any]) -> dict[str, Any]:
-        # `project_id` arg is retained transitionally so the existing skill
-        # prompt still parses; the key is now user-scoped and the value is
-        # ignored (single-user `"default"` placeholder until users land).
-        # Agent-3 will rename the wrapper arg + skill copy.
-        out = await publish_mod.issue_api_key(workspace, user_id="default")
+        user_id = args.get("user_id") or "default"
+        out = await publish_mod.issue_api_key(workspace, user_id=user_id)
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "start_job",
         "Kick off a background job. v1 supports skill='autoresearch'. Returns a job_id; subscribe to /lab/jobs/{job_id}/events for progress.",
-        {"skill": str, "project_id": str, "params": dict},
+        {"skill": str, "slug": str, "params": dict},
     )
     async def t_start_job(args: dict[str, Any]) -> dict[str, Any]:
+        # `start_job_impl` keeps the legacy `project_id` kwarg name; the value
+        # carries the slug (paths are slug-keyed end-to-end).
         jid = await jobs_mod.start_job_impl(
-            job_runner, skill=args["skill"], project_id=args["project_id"],
+            job_runner, skill=args["skill"], project_id=args["slug"],
             params=args.get("params") or {},
         )
         return {"content": [{"type": "text", "text": jid}]}

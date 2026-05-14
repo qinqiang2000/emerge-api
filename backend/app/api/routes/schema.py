@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from app.api.routes._safety import safe_job_id, safe_project_id
+from app.api.routes._safety import safe_job_id, safe_slug
 from app.config import get_settings
 from app.schemas.schema_field import SchemaField
 from app.tools.schema import StructuralChangeError, write_schema
@@ -21,12 +21,12 @@ class AcceptBody(BaseModel):
     turn: int
 
 
-@router.post("/lab/projects/{project_id}/schema/accept-candidate")
-async def accept_candidate(project_id: str, body: AcceptBody) -> dict:
-    safe_project_id(project_id)
+@router.post("/lab/projects/{slug}/schema/accept-candidate")
+async def accept_candidate(slug: str, body: AcceptBody) -> dict:
+    safe_slug(slug)
     safe_job_id(body.job_id)
     settings = get_settings()
-    cp = candidate_turn_path(settings.workspace_root, project_id, body.job_id, body.turn)
+    cp = candidate_turn_path(settings.workspace_root, slug, body.job_id, body.turn)
     if not cp.exists():
         raise HTTPException(status_code=404, detail={"error_code": "candidate_not_found"})
     blob = json.loads(cp.read_text())
@@ -34,7 +34,7 @@ async def accept_candidate(project_id: str, body: AcceptBody) -> dict:
     fields = [SchemaField(**f) for f in fields_blob]
     try:
         await write_schema(
-            settings.workspace_root, project_id, fields,
+            settings.workspace_root, slug, fields,
             reason=f"accept candidate j={body.job_id} turn={body.turn}",
             allow_structural=False,
         )
@@ -46,34 +46,34 @@ async def accept_candidate(project_id: str, body: AcceptBody) -> dict:
     return {"ok": True, "rationale": blob.get("rationale", "")}
 
 
-@router.get("/lab/projects/{project_id}/schema/raw", response_class=PlainTextResponse)
-async def get_project_schema_raw(project_id: str) -> PlainTextResponse:
-    safe_project_id(project_id)
+@router.get("/lab/projects/{slug}/schema/raw", response_class=PlainTextResponse)
+async def get_project_schema_raw(slug: str) -> PlainTextResponse:
+    safe_slug(slug)
     settings = get_settings()
     from app.tools.schema import read_schema
     from app.workspace.migrate import migrate_project_if_needed
     from app.workspace.paths import project_json_path
 
-    pj = project_json_path(settings.workspace_root, project_id)
+    pj = project_json_path(settings.workspace_root, slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
             detail={"error_code": "schema_not_found"},
         )
-    await migrate_project_if_needed(settings.workspace_root, project_id)
-    fields = await read_schema(settings.workspace_root, project_id)
+    await migrate_project_if_needed(settings.workspace_root, slug)
+    fields = await read_schema(settings.workspace_root, slug)
     parsed = [f.model_dump(mode="json") for f in fields]
     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
     return PlainTextResponse(pretty, media_type="text/plain; charset=utf-8")
 
 
-@router.get("/lab/projects/{project_id}/versions/{version_id}/raw")
+@router.get("/lab/projects/{slug}/versions/{version_id}/raw")
 async def get_project_version_raw(
-    project_id: str,
+    slug: str,
     version_id: str,
     shape: str | None = Query(default=None),
 ):
-    safe_project_id(project_id)
+    safe_slug(slug)
     n = parse_version_id(version_id)
     if n is None:
         raise HTTPException(
@@ -81,7 +81,7 @@ async def get_project_version_raw(
             detail={"error_code": "invalid_version_id"},
         )
     settings = get_settings()
-    vp = version_path(settings.workspace_root, project_id, n)
+    vp = version_path(settings.workspace_root, slug, n)
     if not vp.exists():
         raise HTTPException(
             status_code=404,

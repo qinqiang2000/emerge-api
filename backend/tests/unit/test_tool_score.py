@@ -219,7 +219,7 @@ async def test_t_score_tool_emits_valid_json(workspace: Path) -> None:
         source=ReviewedSource.MANUAL,
     )
 
-    out = await score_tool.handler({"project_id": project_id})
+    out = await score_tool.handler({"slug": project_id})
     text = out["content"][0]["text"]
 
     # Must be valid JSON — json.loads must NOT raise.

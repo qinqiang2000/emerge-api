@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.api.routes._safety import safe_project_id
+from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.exports.bundler import BundleVersionMissingError, build_zip_bundle
 from app.schemas.envelope import ErrorEnvelope
@@ -30,15 +30,15 @@ def _safe_filename(name: str, version_id: str) -> str:
     return f"{base}-{version_id}.zip"
 
 
-@router.get("/lab/projects/{project_id}/export", response_model=None)
-async def lab_export(project_id: str, version: int | None = Query(default=None, ge=1)):
+@router.get("/lab/projects/{slug}/export", response_model=None)
+async def lab_export(slug: str, version: int | None = Query(default=None, ge=1)):
     try:
-        safe_project_id(project_id)
+        safe_slug(slug)
     except Exception:
-        return _error(400, "invalid_project_id", "invalid project_id")
+        return _error(400, "invalid_slug", "invalid slug")
 
     workspace = get_settings().workspace_root
-    pj = project_json_path(workspace, project_id)
+    pj = project_json_path(workspace, slug)
     if not pj.exists():
         return _error(404, "not_found", "project not found")
 
@@ -53,8 +53,19 @@ async def lab_export(project_id: str, version: int | None = Query(default=None, 
     else:
         n = version
 
+    # Latest `published_id` (if any) is the artifact the curl example will
+    # call against; fall back to a placeholder when nothing's been frozen
+    # yet (the export still ships a usable README/curl scaffold).
+    published_ids = project_blob.get("published_ids") or []
+    latest_pub_id = published_ids[-1] if isinstance(published_ids, list) and published_ids else None
+
     try:
-        blob = build_zip_bundle(workspace=workspace, project_id=project_id, version_n=n)
+        blob = build_zip_bundle(
+            workspace=workspace,
+            slug=slug,
+            version_n=n,
+            published_id=latest_pub_id,
+        )
     except BundleVersionMissingError:
         return _error(404, "version_not_found", f"versions/v{n}.json does not exist")
 

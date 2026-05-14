@@ -26,7 +26,8 @@ async def test_get_prediction_404_when_missing(workspace: Path) -> None:
     assert r.status_code == 404
 
 
-def test_get_prediction_400_on_bad_pid() -> None:
+def test_get_prediction_404_on_unknown_slug() -> None:
+    """Slug shapes pass safe_slug; existence check returns 404."""
     client = TestClient(app)
     r = client.get("/lab/projects/p_INVALIDPATH/predictions/anything.pdf")
-    assert r.status_code == 400
+    assert r.status_code == 404

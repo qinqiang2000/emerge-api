@@ -83,7 +83,7 @@ async def test_p_unset_with_stage_token_mints_project_and_claims_file(
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         chunks = [
             c async for c in svc.chat_turn(
-                project_id="p_unset",
+                slug="p_unset",
                 chat_id=CID,
                 user_message="/init pull these",
                 attachments=[{"filename": "invoice.pdf", "stage_token": token}],
@@ -92,29 +92,36 @@ async def test_p_unset_with_stage_token_mints_project_and_claims_file(
     events = _events(chunks)
     minted = [e for e in events if e[0] == "project_minted"]
     assert len(minted) == 1, f"expected exactly one project_minted event; got {events!r}"
-    new_pid = minted[0][1]["project_id"]
-    name = minted[0][1]["name"]
-    assert new_pid.startswith("p_")
+    payload = minted[0][1]
+    # `project_minted` carries both the slug (FE handle, in `slug` / legacy
+    # `project_id`) and the immutable pid (in `pid`) — the audit anchor.
+    new_slug = payload["slug"]
+    assert new_slug == payload["project_id"], "legacy back-compat key must match slug"
+    assert payload["pid"].startswith("p_"), f"pid must be the p_xxx audit anchor: {payload!r}"
+    name = payload["name"]
     assert name.startswith("Untitled-")
+    # Folder name is the slug, derived from the placeholder name.
+    assert new_slug.startswith("untitled-"), new_slug
 
-    # Project exists on disk under the new pid.
-    blob = json.loads(project_json_path(workspace, new_pid).read_text())
+    # Project exists on disk under the new slug.
+    blob = json.loads(project_json_path(workspace, new_slug).read_text())
     assert blob["name"] == name
+    assert blob["project_id"] == payload["pid"]
 
     # Staged file moved into the new project's docs/, sidecar landed in
     # `docs/.meta/`, staging dir gone.
-    doc_files = [p for p in docs_dir(workspace, new_pid).iterdir() if p.is_file()]
+    doc_files = [p for p in docs_dir(workspace, new_slug).iterdir() if p.is_file()]
     assert [p.name for p in doc_files] == ["invoice.pdf"]
     assert doc_files[0].read_bytes() == SAMPLE_PDF
-    doc_metas = list(docs_meta_dir(workspace, new_pid).glob("*.json"))
+    doc_metas = list(docs_meta_dir(workspace, new_slug).glob("*.json"))
     assert len(doc_metas) == 1
     moved_meta = json.loads(doc_metas[0].read_text())
     assert moved_meta["filename"] == "invoice.pdf"
     assert moved_meta["original_name"] == "invoice.pdf"
     assert not stage_dir(workspace, token).exists()  # type: ignore[arg-type]
 
-    # User line was logged under the *new* pid (no p_unset leftover).
-    log_path = chats_dir(workspace, new_pid) / f"{CID}.jsonl"
+    # User line was logged under the *new* slug (no p_unset leftover).
+    log_path = chats_dir(workspace, new_slug) / f"{CID}.jsonl"
     assert log_path.exists()
     first_line = json.loads(log_path.read_text().splitlines()[0])
     assert first_line["type"] == "user"
@@ -133,7 +140,7 @@ async def test_p_unset_without_stage_token_no_mint(workspace: Path) -> None:
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         chunks = [
             c async for c in svc.chat_turn(
-                project_id="p_unset",
+                slug="p_unset",
                 chat_id=CID,
                 user_message="hello",
                 attachments=None,
@@ -154,7 +161,7 @@ async def test_unknown_stage_token_dropped_silently(workspace: Path) -> None:
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         chunks = [
             c async for c in svc.chat_turn(
-                project_id="p_unset",
+                slug="p_unset",
                 chat_id=CID,
                 user_message="/init",
                 attachments=[
@@ -165,9 +172,9 @@ async def test_unknown_stage_token_dropped_silently(workspace: Path) -> None:
     events = _events(chunks)
     minted = [e for e in events if e[0] == "project_minted"]
     assert len(minted) == 1
-    new_pid = minted[0][1]["project_id"]
+    new_slug = minted[0][1]["slug"]
     # No docs moved (the token didn't exist), but the project itself is real.
     # `docs/` may not even have been created yet; tolerate either state.
-    docs_d = docs_dir(workspace, new_pid)
+    docs_d = docs_dir(workspace, new_slug)
     if docs_d.exists():
         assert [p.name for p in docs_d.iterdir() if p.is_file()] == []

@@ -44,7 +44,7 @@ async def _seed_published(workspace: Path) -> str:
 @pytest.mark.asyncio
 async def test_bundle_contains_expected_members(workspace: Path) -> None:
     pid = await _seed_published(workspace)
-    blob = build_zip_bundle(workspace=workspace, project_id=pid, version_n=1)
+    blob = build_zip_bundle(workspace=workspace, slug=pid, version_n=1)
     z = zipfile.ZipFile(io.BytesIO(blob))
     assert set(z.namelist()) == {"schema.json", "version.json", "curl_example.sh", "README.md"}
 
@@ -52,7 +52,7 @@ async def test_bundle_contains_expected_members(workspace: Path) -> None:
 @pytest.mark.asyncio
 async def test_bundle_version_json_matches_frozen(workspace: Path) -> None:
     pid = await _seed_published(workspace)
-    blob = build_zip_bundle(workspace=workspace, project_id=pid, version_n=1)
+    blob = build_zip_bundle(workspace=workspace, slug=pid, version_n=1)
     z = zipfile.ZipFile(io.BytesIO(blob))
     v = json.loads(z.read("version.json").decode("utf-8"))
     assert v["version_id"] == "v1"
@@ -62,19 +62,21 @@ async def test_bundle_version_json_matches_frozen(workspace: Path) -> None:
 @pytest.mark.asyncio
 async def test_bundle_curl_uses_placeholder_key(workspace: Path) -> None:
     pid = await _seed_published(workspace)
-    blob = build_zip_bundle(workspace=workspace, project_id=pid, version_n=1)
+    blob = build_zip_bundle(workspace=workspace, slug=pid, version_n=1)
     z = zipfile.ZipFile(io.BytesIO(blob))
     curl = z.read("curl_example.sh").decode("utf-8")
     assert "<your saved key>" in curl
-    assert "ek_" not in curl
-    assert pid in curl
-    assert "/v1/" in curl
+    # No real ek_ key plaintext leaks (the prefix appears once in the
+    # placeholder copy; what we care about is no 32-char body follows it).
+    assert not re.search(r"ek_[A-Za-z0-9_-]{32}", curl)
+    # Stable public URL — no project handle in path anymore.
+    assert "/v1/extract" in curl
 
 
 @pytest.mark.asyncio
 async def test_bundle_readme_no_real_key_pattern(workspace: Path) -> None:
     pid = await _seed_published(workspace)
-    blob = build_zip_bundle(workspace=workspace, project_id=pid, version_n=1)
+    blob = build_zip_bundle(workspace=workspace, slug=pid, version_n=1)
     z = zipfile.ZipFile(io.BytesIO(blob))
     readme = z.read("README.md").decode("utf-8")
     assert re.search(r"ek_[A-Za-z0-9_-]{32}", readme) is None
@@ -84,4 +86,18 @@ async def test_bundle_readme_no_real_key_pattern(workspace: Path) -> None:
 async def test_bundle_missing_version_raises(workspace: Path) -> None:
     pid = await _seed_published(workspace)
     with pytest.raises(BundleVersionMissingError):
-        build_zip_bundle(workspace=workspace, project_id=pid, version_n=99)
+        build_zip_bundle(workspace=workspace, slug=pid, version_n=99)
+
+
+@pytest.mark.asyncio
+async def test_bundle_curl_uses_published_id_when_provided(workspace: Path) -> None:
+    pid = await _seed_published(workspace)
+    blob = build_zip_bundle(
+        workspace=workspace, slug=pid, version_n=1, published_id="pub_abcdef123456",
+    )
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    curl = z.read("curl_example.sh").decode("utf-8")
+    # Stable URL + published_id form field — no project id in the URL anymore.
+    assert "/v1/extract" in curl
+    assert "pub_abcdef123456" in curl
+    assert "published_id=" in curl

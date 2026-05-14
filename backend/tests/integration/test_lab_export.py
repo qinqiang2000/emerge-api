@@ -77,10 +77,11 @@ async def test_export_unpublished_project_404(workspace: Path) -> None:
     assert r.json()["error_code"] == "not_published"
 
 
-def test_export_invalid_pid_400() -> None:
+def test_export_unknown_slug_404() -> None:
+    """A valid-shape slug that doesn't exist returns 404 (existence check)."""
     client = TestClient(app)
     r = client.get("/lab/projects/notapid/export")
-    assert r.status_code == 400
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

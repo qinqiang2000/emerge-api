@@ -117,7 +117,7 @@ async def test_contract_diff_mcp_tool_works_on_fresh_project(
     call_handler = instance.request_handlers[mcp_types.CallToolRequest]
     req = mcp_types.CallToolRequest(
         method="tools/call",
-        params=mcp_types.CallToolRequestParams(name="contract_diff", arguments={"project_id": pid}),
+        params=mcp_types.CallToolRequestParams(name="contract_diff", arguments={"slug": pid}),
     )
     result = await call_handler(req)
     payload_text = result.root.content[0].text  # type: ignore[index]

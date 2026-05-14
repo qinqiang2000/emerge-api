@@ -69,14 +69,17 @@ def test_get_reviewed_404_when_missing() -> None:
     assert r.status_code == 404
 
 
-def test_post_reviewed_400_on_bad_pid() -> None:
+def test_post_reviewed_400_on_unsafe_slug() -> None:
+    """Post slug-transparency safe_slug rejects only filesystem-hostile
+    characters (slash / NUL / control / `.` / `..`). A slug containing a NUL
+    is rejected at the handler boundary, before any IO."""
     client = TestClient(app)
-    # uppercase pid fails ^p_[a-z0-9]{12}$
     r = client.post(
-        "/lab/projects/p_INVALIDPATH/reviewed/any.pdf",
+        "/lab/projects/bad%00ctrl/reviewed/any.pdf",
         json={"entities": [], "source": "manual"},
     )
     assert r.status_code == 400
+    assert r.json()["detail"] == "invalid slug"
 
 
 def test_post_reviewed_422_on_bad_body() -> None:
