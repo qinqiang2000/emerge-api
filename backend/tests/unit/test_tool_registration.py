@@ -14,6 +14,7 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
     names = await _extract_tool_names(server)
     expected = {
         "create_project",
+        "rename_project",
         "upload_doc",
         "list_docs",
         "list_projects",

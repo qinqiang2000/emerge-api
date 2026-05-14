@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.tools.projects import (
     create_project,
     list_projects,
+    rename_project,
     update_project,
 )
 
@@ -65,3 +68,31 @@ async def test_update_project_extract_model(workspace: Path) -> None:
     await update_project(workspace, pid, {"extract_model": "gpt-4o-2024-08"})
     blob = json.loads((workspace / pid / "project.json").read_text())
     assert blob["extract_model"] == "gpt-4o-2024-08"
+
+
+async def test_rename_project_sets_name(workspace: Path) -> None:
+    pid = await create_project(workspace, name="Untitled-251205-093012")
+    await rename_project(workspace, pid, name="马来_振兴")
+    blob = json.loads((workspace / pid / "project.json").read_text())
+    assert blob["name"] == "马来_振兴"
+    # active pointers untouched.
+    assert blob["active_prompt_id"] == "pr_baseline"
+    assert blob["active_model_id"] == "m_default"
+
+
+async def test_rename_project_strips_whitespace(workspace: Path) -> None:
+    pid = await create_project(workspace, name="x")
+    await rename_project(workspace, pid, name="  trimmed  ")
+    blob = json.loads((workspace / pid / "project.json").read_text())
+    assert blob["name"] == "trimmed"
+
+
+async def test_rename_project_rejects_empty(workspace: Path) -> None:
+    pid = await create_project(workspace, name="x")
+    with pytest.raises(ValueError, match="non-empty"):
+        await rename_project(workspace, pid, name="   ")
+
+
+async def test_rename_project_missing_pid_raises(workspace: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        await rename_project(workspace, "p_doesnotexist", name="x")

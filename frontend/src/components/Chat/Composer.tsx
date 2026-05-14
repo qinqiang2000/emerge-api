@@ -48,13 +48,24 @@ const IS_MAC =
   )
 const UPLOAD_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 
+interface PendingChip {
+  filename: string
+  /** 'uploading' / 'staging' = still in flight; 'uploaded' / 'staged' = ready;
+   *  'failed' = error, retryable. Missing = treat as ready (legacy callers /
+   *  tests that pass plain filenames). */
+  status?: 'staging' | 'staged' | 'uploading' | 'uploaded' | 'failed'
+  error?: string
+}
+
 interface Props {
   disabled: boolean
-  pending: { filename: string }[]
+  pending: PendingChip[]
   onAttach: (files: File[]) => void
   onSubmit: (text: string) => void
   /** Remove the i-th pending attachment. Optional so legacy callers compile. */
   onRemove?: (index: number) => void
+  /** Re-run the upload for a failed pending entry. Optional. */
+  onRetry?: (index: number) => void
   /** When provided + `disabled` is true, renders a Stop pill + binds Esc at
    *  window level to cancel the in-flight turn. Optional so existing call
    *  sites (and tests) without cancel support still compile. */
@@ -63,6 +74,27 @@ interface Props {
    *  or `p_unset`, the mention menu does not open (typing `@` is plain text). */
   projectId?: string
 }
+
+// Per-chip status indicator. Lives next to the filename so the row reads
+// left-to-right as "this file → its state".
+const SpinnerIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+    <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.8s" repeatCount="indefinite" />
+    </path>
+  </svg>
+)
+const CheckIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path d="M3 8.5L6.5 12L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+const RetryIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 
 /** Parse the textarea around `caret` and return the current mention context
  *  (dir + query) if the active token starts with `@`. The active token is the
@@ -80,7 +112,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onCancel, projectId }: Props) {
+export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, projectId }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -425,25 +457,53 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
         )}
 
         <div className="composer-body">
-          {/* Pending attachment chips */}
+          {/* Pending attachment chips. Status mapping:
+               - staging / uploading → spinner, chip not interactive (in flight)
+               - staged / uploaded   → check, chip can be removed
+               - failed              → retry button (re-runs the upload) + remove
+               Legacy callers (tests, older code paths) pass plain { filename }
+               and we treat that as "ready". */}
           {pending.length > 0 && (
             <div className="att-row">
-              {pending.map((a, i) => (
-                <span key={i} className="att-chip">
-                  <span className="att-name">{a.filename}</span>
-                  {onRemove && (
-                    <button
-                      type="button"
-                      className="att-x"
-                      onClick={() => onRemove(i)}
-                      aria-label={`Remove ${a.filename}`}
-                      title="Remove"
-                    >
-                      <XIcon />
-                    </button>
-                  )}
-                </span>
-              ))}
+              {pending.map((a, i) => {
+                const status = a.status ?? 'uploaded'
+                const inFlight = status === 'staging' || status === 'uploading'
+                const failed = status === 'failed'
+                return (
+                  <span
+                    key={i}
+                    className={'att-chip' + (failed ? ' att-chip-failed' : '')}
+                    title={failed ? (a.error || 'upload failed') : a.filename}
+                  >
+                    <span className="att-status" aria-hidden>
+                      {inFlight ? <SpinnerIcon /> : failed ? null : <CheckIcon />}
+                    </span>
+                    <span className="att-name">{a.filename}</span>
+                    {failed && onRetry && (
+                      <button
+                        type="button"
+                        className="att-retry"
+                        onClick={() => onRetry(i)}
+                        aria-label={`Retry ${a.filename}`}
+                        title={a.error ? `Retry — ${a.error}` : 'Retry'}
+                      >
+                        <RetryIcon />
+                      </button>
+                    )}
+                    {onRemove && !inFlight && (
+                      <button
+                        type="button"
+                        className="att-x"
+                        onClick={() => onRemove(i)}
+                        aria-label={`Remove ${a.filename}`}
+                        title="Remove"
+                      >
+                        <XIcon />
+                      </button>
+                    )}
+                  </span>
+                )
+              })}
             </div>
           )}
 
@@ -517,18 +577,23 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                 >
                   <StopIcon />
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="iconbtn send"
-                  onClick={submit}
-                  disabled={!text.trim()}
-                  title={`Send  ${IS_MAC ? '⌘' : 'Ctrl'}↵`}
-                  aria-label="Send message"
-                >
-                  <SendIcon />
-                </button>
-              )}
+              ) : (() => {
+                const hasInFlight = pending.some(p => p.status === 'staging' || p.status === 'uploading')
+                return (
+                  <button
+                    type="button"
+                    className="iconbtn send"
+                    onClick={submit}
+                    disabled={!text.trim() || hasInFlight}
+                    title={hasInFlight
+                      ? 'Waiting for uploads to finish…'
+                      : `Send  ${IS_MAC ? '⌘' : 'Ctrl'}↵`}
+                    aria-label="Send message"
+                  >
+                    <SendIcon />
+                  </button>
+                )
+              })()}
             </div>
           </div>
         </div>

@@ -68,8 +68,15 @@ async def _load_keystore_on_startup() -> None:
     get_keystore(settings.workspace_root)
 
 
+async def _cleanup_staging_on_startup() -> None:
+    from app.workspace.staging import cleanup_stale
+    settings = get_settings()
+    cleanup_stale(settings.workspace_root, max_age_hours=24.0)
+
+
 app.include_router(publish_route.router)
 app.router.on_startup.append(_load_keystore_on_startup)
+app.router.on_startup.append(_cleanup_staging_on_startup)
 
 
 @app.get("/healthz")

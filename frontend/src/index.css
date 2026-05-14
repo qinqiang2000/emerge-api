@@ -250,6 +250,22 @@ html, body, #root {
   transition:background .08s,color .08s;
 }
 .composer .att-chip .att-x:hover{background:var(--paper-3);color:var(--ink)}
+.composer .att-chip .att-status{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;flex-shrink:0;color:var(--ink-4);line-height:0;
+}
+.composer .att-chip .att-status:empty{display:none}
+.composer .att-chip .att-retry{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;border:0;background:transparent;color:var(--rose-2,#a8523c);
+  cursor:pointer;border-radius:3px;padding:0;line-height:0;
+  transition:background .08s,color .08s;
+}
+.composer .att-chip .att-retry:hover{background:var(--paper-3)}
+.composer .att-chip-failed{
+  border-color:var(--rose-2,#a8523c);color:var(--rose-2,#a8523c);background:var(--rose-soft,#fbeeea);
+}
+.composer .att-chip-failed .att-name{color:var(--rose-2,#a8523c)}
 
 .slashmenu{position:absolute;left:0;right:0;bottom:100%;margin-bottom:8px;display:flex;justify-content:center;padding:0;pointer-events:none;z-index:6;animation:ghostIn .12s ease-out}
 .slashmenu .inner{pointer-events:auto;width:100%;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 8px 28px rgba(31,27,20,.10);overflow:hidden;padding:6px}

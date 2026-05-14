@@ -42,6 +42,21 @@ def build_emerge_mcp(
         pid = await projects_mod.create_project(workspace, name=args["name"])
         return {"content": [{"type": "text", "text": pid}]}
 
+    @tool(
+        "rename_project",
+        "Set a project's display name. Use this on the first turn after the "
+        "user drops files into an empty-hero state (the project was auto-minted "
+        "with a placeholder name like 'Untitled-251205-093012'); rename to "
+        "whatever the user's intent suggests. Pure metadata — does not move "
+        "the project_id or any files.",
+        {"project_id": str, "name": str},
+    )
+    async def t_rename_project(args: dict[str, Any]) -> dict[str, Any]:
+        await projects_mod.rename_project(
+            workspace, args["project_id"], name=args["name"]
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
     @tool("list_projects", "List all projects in the workspace.", {})
     async def t_list_projects(_args: dict[str, Any]) -> dict[str, Any]:
         items = await projects_mod.list_projects(workspace)
@@ -606,6 +621,7 @@ def build_emerge_mcp(
         version="0.0.1",
         tools=[
             t_create_project,
+            t_rename_project,
             t_list_projects,
             t_upload_doc,
             t_list_docs,
@@ -653,7 +669,7 @@ def build_emerge_mcp(
 
 
 _EMERGE_TOOL_NAMES = (
-    "create_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
+    "create_project", "rename_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",

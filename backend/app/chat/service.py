@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -33,7 +34,9 @@ from app.jobs import get_runner
 from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
+from app.tools.projects import create_project as _create_project
 from app.workspace.paths import doc_path
+from app.workspace.staging import StagingClaimError, claim_staged
 
 
 # Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
@@ -104,6 +107,14 @@ _SDK_BUILT_IN_TOOLS = [
     # agent never sees `Skill` as an option in the first place.
     "Skill",
 ]
+
+
+def _placeholder_project_name() -> str:
+    """Auto-name for projects minted by chat_turn when the user drops files
+    into the empty-hero state. The agent is expected to rename via the
+    `rename_project` tool once the user's intent (project name) is clear."""
+    ts = datetime.now(timezone.utc).strftime("%y%m%d-%H%M%S")
+    return f"Untitled-{ts}"
 
 
 async def _emerge_only_permission(
@@ -201,6 +212,64 @@ class ChatService:
         attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[str]:
         """Yield SSE-encoded event strings; caller passes them through to the response."""
+        # ── pre-flight: claim staged files into a freshly-minted project ──
+        # When the user drops files into the empty-hero state, the frontend
+        # uploads each file to `/lab/uploads/staging` immediately (so per-file
+        # progress/retry is visible while they type) and then submits the chat
+        # with `project_id='p_unset'` plus `attachments[i].stage_token`. This
+        # block intercepts that pattern: mint a placeholder-named project,
+        # claim each staged file into its `docs/` (via the same `upload_doc`
+        # pipeline a normal POST /upload would use — sidecar at
+        # `docs/.meta/<filename>.json`, slug+dedupe applied), rewrite each
+        # attachment to `{filename}` (the only doc handle in the post-d_xxx
+        # world), and rebind `project_id` so every subsequent log line + tool
+        # call lands under the new pid (no post-hoc migration needed). The
+        # agent is expected to rename the project via `rename_project` once
+        # the user's intent is clear.
+        minted: dict[str, str] | None = None
+        if (
+            project_id == "p_unset"
+            and attachments
+            and any(isinstance(a.get("stage_token"), str) for a in attachments)
+        ):
+            placeholder = _placeholder_project_name()
+            try:
+                new_pid = await _create_project(self.workspace, name=placeholder)
+            except Exception as e:  # noqa: BLE001
+                err = {
+                    "error_code": "project_mint_failed",
+                    "error_message_en": str(e),
+                }
+                yield sse_event("error", err)
+                yield sse_event("turn_end", {})
+                return
+            claimed: list[dict[str, Any]] = []
+            for a in attachments:
+                tok = a.get("stage_token")
+                if isinstance(tok, str):
+                    try:
+                        # `claim_staged` returns the post-dedupe on-disk
+                        # filename (may differ from the chip name if the
+                        # project already had a collision — unlikely on a
+                        # freshly-minted project, but handled for free).
+                        final_name = await claim_staged(self.workspace, tok, new_pid)
+                        claimed.append({"filename": final_name})
+                    except (StagingClaimError, ValueError):
+                        # Stale / unknown token — drop silently rather than
+                        # fail the whole turn; the agent sees one fewer doc
+                        # but the rest succeed.
+                        continue
+                else:
+                    # Attachment without a stage_token in the p_unset path
+                    # is a legacy/no-op entry — preserve its filename so the
+                    # mention text still works, but no claim is performed.
+                    fname = a.get("filename") or ""
+                    if isinstance(fname, str) and fname:
+                        claimed.append({"filename": fname})
+            attachments = claimed
+            project_id = new_pid
+            minted = {"project_id": new_pid, "name": placeholder}
+
         # Keep only render-relevant fields on the persisted attachment record —
         # the agent doesn't need anything else, and we deliberately don't carry
         # base64 image bytes into events.jsonl (it would balloon the chat log).
@@ -227,6 +296,12 @@ class ChatService:
             has_attachments=bool(attachments),
         )
         yield sse_event("user_acknowledged", {"text": user_message})
+        if minted is not None:
+            # Surface the freshly-minted pid + placeholder name so the frontend
+            # can bind selectedId, persist activeChatId under the new pid key,
+            # and refresh the projects list. Emitting this *after*
+            # `user_acknowledged` keeps the existing front-end "ack first" UX.
+            yield sse_event("project_minted", minted)
 
         prev_sid = read_chat_session_id(self.workspace, project_id, chat_id)
 

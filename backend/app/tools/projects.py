@@ -49,6 +49,37 @@ def _project_status(pdir: Path, blob: dict[str, Any]) -> str:
     return "empty"
 
 
+async def rename_project(
+    workspace: Path,
+    project_id: str,
+    *,
+    name: str,
+) -> None:
+    """Set `project.json.name`. Used by the agent on the first turn after
+    `chat_turn` auto-mints a placeholder-named project (empty-hero drop
+    flow) — once the agent can read the user's intent, it should rename
+    the project to something meaningful.
+
+    Does not move the project directory or change the project_id. Idempotent:
+    re-applying the same name is a no-op-ish write.
+    """
+    from app.workspace.migrate import migrate_project_if_needed
+
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name must be non-empty")
+    if len(name) > 200:
+        raise ValueError("name too long (>200 chars)")
+    await migrate_project_if_needed(workspace, project_id)
+    pj = project_json_path(workspace, project_id)
+    if not pj.exists():
+        raise FileNotFoundError(f"project not found: {project_id}")
+    async with project_lock(workspace, project_id):
+        blob = json.loads(pj.read_text())
+        blob["name"] = name
+        atomic_write_json(pj, blob)
+
+
 async def create_project(
     workspace: Path,
     *,

@@ -42,6 +42,31 @@ export async function uploadDoc(projectId: string, file: File): Promise<UploadDo
   return r.json()
 }
 
+export interface StagedFile {
+  stage_token: string
+  filename: string
+  ext: string
+  sha256: string
+  page_count: number
+  size: number
+}
+
+// Pre-project staging upload. The file is held under
+// `workspace/_staging/{stage_token}/` until a chat turn claims it into a
+// project. Cleanup of unclaimed staging dirs is automatic (24h TTL, applied
+// on backend startup).
+export async function stageUpload(file: File, signal?: AbortSignal): Promise<StagedFile> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch(`${API}/lab/uploads/staging`, { method: 'POST', body: fd, signal })
+  if (!r.ok) {
+    let detail = ''
+    try { detail = (await r.json()).detail ?? '' } catch { /* swallow */ }
+    throw new Error(detail || `stageUpload ${r.status}`)
+  }
+  return r.json()
+}
+
 export async function listProjectDocs(projectId: string): Promise<DocSummary[]> {
   const r = await fetch(`/lab/projects/${projectId}/docs`)
   if (!r.ok) throw new Error(`listProjectDocs ${r.status}`)

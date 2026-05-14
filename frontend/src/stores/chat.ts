@@ -67,7 +67,11 @@ interface State {
    *  or edit-save — must rewind the chat log first so the abandoned user
    *  message + partial agent response are dropped rather than stacking. */
   interrupted: boolean
-  send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  /** Send a turn. `attachments` carries the doc handles for this message.
+   *  Filename is the only post-pid handle; `stage_token` is the pre-pid
+   *  bridge (the backend's chat_turn claims each token, drops it, and
+   *  persists `{filename}` only). */
+  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string }[]) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
@@ -224,6 +228,15 @@ export const useChat = create<State>((set, get) => ({
     return false
   },
   send: async (projectId, message, attachments) => {
+    // Capture the new pid emitted by the backend when chat_turn auto-mints a
+    // project from a `p_unset` + stage_token submission. We listen for the
+    // `project_minted` SSE event and re-bind on the fly: localStorage chatId
+    // moves under the new pid, selectedId flips, and the projects list
+    // refreshes. The in-memory `events` array is left untouched (adopt
+    // semantics — the user/agent_text/tool events already pushed are this
+    // project's first chat).
+    let mintedPid: string | null = null
+
     // First message into a freshly-selected real project: bind loadedProjectId and
     // persist the current chatId under that project key, so a later enterProject for
     // the same id is a correct no-op and a reload restores the binding.
@@ -257,8 +270,12 @@ export const useChat = create<State>((set, get) => ({
     // Filename is the only doc handle now — keep entries that have a non-empty
     // filename, drop pre-upload placeholders (no real filename yet). Backend
     // applies the same filter when persisting.
+    // For the local optimistic event we only render filename — stage_tokens
+    // are an in-flight implementation detail that get rewritten to {filename}
+    // by chat_turn before the user line lands in events.jsonl, so the local
+    // view stays consistent with the persisted log.
     const userAttachments = (attachments ?? [])
-      .filter((a): a is { filename: string } => typeof a.filename === 'string' && a.filename.length > 0)
+      .filter(a => typeof a.filename === 'string' && a.filename.length > 0)
       .map(a => ({ filename: a.filename }))
     set(s => ({
       events: [
@@ -284,7 +301,26 @@ export const useChat = create<State>((set, get) => ({
       })) {
         if (ev.event === 'tool_result') {
           const d = ev.data as { tool_use_id: string; result_text: string; ok: boolean }
-          handleToolResult(d, projectId, _findRecentVersionId())
+          handleToolResult(d, mintedPid ?? projectId, _findRecentVersionId())
+          continue
+        }
+        if (ev.event === 'project_minted') {
+          const d = ev.data as { project_id: string; name: string }
+          mintedPid = d.project_id
+          // Persist chatId under the new pid, mark loadedProjectId before the
+          // ChatPanel useEffect re-runs (so enterProject's same-pid early
+          // return fires instead of the clear-and-hydrate path), refresh
+          // projects, then flip selectedId. The current chat events stay in
+          // place — they are this project's first chat by construction.
+          _writeChatId(d.project_id, get().chatId)
+          set({ loadedProjectId: d.project_id })
+          void useProjects.getState().refresh()
+          useProjects.getState().select(d.project_id)
+          void get().listChats(d.project_id)
+          // Staged docs are already on disk in the new pid's docs/ — surface
+          // them in FSSpine right away, without waiting for the agent's
+          // first list_docs tool_result.
+          void useDocs.getState().refresh(d.project_id)
           continue
         }
         const mapped = mapSse(ev.event, ev.data)
@@ -300,7 +336,10 @@ export const useChat = create<State>((set, get) => ({
       if (!aborted) throw e
     } finally {
       set({ busy: false, abort: null })
-      if (projectId !== 'p_unset') void get().listChats(projectId)
+      // After a `p_unset` submission that auto-minted a project, refresh the
+      // chat list under the new pid (the chat is now logged there).
+      const finalPid = mintedPid ?? projectId
+      if (finalPid !== 'p_unset') void get().listChats(finalPid)
     }
   },
 }))
@@ -421,6 +460,7 @@ function handleToolResult(
     }
     if (
       t === 'mcp__emerge_tools__create_project' ||
+      t === 'mcp__emerge_tools__rename_project' ||
       t === 'mcp__emerge_tools__freeze_version' ||
       t === 'mcp__emerge_tools__fork_project'
     ) {

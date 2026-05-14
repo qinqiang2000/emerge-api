@@ -42,3 +42,24 @@ def test_upload_rejects_unsupported_extension() -> None:
     files = {"file": ("a.docx", io.BytesIO(b"x"), "application/vnd.docx")}
     r = client.post("/lab/projects/p_zzz/upload", files=files)
     assert r.status_code == 400
+
+
+def test_staging_upload_returns_token() -> None:
+    """Pre-project staging route: accepts a file without a pid and returns a
+    stage_token the frontend pins to a chip until the chat turn fires."""
+    client = TestClient(app)
+    files = {"file": ("a.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    r = client.post("/lab/uploads/staging", files=files)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stage_token"].startswith("st_")
+    assert body["filename"] == "a.pdf"
+    assert body["ext"] == "pdf"
+
+
+def test_staging_upload_rejects_spoofed_extension() -> None:
+    """Magic-byte sniff at the staging door — same defence as upload_doc."""
+    client = TestClient(app)
+    files = {"file": ("scan.png", io.BytesIO(b"<!doctype html>"), "image/png")}
+    r = client.post("/lab/uploads/staging", files=files)
+    assert r.status_code == 400

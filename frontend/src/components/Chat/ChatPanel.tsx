@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { uploadDoc } from '../../lib/api'
+import { stageUpload, uploadDoc } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
@@ -15,15 +15,31 @@ import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
 
+/**
+ * One pending attachment as the user sees it before the chat turn fires.
+ *
+ * - In an *empty-project* state (no `selectedId`) the file is uploaded
+ *   immediately to `/lab/uploads/staging` (no pid required) → `stage_token`.
+ *   We hang onto the original `File` handle so a failed upload can be
+ *   retried without asking the user to re-drag the file.
+ * - In a *selected-project* state the file is uploaded straight to
+ *   `/lab/projects/{pid}/upload` and surfaces the post-dedupe `filename`.
+ *
+ * `originalName` is what the chip started with — kept so we can match a
+ * chip back to its in-flight upload when the server-side filename differs
+ * after dedupe (concurrent uploads of the same `foo.pdf` → `foo (1).pdf`).
+ *
+ * Filename is the only doc handle now; there is no `doc_id`.
+ */
 interface AttachInfo {
-  /** Display + key for the chip. Starts as `file.name`; after upload resolves,
-   *  reconciled to the dedupe filename returned by the server (e.g. the
-   *  second `foo.pdf` becomes `foo (1).pdf`). */
+  /** Display + key for the chip. Starts as `file.name`; after upload
+   *  resolves, reconciled to the dedupe filename returned by the server. */
   filename: string
-  /** The name the chip started with — kept so we can match the chip back to
-   *  its in-flight upload when the server-side filename differs after dedupe. */
   originalName: string
-  pending?: boolean
+  file: File
+  status: 'staging' | 'staged' | 'uploading' | 'uploaded' | 'failed'
+  stage_token?: string
+  error?: string
 }
 
 export default function ChatPanel() {
@@ -72,42 +88,74 @@ export default function ChatPanel() {
 
   const projectName = projects.find(p => p.project_id === selectedId)?.name ?? ''
 
+  /** Resolve a unique pending entry by filename + File identity (since two
+   *  drops can share a name and we keep both rows visible). The File object
+   *  identity uniquely identifies the drop. */
+  function _matchPending(p: AttachInfo, filename: string, file: File): boolean {
+    return p.filename === filename && p.file === file
+  }
+
+  async function _stageOne(file: File): Promise<void> {
+    try {
+      const info = await stageUpload(file)
+      setPending(p => p.map(x => _matchPending(x, file.name, file)
+        ? { ...x, status: 'staged', stage_token: info.stage_token, error: undefined }
+        : x))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setPending(p => p.map(x => _matchPending(x, file.name, file)
+        ? { ...x, status: 'failed', error: msg }
+        : x))
+    }
+  }
+
+  async function _uploadOne(file: File, projectId: string): Promise<void> {
+    try {
+      // Filename is the only doc handle now — reconcile the chip name to the
+      // server-returned (post-dedupe) filename in case `foo.pdf` already
+      // existed and we got `foo (1).pdf` back.
+      const { filename } = await uploadDoc(projectId, file)
+      setPending(p => p.map(x => _matchPending(x, file.name, file)
+        ? { ...x, status: 'uploaded', filename, error: undefined }
+        : x))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setPending(p => p.map(x => _matchPending(x, file.name, file)
+        ? { ...x, status: 'failed', error: msg }
+        : x))
+    }
+  }
+
   async function attach(files: File[]) {
+    if (files.length === 0) return
     if (!selectedId) {
-      // Project not yet created: keep filenames pending; agent will create project then we upload.
-      setPending(p => [...p, ...files.map(f => ({ filename: f.name, originalName: f.name, pending: true }))])
+      // No project yet: stage each file under workspace/_staging/{token}/.
+      // Chat turn will mint a project + claim the staged files when the
+      // user submits, so we don't need a pid to start uploading.
+      const initial = files.map<AttachInfo>(f => ({
+        filename: f.name, originalName: f.name, file: f, status: 'staging',
+      }))
+      setPending(p => [...p, ...initial])
+      await Promise.all(files.map(_stageOne))
       return
     }
-    setPending(p => [...p, ...files.map(f => ({ filename: f.name, originalName: f.name, pending: true }))])
-    for (const f of files) {
-      try {
-        const { filename } = await uploadDoc(selectedId, f)
-        // Reconcile the chip to the server-returned name — may differ from
-        // `f.name` after dedupe (e.g. "foo.pdf" → "foo (1).pdf"). Match by
-        // originalName so concurrent uploads of the same name don't collide.
-        setPending(p => {
-          let consumed = false
-          return p.map(x => {
-            if (!consumed && x.originalName === f.name && x.pending) {
-              consumed = true
-              return { filename, originalName: f.name, pending: false }
-            }
-            return x
-          })
-        })
-      } catch {
-        // Drop the first matching pending chip on failure (best-effort; rare).
-        setPending(p => {
-          let dropped = false
-          return p.filter(x => {
-            if (!dropped && x.originalName === f.name && x.pending) {
-              dropped = true
-              return false
-            }
-            return true
-          })
-        })
-      }
+    // Project selected: upload straight into its docs/.
+    const initial = files.map<AttachInfo>(f => ({
+      filename: f.name, originalName: f.name, file: f, status: 'uploading',
+    }))
+    setPending(p => [...p, ...initial])
+    await Promise.all(files.map(f => _uploadOne(f, selectedId)))
+  }
+
+  async function retry(index: number) {
+    const target = pending[index]
+    if (!target || target.status !== 'failed') return
+    if (selectedId) {
+      setPending(p => p.map((x, i) => i === index ? { ...x, status: 'uploading', error: undefined } : x))
+      await _uploadOne(target.file, selectedId)
+    } else {
+      setPending(p => p.map((x, i) => i === index ? { ...x, status: 'staging', error: undefined } : x))
+      await _stageOne(target.file)
     }
   }
 
@@ -147,15 +195,24 @@ export default function ChatPanel() {
       )}
       <Composer
         disabled={busy}
-        pending={pending.map(p => ({ filename: p.filename }))}
+        pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
         projectId={selectedId ?? undefined}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
+        onRetry={(i) => { void retry(i) }}
         onSubmit={async (text) => {
-          // Only send chips that finished uploading (pending=false → filename
-          // is the dedupe-resolved on-disk name). The store also re-filters,
-          // but this keeps the wire format clean.
-          const ready = pending.filter(p => !p.pending).map(p => ({ filename: p.filename }))
+          // Only carry attachments that landed somewhere the backend can act on.
+          // Failed/in-flight chips are filtered — the chip stays visible so the
+          // user knows it didn't go, but the chat turn doesn't reference it.
+          // Filename is the only doc handle; stage_token is the timing-shift
+          // bridge for pre-pid drops (chat_turn claims + rewrites to filename
+          // on the backend before persisting the user event).
+          const ready = pending
+            .filter(p => p.status === 'uploaded' || p.status === 'staged')
+            .map(p => ({
+              filename: p.filename,
+              ...(p.stage_token ? { stage_token: p.stage_token } : {}),
+            }))
           await send(selectedId ?? 'p_unset', text, ready)
           setPending([])
         }}

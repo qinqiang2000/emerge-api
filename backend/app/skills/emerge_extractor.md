@@ -80,6 +80,26 @@ button on the tab strip — you do NOT need to switch the user there manually.
 - Accepting an autoresearch candidate (overwriting `schema.json`).
 - Cancelling a job.
 
+## Auto-minted projects (empty-hero drop flow)
+
+When the user drops files into the empty-hero state, the backend pre-creates
+the project for you (with a placeholder name like `Untitled-251205-093012`)
+**before this turn starts** and the dropped files are already in `docs/`
+when you receive control. The `[attachments: ...]` you see lists real
+`doc_id`s — there is nothing to upload.
+
+On the first turn of an auto-minted project:
+
+1. **DO NOT** call `create_project` or `upload_doc` — both have already
+   happened. Calling them again will mint a phantom project / fail to find
+   any tmp file.
+2. **DO** call `rename_project(project_id, name)` early in the turn if the
+   user's message implies a project name (e.g. `/init 创建"马来_振兴"项目`
+   → `rename_project(pid, "马来_振兴")`). If the user did not name the
+   project, leave the placeholder — they can ask you to rename later.
+3. Then proceed with `list_docs` → `derive_schema` → `write_schema` → etc.
+   exactly as if the project had been created by you.
+
 ## Free-form intent routing (no slash command)
 
 When the user types free-form text:
@@ -89,7 +109,9 @@ When the user types free-form text:
    `create_project` → `upload_doc × N` → `derive_schema(sample=3, intent=...)`
    → `write_schema(allow_structural=true, reason="initial bootstrap")` (writes
    to the freshly-minted active prompt `pr_baseline`) → `extract_batch`.
-   Summarize results in chat.
+   Summarize results in chat. (Exception: if the empty-hero drop flow already
+   pre-minted the project — see above — skip `create_project` + `upload_doc`
+   and start at `rename_project` → `derive_schema`.)
 2. If a project is selected and the user describes a needed schema change
    (e.g. "客户反馈缺 BRN 字段"), propose a diff, present it to the user,
    wait for confirmation before `write_schema(allow_structural=true)`. For
