@@ -26,13 +26,13 @@ const STATUS_DOT: Record<string, string> = {
 }
 
 function buildTree(
-  projectId: string,
+  slug: string,
   docs: import('../../types/review').DocSummary[],
   activeVersionId: string | null,
   promptItems: LeafNode[],
   modelItems: LeafNode[],
   experimentItems: LeafNode[],
-  openDoc: (projectId: string, filename: string) => void,
+  openDoc: (slug: string, filename: string) => void,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -48,7 +48,7 @@ function buildTree(
       kind: 'file',
       name: doc.filename,
       stamp,
-      onClick: () => openDoc(projectId, doc.filename),
+      onClick: () => openDoc(slug, doc.filename),
     })
   }
   const remaining = docs.length - first5.length
@@ -82,7 +82,7 @@ type FSSpineProps = {
 
 export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const projects = useProjects(s => s.projects)
-  const selectedId = useProjects(s => s.selectedId)
+  const selectedSlug = useProjects(s => s.selectedSlug)
 
   const docsByProject = useDocs(s => s.byProject)
   const schemaByProject = useSchema(s => s.byProject)
@@ -105,22 +105,24 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
   // When active project changes: load docs + schema + prompts + models
   useEffect(() => {
-    if (!selectedId) return
-    void useDocs.getState().refresh(selectedId)
-    void useSchema.getState().load(selectedId)
-    void usePrompts.getState().load(selectedId)
-    void useModels.getState().load(selectedId)
-    void useExperiments.getState().load(selectedId)
-  }, [selectedId])
+    if (!selectedSlug) return
+    void useDocs.getState().refresh(selectedSlug)
+    void useSchema.getState().load(selectedSlug)
+    void usePrompts.getState().load(selectedSlug)
+    void useModels.getState().load(selectedSlug)
+    void useExperiments.getState().load(selectedSlug)
+  }, [selectedSlug])
 
-  const activeDocs = selectedId ? (docsByProject[selectedId] ?? []) : []
-  const activeSchemaFields = selectedId ? (schemaByProject[selectedId] ?? []) : []
-  const activeProject = projects.find(p => p.project_id === selectedId) ?? null
+  const activeDocs = selectedSlug ? (docsByProject[selectedSlug] ?? []) : []
+  const activeSchemaFields = selectedSlug ? (schemaByProject[selectedSlug] ?? []) : []
+  // Selection key is slug (folder name on disk); display label is `name`
+  // (may contain spaces / unicode that the slug stripped or transcoded).
+  const activeProject = projects.find(p => p.slug === selectedSlug) ?? null
 
   // Build prompts leaf nodes
   const promptItems: LeafNode[] = useMemo(() => {
-    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
-    const rows = promptListByProject[selectedId]
+    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = promptListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
     return rows.map(row => ({
       kind: 'file' as const,
@@ -128,15 +130,15 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       stamp: '',
       active: row.is_active,
       onClick: row.is_active
-        ? () => openSchema(selectedId)
-        : () => openPrompt(selectedId, row.prompt_id),
+        ? () => openSchema(selectedSlug)
+        : () => openPrompt(selectedSlug, row.prompt_id),
     }))
-  }, [selectedId, promptListByProject, openSchema, openPrompt])
+  }, [selectedSlug, promptListByProject, openSchema, openPrompt])
 
   // Build models leaf nodes
   const modelItems: LeafNode[] = useMemo(() => {
-    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
-    const rows = modelListByProject[selectedId]
+    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = modelListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
     return rows.map(row => ({
       kind: 'file' as const,
@@ -145,12 +147,12 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       active: row.is_active,
       onClick: undefined,
     }))
-  }, [selectedId, modelListByProject])
+  }, [selectedSlug, modelListByProject])
 
   // Build experiments leaf nodes
   const experimentItems: LeafNode[] = useMemo(() => {
-    if (!selectedId) return [{ kind: 'ghost', name: '(none yet)' }]
-    const rows = experimentListByProject[selectedId]
+    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = experimentListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
     return rows.map(row => ({
       kind: 'file' as const,
@@ -161,18 +163,18 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       active: false,
       onClick: undefined,
     }))
-  }, [selectedId, experimentListByProject])
+  }, [selectedSlug, experimentListByProject])
 
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
       ? buildTree(
-          activeProject.project_id,
+          activeProject.slug,
           activeDocs,
           activeProject.active_version_id ?? null,
           promptItems,
           modelItems,
           experimentItems,
-          (pid, filename) => { void openReview(pid, filename) },
+          (slug, filename) => { void openReview(slug, filename) },
         )
       : null,
     [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview],
@@ -203,12 +205,15 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         <div className="ghost" style={{ padding: '4px 16px' }}>no projects yet</div>
       )}
       {projects.map(p => {
-        const isActive = p.project_id === selectedId
+        // React `key` and selection state are keyed on slug (the disk-truth
+        // identifier). The visible label is the user-given `name`, which can
+        // diverge from slug after rename / when name has chars slug stripped.
+        const isActive = p.slug === selectedSlug
         return (
           <div
-            key={p.project_id}
+            key={p.slug}
             className={'proj' + (isActive ? ' active' : '')}
-            onClick={() => useProjects.getState().select(p.project_id)}
+            onClick={() => useProjects.getState().select(p.slug)}
           >
             <span className="glyph">{isActive ? '▸' : '·'}</span>
             <span>{p.name}/</span>
@@ -252,9 +257,9 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                   </div>
                   {open && g.items.map((n, j) => {
                     if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
-                    const isVersion = g.name === 'versions/' && selectedId
+                    const isVersion = g.name === 'versions/' && selectedSlug
                     const clickHandler = isVersion
-                      ? () => openVersion(selectedId!, n.name)
+                      ? () => openVersion(selectedSlug!, n.name)
                       : n.onClick
                     return (
                       <div

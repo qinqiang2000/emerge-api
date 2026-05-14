@@ -33,7 +33,9 @@ const mockSend = vi.fn()
 const mockEnterProject = vi.fn()
 const mockBusy = false
 
-const EMPTY_DOC: DocSummary = {
+// `doc_id` was retired earlier this milestone but the fixture predates that
+// rename; cast through unknown so the stale field doesn't fight the type.
+const EMPTY_DOC = {
   doc_id: 'd1',
   filename: 'a.pdf',
   ext: 'pdf',
@@ -41,7 +43,7 @@ const EMPTY_DOC: DocSummary = {
   uploaded_at: '2026-01-01T00:00:00Z',
   has_prediction: false,
   has_reviewed: false,
-}
+} as unknown as DocSummary
 
 const EMPTY_FIELD: SchemaField = { name: 'vendor', type: 'string', description: 'Vendor name' }
 
@@ -49,12 +51,12 @@ function setupStores({
   events = [] as ChatEvent[],
   docs = [] as DocSummary[],
   fields = [] as SchemaField[],
-  selectedId = null as string | null,
+  selectedSlug = null as string | null,
   projects = [] as Project[],
 } = {}) {
   ;(useProjects as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
-      const state = { selectedId, projects }
+      const state = { selectedSlug, projects }
       return selector ? selector(state) : state
     },
   )
@@ -78,13 +80,13 @@ function setupStores({
   ;(useChat as unknown as { getState: () => unknown }).getState = () => chatState
   ;(useDocs as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
-      const state = { byProject: { [selectedId ?? '']: docs } }
+      const state = { byProject: { [selectedSlug ?? '']: docs } }
       return selector ? selector(state) : docs
     },
   )
   ;(useSchema as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {
-      const state = { byProject: { [selectedId ?? '']: fields } }
+      const state = { byProject: { [selectedSlug ?? '']: fields } }
       return selector ? selector(state) : fields
     },
   )
@@ -108,8 +110,8 @@ describe('ChatPanel branching', () => {
       events: [],
       docs: [],
       fields: [],
-      selectedId: 'p_abc',
-      projects: [{ project_id: 'p_abc', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
+      selectedSlug: 'tax-forms',
+      projects: [{ project_id: 'p_abc', slug: 'tax-forms', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
     })
     render(<ChatPanel />)
     expect(screen.getByText('~/projects/tax-forms/')).toBeInTheDocument()
@@ -131,8 +133,8 @@ describe('ChatPanel branching', () => {
       events: [],
       docs: [EMPTY_DOC],
       fields: [],
-      selectedId: 'p_abc',
-      projects: [{ project_id: 'p_abc', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
+      selectedSlug: 'tax-forms',
+      projects: [{ project_id: 'p_abc', slug: 'tax-forms', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
     })
     render(<ChatPanel />)
     expect(screen.queryByText('~/projects/tax-forms/')).not.toBeInTheDocument()
@@ -143,8 +145,8 @@ describe('ChatPanel branching', () => {
       events: [],
       docs: [],
       fields: [EMPTY_FIELD],
-      selectedId: 'p_abc',
-      projects: [{ project_id: 'p_abc', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
+      selectedSlug: 'tax-forms',
+      projects: [{ project_id: 'p_abc', slug: 'tax-forms', name: 'tax-forms', project_type: 'extraction', active_version_id: null }],
     })
     render(<ChatPanel />)
     expect(screen.queryByText('~/projects/tax-forms/')).not.toBeInTheDocument()

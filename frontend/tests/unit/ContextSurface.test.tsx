@@ -8,14 +8,16 @@ import { useDocs } from '../../src/stores/docs'
 import { useEval } from '../../src/stores/eval'
 
 const PID = 'p_aaaaaaaaaaaa'
+// Slug is the FE handle now; PID stays as the immutable internal anchor.
+const SLUG = 'test'
 
 beforeEach(() => {
   useProjects.setState({
-    selectedId: PID,
-    projects: [{ project_id: PID, name: 'test', project_type: 'extraction', active_version_id: 'v1' }],
+    selectedSlug: SLUG,
+    projects: [{ project_id: PID, slug: SLUG, name: 'test', project_type: 'extraction', active_version_id: 'v1' }],
   })
-  useSchema.setState({ byProject: { [PID]: [{ name: 'x', type: 'string', description: '' }] }, loading: {} })
-  useDocs.setState({ byProject: { [PID]: [] }, loading: false })
+  useSchema.setState({ byProject: { [SLUG]: [{ name: 'x', type: 'string', description: '' }] }, loading: {} })
+  useDocs.setState({ byProject: { [SLUG]: [] }, loading: false })
   // Stub fetch so the effect's loadEval call resolves immediately.
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }))
   useEval.getState().reset()
@@ -23,7 +25,7 @@ beforeEach(() => {
 
 describe('ContextSurface metrics section', () => {
   it('renders "no eval yet" when useEval slice is null', async () => {
-    useEval.setState({ byProject: { [PID]: null }, loading: {} })
+    useEval.setState({ byProject: { [SLUG]: null }, loading: {} })
     render(<ContextSurface />)
     expect(await screen.findByText(/no eval yet/i)).toBeInTheDocument()
     expect(screen.queryByText('0.94')).not.toBeInTheDocument()  // placeholder gone
@@ -32,7 +34,7 @@ describe('ContextSurface metrics section', () => {
   it('renders macro precision / recall / f1 / coverage from snapshot', () => {
     useEval.setState({
       byProject: {
-        [PID]: {
+        [SLUG]: {
           n_docs: 5, n_reviewed: 5, macro_f1: 0.92, errors: [],
           ts: '2026-05-11T07-04-00Z', schema_field_count: 2,
           per_field: [
@@ -56,7 +58,7 @@ describe('ContextSurface metrics section', () => {
 
   it('does not log the placeholder-deferred message', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    useEval.setState({ byProject: { [PID]: null }, loading: {} })
+    useEval.setState({ byProject: { [SLUG]: null }, loading: {} })
     render(<ContextSurface />)
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringMatching(/placeholder/))
     logSpy.mockRestore()

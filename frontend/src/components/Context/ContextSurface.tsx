@@ -55,16 +55,16 @@ type ContextSurfaceProps = {
 }
 
 export default function ContextSurface({ onToggleRight }: ContextSurfaceProps = {}) {
-  const selectedId = useProjects(s => s.selectedId)
-  const pid = selectedId ?? ''
+  const selectedSlug = useProjects(s => s.selectedSlug)
+  const slug = selectedSlug ?? ''
 
-  const evalSnap = useEval(s => (pid ? s.byProject[pid] : undefined))
+  const evalSnap = useEval(s => (slug ? s.byProject[slug] : undefined))
   const loadEval = useEval(s => s.load)
 
   useEffect(() => {
-    if (!pid) return
-    void loadEval(pid)
-  }, [pid, loadEval])
+    if (!slug) return
+    void loadEval(slug)
+  }, [slug, loadEval])
 
   const actions = onToggleRight ? (
     <div className="ctx-actions">
@@ -77,7 +77,7 @@ export default function ContextSurface({ onToggleRight }: ContextSurfaceProps = 
     </div>
   ) : null
 
-  if (!selectedId) {
+  if (!selectedSlug) {
     return (
       <>
         {actions}

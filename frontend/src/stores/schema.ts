@@ -44,7 +44,7 @@ export const useSchema = create<State>((set, get) => ({
     }
     set((s) => ({ loading: { ...s.loading, [projectId]: true } }))
     try {
-      const r = await fetch(`/lab/projects/${projectId}/schema`)
+      const r = await fetch(`/lab/projects/${encodeURIComponent(projectId)}/schema`)
       const fields: SchemaField[] = r.ok ? await r.json() : []
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: fields },

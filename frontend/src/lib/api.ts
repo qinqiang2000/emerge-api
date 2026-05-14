@@ -7,11 +7,18 @@ import type {
   ReviewedPayload,
 } from '../types/review'
 
+/** A project listing row. `project_id` is the immutable internal event anchor
+ *  (`p_xxx`) that chat events keep referencing; `slug` is the human-readable
+ *  folder name on disk and the canonical handle for every lab API call.
+ *  `published_ids` is the append-only list of frozen `pub_xxx` artifacts —
+ *  the latest entry is what production deploys would point at. */
 export interface Project {
   project_id: string
+  slug: string
   name: string
   project_type: string
   active_version_id: string | null
+  published_ids?: string[]
   status?: 'live' | 'draft' | 'empty'
 }
 
@@ -34,10 +41,10 @@ export interface UploadDocResponse {
   original_name: string
 }
 
-export async function uploadDoc(projectId: string, file: File): Promise<UploadDocResponse> {
+export async function uploadDoc(slug: string, file: File): Promise<UploadDocResponse> {
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch(`${API}/lab/projects/${projectId}/upload`, { method: 'POST', body: fd })
+  const r = await fetch(`${API}/lab/projects/${encodeURIComponent(slug)}/upload`, { method: 'POST', body: fd })
   if (!r.ok) throw new Error(`upload ${r.status}`)
   return r.json()
 }
@@ -67,32 +74,32 @@ export async function stageUpload(file: File, signal?: AbortSignal): Promise<Sta
   return r.json()
 }
 
-export async function listProjectDocs(projectId: string): Promise<DocSummary[]> {
-  const r = await fetch(`/lab/projects/${projectId}/docs`)
+export async function listProjectDocs(slug: string): Promise<DocSummary[]> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/docs`)
   if (!r.ok) throw new Error(`listProjectDocs ${r.status}`)
   return r.json()
 }
 
-export async function getPrediction(projectId: string, filename: string): Promise<PredictionPayload | null> {
-  const r = await fetch(`/lab/projects/${projectId}/predictions/${encodeURIComponent(filename)}`)
+export async function getPrediction(slug: string, filename: string): Promise<PredictionPayload | null> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/predictions/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getPrediction ${r.status}`)
   return r.json()
 }
 
-export async function getReviewed(projectId: string, filename: string): Promise<ReviewedPayload | null> {
-  const r = await fetch(`/lab/projects/${projectId}/reviewed/${encodeURIComponent(filename)}`)
+export async function getReviewed(slug: string, filename: string): Promise<ReviewedPayload | null> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/reviewed/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getReviewed ${r.status}`)
   return r.json()
 }
 
 export async function saveReviewed(
-  projectId: string,
+  slug: string,
   filename: string,
   payload: ReviewedPayload,
 ): Promise<void> {
-  const r = await fetch(`/lab/projects/${projectId}/reviewed/${encodeURIComponent(filename)}`, {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/reviewed/${encodeURIComponent(filename)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -100,15 +107,18 @@ export async function saveReviewed(
   if (!r.ok) throw new Error(`saveReviewed ${r.status}`)
 }
 
-export function pdfPageUrl(projectId: string, filename: string, page: number): string {
-  return `/lab/projects/${projectId}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}`
+export function pdfPageUrl(slug: string, filename: string, page: number): string {
+  return `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}`
 }
 
-export async function startJob(projectId: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
+export async function startJob(slug: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
   const r = await fetch('/lab/jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ skill: 'autoresearch', project_id: projectId, params }),
+    // The HTTP body field name `project_id` is grandfathered from the pre-slug
+    // era — the value is now a slug. Agent-3 left the field name unchanged for
+    // backwards compatibility; renaming it is a follow-up.
+    body: JSON.stringify({ skill: 'autoresearch', project_id: slug, params }),
   })
   if (!r.ok) throw new Error(`startJob ${r.status}`)
   return r.json()
@@ -129,8 +139,8 @@ export async function cancelJob(jobId: string): Promise<void> {
   if (!r.ok) throw new Error(`cancelJob ${r.status}`)
 }
 
-export async function acceptCandidate(projectId: string, jobId: string, turn: number): Promise<{ ok: boolean }> {
-  const r = await fetch(`/lab/projects/${projectId}/schema/accept-candidate`, {
+export async function acceptCandidate(slug: string, jobId: string, turn: number): Promise<{ ok: boolean }> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/schema/accept-candidate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_id: jobId, turn }),
@@ -139,12 +149,13 @@ export async function acceptCandidate(projectId: string, jobId: string, turn: nu
   return r.json()
 }
 
-export function jobEventsUrl(projectId: string, jobId: string): string {
-  return `/lab/jobs/${jobId}/events?project_id=${encodeURIComponent(projectId)}`
+export function jobEventsUrl(slug: string, jobId: string): string {
+  // Query-string `project_id` field is grandfathered; value is now a slug.
+  return `/lab/jobs/${jobId}/events?project_id=${encodeURIComponent(slug)}`
 }
 
-export function exportBundleUrl(projectId: string, version?: number): string {
-  const base = `/lab/projects/${encodeURIComponent(projectId)}/export`
+export function exportBundleUrl(slug: string, version?: number): string {
+  const base = `/lab/projects/${encodeURIComponent(slug)}/export`
   return version ? `${base}?version=${version}` : base
 }
 
@@ -169,8 +180,8 @@ export interface EvalSnapshot {
   schema_field_count: number
 }
 
-export async function getLatestEval(projectId: string): Promise<EvalSnapshot | null> {
-  const r = await fetch(`/lab/projects/${projectId}/evals/latest`)
+export async function getLatestEval(slug: string): Promise<EvalSnapshot | null> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/evals/latest`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getLatestEval ${r.status}`)
   return r.json()
@@ -179,9 +190,9 @@ export async function getLatestEval(projectId: string): Promise<EvalSnapshot | n
 // Raw chat JSONL log for hydration on project entry. Permissive by design —
 // any failure (bad ids, network, parse) degrades to "empty chat", never throws
 // into a render.
-export async function getChatEvents(projectId: string, chatId: string): Promise<unknown[]> {
+export async function getChatEvents(slug: string, chatId: string): Promise<unknown[]> {
   try {
-    const r = await fetch(`/lab/chats/${projectId}/${chatId}`)
+    const r = await fetch(`/lab/chats/${encodeURIComponent(slug)}/${chatId}`)
     if (!r.ok) {
       if (r.status !== 404) console.warn('getChatEvents failed', r.status)
       return []
@@ -198,14 +209,14 @@ export async function getChatEvents(projectId: string, chatId: string): Promise<
 // `targetUserIndex` is a 0-indexed ordinal among user lines; omitted = last.
 // Powers retry / edit on any user bubble. Idempotent on the server.
 export async function rewindChat(
-  projectId: string,
+  slug: string,
   chatId: string,
   targetUserIndex?: number,
 ): Promise<void> {
   const qs = typeof targetUserIndex === 'number'
     ? `?target_user_index=${targetUserIndex}`
     : ''
-  const r = await fetch(`/lab/chats/${projectId}/${chatId}/rewind${qs}`, { method: 'POST' })
+  const r = await fetch(`/lab/chats/${encodeURIComponent(slug)}/${chatId}/rewind${qs}`, { method: 'POST' })
   if (!r.ok) throw new Error(`rewindChat ${r.status}`)
 }
 
@@ -219,9 +230,9 @@ export interface ChatSummary {
 
 // Chat list for the conv-header history popover. Permissive — any failure
 // degrades to an empty list, never throws into a render.
-export async function getChatList(projectId: string): Promise<ChatSummary[]> {
+export async function getChatList(slug: string): Promise<ChatSummary[]> {
   try {
-    const r = await fetch(`/lab/chats/${projectId}`)
+    const r = await fetch(`/lab/chats/${encodeURIComponent(slug)}`)
     if (!r.ok) {
       if (r.status !== 404) console.warn('getChatList failed', r.status)
       return []
@@ -234,31 +245,31 @@ export async function getChatList(projectId: string): Promise<ChatSummary[]> {
 }
 
 export async function listExperiments(
-  projectId: string,
+  slug: string,
   opts?: { includeArchived?: boolean },
 ): Promise<ExperimentSummary[]> {
   const q = opts?.includeArchived ? '?include_archived=true' : ''
-  const r = await fetch(`/lab/projects/${projectId}/experiments${q}`, {})
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/experiments${q}`, {})
   if (!r.ok) throw new Error(`listExperiments ${r.status}`)
   return r.json()
 }
 
 export async function getExperiment(
-  projectId: string,
+  slug: string,
   experimentId: string,
 ): Promise<Experiment> {
-  const r = await fetch(`/lab/projects/${projectId}/experiments/${experimentId}`)
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/experiments/${experimentId}`)
   if (!r.ok) throw new Error(`getExperiment ${r.status}`)
   return r.json()
 }
 
 export async function getExperimentPrediction(
-  projectId: string,
+  slug: string,
   experimentId: string,
   filename: string,
 ): Promise<ExperimentPredictionPayload | null> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
+    `/lab/projects/${encodeURIComponent(slug)}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
   )
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getExperimentPrediction ${r.status}`)
@@ -266,12 +277,12 @@ export async function getExperimentPrediction(
 }
 
 export async function runExperimentPrediction(
-  projectId: string,
+  slug: string,
   experimentId: string,
   filename: string,
 ): Promise<ExperimentPredictionPayload> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
+    `/lab/projects/${encodeURIComponent(slug)}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
     { method: 'POST' },
   )
   if (!r.ok) throw new Error(`runExperimentPrediction ${r.status}`)
@@ -290,9 +301,44 @@ export interface TreeEntry {
  *  project-relative POSIX path; `""` is the project root. Filters hide the
  *  internal-only stuff (chats, prompts, models, predictions, jobs, metrics,
  *  experiments, project.json, dotfiles, versions/_candidate). */
-export async function listProjectTree(pid: string, dir: string = ''): Promise<TreeEntry[]> {
+export async function listProjectTree(slug: string, dir: string = ''): Promise<TreeEntry[]> {
   const q = dir ? `?dir=${encodeURIComponent(dir)}` : ''
-  const r = await fetch(`/lab/projects/${pid}/tree${q}`)
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/tree${q}`)
   if (!r.ok) throw new Error(`listProjectTree ${r.status}`)
   return r.json()
+}
+
+// ── Workspace-level API key meta (post-slug refactor) ──────────────────────
+// Keys are bound to users (default user_id="default" in this stage), not to
+// projects — so meta lives at the workspace root. One call is enough to know
+// "is there a key, when was it minted, when was it last used".
+export interface KeyMetaPayload {
+  user_id: string
+  key_hash_short: string | null
+  key_prefix: string | null
+  created_at: string | null
+  last_used: string | null
+}
+
+export async function getKeysMeta(): Promise<KeyMetaPayload | null> {
+  try {
+    const r = await fetch('/lab/keys/meta')
+    if (r.status === 404) return null
+    if (!r.ok) return null
+    return await r.json() as KeyMetaPayload
+  } catch {
+    return null
+  }
+}
+
+// ── Public /v1/extract curl example ─────────────────────────────────────────
+// The published endpoint is stable URL + `published_id` parameter (the
+// production-deploy / lab-staging symmetry contract from the slug-transparency
+// plan). A given API key works for any `pub_xxx` minted by its user.
+export function sampleCurl(publishedId: string): string {
+  return `# call your new endpoint
+curl https://api.emerge.run/v1/extract \\
+  -H "X-API-Key: $EMERGE_API_KEY" \\
+  -F "published_id=${publishedId}" \\
+  -F "file=@example.pdf"`
 }

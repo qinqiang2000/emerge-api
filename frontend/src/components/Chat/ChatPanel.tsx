@@ -18,7 +18,7 @@ import ImproveBanner from '../Improve/ImproveBanner'
 /**
  * One pending attachment as the user sees it before the chat turn fires.
  *
- * - In an *empty-project* state (no `selectedId`) the file is uploaded
+ * - In an *empty-project* state (no `selectedSlug`) the file is uploaded
  *   immediately to `/lab/uploads/staging` (no pid required) → `stage_token`.
  *   We hang onto the original `File` handle so a failed upload can be
  *   retried without asking the user to re-drag the file.
@@ -43,23 +43,23 @@ interface AttachInfo {
 }
 
 export default function ChatPanel() {
-  const { selectedId, projects } = useProjects()
+  const { selectedSlug, projects } = useProjects()
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
   const busy = useChat(s => s.busy)
   const chatId = useChat(s => s.chatId)
   const chatsByProject = useChat(s => s.chatsByProject)
-  const chats = selectedId ? (chatsByProject[selectedId] ?? []) : []
+  const chats = selectedSlug ? (chatsByProject[selectedSlug] ?? []) : []
 
   // Reload-restore: when a real project becomes selected, bind to its persisted
   // chatId and hydrate the chat log. enterProject is a no-op for 'p_unset' and
   // when already on this project, so the create-project flow is safe.
   useEffect(() => {
-    if (selectedId) useChat.getState().enterProject(selectedId)
+    if (selectedSlug) useChat.getState().enterProject(selectedSlug)
     else useChat.getState().deselect()
-  }, [selectedId])
-  const docCount = useDocs(s => (s.byProject[selectedId ?? ''] ?? []).length)
-  const fieldCount = useSchema(s => (s.byProject[selectedId ?? ''] ?? []).length)
+  }, [selectedSlug])
+  const docCount = useDocs(s => (s.byProject[selectedSlug ?? ''] ?? []).length)
+  const fieldCount = useSchema(s => (s.byProject[selectedSlug ?? ''] ?? []).length)
   const [pending, setPending] = useState<AttachInfo[]>([])
   const convScrollRef = useRef<HTMLDivElement>(null)
 
@@ -86,7 +86,7 @@ export default function ChatPanel() {
 
   const hasContent = events.length > 0 || docCount > 0 || fieldCount > 0
 
-  const projectName = projects.find(p => p.project_id === selectedId)?.name ?? ''
+  const projectName = projects.find(p => p.slug === selectedSlug)?.name ?? ''
 
   /** Resolve a unique pending entry by filename + File identity (since two
    *  drops can share a name and we keep both rows visible). The File object
@@ -128,7 +128,7 @@ export default function ChatPanel() {
 
   async function attach(files: File[]) {
     if (files.length === 0) return
-    if (!selectedId) {
+    if (!selectedSlug) {
       // No project yet: stage each file under workspace/_staging/{token}/.
       // Chat turn will mint a project + claim the staged files when the
       // user submits, so we don't need a pid to start uploading.
@@ -144,15 +144,15 @@ export default function ChatPanel() {
       filename: f.name, originalName: f.name, file: f, status: 'uploading',
     }))
     setPending(p => [...p, ...initial])
-    await Promise.all(files.map(f => _uploadOne(f, selectedId)))
+    await Promise.all(files.map(f => _uploadOne(f, selectedSlug)))
   }
 
   async function retry(index: number) {
     const target = pending[index]
     if (!target || target.status !== 'failed') return
-    if (selectedId) {
+    if (selectedSlug) {
       setPending(p => p.map((x, i) => i === index ? { ...x, status: 'uploading', error: undefined } : x))
-      await _uploadOne(target.file, selectedId)
+      await _uploadOne(target.file, selectedSlug)
     } else {
       setPending(p => p.map((x, i) => i === index ? { ...x, status: 'staging', error: undefined } : x))
       await _stageOne(target.file)
@@ -160,19 +160,19 @@ export default function ChatPanel() {
   }
 
   async function handleStarter(text: string) {
-    await send(selectedId ?? 'p_unset', text)
+    await send(selectedSlug ?? 'p_unset', text)
   }
 
   return (
     <>
-      {selectedId && (
+      {selectedSlug && (
         <ConvHeader
           activeProject={projectName}
           currentChatId={chatId}
           chats={chats}
-          onNew={() => useChat.getState().newChat(selectedId)}
-          onSwitch={(cid) => useChat.getState().switchChat(selectedId, cid)}
-          onOpen={() => { void useChat.getState().listChats(selectedId) }}
+          onNew={() => useChat.getState().newChat(selectedSlug)}
+          onSwitch={(cid) => useChat.getState().switchChat(selectedSlug, cid)}
+          onOpen={() => { void useChat.getState().listChats(selectedSlug) }}
         />
       )}
       {improveJob && (
@@ -181,7 +181,7 @@ export default function ChatPanel() {
       {hasContent ? (
         <div className="conv-scroll" ref={convScrollRef}>
           <div className="conv-inner">
-            <ChatErrorBoundary key={`${selectedId ?? 'p_unset'}:${chatId}`}>
+            <ChatErrorBoundary key={`${selectedSlug ?? 'p_unset'}:${chatId}`}>
               <MessageList events={events} busy={busy} />
             </ChatErrorBoundary>
           </div>
@@ -196,7 +196,7 @@ export default function ChatPanel() {
       <Composer
         disabled={busy}
         pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
-        projectId={selectedId ?? undefined}
+        projectId={selectedSlug ?? undefined}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onRetry={(i) => { void retry(i) }}
@@ -213,7 +213,7 @@ export default function ChatPanel() {
               filename: p.filename,
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
             }))
-          await send(selectedId ?? 'p_unset', text, ready)
+          await send(selectedSlug ?? 'p_unset', text, ready)
           setPending([])
         }}
         onCancel={() => useChat.getState().cancel()}

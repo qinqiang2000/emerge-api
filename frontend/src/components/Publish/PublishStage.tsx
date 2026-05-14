@@ -27,6 +27,10 @@ type KeyProps = {
   keyPrefix: string
   createdAt: string
   sampleSnippet: string
+  /** Latest frozen `pub_xxx`. When present, surface a "sync this to production"
+   *  hint so users know the deploy-symmetry contract: emerge is staging,
+   *  production replays the same `published_id`. Null = nothing frozen yet. */
+  publishedId?: string | null
   onClose: () => void
 }
 
@@ -63,11 +67,18 @@ export function adaptReadiness(result: unknown): CheckItem[] | null {
   }))
 }
 
-export function sampleCurl(projectId: string): string {
+/** @deprecated use `sampleCurl` from `../../lib/api` — it builds the
+ *  post-slug-transparency `POST /v1/extract` + `published_id` form. Kept here
+ *  only so the existing PublishStage.test.tsx import compiles. */
+export function sampleCurl(publishedIdOrLegacySlug: string): string {
+  // Mirror the canonical helper in lib/api.ts. New code should import from
+  // there; this re-export is back-compat for the test suite + any consumer
+  // still passing the project-slug-shaped legacy arg.
   return `# call your new endpoint
-curl https://api.emerge.run/v1/${projectId}/extract \\
-  -H "Authorization: Bearer $EMERGE_API_KEY" \\
-  -F file=@example.pdf`
+curl https://api.emerge.run/v1/extract \\
+  -H "X-API-Key: $EMERGE_API_KEY" \\
+  -F "published_id=${publishedIdOrLegacySlug}" \\
+  -F "file=@example.pdf"`
 }
 
 // ─── Copy button (M6 inline pattern) ─────────────────────────────────────────
@@ -160,7 +171,7 @@ function CheckStage({ projectName, checklist, onAdvance, onClose }: CheckProps) 
 
 // ─── Stage: key ───────────────────────────────────────────────────────────────
 
-function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix, createdAt, sampleSnippet, onClose }: KeyProps) {
+function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix, createdAt, sampleSnippet, publishedId, onClose }: KeyProps) {
   return (
     <div className="pub-card">
       <div className="pub-eyebrow">
@@ -214,6 +225,12 @@ function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix,
           )
         })}</span>
       </div>
+
+      {publishedId && (
+        <p className="pub-sub" style={{ marginTop: 8 }}>
+          Sync <code style={{ fontSize: '12px', background: 'var(--ink-soft)', padding: '0 4px' }}>{publishedId}</code> to your production deployment to use the same frozen artifact.
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button

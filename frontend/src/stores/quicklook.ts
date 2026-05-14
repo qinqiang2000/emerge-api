@@ -43,18 +43,21 @@ export const useQuickLook = create<QuickLookState>((set, get) => ({
     // pretty-printed text/plain endpoints. For a specific prompt variant we
     // fetch the JSON object and pretty-print it client-side — keeps the
     // backend surface small.
+    // `t.pid` is a project slug post-transparency rename. The field name is
+    // historical — keeping it avoids cascading test-fixture rewrites.
+    const slug = encodeURIComponent(t.pid)
     const fetchText = async (): Promise<string> => {
       if (t.kind === 'schema') {
-        const resp = await fetch(`/lab/projects/${t.pid}/schema/raw`)
+        const resp = await fetch(`/lab/projects/${slug}/schema/raw`)
         if (!resp.ok) throw resp
         return resp.text()
       }
       if (t.kind === 'version') {
-        const resp = await fetch(`/lab/projects/${t.pid}/versions/${t.versionId}/raw`)
+        const resp = await fetch(`/lab/projects/${slug}/versions/${t.versionId}/raw`)
         if (!resp.ok) throw resp
         return resp.text()
       }
-      const resp = await fetch(`/lab/projects/${t.pid}/prompts/${t.promptId}`)
+      const resp = await fetch(`/lab/projects/${slug}/prompts/${t.promptId}`)
       if (!resp.ok) throw resp
       const blob = await resp.json()
       return JSON.stringify(blob, null, 2)

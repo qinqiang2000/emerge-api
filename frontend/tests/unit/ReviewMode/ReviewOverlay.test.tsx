@@ -21,9 +21,11 @@ function seedStores(opts: {
     byProject: { 'p_x': SCHEMA as never },
   })
   useDocs.setState({
+    // doc_id is a stale field carried by the fixture; type was tightened
+    // earlier this milestone. Cast through unknown so the test compiles.
     byProject: { 'p_x': [
       { doc_id: 'd_y', filename: 'sample.pdf', ext: 'pdf', page_count: 1,
-        uploaded_at: '2026-05-13', has_prediction: true, has_reviewed: false },
+        uploaded_at: '2026-05-13', has_prediction: true, has_reviewed: false } as unknown as import('../../../src/types/review').DocSummary,
     ] },
   })
   useExperiments.setState({

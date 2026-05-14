@@ -37,7 +37,7 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
 
 export default function App() {
   const { activeFilename } = useReview()
-  const { selectedId } = useProjects()
+  const { selectedSlug } = useProjects()
 
   const [leftHiddenChat,    setLeftHiddenChatState]    = useState<boolean>(() => readBool(KEY_LEFT_CHAT))
   const [rightHiddenChat,   setRightHiddenChatState]   = useState<boolean>(() => readBool(KEY_RIGHT_CHAT))
@@ -50,10 +50,10 @@ export default function App() {
   // Right rail: in chat mode with no project selected, the only payload
   // is metrics — which needs a project. Force-hide rather than show a
   // dead "select a project to see metrics" panel. Don't persist this; it
-  // overrides the stored state only while !selectedId.
+  // overrides the stored state only while !selectedSlug.
   const rightHiddenRaw = inReview ? rightHiddenReview : rightHiddenChat
-  const rightHidden = !inReview && !selectedId ? true : rightHiddenRaw
-  const rightToggleEnabled = !(!inReview && !selectedId)
+  const rightHidden = !inReview && !selectedSlug ? true : rightHiddenRaw
+  const rightToggleEnabled = !(!inReview && !selectedSlug)
 
   const onToggleLeft = useCallback(() => {
     if (inReview) {
@@ -76,9 +76,9 @@ export default function App() {
       const mod = e.metaKey || e.ctrlKey
       if (!mod) return
       // Cmd/Ctrl+Shift+O → new chat (use e.code for macOS Cmd+Shift invariance)
-      if (e.shiftKey && e.code === 'KeyO' && selectedId) {
+      if (e.shiftKey && e.code === 'KeyO' && selectedSlug) {
         e.preventDefault()
-        useChat.getState().newChat(selectedId)
+        useChat.getState().newChat(selectedSlug)
         return
       }
       // Cmd/Ctrl+. → toggle left sidebar
@@ -96,7 +96,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedId, onToggleLeft, onToggleRight])
+  }, [selectedSlug, onToggleLeft, onToggleRight])
 
   return (
     <>

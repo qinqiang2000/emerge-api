@@ -35,7 +35,7 @@ export default function SchemaQuickLook() {
   useEffect(() => {
     const unsub = useProjects.subscribe(s => {
       const t = useQuickLook.getState().target
-      if (t && t.pid !== s.selectedId) {
+      if (t && t.pid !== s.selectedSlug) {
         useQuickLook.getState().close()
       }
     })
@@ -51,7 +51,8 @@ export default function SchemaQuickLook() {
 
   if (!target) return null
 
-  const activeVersionId = projects.find(p => p.project_id === target.pid)?.active_version_id ?? null
+  // QuickLook `target.pid` holds a slug (post-transparency rename). Match by slug.
+  const activeVersionId = projects.find(p => p.slug === target.pid)?.active_version_id ?? null
   let derivedFrom: string | null = null
   if (target.kind === 'schema') {
     derivedFrom = activePrompt?.derived_from ?? null

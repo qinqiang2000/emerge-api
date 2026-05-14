@@ -17,7 +17,7 @@ vi.mock('../../src/lib/sse', () => ({
 beforeEach(() => {
   _emitted.length = 0
   useChat.setState({ events: [], busy: false, loadedProjectId: null, chatId: 'c_test', interrupted: false })
-  useProjects.setState({ projects: [], selectedId: null, loading: false })
+  useProjects.setState({ projects: [], selectedSlug: null, loading: false })
   // Silence post-mint side-effect fetches (projects refresh, listChats, docs refresh).
   vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>
     Promise.resolve(new Response('[]', { status: 200 })),
@@ -39,7 +39,7 @@ describe('chat store: project_minted SSE handling (empty-hero drop flow)', () =>
     await useChat.getState().send('p_unset', '/init pull these')
 
     // selectedId flipped to the minted pid.
-    expect(useProjects.getState().selectedId).toBe('p_freshmint01')
+    expect(useProjects.getState().selectedSlug).toBe('p_freshmint01')
     // loadedProjectId mirrors the new pid so ChatPanel's useEffect early-returns
     // (no clear-and-hydrate) — events stay in place.
     expect(useChat.getState().loadedProjectId).toBe('p_freshmint01')
@@ -62,7 +62,7 @@ describe('chat store: project_minted SSE handling (empty-hero drop flow)', () =>
 
     await useChat.getState().send('p_unset', 'hi')
 
-    expect(useProjects.getState().selectedId).toBeNull()
+    expect(useProjects.getState().selectedSlug).toBeNull()
     // loadedProjectId stays untouched (no mint happened).
     expect(useChat.getState().loadedProjectId).toBeNull()
   })
