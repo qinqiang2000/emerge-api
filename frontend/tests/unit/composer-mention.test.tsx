@@ -100,26 +100,32 @@ describe('Composer @ mention', () => {
     expect(container.querySelector('.mentionmenu')).toBeNull()
   })
 
-  it('without a projectId, typing @ does not open the mention menu', async () => {
+  it('without a projectId, typing @ opens the menu (projects-only, no tree fetch)', async () => {
     const { container } = render(
       <Composer disabled={false} pending={[]} onAttach={() => {}} onSubmit={() => {}} />,
     )
     const input = screen.getByPlaceholderText(PLACEHOLDER)
     await userEvent.type(input, '@')
-    await new Promise(r => setTimeout(r, 10))
-    expect(container.querySelector('.mentionmenu')).toBeNull()
+    await waitFor(() => {
+      expect(container.querySelector('.mentionmenu')).not.toBeNull()
+    })
+    // No tree fetch — there is no project to fetch from.
     expect(listProjectTreeMock).not.toHaveBeenCalled()
+    // Crumb is suppressed in projects-only mode.
+    expect(container.querySelector('.mentionmenu .crumb')).toBeNull()
   })
 
-  it('projectId p_unset is treated as no-project: mention menu stays closed', async () => {
+  it('projectId p_unset is treated as no-project: menu opens, tree fetch skipped', async () => {
     const { container } = render(
       <Composer disabled={false} pending={[]} projectId="p_unset" onAttach={() => {}} onSubmit={() => {}} />,
     )
     const input = screen.getByPlaceholderText(PLACEHOLDER)
     await userEvent.type(input, '@')
-    await new Promise(r => setTimeout(r, 10))
-    expect(container.querySelector('.mentionmenu')).toBeNull()
+    await waitFor(() => {
+      expect(container.querySelector('.mentionmenu')).not.toBeNull()
+    })
     expect(listProjectTreeMock).not.toHaveBeenCalled()
+    expect(container.querySelector('.mentionmenu .crumb')).toBeNull()
   })
 
   it('Esc closes the menu but leaves the text intact; reopens on a new @', async () => {

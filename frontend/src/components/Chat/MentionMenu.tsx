@@ -37,6 +37,10 @@ interface Props {
   activeIdx: number
   dir: string
   loading: boolean
+  /** When false (empty-hero state, no project selected), the tree-side
+   *  affordances — breadcrumb + dir empty hint — are hidden; only the
+   *  projects section is shown. */
+  hasProject?: boolean
   emptyHint?: string
   /** Item-shaped pick. Lets the caller branch on project vs entry without
    *  re-doing the section split. */
@@ -50,6 +54,7 @@ export default function MentionMenu({
   activeIdx,
   dir,
   loading,
+  hasProject = true,
   emptyHint,
   onPick,
   onHover,
@@ -65,7 +70,7 @@ export default function MentionMenu({
   return (
     <div className="mentionmenu">
       <div className="inner">
-        <div className="crumb">{crumb}</div>
+        {hasProject && <div className="crumb">{crumb}</div>}
         {loading ? (
           <div className="empty">loading…</div>
         ) : totalCount === 0 ? (
