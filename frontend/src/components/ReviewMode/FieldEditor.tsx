@@ -154,13 +154,13 @@ export default function FieldEditor({
         {readOnly && onAdopt && (
           <button
             type="button"
-            aria-label="adopt this prediction as the annotation"
+            aria-label="adopt this prediction as reviewed"
             onClick={onAdopt}
-            title="overwrite the annotation with these values and switch to it"
+            title="overwrite the reviewed copy with these values and switch to it"
             className="ml-auto adopt-all-btn"
           >
             <ArrowLeftToLine size={11} strokeWidth={1.7} />
-            <span>adopt as annotation</span>
+            <span>adopt as reviewed</span>
           </button>
         )}
       </header>

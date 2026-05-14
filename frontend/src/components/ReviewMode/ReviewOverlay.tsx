@@ -14,9 +14,19 @@ import ReviewBar from './ReviewBar'
 
 type Props = {
   onBack: () => void
+  leftHidden?: boolean
+  rightHidden?: boolean
+  onToggleLeft?: () => void
+  onToggleRight?: () => void
 }
 
-export default function ReviewOverlay({ onBack }: Props) {
+export default function ReviewOverlay({
+  onBack,
+  leftHidden,
+  rightHidden,
+  onToggleLeft,
+  onToggleRight,
+}: Props) {
   const {
     activeProjectId,
     activeDocId,
@@ -160,6 +170,10 @@ export default function ReviewOverlay({ onBack }: Props) {
         availableExperiments={experimentList}
         onSwitchTab={setActiveTab}
         modelLabels={modelLabels}
+        leftHidden={leftHidden}
+        rightHidden={rightHidden}
+        onToggleLeft={onToggleLeft}
+        onToggleRight={onToggleRight}
       />
 
       {err && (

@@ -6,9 +6,11 @@ import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useQuickLook } from '../../stores/quicklook'
+import { useReview } from '../../stores/review'
 import { usePrompts } from '../../stores/prompts'
 import { useModels } from '../../stores/models'
 import { useExperiments } from '../../stores/experiments'
+import PanelToggle from '../Shell/PanelToggle'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; onClick?: () => void }
@@ -24,13 +26,17 @@ const STATUS_DOT: Record<string, string> = {
 }
 
 function buildTree(
+  projectId: string,
   docs: import('../../types/review').DocSummary[],
   activeVersionId: string | null,
   promptItems: LeafNode[],
   modelItems: LeafNode[],
   experimentItems: LeafNode[],
+  openDoc: (projectId: string, docId: string) => void,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
+  // reviewed/ has been retired — the reviewed state is already shown as
+  // a stamp on each docs/ row, so a separate group is pure duplication.
   const docsItems: LeafNode[] = []
   const first5 = docs.slice(0, 5)
   for (const doc of first5) {
@@ -38,19 +44,15 @@ function buildTree(
     if (doc.has_reviewed) stamp = 'reviewed'
     else if (doc.has_prediction) stamp = 'pending'
     else stamp = 'new'
-    docsItems.push({ kind: 'file', name: doc.filename, stamp })
+    docsItems.push({
+      kind: 'file',
+      name: doc.filename,
+      stamp,
+      onClick: () => openDoc(projectId, doc.doc_id),
+    })
   }
   const remaining = docs.length - first5.length
   if (remaining > 0) docsItems.push({ kind: 'ghost', name: `… ${remaining} more` })
-
-  // ── reviewed/ ──────────────────────────────────────────────────────────
-  const reviewedDocs = docs.filter(d => d.has_reviewed)
-  const reviewedItems: LeafNode[] = []
-  const first5Reviewed = reviewedDocs.slice(0, 5)
-  for (const doc of first5Reviewed) reviewedItems.push({ kind: 'file', name: doc.filename, stamp: '' })
-  const remainingReviewed = reviewedDocs.length - first5Reviewed.length
-  if (remainingReviewed > 0) reviewedItems.push({ kind: 'ghost', name: `… ${remainingReviewed} more` })
-  else if (reviewedDocs.length === 0) reviewedItems.push({ kind: 'ghost', name: '(none yet)' })
 
   // ── versions/ ──────────────────────────────────────────────────────────
   const versionItems: LeafNode[] = activeVersionId
@@ -65,7 +67,6 @@ function buildTree(
   return {
     groups: [
       { name: 'docs/', count: docs.length, items: docsItems },
-      { name: 'reviewed/', count: reviewedDocs.length, items: reviewedItems },
       { name: 'prompts/', count: promptItems.filter(n => n.kind === 'file').length, items: promptItems },
       { name: 'models/', count: modelItems.filter(n => n.kind === 'file').length, items: modelItems },
       { name: 'experiments/', count: experimentItems.filter(n => n.kind === 'file').length, items: experimentItems },
@@ -77,15 +78,6 @@ function buildTree(
 
 type FSSpineProps = {
   onToggleLeft?: () => void
-}
-
-function IconCollapseLeft() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-      <line x1="6.5" y1="3.4" x2="6.5" y2="12.6"/>
-    </svg>
-  )
 }
 
 export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
@@ -102,6 +94,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const openSchema = useQuickLook(s => s.openSchema)
   const openVersion = useQuickLook(s => s.openVersion)
   const openPrompt = useQuickLook(s => s.openPrompt)
+  const openReview = useReview(s => s.open)
 
   // Only docs/ open by default; prompts/ and models/ closed by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
@@ -172,9 +165,17 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
-      ? buildTree(activeDocs, activeProject.active_version_id ?? null, promptItems, modelItems, experimentItems)
+      ? buildTree(
+          activeProject.project_id,
+          activeDocs,
+          activeProject.active_version_id ?? null,
+          promptItems,
+          modelItems,
+          experimentItems,
+          (pid, did) => { void openReview(pid, did) },
+        )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview],
   )
 
   return (
@@ -183,15 +184,12 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       <div className="fs-brand-row">
         <div className="fs-brand"><span className="dot"></span>emerge</div>
         {onToggleLeft && (
-          <button
-            type="button"
-            className="fs-toggle"
+          <PanelToggle
+            side="left"
+            hidden={false}
             onClick={onToggleLeft}
-            title="Hide projects (⌘.)"
-            aria-label="Hide projects"
-          >
-            <IconCollapseLeft />
-          </button>
+            className="fs-toggle"
+          />
         )}
       </div>
 

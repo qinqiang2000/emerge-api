@@ -119,8 +119,8 @@ export default function FieldRow({
         <button
           type="button"
           className="copy-pred-btn"
-          aria-label={`copy ${name} to annotation`}
-          title="copy this value to annotation"
+          aria-label={`copy ${name} to reviewed`}
+          title="copy this value to reviewed"
           onClick={(e) => { e.stopPropagation(); onAdopt() }}
         >
           <ArrowLeftToLine size={11} strokeWidth={1.7} />

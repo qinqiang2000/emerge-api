@@ -26,7 +26,7 @@ describe('ExperimentTabStrip', () => {
     const tabs = screen.getAllByRole('tab')
     expect(tabs).toHaveLength(3) // annotation + 2 non-archived
     // first tab is annotation
-    expect(tabs[0]).toHaveTextContent(/annotation/i)
+    expect(tabs[0]).toHaveTextContent(/reviewed/i)
     // archived experiment is excluded
     expect(screen.queryByText(/archived one/)).not.toBeInTheDocument()
     expect(screen.getByText('try Gemma4')).toBeInTheDocument()
@@ -42,7 +42,7 @@ describe('ExperimentTabStrip', () => {
         modelLabels={{}}
       />
     )
-    const annot = screen.getByRole('tab', { name: /annotation/i })
+    const annot = screen.getByRole('tab', { name: /reviewed/i })
     expect(annot.getAttribute('aria-selected')).toBe('true')
     rerender(
       <ExperimentTabStrip
@@ -52,7 +52,7 @@ describe('ExperimentTabStrip', () => {
         modelLabels={{}}
       />
     )
-    expect(screen.getByRole('tab', { name: /annotation/i }).getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByRole('tab', { name: /reviewed/i }).getAttribute('aria-selected')).toBe('false')
   })
 
   it('clicking the annotation tab calls onSwitch with "active"', () => {
@@ -65,7 +65,7 @@ describe('ExperimentTabStrip', () => {
         modelLabels={{}}
       />
     )
-    fireEvent.click(screen.getByRole('tab', { name: /annotation/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /reviewed/i }))
     expect(onSwitch).toHaveBeenCalledWith('active')
   })
 

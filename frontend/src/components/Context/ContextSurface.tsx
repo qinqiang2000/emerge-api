@@ -1,32 +1,24 @@
 // frontend/src/components/Context/ContextSurface.tsx
+//
+// Right rail — metrics surface.
+//
+// Layout (claude.ai wiggle-panel pattern):
+//   <aside class="ctx">                  ← Shell-provided; rail-gray gutter
+//     ├─ .ctx-actions (top toolbar — toggle lives here, OUTSIDE the panel)
+//     └─ .ctx-panel  (one rounded white card filling the rest; flex:1 → reaches
+//                     the bottom of the viewport even when content is short)
+//         └─ sections of metric rows
+//
+// IMPORTANT: this component returns a Fragment, NOT a wrapper <div>. The
+// Shell already renders the `<aside class="ctx">`; if we add another .ctx
+// wrapper here it nests inside, breaks `flex:1`, and the panel collapses
+// to content-height instead of stretching to the rail bottom.
 import { useEffect } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 
 import { useProjects } from '../../stores/projects'
-import { useSchema } from '../../stores/schema'
-import { usePrompts } from '../../stores/prompts'
-import { useModels } from '../../stores/models'
-import { useDocs } from '../../stores/docs'
 import { useEval } from '../../stores/eval'
-import { useReview } from '../../stores/review'
-import { useQuickLook } from '../../stores/quicklook'
-import { docStatus } from '../../types/review'
-import type { DocSummary } from '../../types/review'
 import type { EvalSnapshot } from '../../lib/api'
-
-function toPillClass(doc: DocSummary): string {
-  const s = docStatus(doc)
-  if (s === 'reviewed') return 'rev'
-  if (s === 'draft') return 'pen'
-  return 'new'
-}
-
-function toPillLabel(doc: DocSummary): string {
-  const s = docStatus(doc)
-  if (s === 'reviewed') return 'reviewed'
-  if (s === 'draft') return 'pending'
-  return 'new'
-}
+import PanelToggle from '../Shell/PanelToggle'
 
 type MetricTone = 'ok' | 'mid' | 'bad'
 
@@ -42,8 +34,6 @@ interface MetricRow {
   tone: MetricTone
 }
 
-// Visible-for-test export — keeps the derivation pure for unit tests if we
-// want to grow them later. (See ContextSurface.test.tsx for the rendered shape.)
 export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: string } {
   const n = snap.per_field.length
   const macroP = n === 0 ? 0 : snap.per_field.reduce((a, f) => a + f.precision, 0) / n
@@ -60,208 +50,72 @@ export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: st
   return { rows, hint }
 }
 
-const MAX_VISIBLE_DOCS = 9
-const MAX_VISIBLE_FIELDS = 7
-
 type ContextSurfaceProps = {
   onToggleRight?: () => void
 }
 
-function IconCollapseRight() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-      <line x1="9.5" y1="3.4" x2="9.5" y2="12.6"/>
-    </svg>
-  )
-}
-
 export default function ContextSurface({ onToggleRight }: ContextSurfaceProps = {}) {
-  const { selectedId, projects } = useProjects()
+  const selectedId = useProjects(s => s.selectedId)
   const pid = selectedId ?? ''
-
-  const fields = useSchema(useShallow(s => s.byProject[pid] ?? []))
-  const loadSchema = useSchema(s => s.load)
-
-  const activePrompt = usePrompts(s => (pid ? s.activeByProject[pid] : undefined))
-  const loadPrompts = usePrompts(s => s.load)
-
-  const activeModel = useModels(s => (pid ? s.activeByProject[pid] : undefined))
-  const loadModels = useModels(s => s.load)
-
-  const docs = useDocs(useShallow(s => s.byProject[pid] ?? []))
-  const refreshDocs = useDocs(s => s.refresh)
 
   const evalSnap = useEval(s => (pid ? s.byProject[pid] : undefined))
   const loadEval = useEval(s => s.load)
 
-  const { open: openReview } = useReview()
-  const openQuickLook = useQuickLook(s => s.openSchema)
-  const project = projects.find(p => p.project_id === pid) ?? null
-
   useEffect(() => {
     if (!pid) return
-    void loadSchema(pid)
-    void loadPrompts(pid)
-    void loadModels(pid)
-    void refreshDocs(pid)
     void loadEval(pid)
-  }, [pid, loadSchema, loadPrompts, loadModels, refreshDocs, loadEval])
+  }, [pid, loadEval])
 
-  const versionStr = project?.active_version_id
-    ? `${project.active_version_id} frozen`
-    : 'v0 draft'
-  const promptLabel = activePrompt?.prompt_id ?? 'pr_baseline'
-  const promptHint = `${fields.length} fields · ${versionStr}`
-  const modelLabel = activeModel?.label ?? 'Default'
-  const modelHint = activeModel?.provider_model_id ?? '—'
-
-  const visibleDocs = docs.slice(0, MAX_VISIBLE_DOCS)
-  const docsHint = `${visibleDocs.length} of ${docs.length} shown`
-
-  const toggleNode = onToggleRight ? (
-    <button
-      type="button"
-      className="ctx-toggle"
-      onClick={onToggleRight}
-      title="Hide context (⌘⇧.)"
-      aria-label="Hide context"
-    >
-      <IconCollapseRight />
-    </button>
+  const actions = onToggleRight ? (
+    <div className="ctx-actions">
+      <PanelToggle
+        side="right"
+        hidden={false}
+        onClick={onToggleRight}
+        className="ctx-toggle"
+      />
+    </div>
   ) : null
 
   if (!selectedId) {
     return (
-      <div className="ctx">
-        {toggleNode}
-        <div className="ctx-section">
-          <p className="micro" style={{ paddingTop: 24, textAlign: 'center' }}>
-            select a project to see context
+      <>
+        {actions}
+        <div className="ctx-panel">
+          <p className="micro" style={{ paddingTop: 16, textAlign: 'center' }}>
+            select a project to see metrics
           </p>
         </div>
-      </div>
+      </>
     )
   }
 
-  // ── metrics derivation ───────────────────────────────────────────
   const metrics = evalSnap ? deriveMetrics(evalSnap) : null
   const metricsHint = metrics?.hint ?? 'latest eval'
 
   return (
-    <div className="ctx">
-      {toggleNode}
-      {/* ── section 1a: Prompt ──────────────────────────────────── */}
-      <div className="ctx-section">
-        <div
-          className="ctx-h"
-          onClick={() => openQuickLook(pid)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openQuickLook(pid) }}
-          style={{ cursor: 'pointer' }}
-        >
-          <span>Prompt: {promptLabel}</span>
-          <span className="small">{promptHint}</span>
-        </div>
-        <div className="ctx-card">
-          {fields.length === 0 ? (
-            <div className="schemaRow" style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              no fields yet — type /init in the chat
-            </div>
-          ) : (
-            <>
-              {fields.slice(0, MAX_VISIBLE_FIELDS).map(f => (
-                <div key={f.name} className="schemaRow">
-                  <span>{f.name}</span>
-                  <span className="typ">{f.type}</span>
-                </div>
-              ))}
-              {fields.length > MAX_VISIBLE_FIELDS && (
-                <div
-                  className="schemaRow"
-                  onClick={() => openQuickLook(pid)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openQuickLook(pid) }}
-                  style={{ color: 'var(--ink-5)', fontStyle: 'italic', cursor: 'pointer' }}
-                >
-                  + {fields.length - MAX_VISIBLE_FIELDS} more
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        <p className="micro" style={{ marginTop: 8 }}>
-          The prompt (fields + descriptions + global notes) becomes the agent's
-          instruction at publish time. Edit through conversation.
-        </p>
-      </div>
-
-      {/* ── section 1b: Model ───────────────────────────────────── */}
-      <div className="ctx-section">
-        <div className="ctx-h">
-          <span>Model: {modelLabel}</span>
-          <span className="small">{modelHint}</span>
-        </div>
-        <div className="ctx-card">
-          <div className="schemaRow">
-            <span>{activeModel?.provider ?? '—'}</span>
-            <span className="typ">{activeModel?.provider_model_id ?? '—'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── section 2: docs/ ─────────────────────────────────────── */}
-      <div className="ctx-section">
-        <div className="ctx-h">
-          <span>docs/</span>
-          <span className="small">{docsHint}</span>
-        </div>
-        <div className="ctx-card" style={{ padding: '4px 0', gap: 0 }}>
-          {docs.length === 0 ? (
-            <div className="doc" style={{ color: 'var(--ink-4)', fontStyle: 'italic', cursor: 'default' }}>
-              no docs yet — drop PDFs into the chat
-            </div>
-          ) : (
-            visibleDocs.map(d => (
-              <div
-                key={d.doc_id}
-                className="doc"
-                onClick={() => openReview(pid, d.doc_id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') openReview(pid, d.doc_id) }}
-              >
-                <span className="nm">{d.filename}</span>
-                <span className={`stat ${toPillClass(d)}`}>{toPillLabel(d)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* ── section 3: metrics/ ──────────────────────────────────── */}
-      <div className="ctx-section">
+    <>
+      {actions}
+      <div className="ctx-panel">
         <div className="ctx-h">
           <span>metrics/</span>
           <span className="small">{metricsHint}</span>
         </div>
-        <div className="ctx-card">
-          {metrics === null ? (
-            <div className="metric" style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              <span className="k">no eval yet — type /eval in the chat</span>
-            </div>
-          ) : (
-            metrics.rows.map(m => (
+        {metrics === null ? (
+          <p className="micro" style={{ paddingTop: 4 }}>
+            no eval yet — type /eval in the chat
+          </p>
+        ) : (
+          <div className="ctx-rows">
+            {metrics.rows.map(m => (
               <div key={m.k} className="metric">
                 <span className="k">{m.k}</span>
                 <span className={`v ${m.tone}`}>{m.v}</span>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+    </>
   )
 }

@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 
 import type { DocSummary, ExperimentSummary } from '../../types/review'
 import ExperimentTabStrip from './ExperimentTabStrip'
+import PanelToggle from '../Shell/PanelToggle'
 
 type Props = {
   saving: boolean
@@ -22,6 +23,12 @@ type Props = {
   availableExperiments: ExperimentSummary[]
   onSwitchTab: (key: 'active' | string) => void
   modelLabels: Record<string, string>
+  // ── panel peek toggles (review mode owns chrome; floating buttons would
+  //     overlap back/save, so they live inline in this bar instead) ──
+  leftHidden?: boolean
+  rightHidden?: boolean
+  onToggleLeft?: () => void
+  onToggleRight?: () => void
 }
 
 export default function ReviewBar({
@@ -41,6 +48,10 @@ export default function ReviewBar({
   availableExperiments,
   onSwitchTab,
   modelLabels,
+  leftHidden,
+  rightHidden,
+  onToggleLeft,
+  onToggleRight,
 }: Props) {
   const idx = docs.findIndex((d) => d.doc_id === activeDocId)
   const total = docs.length
@@ -63,6 +74,15 @@ export default function ReviewBar({
       <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat" title="back to chat">
         <ArrowLeft size={16} strokeWidth={1.75} />
       </button>
+      {leftHidden && onToggleLeft && (
+        <PanelToggle
+          side="left"
+          hidden={true}
+          onClick={onToggleLeft}
+          className="spinepeek icon"
+          size={14}
+        />
+      )}
 
       {availableExperiments.some((e) => e.status !== 'archived') ? (
         <ExperimentTabStrip
@@ -114,10 +134,19 @@ export default function ReviewBar({
         onClick={onSave}
         disabled={saving || !canSave}
         type="button"
-        title={!canSave ? 'save only persists on the ✏ annotation tab — switch to it, or use “adopt as annotation”' : undefined}
+        title={!canSave ? 'save only persists on the ✏ reviewed tab — switch to it, or use “adopt as reviewed”' : undefined}
       >
         {saving ? 'saving…' : 'save'}
       </button>
+      {rightHidden && onToggleRight && (
+        <PanelToggle
+          side="right"
+          hidden={true}
+          onClick={onToggleRight}
+          className="spinepeek icon"
+          size={14}
+        />
+      )}
     </div>
   )
 }

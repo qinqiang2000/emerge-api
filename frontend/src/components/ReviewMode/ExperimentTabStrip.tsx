@@ -144,10 +144,10 @@ export default function ExperimentTabStrip({
             (isOn ? ' on' : '') +
             (isPopover ? ' rev-tab-popover-item' : '')
           }
-          title="✏ editable ground truth — your annotation"
+          title="✏ editable ground truth — the reviewed copy"
         >
           <Pencil size={12} strokeWidth={1.7} aria-hidden="true" />
-          <span>annotation</span>
+          <span>reviewed</span>
         </button>
       )
     }

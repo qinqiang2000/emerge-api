@@ -26,17 +26,13 @@ const XIcon = () => (
     <path d="M15.147 4.146a.5.5 0 0 1 .707.707L10.707 10l5.147 5.147a.5.5 0 0 1-.63.771l-.078-.064L10 10.707l-5.146 5.147a.5.5 0 0 1-.708-.707L9.293 10 4.146 4.853a.5.5 0 0 1 .708-.707L10 9.293z" />
   </svg>
 )
-const PdfIcon = () => (
+// Generic file/paperclip glyph for the "Upload file" menu item. PDF and image
+// share a single option because users frequently can't tell which a given
+// scan/screenshot is — backend (`/lab/projects/{pid}/upload`) accepts both.
+const FileIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M3 1.5h5.5L13 6v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1z" />
     <path d="M8.5 1.5V6H13" />
-  </svg>
-)
-const ImageIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-    <circle cx="5.25" cy="6" r="1.1" />
-    <path d="M2.2 12.2l3.4-3.4 3 3 2.2-2.2L14 11.6" />
   </svg>
 )
 
@@ -69,8 +65,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const [activeIdx, setActiveIdx] = useState(0)
   const [plusOpen, setPlusOpen] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const pdfRef = useRef<HTMLInputElement>(null)
-  const imgRef = useRef<HTMLInputElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const plusWrapRef = useRef<HTMLDivElement>(null)
 
   // The autocomplete menu is open only while the user is still typing a command
@@ -80,14 +75,23 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
   const showSlash = text.startsWith('/') && !completedCommand
 
-  // Auto-grow textarea up to 384px (claude.ai max-h-96)
+  // Auto-grow textarea up to 384px (claude.ai max-h-96). Recalc on text
+  // change AND on container resize — without the resize hook the textarea
+  // sticks at whatever height was set when it was last narrower (e.g.,
+  // during responsive media-query transitions), making the composer balloon.
   useEffect(() => {
     const el = taRef.current
     if (!el) return
-    el.style.height = 'auto'
-    const max = 384
-    el.style.height = Math.min(el.scrollHeight, max) + 'px'
-    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+    const recalc = () => {
+      el.style.height = 'auto'
+      const max = 384
+      el.style.height = Math.min(el.scrollHeight, max) + 'px'
+      el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+    }
+    recalc()
+    const ro = new ResizeObserver(recalc)
+    if (el.parentElement) ro.observe(el.parentElement)
+    return () => ro.disconnect()
   }, [text])
 
   // Reset active index when slash menu opens/closes
@@ -266,17 +270,9 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
             <div className="left">
               <div className="plus-wrap" ref={plusWrapRef}>
                 <input
-                  ref={pdfRef}
+                  ref={fileRef}
                   type="file"
-                  accept="application/pdf,.pdf"
-                  multiple
-                  hidden
-                  onChange={handleFilePick}
-                />
-                <input
-                  ref={imgRef}
-                  type="file"
-                  accept="image/*"
+                  accept="application/pdf,.pdf,image/*"
                   multiple
                   hidden
                   onChange={handleFilePick}
@@ -298,18 +294,10 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                     <button
                       type="button"
                       role="menuitem"
-                      onClick={() => { setPlusOpen(false); pdfRef.current?.click() }}
+                      onClick={() => { setPlusOpen(false); fileRef.current?.click() }}
                     >
-                      <span className="ic"><PdfIcon /></span>
-                      <span>Upload PDF</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => { setPlusOpen(false); imgRef.current?.click() }}
-                    >
-                      <span className="ic"><ImageIcon /></span>
-                      <span>Upload image</span>
+                      <span className="ic"><FileIcon /></span>
+                      <span>Upload file</span>
                     </button>
                   </div>
                 )}

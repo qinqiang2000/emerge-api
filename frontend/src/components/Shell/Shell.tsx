@@ -4,19 +4,18 @@ import './shell.css'
 type ShellProps = {
   left: ReactNode
   center: ReactNode
-  right: ReactNode
   leftHidden?: boolean
+  /** When true, the right column collapses to 0 width. The right slot itself
+   *  is always an empty spacer — the visible context panel is a fixed overlay
+   *  rendered outside Shell (see App.tsx / .ctx in index.css). The spacer
+   *  exists so center content doesn't slide under the overlay. */
   rightHidden?: boolean
 }
 
 const LEFT_W_KEY = 'emerge.leftW'
-const RIGHT_W_KEY = 'emerge.rightW'
 const LEFT_DEFAULT = 248
 const LEFT_MIN = 180
 const LEFT_MAX = 460
-const RIGHT_DEFAULT = 360
-const RIGHT_MIN = 260
-const RIGHT_MAX = 600
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val))
@@ -35,10 +34,9 @@ function readStored(key: string, fallback: number, min: number, max: number): nu
   return fallback
 }
 
-export default function Shell({ left, center, right, leftHidden = false, rightHidden = false }: ShellProps) {
+export default function Shell({ left, center, leftHidden = false, rightHidden = false }: ShellProps) {
   const [leftW, setLeftWState] = useState<number>(() => readStored(LEFT_W_KEY, LEFT_DEFAULT, LEFT_MIN, LEFT_MAX))
-  const [rightW, setRightWState] = useState<number>(() => readStored(RIGHT_W_KEY, RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX))
-  const [drag, setDrag] = useState<'left' | 'right' | null>(null)
+  const [drag, setDrag] = useState<boolean>(false)
   const dragStartX = useRef<number>(0)
   const dragStartW = useRef<number>(0)
 
@@ -48,28 +46,18 @@ export default function Shell({ left, center, right, leftHidden = false, rightHi
     try { localStorage.setItem(LEFT_W_KEY, String(clamped)) } catch { /* ignore */ }
   }
 
-  function setRightW(w: number) {
-    const clamped = clamp(w, RIGHT_MIN, RIGHT_MAX)
-    setRightWState(clamped)
-    try { localStorage.setItem(RIGHT_W_KEY, String(clamped)) } catch { /* ignore */ }
-  }
-
   useEffect(() => {
     if (!drag) return
 
     function onMove(clientX: number) {
-      if (drag === 'left') {
-        setLeftW(dragStartW.current + (clientX - dragStartX.current))
-      } else {
-        setRightW(dragStartW.current - (clientX - dragStartX.current))
-      }
+      setLeftW(dragStartW.current + (clientX - dragStartX.current))
     }
 
     function handleMouseMove(e: MouseEvent) { onMove(e.clientX) }
     function handleTouchMove(e: TouchEvent) {
       if (e.touches.length > 0) onMove(e.touches[0].clientX)
     }
-    function handleEnd() { setDrag(null) }
+    function handleEnd() { setDrag(false) }
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleEnd)
@@ -84,54 +72,38 @@ export default function Shell({ left, center, right, leftHidden = false, rightHi
     }
   }, [drag])
 
-  function startDrag(side: 'left' | 'right', clientX: number) {
+  function startDrag(clientX: number) {
     dragStartX.current = clientX
-    dragStartW.current = side === 'left' ? leftW : rightW
-    setDrag(side)
+    dragStartW.current = leftW
+    setDrag(true)
   }
 
-  const solo = leftHidden && rightHidden
   const shellClass = [
     'shell',
-    solo ? 'solo' : leftHidden ? 'no-left' : '',
-    solo ? '' : rightHidden ? 'no-right' : '',
+    leftHidden ? 'no-left' : '',
+    rightHidden ? 'no-right' : '',
     drag ? 'dragging' : '',
   ].filter(Boolean).join(' ')
 
   const shellStyle: CSSProperties = {
     '--left-w': leftHidden ? '0px' : `${leftW}px`,
-    '--right-w': rightHidden ? '0px' : `${rightW}px`,
   } as CSSProperties
 
   return (
     <div className={shellClass} style={shellStyle}>
-      {/* left panel */}
       <aside className="fs" style={{ overflow: 'hidden' }}>
         {left}
       </aside>
 
-      {/* center panel */}
       <main className="conv" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {center}
       </main>
 
-      {/* right panel */}
-      <aside className="ctx" style={{ overflow: 'hidden' }}>
-        {right}
-      </aside>
-
-      {/* drag resizers */}
       <div
-        className={`resizer left${drag === 'left' ? ' active' : ''}`}
+        className={`resizer left${drag ? ' active' : ''}`}
         title="Drag to resize"
-        onMouseDown={(e) => { e.preventDefault(); startDrag('left', e.clientX) }}
-        onTouchStart={(e) => { if (e.touches.length > 0) startDrag('left', e.touches[0].clientX) }}
-      />
-      <div
-        className={`resizer right${drag === 'right' ? ' active' : ''}`}
-        title="Drag to resize"
-        onMouseDown={(e) => { e.preventDefault(); startDrag('right', e.clientX) }}
-        onTouchStart={(e) => { if (e.touches.length > 0) startDrag('right', e.touches[0].clientX) }}
+        onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientX) }}
+        onTouchStart={(e) => { if (e.touches.length > 0) startDrag(e.touches[0].clientX) }}
       />
     </div>
   )

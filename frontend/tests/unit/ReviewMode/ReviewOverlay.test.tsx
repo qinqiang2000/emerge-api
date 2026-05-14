@@ -58,11 +58,11 @@ describe('ReviewOverlay tab integration', () => {
     }))
   })
 
-  it('renders the ✏ annotation tab + one card per experiment', () => {
+  it('renders the ✏ reviewed tab + one card per experiment', () => {
     seedStores({})
     render(<ReviewOverlay onBack={() => {}} />)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /annotation/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /reviewed/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /gemma/i })).toBeInTheDocument()
   })
 
@@ -149,8 +149,8 @@ describe('ReviewOverlay tab integration', () => {
       predictionsByExp: { 'ex_a': { entities: [{ supplier: 'FROM_EX_A' }] } },
     })
     render(<ReviewOverlay onBack={() => {}} />)
-    // hover button is rendered with aria-label "copy {field} to annotation"
-    const useBtn = screen.getByRole('button', { name: /copy supplier to annotation/i })
+    // hover button is rendered with aria-label "copy {field} to reviewed"
+    const useBtn = screen.getByRole('button', { name: /copy supplier to reviewed/i })
     fireEvent.click(useBtn)
     const s = useReview.getState()
     // single-field copy does NOT switch tabs
