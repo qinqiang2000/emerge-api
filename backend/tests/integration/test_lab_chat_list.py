@@ -16,7 +16,7 @@ client = TestClient(app)
 async def test_chat_list_endpoint_returns_sorted_chats(workspace: Path) -> None:
     # `workspace` fixture already points get_settings().workspace_root at a tmp dir.
     ws = get_settings().workspace_root
-    pid = await create_project(ws, name="x")
+    pid = (await create_project(ws, name="x"))["slug"]
     for cid, msg, ts in [
         ("c_aaaaaaaaaaaa", "/init x", "2026-05-10T00:00:00+00:00"),
         ("c_bbbbbbbbbbbb", "/extract", "2026-05-12T00:00:00+00:00"),
@@ -39,7 +39,7 @@ async def test_chat_list_endpoint_returns_sorted_chats(workspace: Path) -> None:
 
 async def test_chat_list_empty_for_project_with_no_chats(workspace: Path) -> None:
     ws = get_settings().workspace_root
-    pid = await create_project(ws, name="x")
+    pid = (await create_project(ws, name="x"))["slug"]
     r = client.get(f"/lab/chats/{pid}")
     assert r.status_code == 200
     assert r.json() == []

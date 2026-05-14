@@ -105,7 +105,7 @@ async def test_contract_diff_mcp_tool_works_on_fresh_project(
     from app.schemas.schema_field import FieldType, SchemaField
     import mcp.types as mcp_types
 
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await write_prompt(
         workspace, pid,
         prompt_id=None,

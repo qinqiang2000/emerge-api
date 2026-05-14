@@ -34,7 +34,7 @@ async def test_agent_glob_call_is_denied(tmp_path: Path, monkeypatch: pytest.Mon
 
     # Seed a project so list_projects has something to return
     from app.tools.projects import create_project
-    pid = await create_project(tmp_path, name="sandbox-test")
+    pid = (await create_project(tmp_path, name="sandbox-test"))["slug"]
     svc = ChatService(workspace=tmp_path, provider=get_provider_for_model("claude-sonnet-4-6"))
     events: list[str] = []
     async for chunk in svc.chat_turn(

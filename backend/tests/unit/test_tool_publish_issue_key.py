@@ -6,30 +6,12 @@ import pytest
 
 from app.security.keys import KEY_PREFIX, get_keystore, sha256_key
 from app.tools.publish import issue_api_key
-from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import (
-    keys_path,
-    project_dir,
-    project_json_path,
-    schema_path,
-)
-
-
-def _bare_project(workspace: Path, pid: str) -> None:
-    project_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
-    atomic_write_json(project_json_path(workspace, pid), {
-        "name": "p", "project_type": "extraction", "created_at": "x",
-        "extract_model": "claude-sonnet-4-6", "extract_params": {},
-        "active_version_id": "v1",
-    })
-    atomic_write_json(schema_path(workspace, pid), [])
+from app.workspace.paths import keys_path
 
 
 @pytest.mark.asyncio
 async def test_issue_returns_envelope(tmp_path: Path) -> None:
-    pid = "p_abc123def456"
-    _bare_project(tmp_path, pid)
-    out = await issue_api_key(tmp_path, pid)
+    out = await issue_api_key(tmp_path)
     assert set(out.keys()) == {"key_plaintext", "key_hash", "key_prefix", "created_at"}
     assert out["key_plaintext"].startswith(KEY_PREFIX)
     assert sha256_key(out["key_plaintext"]) == out["key_hash"]
@@ -38,24 +20,21 @@ async def test_issue_returns_envelope(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_issue_writes_only_hash(tmp_path: Path) -> None:
-    pid = "p_abc123def456"
-    _bare_project(tmp_path, pid)
-    out = await issue_api_key(tmp_path, pid)
+    out = await issue_api_key(tmp_path)
     blob = json.loads(keys_path(tmp_path).read_text())
     assert len(blob) == 1
     row = blob[0]
     assert row["hash"] == out["key_hash"]
-    assert row["project_id"] == pid
+    assert row["user_id"] == "default"
+    assert "project_id" not in row
     full = keys_path(tmp_path).read_text()
     assert out["key_plaintext"] not in full
 
 
 @pytest.mark.asyncio
 async def test_issue_rotates_existing(tmp_path: Path) -> None:
-    pid = "p_abc123def456"
-    _bare_project(tmp_path, pid)
-    first = await issue_api_key(tmp_path, pid)
-    second = await issue_api_key(tmp_path, pid)
+    first = await issue_api_key(tmp_path)
+    second = await issue_api_key(tmp_path)
     assert first["key_plaintext"] != second["key_plaintext"]
     blob = json.loads(keys_path(tmp_path).read_text())
     assert len(blob) == 1
@@ -67,10 +46,8 @@ async def test_issue_rotates_existing(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_issue_never_logs_plaintext(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    pid = "p_abc123def456"
-    _bare_project(tmp_path, pid)
     caplog.set_level(logging.DEBUG, logger="app.tools.publish")
     caplog.set_level(logging.DEBUG, logger="app.security.keys")
-    out = await issue_api_key(tmp_path, pid)
+    out = await issue_api_key(tmp_path)
     for rec in caplog.records:
         assert out["key_plaintext"] not in rec.getMessage()

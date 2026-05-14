@@ -18,7 +18,7 @@ from app.workspace.paths import (
 
 
 async def _ready_published_project(workspace: Path) -> tuple[str, str]:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="buyer_name", type=FieldType.STRING, description="x")],
@@ -99,7 +99,7 @@ async def test_v1_extract_pid_mismatch_returns_404(workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_v1_extract_unpublished_project_returns_404(workspace: Path) -> None:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     issued = await issue_api_key(workspace, pid)
     client = TestClient(app)
     r = client.post(

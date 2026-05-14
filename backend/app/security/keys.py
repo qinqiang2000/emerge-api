@@ -38,7 +38,13 @@ def _iso_now() -> str:
 
 
 class KeyStore:
-    """In-memory cache of `_keys.json` for O(1) prod-path lookups."""
+    """In-memory cache of `_keys.json` for O(1) prod-path lookups.
+
+    Post-slug-transparency: rows are `{hash, user_id, scope, created_at,
+    last_used}`. A key belongs to a *user*, not a project — one key can call
+    any frozen `published_id`. `user_id` is currently always `"default"` (no
+    user system yet); the field is here so we can grow into multi-user without
+    a schema migration."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -80,12 +86,22 @@ class KeyStore:
         row = self._by_hash.get(sha256_key(plaintext))
         return dict(row) if row is not None else None
 
-    def upsert_for_project(self, project_id: str, plaintext: str, *, scope: str = "extract") -> None:
+    def upsert_for_user(
+        self, user_id: str, plaintext: str, *, scope: str = "extract",
+    ) -> None:
+        """Insert (or rotate) the API key row for `(user_id, scope)`.
+
+        Existing rows for the same `(user_id, scope)` pair are dropped before
+        the new row is appended — i.e. one live key per user-scope, mirroring
+        the prior `upsert_for_project` semantics but on the user axis."""
         self.reload_if_changed()
-        rows = [r for r in self._by_hash.values() if r.get("project_id") != project_id]
+        rows = [
+            r for r in self._by_hash.values()
+            if not (r.get("user_id") == user_id and r.get("scope") == scope)
+        ]
         rows.append({
             "hash": sha256_key(plaintext),
-            "project_id": project_id,
+            "user_id": user_id,
             "scope": scope,
             "created_at": _iso_now(),
             "last_used": None,

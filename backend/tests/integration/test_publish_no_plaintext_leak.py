@@ -59,7 +59,7 @@ async def test_publish_flow_no_plaintext_in_jsonl(
         pytest.skip("set EMERGE_REAL_ANTHROPIC_KEY for this test (conftest stubs the standard var)")
     monkeypatch.setenv("ANTHROPIC_API_KEY", real_key)
 
-    pid = await create_project(tmp_path, name="publish-no-leak")
+    pid = (await create_project(tmp_path, name="publish-no-leak"))["slug"]
     await _seed_for_publish(tmp_path, pid)
 
     svc = ChatService(

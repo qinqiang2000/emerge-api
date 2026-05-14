@@ -7,7 +7,7 @@ from app.tools.projects import create_project
 
 
 async def test_post_reviewed_writes_file(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"invoice_no": "INV-1", "total_amount": 99.5}],
@@ -22,7 +22,7 @@ async def test_post_reviewed_writes_file(workspace: Path) -> None:
 
 
 async def test_post_reviewed_with_notes(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"buyer_name": "ACME"}],
@@ -36,7 +36,7 @@ async def test_post_reviewed_with_notes(workspace: Path) -> None:
 
 
 async def test_post_reviewed_with_evidence(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"buyer_name": "ACME"}],
@@ -51,7 +51,7 @@ async def test_post_reviewed_with_evidence(workspace: Path) -> None:
 
 
 async def test_get_reviewed_returns_payload(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     client.post(
         f"/lab/projects/{pid}/reviewed/inv-001.pdf",
@@ -90,7 +90,7 @@ def test_post_reviewed_422_on_bad_body() -> None:
 
 async def test_post_get_reviewed_multi_entity(workspace: Path) -> None:
     """POST + GET reviewed preserves a multi-entity payload exactly."""
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [

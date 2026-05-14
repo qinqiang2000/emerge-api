@@ -8,7 +8,7 @@ from app.workspace.paths import predictions_draft_dir
 
 
 async def test_get_prediction_returns_draft(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     pred = {"entities": [{"invoice_no": "X-1"}], "_evidence": [{"invoice_no": 1}]}
     pdir = predictions_draft_dir(workspace, pid)
     pdir.mkdir(parents=True, exist_ok=True)
@@ -18,5 +18,5 @@ async def test_get_prediction_returns_draft(workspace: Path) -> None:
 
 
 async def test_get_prediction_returns_none_for_missing(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     assert await get_prediction(workspace, pid, "missing.pdf") is None

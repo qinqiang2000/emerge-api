@@ -15,6 +15,7 @@ from app.security.keys import (
     sha256_key,
 )
 from app.workspace.atomic import atomic_write_json
+from app.workspace.ids import new_published_id
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
     jobs_dir,
@@ -22,6 +23,8 @@ from app.workspace.paths import (
     next_version_n,
     predictions_draft_dir,
     project_json_path,
+    published_dir,
+    published_path,
     reviewed_dir,
     version_path,
 )
@@ -96,9 +99,9 @@ def _last_event_type(jsonl_path: Path) -> str | None:
     return None
 
 
-def _load_reviewed(workspace: Path, project_id: str) -> dict[str, list[dict]]:
+def _load_reviewed(workspace: Path, slug: str) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
-    rd = reviewed_dir(workspace, project_id)
+    rd = reviewed_dir(workspace, slug)
     if not rd.exists():
         return out
     for path in sorted(rd.glob("*.json")):
@@ -107,9 +110,9 @@ def _load_reviewed(workspace: Path, project_id: str) -> dict[str, list[dict]]:
     return out
 
 
-def _load_predictions(workspace: Path, project_id: str) -> dict[str, list[dict]]:
+def _load_predictions(workspace: Path, slug: str) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
-    pd = predictions_draft_dir(workspace, project_id)
+    pd = predictions_draft_dir(workspace, slug)
     if not pd.exists():
         return out
     for path in sorted(pd.glob("*.json")):
@@ -118,14 +121,14 @@ def _load_predictions(workspace: Path, project_id: str) -> dict[str, list[dict]]
     return out
 
 
-async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
+async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
     """Run publish hard gates and soft warnings for the current lab schema."""
     from app.tools.schema import read_schema
     from app.workspace.migrate import migrate_project_if_needed
 
-    await migrate_project_if_needed(workspace, project_id)
-    schema = await read_schema(workspace, project_id)
-    project = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
+    await migrate_project_if_needed(workspace, slug)
+    schema = await read_schema(workspace, slug)
+    project = json.loads(project_json_path(workspace, slug).read_text(encoding="utf-8"))
     threshold = float(project.get("publish_min_macro_f1") or 0.7)
     active_vid = project.get("active_version_id")
 
@@ -140,7 +143,7 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
         "detail": f"{len(schema)} fields" if schema else "schema is empty",
     })
 
-    reviewed = _load_reviewed(workspace, project_id)
+    reviewed = _load_reviewed(workspace, slug)
     n_reviewed = len(reviewed)
     if n_reviewed < 3:
         checks.append({
@@ -157,7 +160,7 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
     else:
         from app.tools.score import score
 
-        result = score(schema, _load_predictions(workspace, project_id), reviewed)
+        result = score(schema, _load_predictions(workspace, slug), reviewed)
         per_field = result.per_field
         supported = [field_score for field_score in per_field if field_score.support > 0]
         macro_f1 = (
@@ -194,7 +197,7 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
     })
 
     running: list[str] = []
-    jd = jobs_dir(workspace, project_id)
+    jd = jobs_dir(workspace, slug)
     if jd.exists():
         for path in sorted(jd.glob("*.jsonl")):
             event_type = _last_event_type(path)
@@ -208,14 +211,14 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
 
     if active_vid:
         n = parse_version_id(active_vid)
-        if n is None or not version_path(workspace, project_id, n).exists():
+        if n is None or not version_path(workspace, slug, n).exists():
             checks.append({
                 "key": "contract_diff_compat",
                 "status": "fail",
                 "detail": f"active_version_id={active_vid} but {active_vid}.json missing",
             })
         else:
-            prev_blob = json.loads(version_path(workspace, project_id, n).read_text(encoding="utf-8"))
+            prev_blob = json.loads(version_path(workspace, slug, n).read_text(encoding="utf-8"))
             prev_schema = [SchemaField(**field) for field in prev_blob.get("schema", [])]
             diff = contract_diff(prev_schema, schema)
             if diff["is_breaking"]:
@@ -255,7 +258,7 @@ async def readiness_check(workspace: Path, project_id: str) -> dict[str, Any]:
                 "status": "warn",
                 "detail": f"field '{field_score.field}' has 0 support in reviewed set (untested)",
             })
-    md = metrics_dir(workspace, project_id)
+    md = metrics_dir(workspace, slug)
     if md.exists() and schema:
         evals = sorted(md.glob("eval_*.json"))
         if evals:
@@ -297,14 +300,32 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-async def freeze_version(workspace: Path, project_id: str, *, force: bool = False) -> dict[str, str]:
-    """Freeze current lab state into immutable versions/v{n}.json."""
+async def freeze_version(
+    workspace: Path, slug: str, *, force: bool = False,
+) -> dict[str, str]:
+    """Freeze current lab state into both a lab-side `versions/v{n}.json` and
+    a workspace-level frozen artifact at `_published/{pub_xxx}.json`.
+
+    Two artifacts, two audiences:
+      * `versions/v{n}.json` — the *lab* publish lineage. Lives inside the
+        project folder, so a project rename moves it; a project delete removes
+        it. Powers `contract_diff` for next-publish gating.
+      * `_published/{pub_xxx}.json` — the *frozen artifact* the public
+        `POST /v1/extract` endpoint serves. Self-contained `{schema, model_id,
+        params, global_notes, …}` so it survives project rename/delete and so
+        emerge can hand its content off to a separate production deployment
+        verbatim. Immutable (`chmod 0o444`).
+
+    `project.json.published_ids` is appended in time order so the UI can list
+    "current" + history without re-scanning `_published/`.
+
+    Returns `{version_id, published_id}`."""
     from app.tools.model import read_active_model
     from app.tools.prompt import read_active_prompt
     from app.workspace.migrate import migrate_project_if_needed
 
     if not force:
-        readiness = await readiness_check(workspace, project_id)
+        readiness = await readiness_check(workspace, slug)
         if not readiness["hard_pass"]:
             failed = [check for check in readiness["checks"] if check["status"] == "fail"]
             raise PublishNotReadyError(
@@ -313,18 +334,20 @@ async def freeze_version(workspace: Path, project_id: str, *, force: bool = Fals
                 checks=readiness["checks"],
             )
 
-    await migrate_project_if_needed(workspace, project_id)
+    await migrate_project_if_needed(workspace, slug)
 
-    async with project_lock(workspace, project_id):
-        pv = await read_active_prompt(workspace, project_id)
-        mc = await read_active_model(workspace, project_id)
+    async with project_lock(workspace, slug):
+        pv = await read_active_prompt(workspace, slug)
+        mc = await read_active_model(workspace, slug)
         schema_blob = [f.model_dump(mode="json") for f in pv.schema]
 
-        project_blob = json.loads(project_json_path(workspace, project_id).read_text(encoding="utf-8"))
+        pj_path = project_json_path(workspace, slug)
+        project_blob = json.loads(pj_path.read_text(encoding="utf-8"))
+        pid = project_blob.get("project_id")
 
-        n = next_version_n(workspace, project_id)
+        n = next_version_n(workspace, slug)
         version_id = f"v{n}"
-        target = version_path(workspace, project_id, n)
+        target = version_path(workspace, slug, n)
         target.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(target, {
             "version_id": version_id,
@@ -341,22 +364,53 @@ async def freeze_version(workspace: Path, project_id: str, *, force: bool = Fals
         })
         target.chmod(0o444)
 
+        # Mint and write the workspace-level frozen artifact. The dir lives at
+        # the workspace root so it survives project rename/delete, matching
+        # the "emerge mirrors prod" story for the public extract endpoint.
+        published_id = new_published_id()
+        published_dir(workspace).mkdir(parents=True, exist_ok=True)
+        pub_target = published_path(workspace, published_id)
+        atomic_write_json(pub_target, {
+            "published_id": published_id,
+            "source_project_slug": slug,
+            "source_project_id": pid,
+            "source_version_id": version_id,
+            "schema": schema_blob,
+            "global_notes": pv.global_notes,
+            "model_id": mc.provider_model_id,
+            "params": mc.params,
+            "created_at": _iso_now(),
+        })
+        pub_target.chmod(0o444)
+
         project_blob["active_version_id"] = version_id
-        atomic_write_json(project_json_path(workspace, project_id), project_blob)
+        ids = project_blob.get("published_ids")
+        if not isinstance(ids, list):
+            ids = []
+        ids.append(published_id)
+        project_blob["published_ids"] = ids
+        atomic_write_json(pj_path, project_blob)
 
-    return {"version_id": version_id}
+    return {"version_id": version_id, "published_id": published_id}
 
 
-async def issue_api_key(workspace: Path, project_id: str) -> dict[str, str]:
-    """Mint and persist a new hashed API key row; return plaintext once."""
+async def issue_api_key(
+    workspace: Path, *, user_id: str = "default",
+) -> dict[str, str]:
+    """Mint and persist a new hashed API key row for `user_id`.
+
+    Keys are user-scoped (not project-scoped): one live key per `(user_id,
+    scope)` pair calls *any* `published_id` the user wants. `user_id="default"`
+    is the single-user placeholder until a real user system lands. The
+    plaintext is returned exactly once — callers must surface it through a
+    one-time reveal UI and never persist it server-side."""
     plaintext = generate_key()
     h = sha256_key(plaintext)
     store = get_keystore(workspace)
-    async with project_lock(workspace, project_id):
-        store.upsert_for_project(project_id, plaintext, scope="extract")
+    store.upsert_for_user(user_id, plaintext, scope="extract")
     _log.info(
-        "issued api key for %s: prefix=%s hash_short=%s",
-        project_id,
+        "issued api key for user=%s: prefix=%s hash_short=%s",
+        user_id,
         key_prefix_display(plaintext),
         key_hash_short(h),
     )

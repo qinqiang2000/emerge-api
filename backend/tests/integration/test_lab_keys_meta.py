@@ -8,7 +8,7 @@ from app.tools.publish import issue_api_key
 
 @pytest.mark.asyncio
 async def test_keys_meta_returns_hash_only(workspace) -> None:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     issued = await issue_api_key(workspace, pid)
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/keys/meta")
@@ -22,7 +22,7 @@ async def test_keys_meta_returns_hash_only(workspace) -> None:
 
 @pytest.mark.asyncio
 async def test_keys_meta_empty_when_no_key(workspace) -> None:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/keys/meta")
     assert r.status_code == 200

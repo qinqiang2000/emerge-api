@@ -16,7 +16,7 @@ from app.workspace.paths import predictions_draft_dir, reviewed_dir
 
 
 async def _seed_published(workspace: Path) -> str:
-    pid = await create_project(workspace, name="us-invoice")
+    pid = (await create_project(workspace, name="us-invoice"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="invoice_number", type=FieldType.STRING, description="Invoice no")],
@@ -70,7 +70,7 @@ async def test_export_missing_version_404(workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_export_unpublished_project_404(workspace: Path) -> None:
-    pid = await create_project(workspace, name="unpubd")
+    pid = (await create_project(workspace, name="unpubd"))["slug"]
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/export")
     assert r.status_code == 404

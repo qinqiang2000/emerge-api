@@ -39,8 +39,11 @@ def build_emerge_mcp(
 
     @tool("create_project", "Create a new extraction project.", {"name": str})
     async def t_create_project(args: dict[str, Any]) -> dict[str, Any]:
-        pid = await projects_mod.create_project(workspace, name=args["name"])
-        return {"content": [{"type": "text", "text": pid}]}
+        out = await projects_mod.create_project(workspace, name=args["name"])
+        # Surface the slug back to the agent — that's the only handle every
+        # other tool takes. The minted pid is for chat-log audit; the agent
+        # doesn't drive flow with it.
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "rename_project",
@@ -52,10 +55,14 @@ def build_emerge_mcp(
         {"project_id": str, "name": str},
     )
     async def t_rename_project(args: dict[str, Any]) -> dict[str, Any]:
-        await projects_mod.rename_project(
+        # `project_id` arg name is retained transitionally; agents pass the
+        # slug here (the folder name). The underlying function derives a new
+        # slug from the new name so the project's folder + display name stay
+        # locked together (single-concept rename).
+        out = await projects_mod.rename_project(
             workspace, args["project_id"], name=args["name"]
         )
-        return {"content": [{"type": "text", "text": "ok"}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool("list_projects", "List all projects in the workspace.", {})
     async def t_list_projects(_args: dict[str, Any]) -> dict[str, Any]:
@@ -400,13 +407,15 @@ def build_emerge_mcp(
     )
     async def t_fork_project(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.fork import fork_project as fork_project_impl
-        new_pid = await fork_project_impl(
+        # `src_pid` is the legacy arg name; after slug transparency it carries
+        # the source project's slug. Agent-3 will rename the wrapper arg.
+        out = await fork_project_impl(
             workspace,
-            src_pid=args["src_pid"],
+            src_slug=args["src_pid"],
             name=args["name"],
             include_docs=bool(args.get("include_docs", False)),
         )
-        return {"content": [{"type": "text", "text": new_pid}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
         "import_prompt",
@@ -581,7 +590,11 @@ def build_emerge_mcp(
         {"project_id": str},
     )
     async def t_issue_api_key(args: dict[str, Any]) -> dict[str, Any]:
-        out = await publish_mod.issue_api_key(workspace, args["project_id"])
+        # `project_id` arg is retained transitionally so the existing skill
+        # prompt still parses; the key is now user-scoped and the value is
+        # ignored (single-user `"default"` placeholder until users land).
+        # Agent-3 will rename the wrapper arg + skill copy.
+        out = await publish_mod.issue_api_key(workspace, user_id="default")
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(

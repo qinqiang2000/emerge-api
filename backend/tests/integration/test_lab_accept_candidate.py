@@ -12,7 +12,7 @@ from app.workspace.paths import candidate_dir, candidate_turn_path, prompt_path
 
 
 async def test_get_schema_returns_current(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="invoice_no", type=FieldType.STRING, description="d")],
@@ -26,7 +26,7 @@ async def test_get_schema_returns_current(workspace: Path) -> None:
 
 
 async def test_accept_candidate_overwrites_schema(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="invoice_no", type=FieldType.STRING, description="OLD")],
@@ -54,7 +54,7 @@ async def test_accept_candidate_overwrites_schema(workspace: Path) -> None:
 
 
 async def test_accept_candidate_404_on_missing_candidate(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
@@ -70,7 +70,7 @@ async def test_accept_candidate_404_on_missing_candidate(workspace: Path) -> Non
 
 async def test_accept_candidate_rejects_structural_diff(workspace: Path) -> None:
     """If a malformed candidate file tries to add a new field, reject."""
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],

@@ -15,7 +15,7 @@ from app.workspace.paths import metrics_dir, predictions_draft_dir, project_json
 
 
 async def test_post_eval_returns_score(workspace: Path) -> None:
-    pid = await create_project(workspace, name="eval")
+    pid = (await create_project(workspace, name="eval"))["slug"]
     await write_schema(
         workspace,
         pid,
@@ -75,7 +75,7 @@ def test_post_eval_404_on_missing_schema(workspace: Path) -> None:
 
 
 async def test_get_evals_latest_returns_score(workspace: Path) -> None:
-    pid = await create_project(workspace, name="latest")
+    pid = (await create_project(workspace, name="latest"))["slug"]
     await write_schema(
         workspace,
         pid,
@@ -117,7 +117,7 @@ async def test_get_evals_latest_picks_lex_last(workspace: Path) -> None:
     """Two eval files on disk → endpoint returns the lex-greatest filename
     (which equals the most-recent ts since filenames are
     `eval_YYYY-MM-DDTHH-MM-SSZ.json`)."""
-    pid = await create_project(workspace, name="lex")
+    pid = (await create_project(workspace, name="lex"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="x")],

@@ -21,7 +21,7 @@ from app.tools.projects import create_project
 
 
 async def test_tree_root_filters_internal_entries(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     root = workspace / pid
 
     # Seed a mix of allowed + filtered entries so we exercise the allow-list.
@@ -69,7 +69,7 @@ async def test_tree_root_filters_internal_entries(workspace: Path) -> None:
 async def test_tree_drill_into_docs(workspace: Path) -> None:
     from app.tools.docs import upload_doc
 
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     pdf = b"%PDF-1.4\n%%EOF\n"
     m1 = await upload_doc(workspace, pid, pdf, "invoice-jan.pdf")
     m2 = await upload_doc(workspace, pid, pdf, "2025VP00413.pdf")
@@ -90,7 +90,7 @@ async def test_tree_drill_into_docs(workspace: Path) -> None:
 
 
 async def test_tree_drill_into_versions_hides_candidate(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     vdir = workspace / pid / "versions"
     vdir.mkdir(exist_ok=True)
     (vdir / "v1.json").write_text(json.dumps({"fields": []}))
@@ -118,7 +118,7 @@ def test_tree_rejects_parent_traversal() -> None:
 
 
 async def test_tree_unknown_dir_404(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/tree", params={"dir": "nope"})
     assert r.status_code == 404

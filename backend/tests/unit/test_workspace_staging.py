@@ -72,7 +72,7 @@ async def test_claim_staged_moves_to_project(workspace: Path) -> None:
     """Claim routes through `upload_doc` → file lands at `docs/<filename>`,
     sidecar at `docs/.meta/<filename>.json` (the filename-native layout).
     No `d_xxx`."""
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     info = await stage_file(workspace, SAMPLE_PDF, "invoice.pdf")
     token = info["stage_token"]
     filename = await claim_staged(workspace, token, pid)  # type: ignore[arg-type]
@@ -88,13 +88,13 @@ async def test_claim_staged_moves_to_project(workspace: Path) -> None:
 
 
 async def test_claim_staged_unknown_token_raises(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     with pytest.raises(StagingClaimError):
         await claim_staged(workspace, "st_deadbeefdeadbeef", pid)
 
 
 async def test_claim_staged_invalid_token_raises(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     with pytest.raises(StagingClaimError):
         await claim_staged(workspace, "../../../etc/passwd", pid)
 

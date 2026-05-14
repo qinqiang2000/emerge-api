@@ -37,7 +37,7 @@ async def _seed_for_publish(workspace, pid: str) -> None:
 
 @pytest.mark.asyncio
 async def test_full_publish_then_extract(workspace, monkeypatch) -> None:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     await _seed_for_publish(workspace, pid)
     v = await freeze_version(workspace, pid)
     assert v == {"version_id": "v1"}
@@ -65,7 +65,7 @@ async def test_full_publish_then_extract(workspace, monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_case2_v2_publish_with_added_field(workspace, monkeypatch) -> None:
-    pid = await create_project(workspace, name="p")
+    pid = (await create_project(workspace, name="p"))["slug"]
     await _seed_for_publish(workspace, pid)
     await freeze_version(workspace, pid)
     issued = await issue_api_key(workspace, pid)

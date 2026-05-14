@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,11 +17,20 @@ from app.workspace.paths import (
 )
 
 
-_PROJECT_ID = re.compile(r"^p_[a-z0-9]{12}$")
-
-
+# Defense-in-depth slug check. Post slug-transparency the folder identifier
+# is a human-readable slug, but a path-traversal string would still escape
+# the workspace via `project_dir(ws, "../foo")`. Routes apply `safe_slug`,
+# but this tool is also reachable from chat / autoresearch where the slug
+# comes from the agent — keep the check tight.
 def _validate_project_id(project_id: str) -> None:
-    if not _PROJECT_ID.match(project_id):
+    if (
+        not isinstance(project_id, str)
+        or not project_id
+        or "/" in project_id
+        or "\\" in project_id
+        or project_id in (".", "..")
+        or "\x00" in project_id
+    ):
         raise ValueError("invalid project_id")
 
 

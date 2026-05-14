@@ -234,7 +234,15 @@ class ChatService:
         ):
             placeholder = _placeholder_project_name()
             try:
-                new_pid = await _create_project(self.workspace, name=placeholder)
+                _proj = await _create_project(self.workspace, name=placeholder)
+                # Post slug-transparency `create_project` returns
+                # `{project_id, slug}`. Everything downstream in this branch
+                # (folder ops via path helpers, the SSE event the FE binds
+                # `selectedSlug` to) wants the folder identifier — i.e. the
+                # slug. Agent-3 reconciles the SSE / jsonl labels to carry the
+                # immutable pid explicitly; until then `new_pid` is misnamed
+                # but value-correct.
+                new_pid = _proj["slug"]
             except Exception as e:  # noqa: BLE001
                 err = {
                     "error_code": "project_mint_failed",

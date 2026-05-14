@@ -16,7 +16,7 @@ from app.workspace.paths import predictions_draft_dir, reviewed_dir
 
 
 async def _seed_published(workspace: Path) -> str:
-    pid = await create_project(workspace, name="us-invoice")
+    pid = (await create_project(workspace, name="us-invoice"))["slug"]
     await write_schema(
         workspace, pid,
         [

@@ -7,7 +7,7 @@ from app.tools.projects import create_project
 
 
 async def test_list_projects_returns_created(workspace: Path) -> None:
-    pid = await create_project(workspace, name="inv-MY")
+    pid = (await create_project(workspace, name="inv-MY"))["slug"]
     client = TestClient(app)
     r = client.get("/lab/projects")
     assert r.status_code == 200
@@ -16,7 +16,7 @@ async def test_list_projects_returns_created(workspace: Path) -> None:
 
 
 async def test_get_one_project(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}")
     assert r.status_code == 200
@@ -34,7 +34,7 @@ async def test_get_project_docs_with_status(workspace: Path) -> None:
     from app.tools.reviewed import save_reviewed
     from app.schemas.reviewed import ReviewedSource
 
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     pdf = b"%PDF-1.4\n%%EOF\n"
     m1 = await upload_doc(workspace, pid, pdf, "a.pdf")
     m2 = await upload_doc(workspace, pid, pdf, "b.pdf")
@@ -67,7 +67,7 @@ async def test_get_project_schema(workspace: Path) -> None:
     from app.tools.schema import write_schema
     from app.schemas.schema_field import FieldType, SchemaField
 
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await write_schema(
         workspace,
         pid,
@@ -95,8 +95,8 @@ async def test_list_projects_includes_status(workspace: Path) -> None:
     from app.schemas.schema_field import FieldType, SchemaField
 
     ws = workspace
-    p_empty = await create_project(ws, name="empty-one")
-    p_draft = await create_project(ws, name="draft-one")
+    p_empty = (await create_project(ws, name="empty-one"))["slug"]
+    p_draft = (await create_project(ws, name="draft-one"))["slug"]
     await write_schema(
         ws,
         p_draft,
