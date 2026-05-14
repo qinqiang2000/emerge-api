@@ -1,9 +1,9 @@
 /* shell */
-/* Background is white (var(--paper)) so the right column reads as invisible:
-   it reserves width to keep center icons from sliding under the floating
-   .ctx panel, but the empty slot blends seamlessly with center. The floating
-   panel stands on its own via card border+shadow (see .ctx-panel). */
-.shell{--left-w:248px;--right-w:360px;position:relative;display:grid;grid-template-columns:var(--left-w) 1fr var(--right-w);grid-template-rows:1fr;height:100vh;width:100vw;background:#FDFDFC;transition:grid-template-columns .35s cubic-bezier(.4,.0,.2,1)}
+/* Single warm paper field across all columns (--paper). Right column reserves
+   width to keep center icons from sliding under the floating .ctx overlay,
+   but its empty slot blends seamlessly with center and left rail. The floating
+   ctx panel is elevated white (#FFFFFF) and stands above paper via border+shadow. */
+.shell{--left-w:248px;--right-w:360px;position:relative;display:grid;grid-template-columns:var(--left-w) 1fr var(--right-w);grid-template-rows:1fr;height:100vh;width:100vw;background:var(--paper);transition:grid-template-columns .35s cubic-bezier(.4,.0,.2,1)}
 /* Pin children to their grid columns explicitly. If a child is hidden via
    display:none (responsive collapse), the remaining children would auto-flow
    into the wrong column and shrink to 0 — pinning prevents that. */
@@ -40,7 +40,7 @@
 }
 
 /* floating edge toggles — shown when a panel is collapsed */
-.edge-toggle{position:fixed;top:10px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);background:#FDFDFC;border:1px solid var(--rule);border-radius:6px;cursor:default;z-index:50;transition:background .15s, color .15s, border-color .15s;box-shadow:0 1px 2px rgba(31,27,20,.04)}
+.edge-toggle{position:fixed;top:10px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);background:#FFFFFF;border:1px solid var(--rule);border-radius:6px;cursor:default;z-index:50;transition:background .15s, color .15s, border-color .15s;box-shadow:0 1px 2px rgba(31,27,20,.04)}
 .edge-toggle:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule-soft)}
 .edge-toggle.left{left:10px}
 .edge-toggle.right{right:10px}
