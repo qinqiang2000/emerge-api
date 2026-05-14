@@ -34,3 +34,7 @@ def new_model_id() -> str:
 
 def new_experiment_id() -> str:
     return _new("ex")
+
+
+def new_published_id() -> str:
+    return _new("pub")
