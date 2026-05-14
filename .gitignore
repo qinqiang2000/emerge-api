@@ -46,3 +46,7 @@ frontend/tests/dogfood-out/
 
 # Build artifacts
 *.tsbuildinfo
+
+# dev.sh runtime
+.dev.pid
+.dev-logs/
