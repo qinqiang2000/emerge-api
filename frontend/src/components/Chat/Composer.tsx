@@ -26,13 +26,12 @@ const XIcon = () => (
     <path d="M15.147 4.146a.5.5 0 0 1 .707.707L10.707 10l5.147 5.147a.5.5 0 0 1-.63.771l-.078-.064L10 10.707l-5.146 5.147a.5.5 0 0 1-.708-.707L9.293 10 4.146 4.853a.5.5 0 0 1 .708-.707L10 9.293z" />
   </svg>
 )
-// Generic file/paperclip glyph for the "Upload file" menu item. PDF and image
-// share a single option because users frequently can't tell which a given
-// scan/screenshot is — backend (`/lab/projects/{pid}/upload`) accepts both.
-const FileIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M3 1.5h5.5L13 6v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1z" />
-    <path d="M8.5 1.5V6H13" />
+// Paperclip glyph lifted from claude.ai's "Add files or photos" menu — one
+// option for both PDFs and images because users can rarely tell which a given
+// scan/screenshot is. Backend (`/lab/projects/{pid}/upload`) accepts both.
+const PaperclipIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    <path d="M6.068 2.161a2.72 2.72 0 0 1 3.524 1.533l3.206 8.14a1.61 1.61 0 0 1-.907 2.087l-.076.03a1.61 1.61 0 0 1-2.087-.908L8.027 8.726a.5.5 0 0 1 .93-.367l1.702 4.318a.61.61 0 0 0 .79.343l.076-.03a.61.61 0 0 0 .343-.79L8.662 4.06a1.72 1.72 0 0 0-2.227-.968l-.154.06a1.72 1.72 0 0 0-.97 2.228l3.87 9.821a2.826 2.826 0 0 0 3.665 1.594l.23-.09a2.83 2.83 0 0 0 1.595-3.666l-2.363-6a.5.5 0 1 1 .93-.366l2.363 6a3.826 3.826 0 0 1-2.158 4.962l-.23.09a3.827 3.827 0 0 1-4.963-2.157L4.382 5.747a2.72 2.72 0 0 1 1.532-3.525z" />
   </svg>
 )
 
@@ -45,6 +44,7 @@ const IS_MAC =
       navigator.platform ||
       navigator.userAgent,
   )
+const UPLOAD_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 
 interface Props {
   disabled: boolean
@@ -121,6 +121,21 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     window.addEventListener('mousedown', handler)
     return () => window.removeEventListener('mousedown', handler)
   }, [plusOpen])
+
+  // Global ⌘U / Ctrl+U opens the file picker, matching claude.ai. We hijack
+  // the browser's default (View Source) intentionally — same trade-off claude
+  // makes, since the composer is the primary action on the page.
+  useEffect(() => {
+    if (disabled) return
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if ((e.key === 'u' || e.key === 'U') && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        fileRef.current?.click()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [disabled])
 
   const slashMatches = useMemo(() => {
     if (!showSlash) return COMMANDS
@@ -282,7 +297,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                   className="iconbtn ghost"
                   onClick={() => setPlusOpen(o => !o)}
                   disabled={disabled}
-                  title="Add files"
+                  title={`Add files (${UPLOAD_SHORTCUT_LABEL})`}
                   aria-label="Add files"
                   aria-haspopup="menu"
                   aria-expanded={plusOpen}
@@ -296,8 +311,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                       role="menuitem"
                       onClick={() => { setPlusOpen(false); fileRef.current?.click() }}
                     >
-                      <span className="ic"><FileIcon /></span>
-                      <span>Upload file</span>
+                      <span className="mi-left">
+                        <span className="ic"><PaperclipIcon /></span>
+                        <span className="label">Add files or photos</span>
+                      </span>
+                      <span className="shortcut">{UPLOAD_SHORTCUT_LABEL}</span>
                     </button>
                   </div>
                 )}

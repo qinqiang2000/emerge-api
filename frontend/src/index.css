@@ -186,28 +186,38 @@ html, body, #root {
 .composer .iconbtn.stop{width:32px;height:32px;background:var(--paper-2);border-color:var(--rule);color:var(--ink)}
 .composer .iconbtn.stop:hover{background:var(--paper-3);border-color:var(--ink-4)}
 
-/* + menu — popover above the + button. Currently has one item (Upload file),
-   built as a menu so future actions (paste URL, scan, etc.) can slot in. */
+/* + menu — popover above the + button. Layout matches claude.ai's "Add files
+   or photos" menu: 12px radius, soft 2px/8% shadow, 32px-min rows with a
+   left icon+label cluster and a right-aligned shortcut that fades in only on
+   hover (group-hover pattern). Built as a menu so future actions slot in. */
 .composer .plus-wrap{position:relative;display:inline-flex}
 .composer .plus-menu{
   position:absolute;bottom:calc(100% + 6px);left:0;
-  min-width:184px;background:#FFFFFF;
-  border:1px solid var(--rule);border-radius:10px;
-  box-shadow:0 8px 28px rgba(31,27,20,.10);
+  min-width:192px;max-width:320px;background:#FFFFFF;
+  border:0.5px solid rgba(31,31,30,.3);border-radius:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
   padding:6px;z-index:7;
-  display:flex;flex-direction:column;gap:2px;
+  display:flex;flex-direction:column;gap:0;
   animation:ghostIn .12s ease-out;
 }
 .composer .plus-menu button{
-  display:flex;align-items:center;gap:10px;
-  padding:7px 10px;border-radius:6px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;min-height:32px;
+  padding:6px 8px;border-radius:8px;
   background:transparent;border:0;
-  font-family:var(--sans);font-size:13px;color:var(--ink);
-  cursor:pointer;text-align:left;
+  font-family:var(--sans);font-size:14px;line-height:20px;color:var(--ink);
+  cursor:pointer;text-align:left;white-space:nowrap;
   transition:background .08s;
 }
 .composer .plus-menu button:hover{background:var(--paper-2)}
-.composer .plus-menu .ic{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:var(--ink-3);flex-shrink:0}
+.composer .plus-menu .mi-left{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.composer .plus-menu .ic{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;color:var(--ink);flex-shrink:0}
+.composer .plus-menu .shortcut{
+  font-size:12px;line-height:16px;color:var(--ink-3);
+  opacity:0;transition:opacity .08s;flex-shrink:0;
+}
+.composer .plus-menu button:hover .shortcut,
+.composer .plus-menu button:focus-visible .shortcut{opacity:1}
 
 /* Pending attachment chips (with remove X) */
 .composer .att-row{display:flex;flex-wrap:wrap;gap:6px}
