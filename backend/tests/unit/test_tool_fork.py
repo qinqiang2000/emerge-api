@@ -23,14 +23,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _seed_src(workspace: Path, src_pid: str) -> None:
+def _seed_src(workspace: Path, src_slug: str) -> None:
     """A migrated source project: project.json + 2 prompts + 2 models +
     one stray subdir that should NOT be copied."""
-    pdir = workspace / src_pid
+    pdir = workspace / src_slug
     pdir.mkdir(parents=True, exist_ok=True)
-    prompts_dir(workspace, src_pid).mkdir(parents=True, exist_ok=True)
-    models_dir(workspace, src_pid).mkdir(parents=True, exist_ok=True)
-    docs_dir(workspace, src_pid).mkdir(parents=True, exist_ok=True)
+    prompts_dir(workspace, src_slug).mkdir(parents=True, exist_ok=True)
+    models_dir(workspace, src_slug).mkdir(parents=True, exist_ok=True)
+    docs_dir(workspace, src_slug).mkdir(parents=True, exist_ok=True)
     (pdir / "chats").mkdir(exist_ok=True)
     (pdir / "predictions" / "_draft").mkdir(parents=True, exist_ok=True)
     (pdir / "reviewed").mkdir(exist_ok=True)
@@ -38,7 +38,9 @@ def _seed_src(workspace: Path, src_pid: str) -> None:
     (pdir / "versions").mkdir(exist_ok=True)
     (pdir / "metrics").mkdir(exist_ok=True)
 
-    atomic_write_json(project_json_path(workspace, src_pid), {
+    atomic_write_json(project_json_path(workspace, src_slug), {
+        "project_id": "p_src1234567a",
+        "slug": src_slug,
         "name": "us-invoice",
         "project_type": "extraction",
         "created_at": _now(),
@@ -47,9 +49,10 @@ def _seed_src(workspace: Path, src_pid: str) -> None:
         "active_version_id": "v3",
         "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
+        "published_ids": ["pub_legacyabc123"],
     })
     for pid_name in ("pr_baseline", "pr_variant"):
-        atomic_write_json(prompt_path(workspace, src_pid, pid_name), {
+        atomic_write_json(prompt_path(workspace, src_slug, pid_name), {
             "prompt_id": pid_name,
             "label": f"L({pid_name})",
             "schema": [],
@@ -59,7 +62,7 @@ def _seed_src(workspace: Path, src_pid: str) -> None:
             "updated_at": _now(),
         })
     for mid_name in ("m_default", "m_alt"):
-        atomic_write_json(model_path(workspace, src_pid, mid_name), {
+        atomic_write_json(model_path(workspace, src_slug, mid_name), {
             "model_id": mid_name,
             "label": f"M({mid_name})",
             "provider": "google",
@@ -77,27 +80,35 @@ def _seed_src(workspace: Path, src_pid: str) -> None:
 
 
 async def test_fork_copies_prompts_models_rewrites_project_json(workspace: Path) -> None:
-    src_pid = "p_src123456789"  # NOTE: doesn't match safe_project_id regex — that's fine for the tool unit; routes apply safety.
-    _seed_src(workspace, src_pid)
+    src_slug = "us-invoice"
+    _seed_src(workspace, src_slug)
 
-    new_pid = await fork_project(workspace, src_pid=src_pid, name="uk-invoice")
+    out = await fork_project(workspace, src_slug=src_slug, name="uk-invoice")
+    new_slug = out["slug"]
+    new_pid = out["project_id"]
 
-    # New pid format
-    assert new_pid.startswith("p_") and new_pid != src_pid
-    new_dir = project_dir(workspace, new_pid)
+    # New pid + slug are fresh
+    assert new_pid.startswith("p_")
+    assert new_slug != src_slug
+    new_dir = project_dir(workspace, new_slug)
 
     # Whitelist: project.json + prompts/ + models/
-    new_blob = json.loads(project_json_path(workspace, new_pid).read_text())
+    new_blob = json.loads(project_json_path(workspace, new_slug).read_text())
     assert new_blob["name"] == "uk-invoice"
+    assert new_blob["slug"] == new_slug
+    assert new_blob["project_id"] == new_pid
     assert new_blob["active_version_id"] is None
+    # Fork starts with empty publish lineage — frozen artifacts don't
+    # inherit, that's the whole point of `published_id` decoupling.
+    assert new_blob["published_ids"] == []
     assert new_blob["active_prompt_id"] == "pr_baseline"
     assert new_blob["active_model_id"] == "m_default"
     assert "created_at" in new_blob
 
-    assert prompt_path(workspace, new_pid, "pr_baseline").exists()
-    assert prompt_path(workspace, new_pid, "pr_variant").exists()
-    assert model_path(workspace, new_pid, "m_default").exists()
-    assert model_path(workspace, new_pid, "m_alt").exists()
+    assert prompt_path(workspace, new_slug, "pr_baseline").exists()
+    assert prompt_path(workspace, new_slug, "pr_variant").exists()
+    assert model_path(workspace, new_slug, "m_default").exists()
+    assert model_path(workspace, new_slug, "m_alt").exists()
 
     # Blacklist: nothing else copied
     assert not (new_dir / "chats").exists()
@@ -118,32 +129,33 @@ async def test_fork_include_docs_clones_doc_files(workspace: Path) -> None:
     Skipping the sidecar would orphan the doc (list_docs filters on sidecar
     presence)."""
     from app.workspace.paths import docs_meta_dir
-    src_pid = "p_src123456789"
-    _seed_src(workspace, src_pid)
+    src_slug = "us-invoice"
+    _seed_src(workspace, src_slug)
     # Seed one doc + its sidecar at the new layout.
-    src_docs = docs_dir(workspace, src_pid)
+    src_docs = docs_dir(workspace, src_slug)
     (src_docs / "a.pdf").write_bytes(b"PDFCONTENT")
-    src_meta = docs_meta_dir(workspace, src_pid)
+    src_meta = docs_meta_dir(workspace, src_slug)
     src_meta.mkdir(parents=True, exist_ok=True)
     (src_meta / "a.pdf.json").write_text('{"filename": "a.pdf", "ext": "pdf"}')
 
-    new_pid = await fork_project(
-        workspace, src_pid=src_pid, name="uk-invoice", include_docs=True,
+    out = await fork_project(
+        workspace, src_slug=src_slug, name="uk-invoice", include_docs=True,
     )
+    new_slug = out["slug"]
 
-    new_docs = docs_dir(workspace, new_pid)
+    new_docs = docs_dir(workspace, new_slug)
     assert (new_docs / "a.pdf").read_bytes() == b"PDFCONTENT"
     assert json.loads((new_docs / ".meta" / "a.pdf.json").read_text())["filename"] == "a.pdf"
 
 
 async def test_fork_default_skips_docs(workspace: Path) -> None:
-    src_pid = "p_src123456789"
-    _seed_src(workspace, src_pid)
-    (docs_dir(workspace, src_pid) / "a.pdf").write_bytes(b"X")
+    src_slug = "us-invoice"
+    _seed_src(workspace, src_slug)
+    (docs_dir(workspace, src_slug) / "a.pdf").write_bytes(b"X")
 
-    new_pid = await fork_project(workspace, src_pid=src_pid, name="uk-invoice")
+    out = await fork_project(workspace, src_slug=src_slug, name="uk-invoice")
     # The fork creates an empty docs/ but skips the bytes when include_docs=False.
-    new_docs = docs_dir(workspace, new_pid)
+    new_docs = docs_dir(workspace, out["slug"])
     # `iterdir()` may include the `.meta/` subdir if it ever got materialized;
     # the key assertion is that the real doc file wasn't cloned.
     assert not (new_docs / "a.pdf").exists()
@@ -152,4 +164,4 @@ async def test_fork_default_skips_docs(workspace: Path) -> None:
 async def test_fork_missing_src_raises(workspace: Path) -> None:
     from app.tools.fork import ForkSourceNotFoundError
     with pytest.raises(ForkSourceNotFoundError):
-        await fork_project(workspace, src_pid="p_doesnotexist", name="x")
+        await fork_project(workspace, src_slug="doesnotexist", name="x")

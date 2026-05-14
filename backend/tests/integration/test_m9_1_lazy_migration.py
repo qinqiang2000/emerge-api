@@ -34,7 +34,7 @@ def _build_legacy_project(workspace: Path, pid: str) -> None:
 
 async def test_fresh_project_directly_writes_new_layout(workspace: Path) -> None:
     from app.tools.projects import create_project
-    pid = await create_project(workspace, name="fresh")
+    pid = (await create_project(workspace, name="fresh"))["slug"]
     assert (workspace / pid / "prompts" / "pr_baseline.json").exists()
     assert (workspace / pid / "models" / "m_default.json").exists()
     assert not (workspace / pid / "schema.json").exists()

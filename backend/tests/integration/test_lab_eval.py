@@ -15,7 +15,7 @@ from app.workspace.paths import metrics_dir, predictions_draft_dir, project_json
 
 
 async def test_post_eval_returns_score(workspace: Path) -> None:
-    pid = await create_project(workspace, name="eval")
+    pid = (await create_project(workspace, name="eval"))["slug"]
     await write_schema(
         workspace,
         pid,
@@ -50,10 +50,12 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
     assert saved["macro_f1"] == body["macro_f1"]
 
 
-def test_post_eval_400_on_bad_pid() -> None:
+def test_post_eval_404_on_unknown_slug() -> None:
+    """Post slug-transparency `p_INVALIDPATH` is a valid (if unusual) slug —
+    no strict pid regex anymore. Existence check returns 404."""
     client = TestClient(app)
     r = client.post("/lab/projects/p_INVALIDPATH/eval")
-    assert r.status_code == 400
+    assert r.status_code == 404
 
 
 def test_post_eval_404_on_missing_project() -> None:
@@ -75,7 +77,7 @@ def test_post_eval_404_on_missing_schema(workspace: Path) -> None:
 
 
 async def test_get_evals_latest_returns_score(workspace: Path) -> None:
-    pid = await create_project(workspace, name="latest")
+    pid = (await create_project(workspace, name="latest"))["slug"]
     await write_schema(
         workspace,
         pid,
@@ -117,7 +119,7 @@ async def test_get_evals_latest_picks_lex_last(workspace: Path) -> None:
     """Two eval files on disk → endpoint returns the lex-greatest filename
     (which equals the most-recent ts since filenames are
     `eval_YYYY-MM-DDTHH-MM-SSZ.json`)."""
-    pid = await create_project(workspace, name="lex")
+    pid = (await create_project(workspace, name="lex"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="x")],
@@ -142,10 +144,12 @@ async def test_get_evals_latest_picks_lex_last(workspace: Path) -> None:
     assert r.json()["ts"] == "2026-05-11T00-00-00Z"
 
 
-def test_get_evals_latest_400_on_bad_pid() -> None:
+def test_get_evals_latest_404_on_unknown_slug() -> None:
+    """Slug shapes that previously failed the pid regex now pass safe_slug —
+    404 from the existence check is the expected response."""
     client = TestClient(app)
     r = client.get("/lab/projects/p_INVALIDPATH/evals/latest")
-    assert r.status_code == 400
+    assert r.status_code == 404
 
 
 def test_get_evals_latest_404_on_missing_project() -> None:

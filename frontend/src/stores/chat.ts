@@ -305,22 +305,26 @@ export const useChat = create<State>((set, get) => ({
           continue
         }
         if (ev.event === 'project_minted') {
-          const d = ev.data as { project_id: string; name: string }
-          mintedPid = d.project_id
-          // Persist chatId under the new pid, mark loadedProjectId before the
-          // ChatPanel useEffect re-runs (so enterProject's same-pid early
+          // Agent-3 emits all three handles on project_minted so the FE can
+          // pick whichever is most convenient. We use `slug` (or
+          // `project_id` as the legacy-compatible alias — values match).
+          const d = ev.data as { project_id: string; slug?: string; pid?: string; name: string }
+          const slug = d.slug ?? d.project_id
+          mintedPid = slug
+          // Persist chatId under the new slug, mark loadedProjectId before the
+          // ChatPanel useEffect re-runs (so enterProject's same-slug early
           // return fires instead of the clear-and-hydrate path), refresh
-          // projects, then flip selectedId. The current chat events stay in
+          // projects, then flip selectedSlug. The current chat events stay in
           // place — they are this project's first chat by construction.
-          _writeChatId(d.project_id, get().chatId)
-          set({ loadedProjectId: d.project_id })
+          _writeChatId(slug, get().chatId)
+          set({ loadedProjectId: slug })
           void useProjects.getState().refresh()
-          useProjects.getState().select(d.project_id)
-          void get().listChats(d.project_id)
-          // Staged docs are already on disk in the new pid's docs/ — surface
-          // them in FSSpine right away, without waiting for the agent's
-          // first list_docs tool_result.
-          void useDocs.getState().refresh(d.project_id)
+          useProjects.getState().select(slug)
+          void get().listChats(slug)
+          // Staged docs are already on disk in the new project's docs/ —
+          // surface them in FSSpine right away, without waiting for the
+          // agent's first list_docs tool_result.
+          void useDocs.getState().refresh(slug)
           continue
         }
         const mapped = mapSse(ev.event, ev.data)

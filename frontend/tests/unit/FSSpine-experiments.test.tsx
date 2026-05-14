@@ -9,21 +9,26 @@ import { useProjects } from '../../src/stores/projects'
 import { usePrompts } from '../../src/stores/prompts'
 import { useSchema } from '../../src/stores/schema'
 
+// Post-slug-transparency: stores are keyed by slug, not pid. We pick `demo`
+// as both the slug and the display name to mirror the typical agent-created
+// case (slug derived from name).
+const SLUG = 'demo'
+
 function seedAll() {
   useProjects.setState({
     projects: [{
-      project_id: 'p_x', name: 'demo',
+      project_id: 'p_x', slug: SLUG, name: 'demo',
       project_type: 'extraction', active_version_id: 'v1',
       status: 'live' as const,
     }],
-    selectedId: 'p_x',
+    selectedSlug: SLUG,
   })
-  useDocs.setState({ byProject: { 'p_x': [] } })
-  useSchema.setState({ byProject: { 'p_x': [] } })
-  usePrompts.setState({ list: { 'p_x': [] }, activeByProject: {}, loading: {} })
-  useModels.setState({ list: { 'p_x': [] }, activeByProject: {}, loading: {} })
+  useDocs.setState({ byProject: { [SLUG]: [] } })
+  useSchema.setState({ byProject: { [SLUG]: [] } })
+  usePrompts.setState({ list: { [SLUG]: [] }, activeByProject: {}, loading: {} })
+  useModels.setState({ list: { [SLUG]: [] }, activeByProject: {}, loading: {} })
   useExperiments.setState({
-    list: { 'p_x': [
+    list: { [SLUG]: [
       { experiment_id: 'ex_a', label: 'try gemma', prompt_id: 'pr', model_id: 'm',
         status: 'ran', created_at: '2026-05-13', score: 0.91 },
       { experiment_id: 'ex_b', label: 'try notes', prompt_id: 'pr', model_id: 'm',
@@ -62,7 +67,7 @@ describe('FSSpine experiments/ group', () => {
   })
 
   it('shows (none yet) when project has no experiments', () => {
-    useExperiments.setState({ list: { 'p_x': [] }, loading: {} })
+    useExperiments.setState({ list: { [SLUG]: [] }, loading: {} })
     render(<FSSpine />)
     fireEvent.click(screen.getByText('experiments/'))
     expect(screen.getByText('(none yet)')).toBeInTheDocument()
@@ -73,7 +78,7 @@ describe('FSSpine experiments/ group', () => {
     // they ever appear, FSSpine should still render them. Confirm this is wired
     // by injecting an archived row directly.
     useExperiments.setState({
-      list: { 'p_x': [
+      list: { [SLUG]: [
         { experiment_id: 'ex_arc', label: 'old try', prompt_id: 'pr', model_id: 'm',
           status: 'archived', created_at: '2026-05-13', score: null },
       ] },

@@ -19,12 +19,13 @@ on this turn is to KICK OFF a background job - not to run the loop yourself.
 
 ## Workflow on `/improve`
 
-1. Call `list_reviewed`. If fewer than 5 reviewed examples exist, stop here:
-   tell the user "/improve needs >=5 reviewed examples to have signal - you
-   currently have N. Please /review more docs first." Do NOT call start_job.
+1. Call `list_reviewed(slug)`. If fewer than 5 reviewed examples exist, stop
+   here: tell the user "/improve needs >=5 reviewed examples to have signal -
+   you currently have N. Please /review more docs first." Do NOT call
+   `start_job`.
 2. Otherwise call `start_job` with:
    ```
-   {"skill": "autoresearch", "project_id": <pid>,
+   {"skill": "autoresearch", "slug": <slug>,
     "params": {"max_turn": 30, "early_stop_no_improvement": 5}}
    ```
    The tool returns a `job_id` string.
@@ -46,5 +47,5 @@ turn - the job loop owns those.
 
 The frontend's progress card subscribes to `/lab/jobs/{job_id}/events` and
 shows the user the best candidate. Acceptance is a UI button calling
-`/lab/projects/{pid}/schema/accept-candidate` directly - you do NOT
+`/lab/projects/{slug}/schema/accept-candidate` directly - you do NOT
 overwrite `schema.json` from chat.

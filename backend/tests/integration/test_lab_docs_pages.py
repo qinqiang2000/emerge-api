@@ -11,7 +11,7 @@ _FIXTURE = Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf"
 
 
 async def test_get_page_returns_png(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "sample.pdf")
     client = TestClient(app)
     # filename is path-encoded as the doc handle (post-d_xxx). The route uses

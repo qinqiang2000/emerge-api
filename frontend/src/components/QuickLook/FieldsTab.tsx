@@ -23,7 +23,8 @@ function PromptFields({ pid, promptId }: { pid: string; promptId: string }) {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/lab/projects/${pid}/prompts/${promptId}`)
+    // `pid` carries the project slug post-transparency rename.
+    fetch(`/lab/projects/${encodeURIComponent(pid)}/prompts/${promptId}`)
       .then(async resp => {
         if (!resp.ok) {
           let code = `http_${resp.status}`
@@ -76,7 +77,7 @@ function VersionFields({ pid, versionId }: { pid: string; versionId: string }) {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/lab/projects/${pid}/versions/${versionId}/raw?shape=fields`)
+    fetch(`/lab/projects/${encodeURIComponent(pid)}/versions/${versionId}/raw?shape=fields`)
       .then(async resp => {
         if (!resp.ok) {
           let code = `http_${resp.status}`

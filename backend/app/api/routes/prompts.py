@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.api.routes._safety import safe_project_id
+from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.prompt import (
     PromptNotFoundError,
@@ -21,10 +21,10 @@ from app.workspace.paths import project_json_path
 router = APIRouter()
 
 
-def _project_or_404(pid: str) -> Path:
-    safe_project_id(pid)
+def _project_or_404(slug: str) -> Path:
+    safe_slug(slug)
     settings = get_settings()
-    pj = project_json_path(settings.workspace_root, pid)
+    pj = project_json_path(settings.workspace_root, slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
@@ -33,27 +33,27 @@ def _project_or_404(pid: str) -> Path:
     return settings.workspace_root
 
 
-@router.get("/lab/projects/{project_id}/prompts")
-async def get_project_prompts(project_id: str) -> list[dict]:
-    workspace = _project_or_404(project_id)
-    await migrate_project_if_needed(workspace, project_id)
-    return await list_prompts(workspace, project_id)
+@router.get("/lab/projects/{slug}/prompts")
+async def get_project_prompts(slug: str) -> list[dict]:
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    return await list_prompts(workspace, slug)
 
 
-@router.get("/lab/projects/{project_id}/prompts/active")
-async def get_project_active_prompt(project_id: str) -> dict:
-    workspace = _project_or_404(project_id)
-    await migrate_project_if_needed(workspace, project_id)
-    pv = await read_active_prompt(workspace, project_id)
+@router.get("/lab/projects/{slug}/prompts/active")
+async def get_project_active_prompt(slug: str) -> dict:
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    pv = await read_active_prompt(workspace, slug)
     return pv.model_dump(mode="json")
 
 
-@router.get("/lab/projects/{project_id}/prompts/{prompt_id}")
-async def get_project_prompt_by_id(project_id: str, prompt_id: str) -> dict:
-    workspace = _project_or_404(project_id)
-    await migrate_project_if_needed(workspace, project_id)
+@router.get("/lab/projects/{slug}/prompts/{prompt_id}")
+async def get_project_prompt_by_id(slug: str, prompt_id: str) -> dict:
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
     try:
-        pv = await read_prompt(workspace, project_id, prompt_id)
+        pv = await read_prompt(workspace, slug, prompt_id)
     except PromptNotFoundError:
         raise HTTPException(
             status_code=404,
@@ -63,21 +63,22 @@ async def get_project_prompt_by_id(project_id: str, prompt_id: str) -> dict:
 
 
 class _ImportPromptBody(BaseModel):
+    # Field name retained; value is a slug.
     src_pid: str
     src_prompt_id: str
     new_label: str | None = None
 
 
-@router.post("/lab/projects/{project_id}/prompts/import")
-async def post_import_prompt(project_id: str, body: _ImportPromptBody) -> dict:
-    workspace = _project_or_404(project_id)
-    safe_project_id(body.src_pid)
+@router.post("/lab/projects/{slug}/prompts/import")
+async def post_import_prompt(slug: str, body: _ImportPromptBody) -> dict:
+    workspace = _project_or_404(slug)
+    safe_slug(body.src_pid)
     try:
         new_id = await import_prompt(
             workspace,
-            src_pid=body.src_pid,
+            src_slug=body.src_pid,
             src_prompt_id=body.src_prompt_id,
-            into_pid=project_id,
+            into_slug=slug,
             new_label=body.new_label,
         )
     except PromptNotFoundError:

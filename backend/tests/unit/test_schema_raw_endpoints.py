@@ -117,7 +117,7 @@ def test_get_project_schema_reads_from_active_prompt(client: TestClient, tmp_pat
     from app.tools.prompt import write_prompt as _write_prompt
     from app.schemas.schema_field import FieldType, SchemaField
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     asyncio.run(_write_prompt(
         tmp_path, pid,
         prompt_id=None,

@@ -52,7 +52,7 @@ _IMAGE_MEDIA_TYPE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpe
 
 def _load_image_blocks(
     workspace: Path,
-    project_id: str,
+    slug: str,
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Build Anthropic image content blocks for any attached images already on
@@ -74,7 +74,7 @@ def _load_image_blocks(
         if not media_type:
             continue
         try:
-            data = doc_path(workspace, project_id, filename).read_bytes()
+            data = doc_path(workspace, slug, filename).read_bytes()
         except OSError:
             continue
         b64 = base64.standard_b64encode(data).decode("ascii")
@@ -206,35 +206,49 @@ class ChatService:
     async def chat_turn(
         self,
         *,
-        project_id: str,
+        slug: str,
         chat_id: str,
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[str]:
-        """Yield SSE-encoded event strings; caller passes them through to the response."""
+        """Yield SSE-encoded event strings; caller passes them through to the response.
+
+        `slug` is the folder-name handle for the project; per chat-events
+        contract the immutable `project_id` (pid) is what jsonl event lines
+        and downstream tool payloads use as the audit anchor — never the
+        slug, which can be renamed. The empty-hero drop case below mints
+        both atomically and surfaces them on the `project_minted` SSE event.
+        """
         # ── pre-flight: claim staged files into a freshly-minted project ──
         # When the user drops files into the empty-hero state, the frontend
         # uploads each file to `/lab/uploads/staging` immediately (so per-file
         # progress/retry is visible while they type) and then submits the chat
-        # with `project_id='p_unset'` plus `attachments[i].stage_token`. This
-        # block intercepts that pattern: mint a placeholder-named project,
-        # claim each staged file into its `docs/` (via the same `upload_doc`
+        # with `slug='p_unset'` plus `attachments[i].stage_token`. This block
+        # intercepts that pattern: mint a placeholder-named project, claim
+        # each staged file into its `docs/` (via the same `upload_doc`
         # pipeline a normal POST /upload would use — sidecar at
         # `docs/.meta/<filename>.json`, slug+dedupe applied), rewrite each
         # attachment to `{filename}` (the only doc handle in the post-d_xxx
-        # world), and rebind `project_id` so every subsequent log line + tool
-        # call lands under the new pid (no post-hoc migration needed). The
+        # world), and rebind `slug` so every subsequent log line + tool call
+        # lands under the new project (no post-hoc migration needed). The
         # agent is expected to rename the project via `rename_project` once
         # the user's intent is clear.
         minted: dict[str, str] | None = None
         if (
-            project_id == "p_unset"
+            slug == "p_unset"
             and attachments
             and any(isinstance(a.get("stage_token"), str) for a in attachments)
         ):
             placeholder = _placeholder_project_name()
             try:
-                new_pid = await _create_project(self.workspace, name=placeholder)
+                _proj = await _create_project(self.workspace, name=placeholder)
+                # `create_project` returns `{project_id, slug}`. The folder
+                # handle for path helpers is the slug; the immutable pid is
+                # the event-stream anchor that gets carried on the SSE
+                # `project_minted` event so any audit trail / log line can
+                # join back to the original mint even after a rename.
+                new_slug = _proj["slug"]
+                new_pid = _proj["project_id"]
             except Exception as e:  # noqa: BLE001
                 err = {
                     "error_code": "project_mint_failed",
@@ -252,7 +266,7 @@ class ChatService:
                         # filename (may differ from the chip name if the
                         # project already had a collision — unlikely on a
                         # freshly-minted project, but handled for free).
-                        final_name = await claim_staged(self.workspace, tok, new_pid)
+                        final_name = await claim_staged(self.workspace, tok, new_slug)
                         claimed.append({"filename": final_name})
                     except (StagingClaimError, ValueError):
                         # Stale / unknown token — drop silently rather than
@@ -267,8 +281,19 @@ class ChatService:
                     if isinstance(fname, str) and fname:
                         claimed.append({"filename": fname})
             attachments = claimed
-            project_id = new_pid
-            minted = {"project_id": new_pid, "name": placeholder}
+            slug = new_slug
+            # `project_minted` payload carries both the slug (FE handle) and
+            # the immutable pid (audit anchor). Agent-4 will switch the FE
+            # to bind `selectedSlug` from `slug`; the legacy `project_id`
+            # field is preserved during the transition so older builds keep
+            # working — its value is the slug for back-compat, with the
+            # explicit pid available alongside.
+            minted = {
+                "project_id": new_slug,
+                "slug": new_slug,
+                "pid": new_pid,
+                "name": placeholder,
+            }
 
         # Keep only render-relevant fields on the persisted attachment record —
         # the agent doesn't need anything else, and we deliberately don't carry
@@ -284,13 +309,13 @@ class ChatService:
             user_event["attachments"] = persisted_attachments
         await append_event(
             self.workspace,
-            project_id,
+            slug,
             chat_id,
             user_event,
         )
         ensure_chat_meta(
             self.workspace,
-            project_id,
+            slug,
             chat_id,
             first_user_message=user_message,
             has_attachments=bool(attachments),
@@ -303,7 +328,7 @@ class ChatService:
             # `user_acknowledged` keeps the existing front-end "ack first" UX.
             yield sse_event("project_minted", minted)
 
-        prev_sid = read_chat_session_id(self.workspace, project_id, chat_id)
+        prev_sid = read_chat_session_id(self.workspace, slug, chat_id)
 
         # Leading `/` is intercepted by the Claude Code CLI as a slash command
         # and silently consumed with no model response. A leading space bypasses
@@ -316,7 +341,7 @@ class ChatService:
         # Inline image attachments as multimodal content blocks so the agent
         # can actually see what the user pasted/dropped. PDFs stay as filename
         # mentions only — those flow through the extractor tools, not vision.
-        image_blocks = _load_image_blocks(self.workspace, project_id, attachments)
+        image_blocks = _load_image_blocks(self.workspace, slug, attachments)
 
         def _make_query_payload() -> str | AsyncIterator[dict[str, Any]]:
             """Fresh query payload per `_run` attempt — AsyncIterables can't be
@@ -355,7 +380,7 @@ class ChatService:
                         sse_payload = redactor.scrub_for_sse(etype, payload)
                         await append_event(
                             self.workspace,
-                            project_id,
+                            slug,
                             chat_id,
                             {"type": etype, **persist_payload},
                         )
@@ -379,7 +404,7 @@ class ChatService:
                     raise
                 # A sidecar pointing at a transcript that ~/.claude no longer has
                 # must not wedge the chat forever — clear it and retry fresh once.
-                write_chat_session_id(self.workspace, project_id, chat_id, None)
+                write_chat_session_id(self.workspace, slug, chat_id, None)
                 latest_sid = None
                 yielded_any = False
                 options = self._build_options(user_message, resume=None)
@@ -389,14 +414,14 @@ class ChatService:
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
                 self.workspace,
-                project_id,
+                slug,
                 chat_id,
                 {"type": "error", **err},
             )
             yield sse_event("error", err)
         finally:
             if latest_sid and latest_sid != prev_sid:
-                write_chat_session_id(self.workspace, project_id, chat_id, latest_sid)
+                write_chat_session_id(self.workspace, slug, chat_id, latest_sid)
             yield sse_event("turn_end", {})
 
 

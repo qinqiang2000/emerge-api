@@ -8,7 +8,7 @@ from app.tools.projects import create_project
 
 
 async def test_upload_pdf(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     files = {"file": ("invoice.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
     r = client.post(f"/lab/projects/{pid}/upload", files=files)
@@ -22,7 +22,7 @@ async def test_upload_pdf(workspace: Path) -> None:
 
 
 async def test_upload_dedup_collision(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     pdf = b"%PDF-1.4\n%%EOF\n"
     r1 = client.post(

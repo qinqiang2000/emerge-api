@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
 import { listProjectTree, type TreeEntry } from '../../lib/api'
-import MentionMenu from './MentionMenu'
+import { useProjects } from '../../stores/projects'
+import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
 import SlashMenu, { COMMANDS } from './SlashMenu'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
@@ -143,7 +144,10 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
 
   // `@` mention state is derived from the textarea content + caret position.
   // The mention menu opens only when a project is selected and the slash menu
-  // is closed (the two are mutually exclusive).
+  // is closed (the two are mutually exclusive). Inside the menu we now also
+  // surface a "projects/" category at the top so users can jump between
+  // projects with `@<slug>` — but the menu only opens at all when there's a
+  // project context.
   const hasProject = !!projectId && projectId !== 'p_unset'
   const mentionToken = useMemo(() => {
     if (!hasProject || showSlash) return null
@@ -167,8 +171,27 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     return mentionEntries.filter(e => e.name.toLowerCase().startsWith(q))
   }, [mentionToken, mentionEntries])
 
+  // Projects category — only shown at the token root (no `/` yet), and only
+  // when the query is short enough that the user is still picking a project.
+  // Match against both `slug` (prefix, matches what gets inserted) and
+  // `name` (substring/case-insensitive, lets users find a project by its
+  // displayed label even when slug has been transcoded).
+  const allProjects = useProjects(s => s.projects)
+  const projectMatches = useMemo<ProjectPick[]>(() => {
+    if (!mentionToken) return []
+    // Only at the root — once the user has typed `<dir>/` they want files,
+    // not projects.
+    if (mentionToken.dir !== '') return []
+    const q = mentionToken.query.toLowerCase()
+    const picks: ProjectPick[] = allProjects.map(p => ({ slug: p.slug, name: p.name }))
+    if (!q) return picks
+    return picks.filter(p =>
+      p.slug.toLowerCase().startsWith(q) || p.name.toLowerCase().includes(q),
+    )
+  }, [mentionToken, allProjects])
+
   // Lazy fetch: when the active dir changes (or projectId changes), pull entries
-  // from cache or hit `/lab/projects/{pid}/tree?dir=…`. 404 → "no such directory".
+  // from cache or hit `/lab/projects/{slug}/tree?dir=…`. 404 → "no such directory".
   useEffect(() => {
     if (!showMention || !mentionToken || !projectId) {
       setMentionEntries([])
@@ -290,13 +313,20 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     taRef.current?.focus()
   }
 
-  /** Replace the current `@…` token with `@<entry.path>` + suffix and move
-   *  the caret to just after the suffix. For dirs we keep the menu open by
-   *  appending `/`; for files we close it by appending a space. */
-  function pickMention(entry: TreeEntry) {
+  /** Replace the current `@…` token with the rendered handle + suffix and move
+   *  the caret to just after the suffix.
+   *  - Project pick → `@<slug> ` (closes menu; slug is the agent handle).
+   *  - Dir entry    → `@<full/path>/` (keeps menu open; user drills in).
+   *  - File entry   → `@<full/path> ` (closes menu). */
+  function pickMention(item: MentionItem) {
     if (!mentionToken) return
-    const suffix = entry.kind === 'dir' ? '/' : ' '
-    const insert = '@' + entry.path + suffix
+    let insert: string
+    if (item.kind === 'project') {
+      insert = '@' + item.project.slug + ' '
+    } else {
+      const suffix = item.entry.kind === 'dir' ? '/' : ' '
+      insert = '@' + item.entry.path + suffix
+    }
     const before = text.slice(0, mentionToken.tokenStart)
     const after = text.slice(caret)
     const next = before + insert + after
@@ -330,25 +360,34 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     }
 
     if (showMention && mentionToken) {
+      // Active index spans the flattened list (projects then tree entries).
+      const totalCount = projectMatches.length + mentionMatches.length
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        const n = mentionMatches.length
-        if (n > 0) setActiveIdx(i => (i + 1) % n)
+        if (totalCount > 0) setActiveIdx(i => (i + 1) % totalCount)
         return
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        const n = mentionMatches.length
-        if (n > 0) setActiveIdx(i => (i - 1 + n) % n)
+        if (totalCount > 0) setActiveIdx(i => (i - 1 + totalCount) % totalCount)
         return
       }
       if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
-        // Only pick if we have a match; otherwise fall through so Tab/Enter
-        // behave like the textarea's default (Enter inserts newline, Tab moves focus).
-        if (mentionMatches.length > 0) {
+        // Only pick if we have at least one match; otherwise fall through so
+        // Tab/Enter behave like the textarea's default (Enter inserts newline,
+        // Tab moves focus).
+        if (totalCount > 0) {
           e.preventDefault()
-          const pick = mentionMatches[Math.min(activeIdx, mentionMatches.length - 1)]
-          if (pick) pickMention(pick)
+          const clamped = Math.min(activeIdx, totalCount - 1)
+          let item: MentionItem | null = null
+          if (clamped < projectMatches.length) {
+            item = { kind: 'project', project: projectMatches[clamped] }
+          } else {
+            const entryIdx = clamped - projectMatches.length
+            const entry = mentionMatches[entryIdx]
+            if (entry) item = { kind: 'entry', entry }
+          }
+          if (item) pickMention(item)
           return
         }
       }
@@ -446,6 +485,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
         )}
         {showMention && mentionToken && (
           <MentionMenu
+            projects={projectMatches}
             entries={mentionMatches}
             activeIdx={activeIdx}
             dir={mentionToken.dir}

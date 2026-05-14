@@ -75,7 +75,7 @@ async def test_first_turn_persists_session_id(workspace: Path) -> None:
     _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
-        await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
+        await _drain(svc, slug=PID, chat_id=CID, user_message="hi")
     meta = chat_meta_path(workspace, PID, CID)
     assert meta.exists()
     data = json.loads(meta.read_text())
@@ -90,9 +90,9 @@ async def test_second_turn_resumes_prior_session(workspace: Path) -> None:
     _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
-        await _drain(svc, project_id=PID, chat_id=CID, user_message="first")
+        await _drain(svc, slug=PID, chat_id=CID, user_message="first")
         _FakeClient.instances.clear()
-        await _drain(svc, project_id=PID, chat_id=CID, user_message="second")
+        await _drain(svc, slug=PID, chat_id=CID, user_message="second")
     assert len(_FakeClient.instances) == 1
     assert _FakeClient.instances[0].resume == "sess-abc"
 
@@ -115,7 +115,7 @@ async def test_self_heal_on_dead_resume(workspace: Path) -> None:
 
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _HealClient):
-        chunks = await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
+        chunks = await _drain(svc, slug=PID, chat_id=CID, user_message="hi")
 
     # First construction with resume="sess-dead" raised; retry with resume=None succeeded.
     assert constructed == ["sess-dead", None]
@@ -133,7 +133,7 @@ async def test_no_retry_when_no_prior_session(workspace: Path) -> None:
 
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _BoomClient):
-        chunks = await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
+        chunks = await _drain(svc, slug=PID, chat_id=CID, user_message="hi")
 
     # prev_sid was None → no retry, single construction attempt.
     assert constructed == [None]
@@ -170,7 +170,7 @@ async def test_no_retry_on_mid_stream_failure_of_resumed_turn(workspace: Path) -
 
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _MidStreamFailClient):
-        chunks = await _drain(svc, project_id=PID, chat_id=CID, user_message="hi")
+        chunks = await _drain(svc, slug=PID, chat_id=CID, user_message="hi")
 
     # No retry: a single construction with resume="sess-old".
     assert constructed == ["sess-old"]

@@ -19,13 +19,13 @@ export function formatJobLine(slice: Pick<JobSlice, 'turns' | 'bestTurn'>): stri
 }
 
 export default function JobProgressCard({ jobId }: Props) {
-  const { selectedId } = useProjects()
+  const { selectedSlug } = useProjects()
   const slice = useJob((s) => s.byId[jobId])
   const { subscribe, pause, resume, cancel, accept } = useJob()
 
   useEffect(() => {
-    if (selectedId && jobId) void subscribe(selectedId, jobId)
-  }, [selectedId, jobId, subscribe])
+    if (selectedSlug && jobId) void subscribe(selectedSlug, jobId)
+  }, [selectedSlug, jobId, subscribe])
 
   if (!slice) return null
 

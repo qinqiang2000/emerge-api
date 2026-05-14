@@ -23,7 +23,7 @@ def _reset_runner():
 
 @pytest.mark.asyncio
 async def test_notes_from_disk_reach_proposer_prompt(workspace: Path, monkeypatch) -> None:
-    pid = await create_project(workspace, name="t-notes")
+    pid = (await create_project(workspace, name="t-notes"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="buyer_name", type=FieldType.STRING, description="legal name")],

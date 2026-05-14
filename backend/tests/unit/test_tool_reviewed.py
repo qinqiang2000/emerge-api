@@ -13,7 +13,7 @@ from app.tools.reviewed import get_reviewed, list_reviewed, save_reviewed
 
 
 async def test_save_reviewed_writes_file(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await save_reviewed(
         workspace,
         pid,
@@ -30,7 +30,7 @@ async def test_save_reviewed_writes_file(workspace: Path) -> None:
 
 
 async def test_save_reviewed_with_notes(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await save_reviewed(
         workspace,
         pid,
@@ -44,7 +44,7 @@ async def test_save_reviewed_with_notes(workspace: Path) -> None:
 
 
 async def test_save_reviewed_overwrites_existing(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await save_reviewed(
         workspace, pid, "x.pdf", entities=[{"a": 1}], source=ReviewedSource.MANUAL
     )
@@ -56,7 +56,7 @@ async def test_save_reviewed_overwrites_existing(workspace: Path) -> None:
 
 
 async def test_save_reviewed_creates_reviewed_dir(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     rd = workspace / pid / "reviewed"
     assert not rd.exists()  # not auto-created on project init
     await save_reviewed(
@@ -66,12 +66,12 @@ async def test_save_reviewed_creates_reviewed_dir(workspace: Path) -> None:
 
 
 async def test_list_reviewed_empty(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     assert await list_reviewed(workspace, pid) == []
 
 
 async def test_list_reviewed_returns_filenames(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await save_reviewed(
         workspace, pid, "alpha.pdf", entities=[{}], source=ReviewedSource.MANUAL
     )
@@ -86,7 +86,7 @@ async def test_list_reviewed_returns_filenames(workspace: Path) -> None:
 
 
 async def test_get_reviewed_returns_payload(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await save_reviewed(
         workspace,
         pid,
@@ -102,5 +102,5 @@ async def test_get_reviewed_returns_payload(workspace: Path) -> None:
 
 
 async def test_get_reviewed_returns_none_for_missing(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     assert await get_reviewed(workspace, pid, "nope.pdf") is None

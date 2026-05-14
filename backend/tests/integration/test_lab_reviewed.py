@@ -7,7 +7,7 @@ from app.tools.projects import create_project
 
 
 async def test_post_reviewed_writes_file(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"invoice_no": "INV-1", "total_amount": 99.5}],
@@ -22,7 +22,7 @@ async def test_post_reviewed_writes_file(workspace: Path) -> None:
 
 
 async def test_post_reviewed_with_notes(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"buyer_name": "ACME"}],
@@ -36,7 +36,7 @@ async def test_post_reviewed_with_notes(workspace: Path) -> None:
 
 
 async def test_post_reviewed_with_evidence(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [{"buyer_name": "ACME"}],
@@ -51,7 +51,7 @@ async def test_post_reviewed_with_evidence(workspace: Path) -> None:
 
 
 async def test_get_reviewed_returns_payload(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     client.post(
         f"/lab/projects/{pid}/reviewed/inv-001.pdf",
@@ -69,14 +69,17 @@ def test_get_reviewed_404_when_missing() -> None:
     assert r.status_code == 404
 
 
-def test_post_reviewed_400_on_bad_pid() -> None:
+def test_post_reviewed_400_on_unsafe_slug() -> None:
+    """Post slug-transparency safe_slug rejects only filesystem-hostile
+    characters (slash / NUL / control / `.` / `..`). A slug containing a NUL
+    is rejected at the handler boundary, before any IO."""
     client = TestClient(app)
-    # uppercase pid fails ^p_[a-z0-9]{12}$
     r = client.post(
-        "/lab/projects/p_INVALIDPATH/reviewed/any.pdf",
+        "/lab/projects/bad%00ctrl/reviewed/any.pdf",
         json={"entities": [], "source": "manual"},
     )
     assert r.status_code == 400
+    assert r.json()["detail"] == "invalid slug"
 
 
 def test_post_reviewed_422_on_bad_body() -> None:
@@ -90,7 +93,7 @@ def test_post_reviewed_422_on_bad_body() -> None:
 
 async def test_post_get_reviewed_multi_entity(workspace: Path) -> None:
     """POST + GET reviewed preserves a multi-entity payload exactly."""
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)
     body = {
         "entities": [

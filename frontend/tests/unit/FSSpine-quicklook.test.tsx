@@ -8,26 +8,31 @@ import { useQuickLook } from '../../src/stores/quicklook'
 import { usePrompts } from '../../src/stores/prompts'
 import { useModels } from '../../src/stores/models'
 
+// Post-slug-transparency: the FE handle is `slug` (folder name). QuickLook's
+// `target.pid` field is now historical — it carries a slug, not the internal
+// `p_xxx` anchor.
+const SLUG = 'us-invoice'
+
 describe('FSSpine → QuickLook wiring', () => {
   beforeEach(() => {
     useProjects.setState({
-      selectedId: 'p_test',
-      projects: [{ project_id: 'p_test', name: 'us-invoice', active_version_id: 'v6' } as any],
+      selectedSlug: SLUG,
+      projects: [{ project_id: 'p_test', slug: SLUG, name: 'us-invoice', active_version_id: 'v6' } as any],
     })
-    useSchema.setState({ byProject: { p_test: [{ name: 'x', type: 'string', description: '' } as any] } })
+    useSchema.setState({ byProject: { [SLUG]: [{ name: 'x', type: 'string', description: '' } as any] } })
     useQuickLook.getState().close()
     usePrompts.setState({
-      list: { p_test: [
+      list: { [SLUG]: [
         { prompt_id: 'pr_baseline', label: 'Baseline', derived_from: null, is_active: true, created_at: 'x', updated_at: 'x' },
       ] },
-      activeByProject: { p_test: { prompt_id: 'pr_baseline', label: 'Baseline', schema: [], global_notes: '', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
+      activeByProject: { [SLUG]: { prompt_id: 'pr_baseline', label: 'Baseline', schema: [], global_notes: '', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
       loading: {},
     })
     useModels.setState({
-      list: { p_test: [
+      list: { [SLUG]: [
         { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', is_active: true, created_at: 'x' },
       ] },
-      activeByProject: { p_test: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', params: {}, created_at: 'x' } as any },
+      activeByProject: { [SLUG]: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', params: {}, created_at: 'x' } as any },
       loading: {},
     })
   })
@@ -43,7 +48,7 @@ describe('FSSpine → QuickLook wiring', () => {
     render(<FSSpine />)
     await userEvent.click(screen.getByText('prompts/'))
     await userEvent.click(screen.getByText('Baseline'))
-    expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: 'p_test' })
+    expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: SLUG })
   })
 
   it('clicking a versions/vN leaf opens version QuickLook', async () => {
@@ -52,7 +57,7 @@ describe('FSSpine → QuickLook wiring', () => {
     await userEvent.click(screen.getByText('versions/'))
     const v6 = screen.getByText('v6')
     await userEvent.click(v6)
-    expect(useQuickLook.getState().target).toEqual({ kind: 'version', pid: 'p_test', versionId: 'v6' })
+    expect(useQuickLook.getState().target).toEqual({ kind: 'version', pid: SLUG, versionId: 'v6' })
   })
 
   it('clicking docs/ folder header does not open QuickLook', async () => {

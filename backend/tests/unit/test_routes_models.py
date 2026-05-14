@@ -25,7 +25,7 @@ def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -
     settings = get_settings()
     default_label = f"Default ({settings.default_extract_model})"
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     asyncio.run(_create_model(
         tmp_path, pid,
         label="Sonnet 4.6", provider="anthropic", provider_model_id="claude-sonnet-4-6",
@@ -44,7 +44,7 @@ def test_get_active_model_returns_full_blob(client: TestClient, tmp_path: Path) 
     from app.tools.projects import create_project as _create
 
     settings = get_settings()
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.get(f"/lab/projects/{pid}/models/active")
     assert r.status_code == 200
     blob = r.json()
@@ -57,7 +57,7 @@ def test_get_model_by_id(client: TestClient, tmp_path: Path) -> None:
     import asyncio
     from app.tools.projects import create_project as _create
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.get(f"/lab/projects/{pid}/models/m_default")
     assert r.status_code == 200
     blob = r.json()
@@ -68,7 +68,7 @@ def test_get_model_missing_404(client: TestClient, tmp_path: Path) -> None:
     import asyncio
     from app.tools.projects import create_project as _create
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.get(f"/lab/projects/{pid}/models/m_nope")
     assert r.status_code == 404
     assert r.json()["detail"]["error_code"] == "model_not_found"

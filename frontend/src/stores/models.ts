@@ -53,8 +53,8 @@ export const useModels = create<State>((set, get) => ({
     set((s) => ({ loading: { ...s.loading, [projectId]: true } }))
     try {
       const [listResp, activeResp] = await Promise.all([
-        fetch(`/lab/projects/${projectId}/models`),
-        fetch(`/lab/projects/${projectId}/models/active`),
+        fetch(`/lab/projects/${encodeURIComponent(projectId)}/models`),
+        fetch(`/lab/projects/${encodeURIComponent(projectId)}/models/active`),
       ])
       const list = listResp.ok ? (await listResp.json() as ModelRow[]) : []
       const active = activeResp.ok ? (await activeResp.json() as ActiveModel) : undefined

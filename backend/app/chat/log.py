@@ -14,11 +14,11 @@ _log_lock = asyncio.Lock()
 
 async def append_event(
     workspace: Path,
-    project_id: str,
+    slug: str,
     chat_id: str,
     event: dict[str, Any],
 ) -> None:
-    cdir = chats_dir(workspace, project_id)
+    cdir = chats_dir(workspace, slug)
     cdir.mkdir(parents=True, exist_ok=True)
     log_path = cdir / f"{chat_id}.jsonl"
     line = json.dumps(event, ensure_ascii=False) + "\n"
@@ -30,7 +30,7 @@ async def append_event(
 
 def rewind_to_user(
     workspace: Path,
-    project_id: str,
+    slug: str,
     chat_id: str,
     *,
     target_user_index: int | None = None,
@@ -48,7 +48,7 @@ def rewind_to_user(
     cleared so the call is safe to retry). Pairs with the UI's retry / edit
     flow on any user bubble — see ``useChat.rewindAndSend``.
     """
-    log_path = chats_dir(workspace, project_id) / f"{chat_id}.jsonl"
+    log_path = chats_dir(workspace, slug) / f"{chat_id}.jsonl"
     new_size = 0
     if log_path.exists():
         try:
@@ -95,7 +95,7 @@ def rewind_to_user(
                 new_size = len(raw)
         else:
             new_size = len(raw)
-    write_chat_session_id(workspace, project_id, chat_id, None)
+    write_chat_session_id(workspace, slug, chat_id, None)
     return new_size
 
 
@@ -103,9 +103,9 @@ def rewind_to_user(
 rewind_to_last_user = rewind_to_user
 
 
-def read_chat_events(workspace: Path, project_id: str, chat_id: str) -> list[dict[str, Any]]:
+def read_chat_events(workspace: Path, slug: str, chat_id: str) -> list[dict[str, Any]]:
     """Read back the JSONL chat log for UI replay. Returns [] if no/unreadable log file."""
-    log_path = chats_dir(workspace, project_id) / f"{chat_id}.jsonl"
+    log_path = chats_dir(workspace, slug) / f"{chat_id}.jsonl"
     if not log_path.exists():
         return []
     out: list[dict[str, Any]] = []
@@ -172,9 +172,9 @@ def derive_chat_label(first_user_message: str) -> str:
     return s[:40].rstrip()
 
 
-def read_chat_meta(workspace: Path, project_id: str, chat_id: str) -> dict[str, Any]:
+def read_chat_meta(workspace: Path, slug: str, chat_id: str) -> dict[str, Any]:
     """Whole meta dict ({} if missing/unreadable)."""
-    meta_path = chat_meta_path(workspace, project_id, chat_id)
+    meta_path = chat_meta_path(workspace, slug, chat_id)
     if not meta_path.exists():
         return {}
     try:
@@ -184,14 +184,14 @@ def read_chat_meta(workspace: Path, project_id: str, chat_id: str) -> dict[str, 
     return data if isinstance(data, dict) else {}
 
 
-def _write_chat_meta(workspace: Path, project_id: str, chat_id: str, data: dict[str, Any]) -> None:
-    chats_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
-    atomic_write_json(chat_meta_path(workspace, project_id, chat_id), data)
+def _write_chat_meta(workspace: Path, slug: str, chat_id: str, data: dict[str, Any]) -> None:
+    chats_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+    atomic_write_json(chat_meta_path(workspace, slug, chat_id), data)
 
 
 def ensure_chat_meta(
     workspace: Path,
-    project_id: str,
+    slug: str,
     chat_id: str,
     *,
     first_user_message: str,
@@ -199,7 +199,7 @@ def ensure_chat_meta(
 ) -> None:
     """Set {label, kind, created_at} once. Idempotent: a second call (later turn)
     does not overwrite an already-set kind/label/created_at."""
-    meta = read_chat_meta(workspace, project_id, chat_id)
+    meta = read_chat_meta(workspace, slug, chat_id)
     changed = False
     if "kind" not in meta:
         meta["kind"] = derive_chat_kind(first_user_message, has_attachments=has_attachments)
@@ -211,53 +211,53 @@ def ensure_chat_meta(
         meta["created_at"] = _now_iso()
         changed = True
     if changed:
-        _write_chat_meta(workspace, project_id, chat_id, meta)
+        _write_chat_meta(workspace, slug, chat_id, meta)
 
 
-def read_chat_session_id(workspace: Path, project_id: str, chat_id: str) -> str | None:
+def read_chat_session_id(workspace: Path, slug: str, chat_id: str) -> str | None:
     """Return the persisted SDK session id for resuming, or None."""
-    sid = read_chat_meta(workspace, project_id, chat_id).get("sdk_session_id")
+    sid = read_chat_meta(workspace, slug, chat_id).get("sdk_session_id")
     return sid if isinstance(sid, str) and sid else None
 
 
 def write_chat_session_id(
     workspace: Path,
-    project_id: str,
+    slug: str,
     chat_id: str,
     session_id: str | None,
 ) -> None:
     """Merge the SDK session id into the meta sidecar (None clears just that key).
     If clearing leaves the sidecar empty, the file is removed; otherwise the
     {label, kind, created_at} half is preserved."""
-    meta = read_chat_meta(workspace, project_id, chat_id)
+    meta = read_chat_meta(workspace, slug, chat_id)
     if session_id is None:
         meta.pop("sdk_session_id", None)
-        meta_path = chat_meta_path(workspace, project_id, chat_id)
+        meta_path = chat_meta_path(workspace, slug, chat_id)
         if not meta:
             try:
                 meta_path.unlink()
             except FileNotFoundError:
                 pass
             return
-        _write_chat_meta(workspace, project_id, chat_id, meta)
+        _write_chat_meta(workspace, slug, chat_id, meta)
         return
     meta["sdk_session_id"] = session_id
-    _write_chat_meta(workspace, project_id, chat_id, meta)
+    _write_chat_meta(workspace, slug, chat_id, meta)
 
 
-def list_chats(workspace: Path, project_id: str) -> list[dict[str, Any]]:
+def list_chats(workspace: Path, slug: str) -> list[dict[str, Any]]:
     """All chats for a project, newest first. Source of truth = directory scan of
     chats/c_*.jsonl plus the meta sidecar; legacy logs (no sidecar) fall back to
     deriving kind/label from line 1 and ts from file mtime. Returns [] if the
     project has no chats dir."""
-    cdir = chats_dir(workspace, project_id)
+    cdir = chats_dir(workspace, slug)
     if not cdir.exists():
         return []
     out: list[dict[str, Any]] = []
     for log_path in cdir.glob("c_*.jsonl"):
         chat_id = log_path.stem
-        events = read_chat_events(workspace, project_id, chat_id)
-        meta = read_chat_meta(workspace, project_id, chat_id)
+        events = read_chat_events(workspace, slug, chat_id)
+        meta = read_chat_meta(workspace, slug, chat_id)
         kind = meta.get("kind")
         label = meta.get("label")
         ts_iso = meta.get("created_at")

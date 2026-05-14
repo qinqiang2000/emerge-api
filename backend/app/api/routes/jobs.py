@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.routes._safety import safe_job_id, safe_project_id
+from app.api.routes._safety import safe_job_id, safe_slug
 from app.config import get_settings
 from app.jobs import get_runner
 from app.jobs.runner import JobNotFoundError, UnknownSkillError
@@ -21,6 +21,9 @@ router = APIRouter()
 
 class StartJobBody(BaseModel):
     skill: str
+    # Field name retained for FE back-compat; the value is now a slug (folder
+    # handle). The runner's `project_id` kwarg likewise carries the slug —
+    # paths are slug-keyed end-to-end.
     project_id: str
     params: dict[str, Any] = {}
 
@@ -36,7 +39,7 @@ def _get_runner():
 
 @router.post("/lab/jobs")
 async def start_job(body: StartJobBody) -> dict:
-    safe_project_id(body.project_id)
+    safe_slug(body.project_id)
     runner = _get_runner()
     try:
         jid = await runner.start(skill=body.skill, project_id=body.project_id, params=body.params)
@@ -98,9 +101,13 @@ async def get_job_events(
 ) -> EventSourceResponse:
     """Tail the job's JSONL file as SSE. Backfills existing events on connect,
     then watches for new lines via 200ms poll. Closes when an `ended` event
-    is observed."""
+    is observed.
+
+    `project_id` query param value is a slug (folder handle) — kept under the
+    legacy name to avoid an FE breaking change in this batch.
+    """
     safe_job_id(job_id)
-    safe_project_id(project_id)
+    safe_slug(project_id)
     settings = get_settings()
     log_path = job_log_path(settings.workspace_root, project_id, job_id)
     runner = _get_runner()

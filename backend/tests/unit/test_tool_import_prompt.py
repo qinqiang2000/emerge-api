@@ -63,8 +63,8 @@ async def test_import_prompt_copies_schema_and_notes(workspace: Path) -> None:
 
     new_id = await import_prompt(
         workspace,
-        src_pid=src_pid, src_prompt_id="pr_baseline",
-        into_pid=dst_pid,
+        src_slug=src_pid, src_prompt_id="pr_baseline",
+        into_slug=dst_pid,
         new_label="from US",
     )
 
@@ -87,8 +87,8 @@ async def test_import_prompt_label_defaults_to_src_label(workspace: Path) -> Non
 
     new_id = await import_prompt(
         workspace,
-        src_pid=src_pid, src_prompt_id="pr_baseline",
-        into_pid=dst_pid,
+        src_slug=src_pid, src_prompt_id="pr_baseline",
+        into_slug=dst_pid,
     )
     pv = await read_prompt(workspace, dst_pid, new_id)
     assert pv.label == "US baseline"
@@ -102,8 +102,8 @@ async def test_import_prompt_missing_src_raises(workspace: Path) -> None:
     with pytest.raises(PromptNotFoundError):
         await import_prompt(
             workspace,
-            src_pid=src_pid, src_prompt_id="pr_does_not_exist",
-            into_pid=dst_pid,
+            src_slug=src_pid, src_prompt_id="pr_does_not_exist",
+            into_slug=dst_pid,
         )
 
 
@@ -113,6 +113,6 @@ async def test_import_prompt_missing_dest_raises(workspace: Path) -> None:
     with pytest.raises(PromptNotFoundError):
         await import_prompt(
             workspace,
-            src_pid=src_pid, src_prompt_id="pr_baseline",
-            into_pid="p_doesnotexist",
+            src_slug=src_pid, src_prompt_id="pr_baseline",
+            into_slug="dst-does-not-exist",
         )

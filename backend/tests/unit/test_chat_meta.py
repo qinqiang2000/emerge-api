@@ -43,7 +43,7 @@ def test_derive_chat_label_strips_leading_command_and_truncates() -> None:
 
 
 async def test_ensure_chat_meta_sets_once_and_is_idempotent(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_aaaaaaaaaaaa"
     ensure_chat_meta(workspace, pid, cid, first_user_message="/improve", has_attachments=False)
     meta1 = read_chat_meta(workspace, pid, cid)
@@ -57,7 +57,7 @@ async def test_ensure_chat_meta_sets_once_and_is_idempotent(workspace: Path) -> 
 
 
 async def test_session_id_write_preserves_kind_label(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_bbbbbbbbbbbb"
     ensure_chat_meta(workspace, pid, cid, first_user_message="/extract", has_attachments=False)
     write_chat_session_id(workspace, pid, cid, "sess-9")
@@ -76,7 +76,7 @@ async def test_session_id_write_preserves_kind_label(workspace: Path) -> None:
 
 async def test_session_id_only_sidecar_is_deleted_on_clear(workspace: Path) -> None:
     # No ensure_chat_meta call → sidecar holds only sdk_session_id → clearing removes it.
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_cccccccccccc"
     write_chat_session_id(workspace, pid, cid, "sess-1")
     assert chat_meta_path(workspace, pid, cid).exists()
@@ -85,7 +85,7 @@ async def test_session_id_only_sidecar_is_deleted_on_clear(workspace: Path) -> N
 
 
 async def test_list_chats_sorted_desc_by_created_at(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     # Three chats, meta created_at out of file-order so sort is exercised.
     for cid, msg, ts in [
         ("c_111111111111", "/init x", "2026-05-10T08:00:00+00:00"),
@@ -120,7 +120,7 @@ def test_list_chats_empty_when_no_chats(workspace: Path) -> None:
 async def test_list_chats_falls_back_to_first_line_for_legacy_logs(workspace: Path) -> None:
     # Pre-M8 logs have a .jsonl but no .meta.json — derive kind/label from line 1,
     # ts from file mtime (just assert it's a non-empty iso-ish string).
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_legacy000000"
     await append_event(workspace, pid, cid, {"type": "user", "text": "/improve"})
     out = list_chats(workspace, pid)

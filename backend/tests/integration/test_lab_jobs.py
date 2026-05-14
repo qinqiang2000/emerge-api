@@ -31,7 +31,7 @@ def _reset_runner_singleton():
 
 
 async def test_get_job_status(workspace: Path, monkeypatch) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
@@ -91,7 +91,7 @@ async def test_post_job_cancel(workspace: Path, monkeypatch) -> None:
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],

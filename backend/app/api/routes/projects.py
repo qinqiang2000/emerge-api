@@ -4,7 +4,7 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.api.routes._safety import safe_project_id
+from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.docs import list_docs
 from app.tools.projects import list_projects
@@ -44,6 +44,8 @@ async def get_projects() -> list[dict]:
 
 
 class _ForkProjectBody(BaseModel):
+    # Field names kept for back-compat; values now carry slugs (the human-
+    # readable folder handle). `src_pid` -> src_slug semantically.
     src_pid: str
     name: str
     include_docs: bool = False
@@ -51,14 +53,14 @@ class _ForkProjectBody(BaseModel):
 
 @router.post("/lab/projects/fork")
 async def post_fork_project(body: _ForkProjectBody) -> dict:
-    safe_project_id(body.src_pid)
+    safe_slug(body.src_pid)
     settings = get_settings()
     from app.tools.fork import ForkSourceNotFoundError, fork_project
 
     try:
-        new_pid = await fork_project(
+        out = await fork_project(
             settings.workspace_root,
-            src_pid=body.src_pid,
+            src_slug=body.src_pid,
             name=body.name,
             include_docs=body.include_docs,
         )
@@ -67,37 +69,45 @@ async def post_fork_project(body: _ForkProjectBody) -> dict:
             status_code=404,
             detail={"error_code": "project_not_found"},
         )
-    return {"project_id": new_pid}
+    # Surface both shapes so existing FE wiring (project_id key) keeps working
+    # while agent-4 migrates to `slug`. The pid is also included for audit.
+    return {
+        "project_id": out["slug"],
+        "slug": out["slug"],
+        "pid": out["project_id"],
+    }
 
 
-@router.get("/lab/projects/{project_id}")
-async def get_project(project_id: str) -> dict:
-    safe_project_id(project_id)
+@router.get("/lab/projects/{slug}")
+async def get_project(slug: str) -> dict:
+    safe_slug(slug)
     settings = get_settings()
     from app.workspace.migrate import migrate_project_if_needed
 
-    pj = project_json_path(settings.workspace_root, project_id)
+    pj = project_json_path(settings.workspace_root, slug)
     if not pj.exists():
         raise HTTPException(status_code=404, detail="project_not_found")
-    await migrate_project_if_needed(settings.workspace_root, project_id)
+    await migrate_project_if_needed(settings.workspace_root, slug)
     blob = json.loads(pj.read_text())
-    return {"project_id": project_id, **blob}
+    # `project_id` field in response is the slug (back-compat key); the
+    # actual pid lives inside `blob["project_id"]`.
+    return {"project_id": slug, **blob, "slug": slug}
 
 
-@router.get("/lab/projects/{project_id}/docs")
-async def get_project_docs(project_id: str) -> list[dict]:
+@router.get("/lab/projects/{slug}/docs")
+async def get_project_docs(slug: str) -> list[dict]:
     """List the project's docs with quick has-reviewed / has-prediction flags.
 
     Each item carries `filename` (the doc handle), `ext`, `page_count`,
     `sha256`, `uploaded_at`, and `original_name`. No `doc_id` — filename is
     the only handle now."""
-    safe_project_id(project_id)
+    safe_slug(slug)
     settings = get_settings()
-    docs = await list_docs(settings.workspace_root, project_id)
+    docs = await list_docs(settings.workspace_root, slug)
     reviewed_names = {
-        r["filename"] for r in await list_reviewed(settings.workspace_root, project_id)
+        r["filename"] for r in await list_reviewed(settings.workspace_root, slug)
     }
-    pdir = predictions_draft_dir(settings.workspace_root, project_id)
+    pdir = predictions_draft_dir(settings.workspace_root, slug)
     # prediction filenames live at `predictions/_draft/<filename>.json`; strip
     # only the trailing `.json` to recover the doc handle (which itself
     # already includes the doc's extension).
@@ -150,8 +160,8 @@ def _is_tree_visible(name: str, parent_rel: PurePosixPath) -> bool:
     return True
 
 
-@router.get("/lab/projects/{project_id}/tree")
-async def get_project_tree(project_id: str, dir: str = "") -> list[dict]:
+@router.get("/lab/projects/{slug}/tree")
+async def get_project_tree(slug: str, dir: str = "") -> list[dict]:
     """Browse the project workspace as a filtered tree. Powers the composer
     `@` mention picker.
 
@@ -164,10 +174,10 @@ async def get_project_tree(project_id: str, dir: str = "") -> list[dict]:
     - 400 on traversal / absolute / non-relative `dir`; 404 if the dir
       doesn't exist.
     """
-    safe_project_id(project_id)
+    safe_slug(slug)
     rel = _validate_tree_dir(dir)
     settings = get_settings()
-    root = project_dir(settings.workspace_root, project_id).resolve()
+    root = project_dir(settings.workspace_root, slug).resolve()
     if not root.exists():
         raise HTTPException(status_code=404, detail="project_not_found")
 
@@ -200,16 +210,16 @@ async def get_project_tree(project_id: str, dir: str = "") -> list[dict]:
     return dirs + files
 
 
-@router.get("/lab/projects/{project_id}/schema")
-async def get_project_schema(project_id: str) -> list[dict]:
-    safe_project_id(project_id)
+@router.get("/lab/projects/{slug}/schema")
+async def get_project_schema(slug: str) -> list[dict]:
+    safe_slug(slug)
     settings = get_settings()
     from app.tools.schema import read_schema
     from app.workspace.migrate import migrate_project_if_needed
 
-    pj = project_json_path(settings.workspace_root, project_id)
+    pj = project_json_path(settings.workspace_root, slug)
     if not pj.exists():
         raise HTTPException(status_code=404, detail="schema_not_found")
-    await migrate_project_if_needed(settings.workspace_root, project_id)
-    fields = await read_schema(settings.workspace_root, project_id)
+    await migrate_project_if_needed(settings.workspace_root, slug)
+    fields = await read_schema(settings.workspace_root, slug)
     return [f.model_dump(mode="json") for f in fields]

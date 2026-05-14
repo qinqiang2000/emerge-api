@@ -16,7 +16,7 @@ from app.workspace.paths import predictions_draft_dir, reviewed_dir
 
 
 async def _seed_published(workspace: Path) -> str:
-    pid = await create_project(workspace, name="us-invoice")
+    pid = (await create_project(workspace, name="us-invoice"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="invoice_number", type=FieldType.STRING, description="Invoice no")],
@@ -70,17 +70,18 @@ async def test_export_missing_version_404(workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_export_unpublished_project_404(workspace: Path) -> None:
-    pid = await create_project(workspace, name="unpubd")
+    pid = (await create_project(workspace, name="unpubd"))["slug"]
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/export")
     assert r.status_code == 404
     assert r.json()["error_code"] == "not_published"
 
 
-def test_export_invalid_pid_400() -> None:
+def test_export_unknown_slug_404() -> None:
+    """A valid-shape slug that doesn't exist returns 404 (existence check)."""
     client = TestClient(app)
     r = client.get("/lab/projects/notapid/export")
-    assert r.status_code == 400
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

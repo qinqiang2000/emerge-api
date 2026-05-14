@@ -105,7 +105,7 @@ async def test_contract_diff_mcp_tool_works_on_fresh_project(
     from app.schemas.schema_field import FieldType, SchemaField
     import mcp.types as mcp_types
 
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await write_prompt(
         workspace, pid,
         prompt_id=None,
@@ -117,7 +117,7 @@ async def test_contract_diff_mcp_tool_works_on_fresh_project(
     call_handler = instance.request_handlers[mcp_types.CallToolRequest]
     req = mcp_types.CallToolRequest(
         method="tools/call",
-        params=mcp_types.CallToolRequestParams(name="contract_diff", arguments={"project_id": pid}),
+        params=mcp_types.CallToolRequestParams(name="contract_diff", arguments={"slug": pid}),
     )
     result = await call_handler(req)
     payload_text = result.root.content[0].text  # type: ignore[index]

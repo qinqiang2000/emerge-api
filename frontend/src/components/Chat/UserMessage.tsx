@@ -31,7 +31,7 @@ function _isImage(filename: string): boolean {
  *  chat is idle. Truncation is destructive (no branching). */
 export default function UserMessage({ text, userIndex, attachments }: Props) {
   const busy = useChat(s => s.busy)
-  const selectedId = useProjects(s => s.selectedId)
+  const selectedSlug = useProjects(s => s.selectedSlug)
   const rewindAndSend = useChat(s => s.rewindAndSend)
 
   const [editing, setEditing] = useState(false)
@@ -70,11 +70,11 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
     const trimmed = draft.trim()
     if (!trimmed || trimmed === text.trim()) return
     setEditing(false)
-    await rewindAndSend(selectedId ?? 'p_unset', trimmed, userIndex)
+    await rewindAndSend(selectedSlug ?? 'p_unset', trimmed, userIndex)
   }
 
   async function retry() {
-    await rewindAndSend(selectedId ?? 'p_unset', text, userIndex)
+    await rewindAndSend(selectedSlug ?? 'p_unset', text, userIndex)
   }
 
   async function copy() {
@@ -134,8 +134,8 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
           {attachments!.map((a, i) => {
             // Filename is the only doc handle; encode it for the URL since
             // dedupe / unicode can produce names with spaces or parens.
-            const url = selectedId
-              ? `/lab/projects/${selectedId}/docs/by-name/${encodeURIComponent(a.filename)}/pages/1`
+            const url = selectedSlug
+              ? `/lab/projects/${encodeURIComponent(selectedSlug)}/docs/by-name/${encodeURIComponent(a.filename)}/pages/1`
               : null
             if (url && _isImage(a.filename)) {
               return (

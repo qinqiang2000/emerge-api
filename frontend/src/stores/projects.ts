@@ -1,19 +1,25 @@
 // frontend/src/stores/projects.ts
+//
+// Post-slug-transparency: the canonical project handle the frontend holds is
+// `slug` — the human-readable on-disk folder name. `project_id` (`p_xxx`)
+// remains in the Project shape only as an immutable internal anchor for chat
+// events / job jsonl; UI code never selects by it.
 import { create } from 'zustand'
 
 import { listProjects, type Project } from '../lib/api'
 
 interface State {
   projects: Project[]
-  selectedId: string | null
+  /** Currently selected project's slug — the URL/path-safe folder name. */
+  selectedSlug: string | null
   loading: boolean
   refresh: () => Promise<void>
-  select: (id: string | null) => void
+  select: (slug: string | null) => void
 }
 
 export const useProjects = create<State>((set) => ({
   projects: [],
-  selectedId: null,
+  selectedSlug: null,
   loading: false,
   refresh: async () => {
     set({ loading: true })
@@ -24,5 +30,5 @@ export const useProjects = create<State>((set) => ({
       set({ loading: false })
     }
   },
-  select: (id) => set({ selectedId: id }),
+  select: (slug) => set({ selectedSlug: slug }),
 }))

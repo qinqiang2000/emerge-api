@@ -56,8 +56,8 @@ export const usePrompts = create<State>((set, get) => ({
     set((s) => ({ loading: { ...s.loading, [projectId]: true } }))
     try {
       const [listResp, activeResp] = await Promise.all([
-        fetch(`/lab/projects/${projectId}/prompts`),
-        fetch(`/lab/projects/${projectId}/prompts/active`),
+        fetch(`/lab/projects/${encodeURIComponent(projectId)}/prompts`),
+        fetch(`/lab/projects/${encodeURIComponent(projectId)}/prompts/active`),
       ])
       const list = listResp.ok ? (await listResp.json() as PromptRow[]) : []
       const active = activeResp.ok ? (await activeResp.json() as ActivePrompt) : undefined

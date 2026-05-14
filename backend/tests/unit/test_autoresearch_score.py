@@ -11,7 +11,7 @@ from app.tools.reviewed import save_reviewed
 
 
 async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     pdf = b"%PDF-1.4\n%%EOF\n"
     meta = await upload_doc(workspace, pid, pdf, "a.pdf")
     filename = meta["filename"]
@@ -37,7 +37,7 @@ async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> Non
 
 
 async def test_score_with_schema_returns_zero_when_reviewed_empty(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     schema = [SchemaField(name="invoice_no", type=FieldType.STRING, description="d")]
     provider = AsyncMock()
     score_result, predictions = await score_with_schema(

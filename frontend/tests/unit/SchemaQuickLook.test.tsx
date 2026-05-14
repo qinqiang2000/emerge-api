@@ -10,8 +10,11 @@ import { usePrompts } from '../../src/stores/prompts'
 describe('SchemaQuickLook', () => {
   beforeEach(() => {
     useQuickLook.getState().close()
-    useProjects.setState({ selectedId: 'p_test', projects: [
-      { project_id: 'p_test', name: 'us-invoice', active_version_id: 'v6' } as any,
+    // Slug = 'p_test' here only because the original fixture used `p_test` as
+    // the QuickLook target's `pid`; FSSpine and QuickLook now both treat that
+    // field as a slug. Keeping the literal verbatim minimises test churn.
+    useProjects.setState({ selectedSlug: 'p_test', projects: [
+      { project_id: 'p_internal', slug: 'p_test', name: 'us-invoice', active_version_id: 'v6' } as any,
     ] })
     useSchema.setState({ byProject: { p_test: [
       { name: 'invoice_number', type: 'string', description: 'the id', required: true } as any,
@@ -60,7 +63,7 @@ describe('SchemaQuickLook', () => {
   it('switching project closes the sheet', () => {
     useQuickLook.getState().openSchema('p_test')
     render(<SchemaQuickLook />)
-    useProjects.setState({ selectedId: 'p_other' })
+    useProjects.setState({ selectedSlug: 'p_other' })
     expect(useQuickLook.getState().target).toBeNull()
   })
 

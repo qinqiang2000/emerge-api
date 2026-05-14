@@ -21,7 +21,7 @@ def test_list_prompts_returns_active_marker(client: TestClient, tmp_path: Path) 
     from app.tools.projects import create_project as _create
     from app.tools.prompt import create_prompt as _create_prompt
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     asyncio.run(_create_prompt(tmp_path, pid, label="trial"))
 
     r = client.get(f"/lab/projects/{pid}/prompts")
@@ -37,7 +37,7 @@ def test_get_active_prompt_returns_full_blob_with_derived_from(client: TestClien
     from app.tools.projects import create_project as _create
     from app.tools.prompt import create_prompt as _create_prompt, switch_active_prompt as _switch
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     new_id = asyncio.run(_create_prompt(tmp_path, pid, label="trial"))
     asyncio.run(_switch(tmp_path, pid, new_id))
 
@@ -55,7 +55,7 @@ def test_get_prompt_by_id(client: TestClient, tmp_path: Path) -> None:
     import asyncio
     from app.tools.projects import create_project as _create
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.get(f"/lab/projects/{pid}/prompts/pr_baseline")
     assert r.status_code == 200
     blob = r.json()
@@ -66,7 +66,7 @@ def test_get_prompt_missing_404(client: TestClient, tmp_path: Path) -> None:
     import asyncio
     from app.tools.projects import create_project as _create
 
-    pid = asyncio.run(_create(tmp_path, name="t"))
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.get(f"/lab/projects/{pid}/prompts/pr_nope")
     assert r.status_code == 404
     assert r.json()["detail"]["error_code"] == "prompt_not_found"

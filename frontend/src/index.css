@@ -292,6 +292,9 @@ html, body, #root {
 .mentionmenu .item.active .name{color:var(--ink)}
 .mentionmenu .item .hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
 .mentionmenu .empty{font-family:var(--serif);font-size:13px;color:var(--ink-4);font-style:italic;padding:8px 12px}
+.mentionmenu .section-label{display:block;font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.12em;padding:8px 10px 2px}
+.mentionmenu .item .slug-hint{font-family:var(--mono);font-size:11px;color:var(--ink-5);margin-right:8px;padding-left:8px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+.mentionmenu .item.active .slug-hint{color:var(--ink-4)}
 
 /* ── context surface ─────────────────────────────────────────────── */
 /* floating right panel — fixed overlay, not a shell grid column.

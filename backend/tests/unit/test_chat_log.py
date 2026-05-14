@@ -14,7 +14,7 @@ from app.workspace.paths import chat_meta_path, chats_dir
 
 
 async def test_append_event_writes_one_line(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_test"
     await append_event(workspace, pid, cid, {"type": "user", "text": "hi"})
     log = workspace / pid / "chats" / f"{cid}.jsonl"
@@ -24,7 +24,7 @@ async def test_append_event_writes_one_line(workspace: Path) -> None:
 
 
 async def test_append_multiple_events(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_test"
     await append_event(workspace, pid, cid, {"type": "user", "text": "hi"})
     await append_event(workspace, pid, cid, {"type": "agent", "text": "hello"})
@@ -33,7 +33,7 @@ async def test_append_multiple_events(workspace: Path) -> None:
 
 
 async def test_read_chat_events_roundtrip(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_test"
     await append_event(workspace, pid, cid, {"type": "user", "text": "hi"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "yo"})
@@ -85,7 +85,7 @@ def test_read_chat_session_id_bad_json(workspace: Path) -> None:
 
 
 async def test_rewind_to_last_user_truncates_and_clears_sidecar(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_rewind"
     await append_event(workspace, pid, cid, {"type": "user", "text": "first"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "ok"})
@@ -106,7 +106,7 @@ async def test_rewind_to_last_user_truncates_and_clears_sidecar(workspace: Path)
 
 
 async def test_rewind_to_last_user_no_user_line_is_noop(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_only_agent"
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "hi"})
     before = read_chat_events(workspace, pid, cid)
@@ -120,7 +120,7 @@ def test_rewind_to_last_user_missing_file_is_noop(workspace: Path) -> None:
 
 
 async def test_rewind_to_last_user_idempotent(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_idem"
     await append_event(workspace, pid, cid, {"type": "user", "text": "first"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "ok"})
@@ -131,7 +131,7 @@ async def test_rewind_to_last_user_idempotent(workspace: Path) -> None:
 
 
 async def test_rewind_to_user_with_target_index(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_target"
     await append_event(workspace, pid, cid, {"type": "user", "text": "u0"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "a0"})
@@ -149,7 +149,7 @@ async def test_rewind_to_user_with_target_index(workspace: Path) -> None:
 
 
 async def test_rewind_to_user_target_index_zero(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_zero"
     await append_event(workspace, pid, cid, {"type": "user", "text": "u0"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "a0"})
@@ -158,7 +158,7 @@ async def test_rewind_to_user_target_index_zero(workspace: Path) -> None:
 
 
 async def test_rewind_to_user_target_index_out_of_range_is_noop(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_oor"
     await append_event(workspace, pid, cid, {"type": "user", "text": "u0"})
     await append_event(workspace, pid, cid, {"type": "agent_text", "text": "a0"})

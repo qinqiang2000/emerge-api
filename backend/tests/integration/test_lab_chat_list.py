@@ -16,7 +16,7 @@ client = TestClient(app)
 async def test_chat_list_endpoint_returns_sorted_chats(workspace: Path) -> None:
     # `workspace` fixture already points get_settings().workspace_root at a tmp dir.
     ws = get_settings().workspace_root
-    pid = await create_project(ws, name="x")
+    pid = (await create_project(ws, name="x"))["slug"]
     for cid, msg, ts in [
         ("c_aaaaaaaaaaaa", "/init x", "2026-05-10T00:00:00+00:00"),
         ("c_bbbbbbbbbbbb", "/extract", "2026-05-12T00:00:00+00:00"),
@@ -39,13 +39,23 @@ async def test_chat_list_endpoint_returns_sorted_chats(workspace: Path) -> None:
 
 async def test_chat_list_empty_for_project_with_no_chats(workspace: Path) -> None:
     ws = get_settings().workspace_root
-    pid = await create_project(ws, name="x")
+    pid = (await create_project(ws, name="x"))["slug"]
     r = client.get(f"/lab/chats/{pid}")
     assert r.status_code == 200
     assert r.json() == []
 
 
-def test_chat_list_rejects_malformed_project_id() -> None:
-    # `safe_project_id` validation — matches the existing per-chat route's behavior.
-    r = client.get("/lab/chats/not-a-valid-id")
+def test_chat_list_rejects_unsafe_slug() -> None:
+    """safe_slug only rejects filesystem-hostile characters (slash / NUL /
+    control / `.` / `..`). A NUL injection trips it; `not-a-valid-id` would
+    NOT — the slug namespace is intentionally permissive."""
+    r = client.get("/lab/chats/bad%00ctrl")
     assert r.status_code == 400
+
+
+def test_chat_list_returns_empty_for_unknown_slug() -> None:
+    """An unknown but valid-shape slug returns 200 with [] — there's no
+    project, but the list response is permissive."""
+    r = client.get("/lab/chats/not-a-valid-id")
+    assert r.status_code == 200
+    assert r.json() == []

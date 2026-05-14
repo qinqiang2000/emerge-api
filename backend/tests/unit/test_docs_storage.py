@@ -19,7 +19,7 @@ SAMPLE_PDF = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendob
 
 
 async def test_upload_returns_filename_and_meta(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, SAMPLE_PDF, "invoice-001.pdf")
     # New shape: no doc_id key.
     assert "doc_id" not in meta
@@ -34,7 +34,7 @@ async def test_upload_returns_filename_and_meta(workspace: Path) -> None:
 
 
 async def test_upload_same_name_twice_yields_dedup_suffix(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     a = await upload_doc(workspace, pid, SAMPLE_PDF, "report.pdf")
     b = await upload_doc(workspace, pid, SAMPLE_PDF, "report.pdf")
     c = await upload_doc(workspace, pid, SAMPLE_PDF, "report.pdf")
@@ -53,7 +53,7 @@ async def test_upload_same_name_twice_yields_dedup_suffix(workspace: Path) -> No
 
 
 async def test_list_docs_returns_filenames_not_doc_ids(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await upload_doc(workspace, pid, SAMPLE_PDF, "a.pdf")
     await upload_doc(workspace, pid, SAMPLE_PDF, "b.pdf")
     items = await list_docs(workspace, pid)
@@ -67,7 +67,7 @@ async def test_list_docs_returns_filenames_not_doc_ids(workspace: Path) -> None:
 
 
 async def test_list_docs_skips_dotfiles_and_sidecar_dir(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     await upload_doc(workspace, pid, SAMPLE_PDF, "real.pdf")
     # Drop a stray file mimicking what a stale runtime could leave behind.
     (workspace / pid / "docs" / ".DS_Store").write_bytes(b"junk")
@@ -79,7 +79,7 @@ _FIXTURE = Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf"
 
 
 async def test_pdf_render_page_caches_under_meta_render(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "sample.pdf")
     out = await pdf_render_page(workspace, pid, meta["filename"], page=1)
     assert out.exists()
@@ -93,7 +93,7 @@ async def test_pdf_render_page_caches_under_meta_render(workspace: Path) -> None
 
 
 async def test_pdf_render_page_invalid_page_raises(workspace: Path) -> None:
-    pid = await create_project(workspace, name="x")
+    pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "sample.pdf")
     with pytest.raises(ValueError, match="page"):
         await pdf_render_page(workspace, pid, meta["filename"], page=99)

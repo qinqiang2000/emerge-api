@@ -3,7 +3,8 @@ import { KeyRound } from 'lucide-react'
 import type { ChatEvent } from '../../types/chat'
 import { groupChatEvents } from '../../lib/groupChatEvents'
 import { toolShortHint } from '../../lib/toolHint'
-import PublishStage, { adaptReadiness, sampleCurl } from '../Publish/PublishStage'
+import PublishStage, { adaptReadiness } from '../Publish/PublishStage'
+import { sampleCurl } from '../../lib/api'
 import { useApiKey } from '../../stores/apiKey'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
@@ -21,9 +22,20 @@ interface Props { events: ChatEvent[]; busy?: boolean }
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
 
-function useProjectName(projectId: string): string {
+// Tool-input `project_id` field now carries a slug (slug-transparency rename).
+// Match by either slug or the immutable internal pid as a fallback for older
+// hydrated events that still reference `p_xxx` directly.
+function useProjectName(slugOrPid: string): string {
   const projects = useProjects(s => s.projects)
-  return projects.find(p => p.project_id === projectId)?.name ?? projectId
+  const byHandle = projects.find(p => p.slug === slugOrPid || p.project_id === slugOrPid)
+  return byHandle?.name ?? slugOrPid
+}
+
+function useLatestPublishedId(slugOrPid: string): string | null {
+  const projects = useProjects(s => s.projects)
+  const byHandle = projects.find(p => p.slug === slugOrPid || p.project_id === slugOrPid)
+  const ids = byHandle?.published_ids
+  return ids && ids.length > 0 ? ids[ids.length - 1] : null
 }
 
 function toolStatus(e: ToolCallEvent): ToolStatus {
@@ -64,15 +76,15 @@ function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
   const projectName = useProjectName(projectId)
 
   const send = useChat(s => s.send)
-  const selectedId = useProjects(s => s.selectedId)
+  const selectedSlug = useProjects(s => s.selectedSlug)
 
   const handleAdvance = () => {
-    const pid = selectedId ?? projectId
+    const slug = selectedSlug ?? projectId
     // Prefix /publish so ChatService._select_system_prompt re-loads the publish
     // skill on this turn — without it, the agent may refuse `issue_api_key`
     // because the default extractor skill is loaded (M7.2-era multi-turn
     // skill-loading workaround; see docs/design-decisions.md 2026-05-11).
-    void send(pid, '/publish yes, mint the key now')
+    void send(slug, '/publish yes, mint the key now')
   }
 
   const handleClose = () => {
@@ -103,10 +115,17 @@ function PublishStageCheckAdapter({ event }: { event: ToolCallEvent }) {
 function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
   const { current, clear } = useApiKey()
 
-  const projectId = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
+  // `issue_api_key` is now user-scoped — its tool_input may omit `project_id`
+  // entirely. Fall back to the current selection / reveal payload so the card
+  // still has a project name + published_id to surface in the curl example.
+  const inputPid = typeof (event.tool_input as Record<string, unknown>)?.project_id === 'string'
     ? (event.tool_input as Record<string, unknown>).project_id as string
-    : 'project'
+    : null
+  const selectedSlug = useProjects(s => s.selectedSlug)
+  const projectId = inputPid ?? current?.project_id ?? selectedSlug ?? 'project'
   const projectName = useProjectName(projectId)
+  const latestPub = useLatestPublishedId(projectId)
+  const pubForCurl = latestPub ?? 'pub_xxx'
 
   // One-time reveal available — show full key stage
   if (current && current.project_id === projectId) {
@@ -119,7 +138,8 @@ function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
         keyHash={current.key_hash}
         keyPrefix={current.key_prefix}
         createdAt={current.created_at}
-        sampleSnippet={sampleCurl(current.project_id)}
+        sampleSnippet={sampleCurl(pubForCurl)}
+        publishedId={latestPub}
         onClose={clear}
       />
     )

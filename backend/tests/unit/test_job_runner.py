@@ -43,7 +43,7 @@ def patched_loop(monkeypatch: pytest.MonkeyPatch):
 
 
 async def test_runner_starts_and_completes(workspace: Path, patched_loop) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
@@ -61,7 +61,7 @@ async def test_runner_starts_and_completes(workspace: Path, patched_loop) -> Non
 
 
 async def test_runner_cancel(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
@@ -85,7 +85,7 @@ async def test_runner_cancel(workspace: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 async def test_runner_pause_resume(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     await write_schema(
         workspace, pid,
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
@@ -127,7 +127,7 @@ async def test_runner_get_unknown_raises(workspace: Path) -> None:
 
 
 async def test_runner_unknown_skill_raises(workspace: Path) -> None:
-    pid = await create_project(workspace, name="t")
+    pid = (await create_project(workspace, name="t"))["slug"]
     runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
     with pytest.raises(UnknownSkillError):
         await runner.start(skill="not_a_skill", project_id=pid, params={})

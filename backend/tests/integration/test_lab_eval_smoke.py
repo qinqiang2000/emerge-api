@@ -15,7 +15,7 @@ from app.workspace.paths import metrics_dir, predictions_draft_dir
 
 
 async def test_eval_full_pipeline(workspace: Path):
-    pid = await create_project(workspace, name="smoke")
+    pid = (await create_project(workspace, name="smoke"))["slug"]
     await write_schema(
         workspace,
         pid,

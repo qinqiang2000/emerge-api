@@ -4,6 +4,7 @@ from typing import Any
 
 
 _PLACEHOLDER_KEY = "<your saved key>"
+_PLACEHOLDER_PUB = "<your published_id>"
 
 
 def _field_row(f: dict[str, Any]) -> str:
@@ -17,18 +18,26 @@ def _field_row(f: dict[str, Any]) -> str:
     return f"| `{name}` | {typ} | {required} | {desc} |"
 
 
-def render_readme(*, project: dict[str, Any], version: dict[str, Any], project_id: str) -> str:
+def render_readme(
+    *,
+    project: dict[str, Any],
+    version: dict[str, Any],
+    slug: str,
+    published_id: str | None = None,
+) -> str:
     name = project.get("name", "(unnamed project)")
     version_id = version.get("version_id", "(unknown version)")
     model_id = version.get("model_id", "(unknown model)")
     fields = version.get("schema", []) or []
     notes = version.get("global_notes") or ""
     frozen_at = version.get("frozen_at", "")
+    pub = published_id or _PLACEHOLDER_PUB
 
     lines: list[str] = [
         f"# {name} extraction API ({version_id})",
         "",
-        f"- **Project ID:** `{project_id}`",
+        f"- **Project slug:** `{slug}`",
+        f"- **Published ID:** `{pub}`",
         f"- **Active version:** `{version_id}` (frozen {frozen_at})",
         f"- **Extraction model:** `{model_id}`",
         "",
@@ -52,9 +61,13 @@ def render_readme(*, project: dict[str, Any], version: dict[str, Any], project_i
     lines.extend([
         "## Calling the API",
         "",
+        "emerge is staging — the same `published_id` syncs to production",
+        "and clients call a stable URL with `published_id` as a parameter.",
+        "",
         "```sh",
-        f"curl -X POST https://<host>/v1/{project_id}/extract \\",
+        "curl -X POST https://<host>/v1/extract \\",
         f'  -H "X-API-Key: {_PLACEHOLDER_KEY}" \\',
+        f'  -F "published_id={pub}" \\',
         "  -F file=@/path/to/document.pdf",
         "```",
         "",
