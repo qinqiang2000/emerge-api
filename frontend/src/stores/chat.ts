@@ -67,7 +67,7 @@ interface State {
    *  or edit-save — must rewind the chat log first so the abandoned user
    *  message + partial agent response are dropped rather than stacking. */
   interrupted: boolean
-  send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
+  send: (projectId: string, message: string, attachments?: { filename: string; doc_id?: string }[]) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
@@ -254,7 +254,23 @@ export const useChat = create<State>((set, get) => ({
       })
     }
     const abortCtrl = new AbortController()
-    set(s => ({ events: [...s.events, { type: 'user', text: message }], busy: true, abort: abortCtrl }))
+    // Strip pre-upload chips (no doc_id yet) from the locally-stored attachments
+    // — the user event renders thumbnails by hitting /docs/{doc_id}/pages/1, so
+    // an attachment without a doc_id has nothing to render. Backend applies the
+    // same filter when persisting.
+    const userAttachments = (attachments ?? [])
+      .filter((a): a is { filename: string; doc_id: string } => typeof a.doc_id === 'string')
+      .map(a => ({ filename: a.filename, doc_id: a.doc_id }))
+    set(s => ({
+      events: [
+        ...s.events,
+        userAttachments.length > 0
+          ? { type: 'user', text: message, attachments: userAttachments }
+          : { type: 'user', text: message },
+      ],
+      busy: true,
+      abort: abortCtrl,
+    }))
     try {
       for await (const ev of streamSSE('/lab/chat', {
         method: 'POST',
@@ -480,9 +496,21 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
     if (!item || typeof item !== 'object') continue
     const o = item as Record<string, unknown>
     switch (o.type) {
-      case 'user':
-        out.push({ type: 'user', text: String(o.text ?? '') })
+      case 'user': {
+        const ev: ChatEvent = { type: 'user', text: String(o.text ?? '') }
+        const rawAtts = o.attachments
+        if (Array.isArray(rawAtts)) {
+          const atts = rawAtts
+            .map(x => x && typeof x === 'object' ? x as Record<string, unknown> : null)
+            .filter((x): x is Record<string, unknown> =>
+              x !== null && typeof x.filename === 'string' && typeof x.doc_id === 'string',
+            )
+            .map(x => ({ filename: x.filename as string, doc_id: x.doc_id as string }))
+          if (atts.length > 0) ev.attachments = atts
+        }
+        out.push(ev)
         break
+      }
       case 'agent_text':
         out.push({ type: 'agent_text', text: String(o.text ?? '') })
         break

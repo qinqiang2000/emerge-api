@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Check, Copy, Info, Pencil, RotateCcw } from 'lucide-react'
+import { Check, Copy, FileText, Info, Pencil, RotateCcw } from 'lucide-react'
 
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
+import type { ChatAttachment } from '../../types/chat'
 
 interface Props {
   text: string
@@ -10,6 +11,17 @@ interface Props {
    *  passed through to `rewindAndSend` so retry/edit can target this specific
    *  message (not just the latest one). */
   userIndex: number
+  /** Files attached to this message (images render as thumbnails, PDFs as
+   *  their page-1 render). Rendered above the bubble, right-aligned. */
+  attachments?: ChatAttachment[]
+}
+
+const _IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+
+function _isImage(filename: string): boolean {
+  const dot = filename.lastIndexOf('.')
+  if (dot < 0) return false
+  return _IMAGE_EXTS.has(filename.slice(dot + 1).toLowerCase())
 }
 
 /** User message bubble with claude.ai-style hover actions (retry / edit /
@@ -17,7 +29,7 @@ interface Props {
  *  truncates events.jsonl from this user line onward; local state drops the
  *  same range — then re-sends `text`. Available on any user bubble while the
  *  chat is idle. Truncation is destructive (no branching). */
-export default function UserMessage({ text, userIndex }: Props) {
+export default function UserMessage({ text, userIndex, attachments }: Props) {
   const busy = useChat(s => s.busy)
   const selectedId = useProjects(s => s.selectedId)
   const rewindAndSend = useChat(s => s.rewindAndSend)
@@ -114,9 +126,47 @@ export default function UserMessage({ text, userIndex }: Props) {
     )
   }
 
+  const renderAttachments = (attachments?.length ?? 0) > 0
   return (
     <div className="umsg flex flex-col items-end w-full">
-      <div className="msg user">{text}</div>
+      {renderAttachments && (
+        <div className="att-tray" role="group" aria-label="Attachments">
+          {attachments!.map((a, i) => {
+            const url = selectedId
+              ? `/lab/projects/${selectedId}/docs/${a.doc_id}/pages/1`
+              : null
+            if (url && _isImage(a.filename)) {
+              return (
+                <a
+                  key={`${a.doc_id}-${i}`}
+                  className="att-thumb"
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title={a.filename}
+                >
+                  <img src={url} alt={a.filename} loading="lazy" />
+                </a>
+              )
+            }
+            return (
+              <a
+                key={`${a.doc_id}-${i}`}
+                className="att-file"
+                href={url ?? '#'}
+                target={url ? '_blank' : undefined}
+                rel="noreferrer noopener"
+                title={a.filename}
+                onClick={url ? undefined : (e) => e.preventDefault()}
+              >
+                <FileText size={18} aria-hidden />
+                <span className="name">{a.filename}</span>
+              </a>
+            )
+          })}
+        </div>
+      )}
+      {text && <div className="msg user">{text}</div>}
       {showActions && (
         <div className="msg-actions" role="group" aria-label="Message actions">
           <button type="button" onClick={() => void retry()} title="Retry" aria-label="Retry">

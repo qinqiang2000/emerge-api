@@ -233,7 +233,11 @@ export default function MessageList({ events, busy }: Props) {
         if (item.kind === 'user') {
           return (
             <Turn key={i} who="you" ts="just now">
-              <UserMessage text={item.text} userIndex={userOrdinals.get(i) ?? 0} />
+              <UserMessage
+                text={item.text}
+                userIndex={userOrdinals.get(i) ?? 0}
+                attachments={item.attachments}
+              />
             </Turn>
           )
         }

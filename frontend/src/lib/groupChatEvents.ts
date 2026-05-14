@@ -38,7 +38,7 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
       // Each user event = one bubble. Consecutive user messages (e.g. after
       // interrupting the agent multiple times in a row) must stay separate so
       // retry/edit only operates on the most recent one.
-      out.push({ kind: 'user', text: e.text })
+      out.push({ kind: 'user', text: e.text, attachments: e.attachments })
     } else if (e.type === 'agent_text') {
       const prev = out[out.length - 1]
       if (prev && prev.kind === 'agent') {

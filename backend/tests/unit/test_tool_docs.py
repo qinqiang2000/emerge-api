@@ -27,6 +27,17 @@ async def test_upload_doc_rejects_non_pdf(workspace: Path) -> None:
         await upload_doc(workspace, pid, b"...", "weird.docx")
 
 
+async def test_upload_doc_rejects_spoofed_extension(workspace: Path) -> None:
+    """A `.png` filename whose bytes are actually HTML must be rejected.
+
+    Without this guard the bad bytes get inlined as an image content block in
+    the agent's session transcript, which permanently 400s every subsequent
+    turn in that chat — see chat service `_load_image_blocks`."""
+    pid = await create_project(workspace, name="x")
+    with pytest.raises(ValueError, match="unsupported content"):
+        await upload_doc(workspace, pid, b"<!doctype html><html>...", "image.png")
+
+
 async def test_list_docs_returns_uploaded(workspace: Path) -> None:
     pid = await create_project(workspace, name="x")
     d1 = await upload_doc(workspace, pid, SAMPLE_PDF, "a.pdf")

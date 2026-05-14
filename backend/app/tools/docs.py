@@ -14,6 +14,18 @@ from app.workspace.paths import doc_meta_path, doc_path, docs_dir
 
 _ALLOWED_EXT = {"pdf": "pdf", "png": "png", "jpg": "jpg", "jpeg": "jpg"}
 
+# Magic-byte signatures for the formats we accept. Sniffing the bytes lets us
+# reject filename-spoofed uploads (e.g. HTML body with `.png` extension, or a
+# clipboard paste that landed as `image.png` but is actually webp/heic). One
+# bad image inlined into the agent session permanently 400s every subsequent
+# turn — see chat service `_load_image_blocks` for the inline path — so we
+# fail fast at the door.
+_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"%PDF", "pdf"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpg"),
+)
+
 
 def _ext_from_filename(filename: str) -> str:
     if "." not in filename:
@@ -22,6 +34,15 @@ def _ext_from_filename(filename: str) -> str:
     if raw not in _ALLOWED_EXT:
         raise ValueError(f"unsupported file type: {filename!r}")
     return _ALLOWED_EXT[raw]
+
+
+def _sniff_ext(data: bytes) -> str | None:
+    """Return canonical extension implied by the leading magic bytes, or None
+    if the payload doesn't match any of pdf / png / jpg."""
+    for prefix, ext in _MAGIC:
+        if data.startswith(prefix):
+            return ext
+    return None
 
 
 def _now_iso() -> str:
@@ -34,7 +55,16 @@ async def upload_doc(
     data: bytes,
     filename: str,
 ) -> str:
-    ext = _ext_from_filename(filename)
+    name_ext = _ext_from_filename(filename)
+    # Magic-byte sniffing wins over the filename when they disagree (browser
+    # clipboard often hands us `image.png` with non-PNG bytes underneath). For
+    # legit uploads the two agree; for spoofed uploads sniffing rejects them.
+    sniff = _sniff_ext(data)
+    if sniff is None:
+        raise ValueError(
+            f"unsupported content: {filename!r} bytes don't match pdf/png/jpg"
+        )
+    ext = sniff if sniff != name_ext else name_ext
     did = new_doc_id()
     sha = hashlib.sha256(data).hexdigest()
     page_count = _count_pages(data, ext)

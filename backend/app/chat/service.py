@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -31,12 +33,56 @@ from app.jobs import get_runner
 from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
+from app.workspace.paths import doc_meta_path, doc_path
 
 
 # Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
 # defense-in-depth block in `_build_options` for how this prefix is enforced
 # (disallowed_tools is load-bearing; can_use_tool is the backstop).
 _EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
+
+# Filename suffix → Anthropic image media type. PDFs deliberately excluded:
+# the agent reaches PDF docs via tools (`extract_one` / `extract_batch`), not
+# vision inlining, so we don't inflate the user-message token cost.
+_IMAGE_MEDIA_TYPE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+
+
+def _load_image_blocks(
+    workspace: Path,
+    project_id: str,
+    attachments: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Build Anthropic image content blocks for any attached images already on
+    disk. Silent skip for entries that aren't images, lack `doc_id`, or whose
+    files we can't read — the surrounding `[attachments: ...]` text mention
+    still lets the agent reference them by name."""
+    if not attachments:
+        return []
+    blocks: list[dict[str, Any]] = []
+    for a in attachments:
+        doc_id = a.get("doc_id")
+        filename = a.get("filename", "")
+        if not (isinstance(doc_id, str) and isinstance(filename, str)):
+            continue
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        media_type = _IMAGE_MEDIA_TYPE.get(ext)
+        if not media_type:
+            continue
+        meta_p = doc_meta_path(workspace, project_id, doc_id)
+        try:
+            meta = json.loads(meta_p.read_text())
+            stored_ext = str(meta.get("ext", ext))
+            data = doc_path(workspace, project_id, doc_id, stored_ext).read_bytes()
+        except (OSError, json.JSONDecodeError):
+            continue
+        b64 = base64.standard_b64encode(data).decode("ascii")
+        blocks.append(
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64},
+            }
+        )
+    return blocks
 
 # All Claude Agent SDK built-in tool names. permission_mode='default' does NOT
 # consult the can_use_tool callback for these — only an explicit disallowed_tools
@@ -156,11 +202,22 @@ class ChatService:
         attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[str]:
         """Yield SSE-encoded event strings; caller passes them through to the response."""
+        # Keep only render-relevant fields on the persisted attachment record —
+        # the agent doesn't need anything else, and we deliberately don't carry
+        # base64 image bytes into events.jsonl (it would balloon the chat log).
+        persisted_attachments = [
+            {"filename": a.get("filename"), "doc_id": a.get("doc_id")}
+            for a in (attachments or [])
+            if a.get("doc_id")
+        ]
+        user_event: dict[str, Any] = {"type": "user", "text": user_message}
+        if persisted_attachments:
+            user_event["attachments"] = persisted_attachments
         await append_event(
             self.workspace,
             project_id,
             chat_id,
-            {"type": "user", "text": user_message},
+            user_event,
         )
         ensure_chat_meta(
             self.workspace,
@@ -181,6 +238,28 @@ class ChatService:
             paths = ", ".join(a.get("filename", "?") for a in attachments)
             prompt = f"{prompt}\n\n[attachments: {paths}]"
 
+        # Inline image attachments as multimodal content blocks so the agent
+        # can actually see what the user pasted/dropped. PDFs stay as filename
+        # mentions only — those flow through the extractor tools, not vision.
+        image_blocks = _load_image_blocks(self.workspace, project_id, attachments)
+
+        def _make_query_payload() -> str | AsyncIterator[dict[str, Any]]:
+            """Fresh query payload per `_run` attempt — AsyncIterables can't be
+            replayed, and the self-heal branch retries once with no resume."""
+            if not image_blocks:
+                return prompt
+            content = [{"type": "text", "text": prompt}, *image_blocks]
+
+            async def _iter() -> AsyncIterator[dict[str, Any]]:
+                yield {
+                    "type": "user",
+                    "message": {"role": "user", "content": content},
+                    "parent_tool_use_id": None,
+                    "session_id": "default",
+                }
+
+            return _iter()
+
         latest_sid: str | None = None
         yielded_any = False
 
@@ -188,7 +267,7 @@ class ChatService:
             nonlocal latest_sid, yielded_any
             redactor = EventRedactor()
             async with ClaudeSDKClient(options=opts) as client:
-                await client.query(prompt)
+                await client.query(_make_query_payload())
                 async for message in client.receive_response():
                     sid = getattr(message, "session_id", None)
                     if isinstance(message, SystemMessage):

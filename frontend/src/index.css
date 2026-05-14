@@ -72,12 +72,26 @@ html, body, #root {
   word-break:break-word;
 }
 
+/* Attachment tray above the user bubble. Mirrors claude.ai: right-aligned,
+   wraps to a new row past viewport width. 120px square thumbnails for images,
+   pill chip for PDFs (page-1 render is served via /docs/{doc}/pages/1). */
+.att-tray{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin:4px 0 8px 0;max-width:min(75ch,85%)}
+.att-thumb{display:block;width:120px;height:120px;min-width:120px;border:1px solid var(--rule-soft);border-radius:10px;overflow:hidden;background:var(--paper-2);transition:border-color .12s,box-shadow .12s;cursor:zoom-in}
+.att-thumb:hover{border-color:var(--rule);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.att-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.att-file{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--rule-soft);border-radius:10px;background:var(--paper-2);color:var(--ink);font-family:var(--sans);font-size:13px;text-decoration:none;max-width:280px;transition:border-color .12s,box-shadow .12s}
+.att-file:hover{border-color:var(--rule);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.att-file .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* hover actions row under the latest user bubble (retry / edit / copy).
    Only rendered for the most recent user item while chat is idle — see
    UserMessage.tsx. Mirrors claude.ai's affordance. */
 .msg-actions{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .15s ease;margin-top:2px}
 .umsg:hover .msg-actions,
 .umsg:focus-within .msg-actions{opacity:1}
+.amsg .msg-actions{justify-content:flex-start}
+.amsg:hover .msg-actions,
+.amsg:focus-within .msg-actions{opacity:1}
 .msg-actions button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:0;background:transparent;color:var(--ink-4);cursor:pointer;transition:background .12s,color .12s}
 .msg-actions button:hover{background:var(--paper-2);color:var(--ink)}
 .msg-actions button:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}

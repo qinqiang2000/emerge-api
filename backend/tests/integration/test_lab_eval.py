@@ -23,7 +23,7 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
         reason="test",
         allow_structural=True,
     )
-    doc_id = await upload_doc(workspace, pid, b"png", "sample.png")
+    doc_id = await upload_doc(workspace, pid, b"\x89PNG\r\n\x1a\nstub", "sample.png")
     atomic_write_json(
         predictions_draft_dir(workspace, pid) / f"{doc_id}.json",
         {"entities": [{"invoice_no": "INV-1"}]},
@@ -82,7 +82,7 @@ async def test_get_evals_latest_returns_score(workspace: Path) -> None:
         reason="test",
         allow_structural=True,
     )
-    doc_id = await upload_doc(workspace, pid, b"png", "sample.png")
+    doc_id = await upload_doc(workspace, pid, b"\x89PNG\r\n\x1a\nstub", "sample.png")
     atomic_write_json(
         predictions_draft_dir(workspace, pid) / f"{doc_id}.json",
         {"entities": [{"invoice_no": "INV-1"}]},
