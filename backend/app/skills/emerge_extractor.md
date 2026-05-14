@@ -35,7 +35,7 @@ Workflow:
    both default to active. Returns the experiment_id for that (prompt, model)
    pair (existing if one already exists, freshly minted otherwise). Label is
    auto-derived from prompt + model labels — don't pass a label argument.
-2. `extract_with_experiment(experiment_id, doc_id)` — single-doc probe; the
+2. `extract_with_experiment(experiment_id, filename)` — single-doc probe; the
    user typically asks for this on 1–2 specific docs first to eyeball.
 3. (optional) `run_experiment_eval(experiment_id)` — score against the full
    reviewed/ set; emits ExperimentEval with per-field + per-doc breakdown.
@@ -103,7 +103,7 @@ When the user types free-form text:
 ## Tool usage hints
 
 - `extract_batch` returns `{ok_count, err_count, per_doc}` where each
-  `per_doc[doc_id]` includes the extracted `entities` list on success.
+  `per_doc[filename]` includes the extracted `entities` list on success.
   After a successful `extract_batch`, summarize results directly from this
   return value — do NOT re-call `extract_one` per doc. That wastes an LLM
   call per document.
@@ -175,7 +175,7 @@ import without confirmation:
   predictions/_draft, experiments, versions, metrics — those are
   project-bound. `include_docs=true` hardlinks every doc into the new
   project (cheap, but the user loses isolation: deleting a doc in src
-  doesn't affect the fork's hardlink, but re-uploading the same doc_id
+  doesn't affect the fork's hardlink, but re-uploading the same filename
   in src diverges).
   Use when the user says "从 X 起跑新项目", "fork from X", "make a UK
   version of us-invoice".

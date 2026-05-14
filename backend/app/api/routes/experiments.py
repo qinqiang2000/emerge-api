@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from app.api.routes._safety import safe_doc_id, safe_project_id
+from app.api.routes._safety import safe_filename, safe_project_id
 from app.config import get_settings
 from app.provider import get_provider_for_model
 from app.tools.experiment import (
@@ -60,14 +60,14 @@ async def get_project_experiment(project_id: str, experiment_id: str) -> dict:
 
 
 @router.get(
-    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{doc_id}",
+    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{filename:path}",
 )
 async def get_experiment_prediction(
-    project_id: str, experiment_id: str, doc_id: str,
+    project_id: str, experiment_id: str, filename: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
     await migrate_project_if_needed(workspace, project_id)
-    safe_doc_id(doc_id)
+    safe_filename(filename)
     try:
         await read_experiment(workspace, project_id, experiment_id)
     except ExperimentNotFoundError:
@@ -75,7 +75,7 @@ async def get_experiment_prediction(
             status_code=404,
             detail={"error_code": "experiment_not_found"},
         )
-    p = experiment_prediction_path(workspace, project_id, experiment_id, doc_id)
+    p = experiment_prediction_path(workspace, project_id, experiment_id, filename)
     if not p.exists():
         raise HTTPException(
             status_code=404,
@@ -85,14 +85,14 @@ async def get_experiment_prediction(
 
 
 @router.post(
-    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{doc_id}",
+    "/lab/projects/{project_id}/experiments/{experiment_id}/predictions/{filename:path}",
 )
 async def run_experiment_prediction(
-    project_id: str, experiment_id: str, doc_id: str,
+    project_id: str, experiment_id: str, filename: str,
 ) -> dict:
     workspace = _project_or_404(project_id)
     await migrate_project_if_needed(workspace, project_id)
-    safe_doc_id(doc_id)
+    safe_filename(filename)
     try:
         ex = await read_experiment(workspace, project_id, experiment_id)
     except ExperimentNotFoundError:
@@ -103,6 +103,6 @@ async def run_experiment_prediction(
     model = await read_model(workspace, project_id, ex.model_id)
     provider = get_provider_for_model(model.provider_model_id)
     payload = await extract_with_experiment(
-        workspace, project_id, experiment_id, doc_id, provider=provider,
+        workspace, project_id, experiment_id, filename, provider=provider,
     )
     return payload

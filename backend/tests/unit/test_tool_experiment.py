@@ -242,10 +242,12 @@ async def test_extract_with_experiment_writes_to_predictions_dir(
     from tests.conftest import make_provider_result
     pid = "p_test12345678"
     _seed_axes(workspace, pid)
-    did = "d_doc000000000"
+    filename = "invoice.png"
     docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
-    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
-    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "invoice.png"})
+    doc_path(workspace, pid, filename).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    meta_p = doc_meta_path(workspace, pid, filename)
+    meta_p.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(meta_p, {"filename": filename, "ext": "png"})
 
     stub_provider.extract.return_value = make_provider_result(
         {"entities": [{"supplier": "ACME"}]},
@@ -253,11 +255,11 @@ async def test_extract_with_experiment_writes_to_predictions_dir(
 
     eid = await create_experiment(workspace, pid)
     payload = await extract_with_experiment(
-        workspace, pid, eid, did, provider=stub_provider,
+        workspace, pid, eid, filename, provider=stub_provider,
     )
     assert payload.get("entities") == [{"supplier": "ACME"}]
     on_disk = json.loads(
-        experiment_prediction_path(workspace, pid, eid, did).read_text(),
+        experiment_prediction_path(workspace, pid, eid, filename).read_text(),
     )
     assert on_disk == payload
 
@@ -282,14 +284,16 @@ async def test_extract_with_experiment_uses_experiment_prompt_not_active(
         "global_notes": "", "derived_from": "pr_baseline",
         "created_at": _now(), "updated_at": _now(),
     })
-    did = "d_doc000000000"
+    filename = "doc.png"
     docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
-    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
-    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "doc.png"})
+    doc_path(workspace, pid, filename).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    meta_p = doc_meta_path(workspace, pid, filename)
+    meta_p.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(meta_p, {"filename": filename, "ext": "png"})
     stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
 
     eid = await create_experiment(workspace, pid, prompt_id="pr_variant")
-    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    await extract_with_experiment(workspace, pid, eid, filename, provider=stub_provider)
 
     # Inspect what was passed to provider.extract — user_content is a list of
     # ContentBlock; the first block is TextBlock with the field instructions.
@@ -319,14 +323,16 @@ async def test_extract_with_experiment_passes_model_params(
         "provider": "google", "provider_model_id": "gemini-2.5-flash",
         "params": {"temperature": 0.42}, "created_at": _now(),
     })
-    did = "d_doc000000000"
+    filename = "doc.png"
     docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
-    doc_path(workspace, pid, did, "png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
-    atomic_write_json(doc_meta_path(workspace, pid, did), {"doc_id": did, "ext": "png", "filename": "doc.png"})
+    doc_path(workspace, pid, filename).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    meta_p = doc_meta_path(workspace, pid, filename)
+    meta_p.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(meta_p, {"filename": filename, "ext": "png"})
 
     stub_provider.extract.return_value = make_provider_result({"entities": [{}]})
     eid = await create_experiment(workspace, pid)
-    await extract_with_experiment(workspace, pid, eid, did, provider=stub_provider)
+    await extract_with_experiment(workspace, pid, eid, filename, provider=stub_provider)
 
     call_kwargs = stub_provider.extract.call_args.kwargs
     assert call_kwargs["params"] == {"temperature": 0.42}
@@ -337,19 +343,24 @@ async def test_extract_with_experiment_passes_model_params(
 # T5 helpers
 # ---------------------------------------------------------------------------
 
-def _seed_doc(workspace: Path, pid: str, did: str) -> None:
-    """Seed a minimal .png stub + meta.json so read_doc / _doc_to_block accept the doc."""
+def _seed_doc(workspace: Path, pid: str, filename: str) -> None:
+    """Seed a minimal .png stub + sidecar so read_doc / _doc_to_block accept the doc.
+
+    Post-d_xxx: layout is `docs/<filename>` + `docs/.meta/<filename>.json`.
+    """
     from app.workspace.paths import doc_meta_path, doc_path, docs_dir
     docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
     # Minimal 8x8 transparent PNG (~70 bytes)
-    doc_path(workspace, pid, did, "png").write_bytes(
+    doc_path(workspace, pid, filename).write_bytes(
         b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x08\x00\x00\x00\x08'
         b'\x08\x06\x00\x00\x00\xc4\x0f\xbe\x8b\x00\x00\x00\x0cIDATx\x9cc\xf8'
         b'\xcf\xc0\x00\x00\x00\x03\x00\x01]Z9o\x00\x00\x00\x00IEND\xaeB`\x82'
     )
-    atomic_write_json(doc_meta_path(workspace, pid, did), {
-        "doc_id": did, "filename": f"{did}.png", "ext": "png",
-        "size_bytes": 70, "uploaded_at": _now(),
+    meta_p = doc_meta_path(workspace, pid, filename)
+    meta_p.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(meta_p, {
+        "filename": filename, "original_name": filename, "ext": "png",
+        "sha256": "stub", "page_count": 1, "uploaded_at": _now(),
     })
 
 

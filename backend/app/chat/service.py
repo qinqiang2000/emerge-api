@@ -33,7 +33,7 @@ from app.jobs import get_runner
 from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
-from app.workspace.paths import doc_meta_path, doc_path
+from app.workspace.paths import doc_path
 
 
 # Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
@@ -53,27 +53,26 @@ def _load_image_blocks(
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Build Anthropic image content blocks for any attached images already on
-    disk. Silent skip for entries that aren't images, lack `doc_id`, or whose
+    disk. Silent skip for entries that aren't images, lack `filename`, or whose
     files we can't read — the surrounding `[attachments: ...]` text mention
-    still lets the agent reference them by name."""
+    still lets the agent reference them by name.
+
+    Post-d_xxx-removal: attachments carry only `{filename}` (the on-disk
+    handle); we read the bytes directly via `doc_path`."""
     if not attachments:
         return []
     blocks: list[dict[str, Any]] = []
     for a in attachments:
-        doc_id = a.get("doc_id")
         filename = a.get("filename", "")
-        if not (isinstance(doc_id, str) and isinstance(filename, str)):
+        if not (isinstance(filename, str) and filename):
             continue
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         media_type = _IMAGE_MEDIA_TYPE.get(ext)
         if not media_type:
             continue
-        meta_p = doc_meta_path(workspace, project_id, doc_id)
         try:
-            meta = json.loads(meta_p.read_text())
-            stored_ext = str(meta.get("ext", ext))
-            data = doc_path(workspace, project_id, doc_id, stored_ext).read_bytes()
-        except (OSError, json.JSONDecodeError):
+            data = doc_path(workspace, project_id, filename).read_bytes()
+        except OSError:
             continue
         b64 = base64.standard_b64encode(data).decode("ascii")
         blocks.append(
@@ -205,10 +204,11 @@ class ChatService:
         # Keep only render-relevant fields on the persisted attachment record —
         # the agent doesn't need anything else, and we deliberately don't carry
         # base64 image bytes into events.jsonl (it would balloon the chat log).
+        # Filename is now the only doc handle — no separate `doc_id`.
         persisted_attachments = [
-            {"filename": a.get("filename"), "doc_id": a.get("doc_id")}
+            {"filename": a.get("filename")}
             for a in (attachments or [])
-            if a.get("doc_id")
+            if isinstance(a.get("filename"), str) and a.get("filename")
         ]
         user_event: dict[str, Any] = {"type": "user", "text": user_message}
         if persisted_attachments:

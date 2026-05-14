@@ -103,15 +103,16 @@ def test_score_strings_compared_after_strip_and_str_cast() -> None:
 async def test_run_eval_writes_metrics_file(workspace: Path) -> None:
     project_id = await create_project(workspace, name="eval")
     await write_schema(workspace, project_id, SCHEMA, reason="test", allow_structural=True)
-    doc_id = await upload_doc(workspace, project_id, b"\x89PNG\r\n\x1a\nstub", "sample.png")
+    meta = await upload_doc(workspace, project_id, b"\x89PNG\r\n\x1a\nstub", "sample.png")
+    filename = meta["filename"]
     atomic_write_json(
-        predictions_draft_dir(workspace, project_id) / f"{doc_id}.json",
+        predictions_draft_dir(workspace, project_id) / f"{filename}.json",
         {"entities": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}]},
     )
     await save_reviewed(
         workspace,
         project_id,
-        doc_id,
+        filename,
         entities=[{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
         source=ReviewedSource.MANUAL,
     )
@@ -204,15 +205,16 @@ async def test_t_score_tool_emits_valid_json(workspace: Path) -> None:
     # Set up: project with schema + reviewed doc + matching prediction.
     project_id = await create_project(workspace, name="json-test")
     await write_schema(workspace, project_id, SCHEMA, reason="test", allow_structural=True)
-    doc_id = await upload_doc(workspace, project_id, b"%PDF-1.4\nstub", "sample.pdf")
+    meta = await upload_doc(workspace, project_id, b"%PDF-1.4\nstub", "sample.pdf")
+    filename = meta["filename"]
     atomic_write_json(
-        predictions_draft_dir(workspace, project_id) / f"{doc_id}.json",
+        predictions_draft_dir(workspace, project_id) / f"{filename}.json",
         {"entities": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}]},
     )
     await save_reviewed(
         workspace,
         project_id,
-        doc_id,
+        filename,
         entities=[{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
         source=ReviewedSource.MANUAL,
     )

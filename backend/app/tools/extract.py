@@ -11,6 +11,7 @@ from app.tools.schema import _doc_to_block
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
+    prediction_draft_path,
     predictions_draft_dir,
 )
 
@@ -100,7 +101,7 @@ def _build_field_instructions(schema: list[SchemaField]) -> str:
 async def extract_one(
     workspace: Path,
     project_id: str,
-    doc_id: str,
+    filename: str,
     *,
     provider: Provider,
     model_id: str | None = None,
@@ -121,7 +122,7 @@ async def extract_one(
 
     user_blocks: list[ContentBlock] = [
         TextBlock(text=_build_field_instructions(schema)),
-        await _doc_to_block(workspace, project_id, doc_id),
+        await _doc_to_block(workspace, project_id, filename),
     ]
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
@@ -137,7 +138,7 @@ async def extract_one(
     async with project_lock(workspace, project_id):
         predictions_draft_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(
-            predictions_draft_dir(workspace, project_id) / f"{doc_id}.json",
+            prediction_draft_path(workspace, project_id, filename),
             payload,
         )
     return payload
@@ -146,7 +147,7 @@ async def extract_one(
 async def extract_one_with_schema(
     workspace: Path,
     project_id: str,
-    doc_id: str,
+    filename: str,
     *,
     schema: list[SchemaField],
     provider: Provider,
@@ -161,7 +162,7 @@ async def extract_one_with_schema(
 
     user_blocks: list[ContentBlock] = [
         TextBlock(text=_build_field_instructions(schema)),
-        await _doc_to_block(workspace, project_id, doc_id),
+        await _doc_to_block(workspace, project_id, filename),
     ]
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
@@ -209,7 +210,7 @@ async def extract_bytes_with_schema(
 async def extract_batch(
     workspace: Path,
     project_id: str,
-    doc_ids: list[str],
+    filenames: list[str],
     *,
     provider: Provider,
     model_id: str | None = None,
@@ -218,15 +219,15 @@ async def extract_batch(
     sem = asyncio.Semaphore(concurrency)
     per_doc: dict[str, dict[str, Any]] = {}
 
-    async def _run_one(did: str) -> None:
+    async def _run_one(fn: str) -> None:
         async with sem:
             try:
-                payload = await extract_one(workspace, project_id, did, provider=provider, model_id=model_id)
-                per_doc[did] = {"ok": True, "entities": payload.get("entities", [])}
+                payload = await extract_one(workspace, project_id, fn, provider=provider, model_id=model_id)
+                per_doc[fn] = {"ok": True, "entities": payload.get("entities", [])}
             except Exception as e:  # noqa: BLE001
-                per_doc[did] = {"ok": False, "error": str(e)}
+                per_doc[fn] = {"ok": False, "error": str(e)}
 
-    await asyncio.gather(*(_run_one(d) for d in doc_ids))
+    await asyncio.gather(*(_run_one(f) for f in filenames))
     ok = sum(1 for v in per_doc.values() if v["ok"])
     err = sum(1 for v in per_doc.values() if not v["ok"])
     return {"ok_count": ok, "err_count": err, "per_doc": per_doc}

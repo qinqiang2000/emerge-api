@@ -21,16 +21,39 @@ def docs_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "docs"
 
 
-def doc_path(workspace: Path, project_id: str, doc_id: str, ext: str) -> Path:
-    return docs_dir(workspace, project_id) / f"{doc_id}.{ext}"
+def docs_meta_dir(workspace: Path, project_id: str) -> Path:
+    """Sidecar root under `docs/.meta/`. Houses `<filename>.json` per doc plus
+    the `_render/` PDF page cache. Kept as a dotfile dir so the `docs/*` glob
+    (used by `list_docs` and the `/tree` browser) skips it naturally."""
+    return docs_dir(workspace, project_id) / ".meta"
 
 
-def doc_meta_path(workspace: Path, project_id: str, doc_id: str) -> Path:
-    return docs_dir(workspace, project_id) / f"{doc_id}.meta.json"
+def doc_path(workspace: Path, project_id: str, filename: str) -> Path:
+    """The real file on disk. `filename` is the user-visible doc handle (e.g.
+    `2025VP00413.pdf`) — there is no `d_xxx` ID anymore. Callers must pass a
+    `safe_filename`-validated value when the source is untrusted (HTTP path
+    params)."""
+    return docs_dir(workspace, project_id) / filename
+
+
+def doc_meta_path(workspace: Path, project_id: str, filename: str) -> Path:
+    """Sidecar JSON for one doc, at `docs/.meta/{filename}.json`. Holds
+    `{sha256, page_count, uploaded_at, ext, original_name}`."""
+    return docs_meta_dir(workspace, project_id) / f"{filename}.json"
+
+
+def doc_render_dir(workspace: Path, project_id: str, filename: str) -> Path:
+    """Per-doc PDF page render cache root: `docs/.meta/_render/{filename}/`."""
+    return docs_meta_dir(workspace, project_id) / "_render" / filename
 
 
 def predictions_draft_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "predictions" / "_draft"
+
+
+def prediction_draft_path(workspace: Path, project_id: str, filename: str) -> Path:
+    """Draft prediction JSON for one doc, keyed by filename."""
+    return predictions_draft_dir(workspace, project_id) / f"{filename}.json"
 
 
 def versions_dir(workspace: Path, project_id: str) -> Path:
@@ -70,9 +93,10 @@ def experiment_predictions_dir(workspace: Path, project_id: str, experiment_id: 
 
 
 def experiment_prediction_path(
-    workspace: Path, project_id: str, experiment_id: str, doc_id: str,
+    workspace: Path, project_id: str, experiment_id: str, filename: str,
 ) -> Path:
-    return experiment_predictions_dir(workspace, project_id, experiment_id) / f"{doc_id}.json"
+    """Per-doc experiment prediction JSON, keyed by filename (the doc handle)."""
+    return experiment_predictions_dir(workspace, project_id, experiment_id) / f"{filename}.json"
 
 
 def chats_dir(workspace: Path, project_id: str) -> Path:
@@ -95,8 +119,9 @@ def reviewed_dir(workspace: Path, project_id: str) -> Path:
     return project_dir(workspace, project_id) / "reviewed"
 
 
-def reviewed_path(workspace: Path, project_id: str, doc_id: str) -> Path:
-    return reviewed_dir(workspace, project_id) / f"{doc_id}.json"
+def reviewed_path(workspace: Path, project_id: str, filename: str) -> Path:
+    """Reviewed (ground-truth) JSON for one doc, keyed by filename."""
+    return reviewed_dir(workspace, project_id) / f"{filename}.json"
 
 
 def metrics_dir(workspace: Path, project_id: str) -> Path:

@@ -24,7 +24,7 @@ def _basic_schema() -> list[SchemaField]:
 
 async def test_extract_one_writes_prediction(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = await create_project(workspace, name="x")
-    did = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf")
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
     stub_provider.extract.return_value = make_provider_result(
@@ -44,7 +44,7 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
 
 async def test_extract_one_invalid_json_returns_error(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = await create_project(workspace, name="x")
-    did = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf")
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
     stub_provider.extract.return_value = make_provider_result({"wrong_top_level": "x"})
@@ -59,8 +59,8 @@ from app.tools.extract import extract_batch
 async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = await create_project(workspace, name="x")
     pdf = _FIXTURE.read_bytes()
-    d1 = await upload_doc(workspace, pid, pdf, "a.pdf")
-    d2 = await upload_doc(workspace, pid, pdf, "b.pdf")
+    d1 = (await upload_doc(workspace, pid, pdf, "a.pdf"))["filename"]
+    d2 = (await upload_doc(workspace, pid, pdf, "b.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
     stub_provider.extract.return_value = make_provider_result(
@@ -79,7 +79,7 @@ async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: Async
 async def test_extract_batch_records_per_doc_errors(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = await create_project(workspace, name="x")
     pdf = _FIXTURE.read_bytes()
-    d1 = await upload_doc(workspace, pid, pdf, "a.pdf")
+    d1 = (await upload_doc(workspace, pid, pdf, "a.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
     stub_provider.extract.side_effect = ValueError("boom")
@@ -105,7 +105,7 @@ async def test_extract_one_reads_schema_from_active_prompt(
 
     pid = await create_project(workspace, name="x")
     pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
-    did = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+    did = (await upload_doc(workspace, pid, pdf_bytes, "a.pdf"))["filename"]
     # Bootstrap the prompt structure via migration, then write the schema
     await migrate_project_if_needed(workspace, pid)
     await write_prompt(
@@ -162,7 +162,7 @@ async def test_extract_one_preserves_null_fields_in_prediction(
     prediction must keep the key (not strip it via exclude_none). Otherwise
     users see schema-defined fields silently disappear from output."""
     pid = await create_project(workspace, name="x")
-    did = await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf")
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
     stub_provider.extract.return_value = make_provider_result(
@@ -194,7 +194,7 @@ async def test_extract_one_uses_active_model_id(
 
     pid = await create_project(workspace, name="x")
     pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
-    did = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+    did = (await upload_doc(workspace, pid, pdf_bytes, "a.pdf"))["filename"]
     # Bootstrap the prompt/model structure via migration
     await migrate_project_if_needed(workspace, pid)
     # Create a second model and switch active

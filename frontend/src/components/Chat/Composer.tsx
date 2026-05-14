@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
+import { listProjectTree, type TreeEntry } from '../../lib/api'
+import MentionMenu from './MentionMenu'
 import SlashMenu, { COMMANDS } from './SlashMenu'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
@@ -57,16 +59,48 @@ interface Props {
    *  window level to cancel the in-flight turn. Optional so existing call
    *  sites (and tests) without cancel support still compile. */
   onCancel?: () => void
+  /** Current project id — needed for `@` mention's tree fetch. When absent
+   *  or `p_unset`, the mention menu does not open (typing `@` is plain text). */
+  projectId?: string
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onCancel }: Props) {
+/** Parse the textarea around `caret` and return the current mention context
+ *  (dir + query) if the active token starts with `@`. The active token is the
+ *  run of non-whitespace chars left of the caret. Returns null if the caret is
+ *  not on a mention token. */
+function parseMentionToken(text: string, caret: number): { token: string; tokenStart: number; dir: string; query: string } | null {
+  let start = caret
+  while (start > 0 && !/\s/.test(text[start - 1])) start -= 1
+  const token = text.slice(start, caret)
+  if (!token.startsWith('@')) return null
+  const body = token.slice(1)
+  const slash = body.lastIndexOf('/')
+  const dir = slash >= 0 ? body.slice(0, slash) : ''
+  const query = slash >= 0 ? body.slice(slash + 1) : body
+  return { token, tokenStart: start, dir, query }
+}
+
+export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onCancel, projectId }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const [plusOpen, setPlusOpen] = useState(false)
+  // `caret` mirrors the textarea's selectionStart so the mention token can be
+  // recomputed on every keystroke / click. Updated from onChange / onKeyUp /
+  // onClick / onSelect.
+  const [caret, setCaret] = useState(0)
+  const [mentionEntries, setMentionEntries] = useState<TreeEntry[]>([])
+  const [mentionLoading, setMentionLoading] = useState(false)
+  const [mentionMissing, setMentionMissing] = useState(false)
+  // Position of an `@` the user explicitly dismissed with Esc. The menu stays
+  // closed for that token until the user types a fresh `@` elsewhere (which
+  // produces a different `tokenStart`) or the token disappears entirely.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const plusWrapRef = useRef<HTMLDivElement>(null)
+  // Per-(pid+dir) cache so re-opening the menu in the same dir is instant.
+  const treeCacheRef = useRef<Map<string, TreeEntry[]>>(new Map())
 
   // The autocomplete menu is open only while the user is still typing a command
   // name. Once a full command prefixes the text (`/eval` or `/eval …`), the
@@ -74,6 +108,75 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   // only ⌘/Ctrl+Enter submits, matching the footer hint.
   const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
   const showSlash = text.startsWith('/') && !completedCommand
+
+  // `@` mention state is derived from the textarea content + caret position.
+  // The mention menu opens only when a project is selected and the slash menu
+  // is closed (the two are mutually exclusive).
+  const hasProject = !!projectId && projectId !== 'p_unset'
+  const mentionToken = useMemo(() => {
+    if (!hasProject || showSlash) return null
+    return parseMentionToken(text, caret)
+  }, [hasProject, showSlash, text, caret])
+  // Clear an Esc-dismissal once the user removes the `@` token or starts a new
+  // one at a different position — those are signals that the previous dismissal
+  // no longer applies.
+  useEffect(() => {
+    if (dismissedAt === null) return
+    if (!mentionToken || mentionToken.tokenStart !== dismissedAt) setDismissedAt(null)
+  }, [mentionToken, dismissedAt])
+  const showMention =
+    mentionToken !== null && mentionToken.tokenStart !== dismissedAt
+
+  // Filter the fetched dir entries by the trailing query segment, case-insensitive.
+  const mentionMatches = useMemo<TreeEntry[]>(() => {
+    if (!mentionToken) return []
+    const q = mentionToken.query.toLowerCase()
+    if (!q) return mentionEntries
+    return mentionEntries.filter(e => e.name.toLowerCase().startsWith(q))
+  }, [mentionToken, mentionEntries])
+
+  // Lazy fetch: when the active dir changes (or projectId changes), pull entries
+  // from cache or hit `/lab/projects/{pid}/tree?dir=…`. 404 → "no such directory".
+  useEffect(() => {
+    if (!showMention || !mentionToken || !projectId) {
+      setMentionEntries([])
+      setMentionLoading(false)
+      setMentionMissing(false)
+      return
+    }
+    const dir = mentionToken.dir
+    const key = projectId + '|' + dir
+    const cached = treeCacheRef.current.get(key)
+    if (cached) {
+      setMentionEntries(cached)
+      setMentionLoading(false)
+      setMentionMissing(false)
+      return
+    }
+    let alive = true
+    setMentionLoading(true)
+    setMentionMissing(false)
+    listProjectTree(projectId, dir)
+      .then(entries => {
+        if (!alive) return
+        treeCacheRef.current.set(key, entries)
+        setMentionEntries(entries)
+        setMentionMissing(false)
+        setMentionLoading(false)
+      })
+      .catch(err => {
+        if (!alive) return
+        // 404 → dir doesn't exist; show an empty list with a hint. Other errors:
+        // fall back to empty list silently (network blips shouldn't crash the UI).
+        const msg = err instanceof Error ? err.message : String(err)
+        setMentionEntries([])
+        setMentionMissing(/404/.test(msg))
+        setMentionLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [showMention, projectId, mentionToken?.dir])
 
   // Auto-grow textarea up to 384px (claude.ai max-h-96). Recalc on text
   // change AND on container resize — without the resize hook the textarea
@@ -96,6 +199,12 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
 
   // Reset active index when slash menu opens/closes
   useEffect(() => { setActiveIdx(0) }, [showSlash])
+
+  // Reset the mention activeIdx on dir / query change so the highlight always
+  // tracks the first match — same UX as CC.
+  useEffect(() => {
+    if (showMention) setActiveIdx(0)
+  }, [showMention, mentionToken?.dir, mentionToken?.query])
 
   // While the agent is responding (`disabled` true) and a cancel handler is
   // wired, Esc at the window level stops the turn. The textarea is disabled
@@ -149,6 +258,29 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     taRef.current?.focus()
   }
 
+  /** Replace the current `@…` token with `@<entry.path>` + suffix and move
+   *  the caret to just after the suffix. For dirs we keep the menu open by
+   *  appending `/`; for files we close it by appending a space. */
+  function pickMention(entry: TreeEntry) {
+    if (!mentionToken) return
+    const suffix = entry.kind === 'dir' ? '/' : ' '
+    const insert = '@' + entry.path + suffix
+    const before = text.slice(0, mentionToken.tokenStart)
+    const after = text.slice(caret)
+    const next = before + insert + after
+    const nextCaret = before.length + insert.length
+    setText(next)
+    // Defer caret restore until after React commits the new value so the
+    // textarea's DOM selectionStart matches the state we just set.
+    queueMicrotask(() => {
+      const ta = taRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(nextCaret, nextCaret)
+      setCaret(nextCaret)
+    })
+  }
+
   function submit() {
     const trimmed = text.trim()
     if (!trimmed || disabled) return
@@ -157,11 +289,47 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   }
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Cmd/Ctrl+Enter always submits
+    // Cmd/Ctrl+Enter always submits. If a mention menu is open we close it
+    // first so the textarea state is clean for the next turn.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       submit()
       return
+    }
+
+    if (showMention && mentionToken) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        const n = mentionMatches.length
+        if (n > 0) setActiveIdx(i => (i + 1) % n)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        const n = mentionMatches.length
+        if (n > 0) setActiveIdx(i => (i - 1 + n) % n)
+        return
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+        // Only pick if we have a match; otherwise fall through so Tab/Enter
+        // behave like the textarea's default (Enter inserts newline, Tab moves focus).
+        if (mentionMatches.length > 0) {
+          e.preventDefault()
+          const pick = mentionMatches[Math.min(activeIdx, mentionMatches.length - 1)]
+          if (pick) pickMention(pick)
+          return
+        }
+      }
+      if (e.key === 'Escape') {
+        // Close the menu, text untouched. The dismissal is keyed to the `@`'s
+        // position so the menu stays closed for this token but reopens if the
+        // user starts a new one elsewhere.
+        e.preventDefault()
+        if (mentionToken) setDismissedAt(mentionToken.tokenStart)
+        return
+      }
+      // All other keys fall through — typing continues to mutate the text
+      // and the derived token / query stay in sync via onChange.
     }
 
     if (showSlash) {
@@ -244,6 +412,17 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
             onHover={setActiveIdx}
           />
         )}
+        {showMention && mentionToken && (
+          <MentionMenu
+            entries={mentionMatches}
+            activeIdx={activeIdx}
+            dir={mentionToken.dir}
+            loading={mentionLoading}
+            emptyHint={mentionMissing ? 'no such directory' : (mentionToken.query ? 'no match' : 'empty')}
+            onPick={pickMention}
+            onHover={setActiveIdx}
+          />
+        )}
 
         <div className="composer-body">
           {/* Pending attachment chips */}
@@ -274,7 +453,13 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
               rows={1}
               value={text}
               disabled={disabled}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value)
+                setCaret(e.target.selectionStart ?? e.target.value.length)
+              }}
+              onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
+              onClick={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
               onKeyDown={handleKey}
               onPaste={handlePaste}
               placeholder="say something to the agent, or type / for a command…"

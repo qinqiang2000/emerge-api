@@ -36,22 +36,25 @@ async def test_get_project_docs_with_status(workspace: Path) -> None:
 
     pid = await create_project(workspace, name="x")
     pdf = b"%PDF-1.4\n%%EOF\n"
-    d1 = await upload_doc(workspace, pid, pdf, "a.pdf")
-    d2 = await upload_doc(workspace, pid, pdf, "b.pdf")
+    m1 = await upload_doc(workspace, pid, pdf, "a.pdf")
+    m2 = await upload_doc(workspace, pid, pdf, "b.pdf")
+    fn1 = m1["filename"]
+    fn2 = m2["filename"]
     # mark one reviewed
     await save_reviewed(
-        workspace, pid, d1, entities=[{}], source=ReviewedSource.MANUAL
+        workspace, pid, fn1, entities=[{}], source=ReviewedSource.MANUAL
     )
 
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/docs")
     assert r.status_code == 200
     items = r.json()
-    by_id = {it["doc_id"]: it for it in items}
-    assert by_id[d1]["has_reviewed"] is True
-    assert by_id[d1]["has_prediction"] is False
-    assert by_id[d2]["has_reviewed"] is False
-    assert by_id[d2]["filename"] == "b.pdf"
+    by_name = {it["filename"]: it for it in items}
+    assert by_name[fn1]["has_reviewed"] is True
+    assert by_name[fn1]["has_prediction"] is False
+    assert by_name[fn2]["has_reviewed"] is False
+    # filename IS the doc handle now — no separate doc_id surfaces.
+    assert "doc_id" not in by_name[fn2]
 
 
 def test_get_project_docs_400_on_bad_pid() -> None:

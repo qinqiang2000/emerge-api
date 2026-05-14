@@ -23,7 +23,18 @@ export async function listProjects(): Promise<Project[]> {
   return r.json()
 }
 
-export async function uploadDoc(projectId: string, file: File): Promise<{ doc_id: string }> {
+export interface UploadDocResponse {
+  /** Final on-disk filename (may differ from `file.name` after dedupe — e.g.
+   *  `"f (1).pdf"`). The only doc handle the frontend should hold. */
+  filename: string
+  ext: string
+  page_count: number
+  sha256: string
+  uploaded_at: string
+  original_name: string
+}
+
+export async function uploadDoc(projectId: string, file: File): Promise<UploadDocResponse> {
   const fd = new FormData()
   fd.append('file', file)
   const r = await fetch(`${API}/lab/projects/${projectId}/upload`, { method: 'POST', body: fd })
@@ -37,15 +48,15 @@ export async function listProjectDocs(projectId: string): Promise<DocSummary[]> 
   return r.json()
 }
 
-export async function getPrediction(projectId: string, docId: string): Promise<PredictionPayload | null> {
-  const r = await fetch(`/lab/projects/${projectId}/predictions/${docId}`)
+export async function getPrediction(projectId: string, filename: string): Promise<PredictionPayload | null> {
+  const r = await fetch(`/lab/projects/${projectId}/predictions/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getPrediction ${r.status}`)
   return r.json()
 }
 
-export async function getReviewed(projectId: string, docId: string): Promise<ReviewedPayload | null> {
-  const r = await fetch(`/lab/projects/${projectId}/reviewed/${docId}`)
+export async function getReviewed(projectId: string, filename: string): Promise<ReviewedPayload | null> {
+  const r = await fetch(`/lab/projects/${projectId}/reviewed/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getReviewed ${r.status}`)
   return r.json()
@@ -53,10 +64,10 @@ export async function getReviewed(projectId: string, docId: string): Promise<Rev
 
 export async function saveReviewed(
   projectId: string,
-  docId: string,
+  filename: string,
   payload: ReviewedPayload,
 ): Promise<void> {
-  const r = await fetch(`/lab/projects/${projectId}/reviewed/${docId}`, {
+  const r = await fetch(`/lab/projects/${projectId}/reviewed/${encodeURIComponent(filename)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -64,8 +75,8 @@ export async function saveReviewed(
   if (!r.ok) throw new Error(`saveReviewed ${r.status}`)
 }
 
-export function pdfPageUrl(projectId: string, docId: string, page: number): string {
-  return `/lab/projects/${projectId}/docs/${docId}/pages/${page}`
+export function pdfPageUrl(projectId: string, filename: string, page: number): string {
+  return `/lab/projects/${projectId}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}`
 }
 
 export async function startJob(projectId: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
@@ -219,10 +230,10 @@ export async function getExperiment(
 export async function getExperimentPrediction(
   projectId: string,
   experimentId: string,
-  docId: string,
+  filename: string,
 ): Promise<ExperimentPredictionPayload | null> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${docId}`,
+    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
   )
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getExperimentPrediction ${r.status}`)
@@ -232,12 +243,31 @@ export async function getExperimentPrediction(
 export async function runExperimentPrediction(
   projectId: string,
   experimentId: string,
-  docId: string,
+  filename: string,
 ): Promise<ExperimentPredictionPayload> {
   const r = await fetch(
-    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${docId}`,
+    `/lab/projects/${projectId}/experiments/${experimentId}/predictions/${encodeURIComponent(filename)}`,
     { method: 'POST' },
   )
   if (!r.ok) throw new Error(`runExperimentPrediction ${r.status}`)
+  return r.json()
+}
+
+// ── Stage 2: project tree (for `@` mention) ────────────────────────────────
+export interface TreeEntry {
+  name: string
+  kind: 'file' | 'dir'
+  /** Project-root-relative POSIX path, no leading slash. */
+  path: string
+}
+
+/** Browse the project workspace as a filtered file tree. `dir` is a
+ *  project-relative POSIX path; `""` is the project root. Filters hide the
+ *  internal-only stuff (chats, prompts, models, predictions, jobs, metrics,
+ *  experiments, project.json, dotfiles, versions/_candidate). */
+export async function listProjectTree(pid: string, dir: string = ''): Promise<TreeEntry[]> {
+  const q = dir ? `?dir=${encodeURIComponent(dir)}` : ''
+  const r = await fetch(`/lab/projects/${pid}/tree${q}`)
+  if (!r.ok) throw new Error(`listProjectTree ${r.status}`)
   return r.json()
 }

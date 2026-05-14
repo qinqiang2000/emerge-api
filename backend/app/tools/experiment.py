@@ -193,12 +193,13 @@ async def extract_with_experiment(
     workspace: Path,
     project_id: str,
     experiment_id: str,
-    doc_id: str,
+    filename: str,
     *,
     provider,
 ) -> dict:
     """Run the experiment's (prompt, model) pair on a single doc, writing the
-    payload to experiments/{exp_id}/predictions/{doc_id}.json. Returns the payload.
+    payload to experiments/{exp_id}/predictions/{filename}.json. Returns the
+    payload.
 
     The caller is responsible for passing the right provider for the experiment's
     model — the MCP wrapper / HTTP route uses get_provider_for_model(
@@ -213,7 +214,7 @@ async def extract_with_experiment(
     model = await read_model(workspace, project_id, ex.model_id)
 
     payload = await extract_one_with_schema(
-        workspace, project_id, doc_id,
+        workspace, project_id, filename,
         schema=prompt.schema,
         provider=provider,
         model_id=model.provider_model_id,
@@ -224,7 +225,7 @@ async def extract_with_experiment(
             parents=True, exist_ok=True,
         )
         atomic_write_json(
-            experiment_prediction_path(workspace, project_id, experiment_id, doc_id),
+            experiment_prediction_path(workspace, project_id, experiment_id, filename),
             payload,
         )
     return payload
@@ -251,7 +252,6 @@ async def run_experiment_eval(
     from app.tools.extract import extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
-    from app.tools.schema import _SUPPORTED_EXTS
     from app.tools.score import score
     from app.workspace.paths import (
         doc_path,
@@ -278,22 +278,23 @@ async def run_experiment_eval(
     per_doc: dict[str, float] = {}
 
     for rfile in reviewed_files:
-        did = rfile.stem
+        # Reviewed filenames carry the doc's extension (e.g. `inv.pdf.json` →
+        # `inv.pdf`). Strip only the trailing `.json` to recover the doc handle.
+        filename = rfile.name[:-len(".json")]
         reviewed_blob = json.loads(rfile.read_text(encoding="utf-8"))
         reviewed_entities = reviewed_blob.get("entities", [])
-        # ensure underlying doc exists
-        if not any(
-            doc_path(workspace, project_id, did, ext).exists()
-            for ext in _SUPPORTED_EXTS
-        ):
+        # Skip reviewed entries whose underlying doc file is gone (rare; doc
+        # deleted after review). The eval coverage count then reflects only
+        # docs that were successfully extracted.
+        if not doc_path(workspace, project_id, filename).exists():
             continue
         # reuse cached extract if present
-        ep = experiment_prediction_path(workspace, project_id, experiment_id, did)
+        ep = experiment_prediction_path(workspace, project_id, experiment_id, filename)
         if ep.exists():
             payload = json.loads(ep.read_text(encoding="utf-8"))
         else:
             payload = await extract_one_with_schema(
-                workspace, project_id, did,
+                workspace, project_id, filename,
                 schema=prompt.schema,
                 provider=provider,
                 model_id=model.provider_model_id,
@@ -303,19 +304,19 @@ async def run_experiment_eval(
                 parents=True, exist_ok=True,
             )
             atomic_write_json(ep, payload)
-        predictions[did] = payload.get("entities", [])
-        reviewed_payloads[did] = reviewed_entities
+        predictions[filename] = payload.get("entities", [])
+        reviewed_payloads[filename] = reviewed_entities
 
     # overall score
     overall = score(prompt.schema, predictions, reviewed_payloads)
     # per-doc: re-score one doc at a time (cheap; in-memory)
-    for did in predictions:
+    for fn in predictions:
         single = score(
             prompt.schema,
-            {did: predictions[did]},
-            {did: reviewed_payloads[did]},
+            {fn: predictions[fn]},
+            {fn: reviewed_payloads[fn]},
         )
-        per_doc[did] = single.macro_f1
+        per_doc[fn] = single.macro_f1
 
     now = _now_iso()
     eval_blob = ExperimentEval(

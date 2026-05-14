@@ -16,10 +16,6 @@ def new_project_id() -> str:
     return _new("p")
 
 
-def new_doc_id() -> str:
-    return _new("d")
-
-
 def new_chat_id() -> str:
     return _new("c")
 

@@ -4,16 +4,16 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from app.workspace.paths import predictions_draft_dir
+from app.workspace.paths import prediction_draft_path
 
 
 async def get_prediction(
     workspace: Path,
     project_id: str,
-    doc_id: str,
+    filename: str,
 ) -> Optional[dict[str, Any]]:
-    """Return the latest draft prediction for a doc, or None."""
-    p = predictions_draft_dir(workspace, project_id) / f"{doc_id}.json"
+    """Return the latest draft prediction for a doc (keyed by filename), or None."""
+    p = prediction_draft_path(workspace, project_id, filename)
     if not p.exists():
         return None
     return json.loads(p.read_text())

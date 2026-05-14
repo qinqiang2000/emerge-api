@@ -13,9 +13,10 @@ from app.tools.reviewed import save_reviewed
 async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> None:
     pid = await create_project(workspace, name="t")
     pdf = b"%PDF-1.4\n%%EOF\n"
-    did = await upload_doc(workspace, pid, pdf, "a.pdf")
+    meta = await upload_doc(workspace, pid, pdf, "a.pdf")
+    filename = meta["filename"]
     await save_reviewed(
-        workspace, pid, did,
+        workspace, pid, filename,
         entities=[{"invoice_no": "INV-1"}],
         source=ReviewedSource.MANUAL,
     )
@@ -32,7 +33,7 @@ async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> Non
         provider=provider, model_id="stub",
     )
     assert score_result.macro_f1 == 1.0
-    assert predictions == {did: [{"invoice_no": "INV-1"}]}
+    assert predictions == {filename: [{"invoice_no": "INV-1"}]}
 
 
 async def test_score_with_schema_returns_zero_when_reviewed_empty(workspace: Path) -> None:

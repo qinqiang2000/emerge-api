@@ -112,29 +112,41 @@ async def test_fork_copies_prompts_models_rewrites_project_json(workspace: Path)
 
 
 async def test_fork_include_docs_clones_doc_files(workspace: Path) -> None:
+    """include_docs=True hardlinks both the file and the sidecar in `.meta/`.
+
+    Post-d_xxx: layout is `docs/<filename>` + `docs/.meta/<filename>.json`.
+    Skipping the sidecar would orphan the doc (list_docs filters on sidecar
+    presence)."""
+    from app.workspace.paths import docs_meta_dir
     src_pid = "p_src123456789"
     _seed_src(workspace, src_pid)
-    # Seed two doc files
+    # Seed one doc + its sidecar at the new layout.
     src_docs = docs_dir(workspace, src_pid)
-    (src_docs / "d_aaa.pdf").write_bytes(b"PDFCONTENT")
-    (src_docs / "d_aaa.meta.json").write_text('{"original_filename": "a.pdf"}')
+    (src_docs / "a.pdf").write_bytes(b"PDFCONTENT")
+    src_meta = docs_meta_dir(workspace, src_pid)
+    src_meta.mkdir(parents=True, exist_ok=True)
+    (src_meta / "a.pdf.json").write_text('{"filename": "a.pdf", "ext": "pdf"}')
 
     new_pid = await fork_project(
         workspace, src_pid=src_pid, name="uk-invoice", include_docs=True,
     )
 
     new_docs = docs_dir(workspace, new_pid)
-    assert (new_docs / "d_aaa.pdf").read_bytes() == b"PDFCONTENT"
-    assert json.loads((new_docs / "d_aaa.meta.json").read_text())["original_filename"] == "a.pdf"
+    assert (new_docs / "a.pdf").read_bytes() == b"PDFCONTENT"
+    assert json.loads((new_docs / ".meta" / "a.pdf.json").read_text())["filename"] == "a.pdf"
 
 
 async def test_fork_default_skips_docs(workspace: Path) -> None:
     src_pid = "p_src123456789"
     _seed_src(workspace, src_pid)
-    (docs_dir(workspace, src_pid) / "d_aaa.pdf").write_bytes(b"X")
+    (docs_dir(workspace, src_pid) / "a.pdf").write_bytes(b"X")
 
     new_pid = await fork_project(workspace, src_pid=src_pid, name="uk-invoice")
-    assert list(docs_dir(workspace, new_pid).iterdir()) == []
+    # The fork creates an empty docs/ but skips the bytes when include_docs=False.
+    new_docs = docs_dir(workspace, new_pid)
+    # `iterdir()` may include the `.meta/` subdir if it ever got materialized;
+    # the key assertion is that the real doc file wasn't cloned.
+    assert not (new_docs / "a.pdf").exists()
 
 
 async def test_fork_missing_src_raises(workspace: Path) -> None:

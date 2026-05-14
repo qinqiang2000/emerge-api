@@ -32,7 +32,7 @@ function buildTree(
   promptItems: LeafNode[],
   modelItems: LeafNode[],
   experimentItems: LeafNode[],
-  openDoc: (projectId: string, docId: string) => void,
+  openDoc: (projectId: string, filename: string) => void,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -48,7 +48,7 @@ function buildTree(
       kind: 'file',
       name: doc.filename,
       stamp,
-      onClick: () => openDoc(projectId, doc.doc_id),
+      onClick: () => openDoc(projectId, doc.filename),
     })
   }
   const remaining = docs.length - first5.length
@@ -172,7 +172,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           promptItems,
           modelItems,
           experimentItems,
-          (pid, did) => { void openReview(pid, did) },
+          (pid, filename) => { void openReview(pid, filename) },
         )
       : null,
     [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview],

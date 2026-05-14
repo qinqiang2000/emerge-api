@@ -132,13 +132,15 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
       {renderAttachments && (
         <div className="att-tray" role="group" aria-label="Attachments">
           {attachments!.map((a, i) => {
+            // Filename is the only doc handle; encode it for the URL since
+            // dedupe / unicode can produce names with spaces or parens.
             const url = selectedId
-              ? `/lab/projects/${selectedId}/docs/${a.doc_id}/pages/1`
+              ? `/lab/projects/${selectedId}/docs/by-name/${encodeURIComponent(a.filename)}/pages/1`
               : null
             if (url && _isImage(a.filename)) {
               return (
                 <a
-                  key={`${a.doc_id}-${i}`}
+                  key={`${a.filename}-${i}`}
                   className="att-thumb"
                   href={url}
                   target="_blank"
@@ -151,7 +153,7 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
             }
             return (
               <a
-                key={`${a.doc_id}-${i}`}
+                key={`${a.filename}-${i}`}
                 className="att-file"
                 href={url ?? '#'}
                 target={url ? '_blank' : undefined}

@@ -42,7 +42,7 @@ function seedStores(opts: {
     loading: {},
   })
   useReview.setState({
-    activeProjectId: 'p_x', activeDocId: 'd_y',
+    activeProjectId: 'p_x', activeFilename: 'd_y',
     entities: opts.activeEntities ?? [{ supplier: 'ACTIVE' }],
     evidence: null, notes: {},
     activeTabKey: opts.activeTab ?? 'active',

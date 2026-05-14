@@ -37,11 +37,17 @@ def test_docs_dir(workspace: Path) -> None:
 
 
 def test_doc_path_pdf(workspace: Path) -> None:
-    assert doc_path(workspace, "p_abc", "d_xyz", "pdf") == workspace / "p_abc" / "docs" / "d_xyz.pdf"
+    # Post-d_xxx: doc_path is keyed by filename; the file's name on disk IS
+    # the doc handle (including its extension).
+    assert doc_path(workspace, "p_abc", "inv-001.pdf") == workspace / "p_abc" / "docs" / "inv-001.pdf"
 
 
 def test_doc_meta_path(workspace: Path) -> None:
-    assert doc_meta_path(workspace, "p_abc", "d_xyz") == workspace / "p_abc" / "docs" / "d_xyz.meta.json"
+    # Sidecars live under `docs/.meta/<filename>.json` (a dotfile dir so glob
+    # of `docs/*` ignores it).
+    assert doc_meta_path(workspace, "p_abc", "inv-001.pdf") == (
+        workspace / "p_abc" / "docs" / ".meta" / "inv-001.pdf.json"
+    )
 
 
 def test_predictions_draft_dir(workspace: Path) -> None:

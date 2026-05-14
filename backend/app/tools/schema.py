@@ -124,10 +124,10 @@ def _bytes_to_block(data: bytes, ext: str) -> ContentBlock:
     return ImageBlock(media_type=media_type, data_b64=b64)
 
 
-async def _doc_to_block(workspace: Path, project_id: str, doc_id: str) -> ContentBlock:
+async def _doc_to_block(workspace: Path, project_id: str, filename: str) -> ContentBlock:
     import json as _json
-    meta = _json.loads(doc_meta_path(workspace, project_id, doc_id).read_text())
-    data = await read_doc(workspace, project_id, doc_id)
+    meta = _json.loads(doc_meta_path(workspace, project_id, filename).read_text())
+    data = await read_doc(workspace, project_id, filename)
     return _bytes_to_block(data, meta["ext"])
 
 
@@ -135,14 +135,14 @@ async def derive_schema(
     workspace: Path,
     project_id: str,
     *,
-    sample_doc_ids: list[str],
+    sample_filenames: list[str],
     intent: str,
     provider: Provider,
     model_id: str = "claude-sonnet-4-6",
 ) -> list[SchemaField]:
     user_blocks: list[ContentBlock] = [TextBlock(text=f"User intent: {intent}")]
-    for did in sample_doc_ids:
-        user_blocks.append(await _doc_to_block(workspace, project_id, did))
+    for fn in sample_filenames:
+        user_blocks.append(await _doc_to_block(workspace, project_id, fn))
 
     result = await provider.extract(
         model_id=model_id,

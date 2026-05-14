@@ -9,7 +9,8 @@ type FieldsValue = Record<string, unknown>
 
 interface State {
   activeProjectId: string | null
-  activeDocId: string | null
+  /** On-disk filename of the open doc — the only doc handle now. */
+  activeFilename: string | null
   page: number
   pageCount: number    // best-effort; defaulted to 1 until viewer probes
   loading: boolean
@@ -22,7 +23,7 @@ interface State {
   activeTabKey: 'active' | string  // 'active' or experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
   // ── methods ──────────────────────────────────────────────────────
-  open: (projectId: string, docId: string) => Promise<void>
+  open: (projectId: string, filename: string) => Promise<void>
   close: () => void
   setField: (entityIdx: number, name: string, value: unknown) => void
   setNote: (name: string, note: string) => void
@@ -49,7 +50,7 @@ interface State {
 
 export const useReview = create<State>((set, get) => ({
   activeProjectId: null,
-  activeDocId: null,
+  activeFilename: null,
   page: 1,
   pageCount: 1,
   loading: false,
@@ -60,10 +61,10 @@ export const useReview = create<State>((set, get) => ({
   notes: {},
   activeTabKey: 'active',
   predictionsByExp: {},
-  open: async (projectId, docId) => {
+  open: async (projectId, filename) => {
     set({
       activeProjectId: projectId,
-      activeDocId: docId,
+      activeFilename: filename,
       page: 1,
       pageCount: 1,
       loading: true,
@@ -80,8 +81,8 @@ export const useReview = create<State>((set, get) => ({
       // Reviewed wins per-key when present; prediction backfills fields the user
       // never touched — including schema fields added after the doc was reviewed.
       const [reviewed, pred] = await Promise.all([
-        getReviewed(projectId, docId),
-        getPrediction(projectId, docId),
+        getReviewed(projectId, filename),
+        getPrediction(projectId, filename),
       ])
       const reviewedEnts = reviewed?.entities
       const predEnts = pred?.entities
@@ -101,7 +102,7 @@ export const useReview = create<State>((set, get) => ({
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeDocId: null, entities: [], evidence: null, notes: {}, page: 1 }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1 }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -116,8 +117,8 @@ export const useReview = create<State>((set, get) => ({
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
   save: async () => {
-    const { activeProjectId, activeDocId, entities, evidence, notes } = get()
-    if (!activeProjectId || !activeDocId) return
+    const { activeProjectId, activeFilename, entities, evidence, notes } = get()
+    if (!activeProjectId || !activeFilename) return
     set({ saving: true, err: null })
     try {
       const payload: ReviewedPayload = {
@@ -126,7 +127,7 @@ export const useReview = create<State>((set, get) => ({
         ...(evidence ? { _evidence: evidence } : {}),
         ...(Object.keys(notes).length > 0 ? { _notes: notes } : {}),
       }
-      await saveReviewed(activeProjectId, activeDocId, payload)
+      await saveReviewed(activeProjectId, activeFilename, payload)
       // refresh the doc-list status so the badge flips to "reviewed"
       void useDocs.getState().refresh(activeProjectId)
       set({ saving: false })
@@ -138,17 +139,17 @@ export const useReview = create<State>((set, get) => ({
   setActiveTab: (key) => set({ activeTabKey: key }),
 
   loadExperimentPrediction: async (experimentId) => {
-    const { activeProjectId, activeDocId, predictionsByExp } = get()
-    if (!activeProjectId || !activeDocId) return
+    const { activeProjectId, activeFilename, predictionsByExp } = get()
+    if (!activeProjectId || !activeFilename) return
     if (experimentId in predictionsByExp) return  // already attempted (success or 404)
-    const payload = await getExperimentPrediction(activeProjectId, experimentId, activeDocId)
+    const payload = await getExperimentPrediction(activeProjectId, experimentId, activeFilename)
     set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
 
   runExperimentPrediction: async (experimentId) => {
-    const { activeProjectId, activeDocId } = get()
-    if (!activeProjectId || !activeDocId) return
-    const payload = await runExperimentPrediction(activeProjectId, experimentId, activeDocId)
+    const { activeProjectId, activeFilename } = get()
+    if (!activeProjectId || !activeFilename) return
+    const payload = await runExperimentPrediction(activeProjectId, experimentId, activeFilename)
     set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
 

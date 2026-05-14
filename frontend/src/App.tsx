@@ -36,7 +36,7 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
 }
 
 export default function App() {
-  const { activeDocId } = useReview()
+  const { activeFilename } = useReview()
   const { selectedId } = useProjects()
 
   const [leftHiddenChat,    setLeftHiddenChatState]    = useState<boolean>(() => readBool(KEY_LEFT_CHAT))
@@ -44,7 +44,7 @@ export default function App() {
   const [leftHiddenReview,  setLeftHiddenReviewState]  = useState<boolean>(() => readBool(KEY_LEFT_REVIEW))
   const [rightHiddenReview, setRightHiddenReviewState] = useState<boolean>(() => readBool(KEY_RIGHT_REVIEW))
 
-  const inReview = !!activeDocId
+  const inReview = !!activeFilename
 
   const leftHidden  = inReview ? leftHiddenReview  : leftHiddenChat
   // Right rail: in chat mode with no project selected, the only payload

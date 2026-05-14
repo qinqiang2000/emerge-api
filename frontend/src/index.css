@@ -263,6 +263,20 @@ html, body, #root {
 .slashmenu .hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
 @keyframes ghostIn{0%{opacity:0;transform:translateY(4px)}100%{opacity:1;transform:translateY(0)}}
 
+/* `@` mention menu — visually parallel to .slashmenu but for file tree picking */
+.mentionmenu{position:absolute;left:0;right:0;bottom:100%;margin-bottom:8px;display:flex;justify-content:center;padding:0;pointer-events:none;z-index:6;animation:ghostIn .12s ease-out}
+.mentionmenu .inner{pointer-events:auto;width:100%;background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;box-shadow:0 8px 28px rgba(31,27,20,.10);overflow:hidden;padding:6px;max-height:280px;overflow-y:auto}
+.mentionmenu .crumb{display:block;font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.12em;padding:6px 10px 4px}
+.mentionmenu .item{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;border:1px solid transparent;cursor:pointer;transition:background .08s}
+.mentionmenu .item:hover{background:var(--paper-2)}
+.mentionmenu .item.active{background:var(--ochre-soft);border-color:transparent}
+.mentionmenu .item .ic{display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--ink-4);flex-shrink:0}
+.mentionmenu .item.active .ic{color:var(--ochre-2)}
+.mentionmenu .item .name{font-family:var(--mono);font-size:13px;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mentionmenu .item.active .name{color:var(--ink)}
+.mentionmenu .item .hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
+.mentionmenu .empty{font-family:var(--serif);font-size:13px;color:var(--ink-4);font-style:italic;padding:8px 12px}
+
 /* ── context surface ─────────────────────────────────────────────── */
 /* floating right panel — fixed overlay, not a shell grid column.
    top:10 + 0 padding + 12 (half of 24px button) aligns the toggle's y-center

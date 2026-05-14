@@ -49,15 +49,15 @@ def build_emerge_mcp(
 
     @tool(
         "upload_doc",
-        "Register a previously-uploaded doc by its temp path. Returns doc_id. "
-        "(For chat-driven uploads, the user uploads via the upload endpoint and the "
-        "doc_ids are passed to this tool only when triggered programmatically.)",
+        "Register a previously-uploaded doc by its temp path. Returns the "
+        "on-disk filename (collisions get `(1)`, `(2)`, …). Filename is the "
+        "only doc handle — pass it as-is to extract/predict/review tools.",
         {"project_id": str, "tmp_path": str, "filename": str},
     )
     async def t_upload_doc(args: dict[str, Any]) -> dict[str, Any]:
         data = Path(args["tmp_path"]).read_bytes()
-        did = await docs_mod.upload_doc(workspace, args["project_id"], data, args["filename"])
-        return {"content": [{"type": "text", "text": did}]}
+        meta = await docs_mod.upload_doc(workspace, args["project_id"], data, args["filename"])
+        return {"content": [{"type": "text", "text": meta["filename"]}]}
 
     @tool("list_docs", "List documents in a project.", {"project_id": str})
     async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
@@ -67,24 +67,24 @@ def build_emerge_mcp(
     @tool(
         "pdf_render_page",
         "Render a PDF page as PNG; returns the path.",
-        {"project_id": str, "doc_id": str, "page": int},
+        {"project_id": str, "filename": str, "page": int},
     )
     async def t_pdf_render_page(args: dict[str, Any]) -> dict[str, Any]:
         p = await docs_mod.pdf_render_page(
-            workspace, args["project_id"], args["doc_id"], page=args["page"]
+            workspace, args["project_id"], args["filename"], page=args["page"]
         )
         return {"content": [{"type": "text", "text": str(p)}]}
 
     @tool(
         "derive_schema",
         "Propose a schema from sample documents and a user intent.",
-        {"project_id": str, "sample_doc_ids": list, "intent": str},
+        {"project_id": str, "sample_filenames": list, "intent": str},
     )
     async def t_derive_schema(args: dict[str, Any]) -> dict[str, Any]:
         fields = await schema_mod.derive_schema(
             workspace,
             args["project_id"],
-            sample_doc_ids=args["sample_doc_ids"],
+            sample_filenames=args["sample_filenames"],
             intent=args["intent"],
             provider=provider,
         )
@@ -285,8 +285,8 @@ def build_emerge_mcp(
     @tool(
         "extract_with_experiment",
         "Run an experiment's (prompt, model) pair on a single doc; writes "
-        "experiments/{experiment_id}/predictions/{doc_id}.json. Returns the payload.",
-        {"project_id": str, "experiment_id": str, "doc_id": str},
+        "experiments/{experiment_id}/predictions/{filename}.json. Returns the payload.",
+        {"project_id": str, "experiment_id": str, "filename": str},
     )
     async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:
         ex = await experiment_mod.read_experiment(
@@ -298,7 +298,7 @@ def build_emerge_mcp(
         from app.provider import get_provider_for_model
         exp_provider = get_provider_for_model(model.provider_model_id)
         payload = await experiment_mod.extract_with_experiment(
-            workspace, args["project_id"], args["experiment_id"], args["doc_id"],
+            workspace, args["project_id"], args["experiment_id"], args["filename"],
             provider=exp_provider,
         )
         return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
@@ -417,23 +417,25 @@ def build_emerge_mcp(
 
     @tool(
         "extract_one",
-        "Extract from a single document.",
-        {"project_id": str, "doc_id": str},
+        "Extract from a single document. `filename` is the doc handle (the "
+        "on-disk filename, e.g. `2025VP00413.pdf`).",
+        {"project_id": str, "filename": str},
     )
     async def t_extract_one(args: dict[str, Any]) -> dict[str, Any]:
         out = await extract_mod.extract_one(
-            workspace, args["project_id"], args["doc_id"], provider=provider
+            workspace, args["project_id"], args["filename"], provider=provider
         )
         return {"content": [{"type": "text", "text": str(out)}]}
 
     @tool(
         "extract_batch",
-        "Extract over a list of documents (foreground).",
-        {"project_id": str, "doc_ids": list},
+        "Extract over a list of documents (foreground). `filenames` is a list "
+        "of on-disk filenames (the doc handles).",
+        {"project_id": str, "filenames": list},
     )
     async def t_extract_batch(args: dict[str, Any]) -> dict[str, Any]:
         summary = await extract_mod.extract_batch(
-            workspace, args["project_id"], args["doc_ids"], provider=provider
+            workspace, args["project_id"], args["filenames"], provider=provider
         )
         return {"content": [{"type": "text", "text": str(summary)}]}
 
@@ -442,7 +444,7 @@ def build_emerge_mcp(
         "Save a corrected extraction as ground truth for a doc.",
         {
             "project_id": str,
-            "doc_id": str,
+            "filename": str,
             "entities": list,
             "source": str,  # "manual" | "feedback"
             "notes": dict,  # optional; pass {} if none
@@ -452,7 +454,7 @@ def build_emerge_mcp(
         await reviewed_mod.save_reviewed(
             workspace,
             args["project_id"],
-            args["doc_id"],
+            args["filename"],
             entities=args["entities"],
             source=ReviewedSource(args.get("source", "manual")),
             notes=args.get("notes") or None,
@@ -471,22 +473,22 @@ def build_emerge_mcp(
     @tool(
         "get_reviewed",
         "Get the reviewed payload for one doc or null if not reviewed.",
-        {"project_id": str, "doc_id": str},
+        {"project_id": str, "filename": str},
     )
     async def t_get_reviewed(args: dict[str, Any]) -> dict[str, Any]:
         payload = await reviewed_mod.get_reviewed(
-            workspace, args["project_id"], args["doc_id"]
+            workspace, args["project_id"], args["filename"]
         )
         return {"content": [{"type": "text", "text": str(payload)}]}
 
     @tool(
         "get_prediction",
         "Get the latest draft prediction for a doc or null if not extracted.",
-        {"project_id": str, "doc_id": str},
+        {"project_id": str, "filename": str},
     )
     async def t_get_prediction(args: dict[str, Any]) -> dict[str, Any]:
         payload = await predictions_mod.get_prediction(
-            workspace, args["project_id"], args["doc_id"]
+            workspace, args["project_id"], args["filename"]
         )
         text = _json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
         return {"content": [{"type": "text", "text": text}]}

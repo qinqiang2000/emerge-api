@@ -1,9 +1,10 @@
-/** Attachment carried on a user message. `doc_id` is required for render —
- *  thumbnails fetch `/lab/projects/{pid}/docs/{doc_id}/pages/1`. Pre-upload
- *  pending chips don't make it into chat events. */
+/** Attachment carried on a user message. `filename` is the only doc handle
+ *  (post-d_xxx removal) — thumbnails fetch
+ *  `/lab/projects/{pid}/docs/by-name/{encodeURIComponent(filename)}/pages/1`.
+ *  Pre-upload pending chips (no real filename on disk yet) don't make it into
+ *  chat events. */
 export interface ChatAttachment {
   filename: string
-  doc_id: string
 }
 
 export type ChatEvent =

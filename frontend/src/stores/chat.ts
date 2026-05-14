@@ -67,7 +67,7 @@ interface State {
    *  or edit-save — must rewind the chat log first so the abandoned user
    *  message + partial agent response are dropped rather than stacking. */
   interrupted: boolean
-  send: (projectId: string, message: string, attachments?: { filename: string; doc_id?: string }[]) => Promise<void>
+  send: (projectId: string, message: string, attachments?: { filename: string }[]) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
@@ -254,13 +254,12 @@ export const useChat = create<State>((set, get) => ({
       })
     }
     const abortCtrl = new AbortController()
-    // Strip pre-upload chips (no doc_id yet) from the locally-stored attachments
-    // — the user event renders thumbnails by hitting /docs/{doc_id}/pages/1, so
-    // an attachment without a doc_id has nothing to render. Backend applies the
-    // same filter when persisting.
+    // Filename is the only doc handle now — keep entries that have a non-empty
+    // filename, drop pre-upload placeholders (no real filename yet). Backend
+    // applies the same filter when persisting.
     const userAttachments = (attachments ?? [])
-      .filter((a): a is { filename: string; doc_id: string } => typeof a.doc_id === 'string')
-      .map(a => ({ filename: a.filename, doc_id: a.doc_id }))
+      .filter((a): a is { filename: string } => typeof a.filename === 'string' && a.filename.length > 0)
+      .map(a => ({ filename: a.filename }))
     set(s => ({
       events: [
         ...s.events,
@@ -500,12 +499,14 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
         const ev: ChatEvent = { type: 'user', text: String(o.text ?? '') }
         const rawAtts = o.attachments
         if (Array.isArray(rawAtts)) {
+          // Filename is the only doc handle; ignore any legacy `doc_id` fields
+          // from pre-cut log lines. Drop entries without a string filename.
           const atts = rawAtts
             .map(x => x && typeof x === 'object' ? x as Record<string, unknown> : null)
             .filter((x): x is Record<string, unknown> =>
-              x !== null && typeof x.filename === 'string' && typeof x.doc_id === 'string',
+              x !== null && typeof x.filename === 'string' && (x.filename as string).length > 0,
             )
-            .map(x => ({ filename: x.filename as string, doc_id: x.doc_id as string }))
+            .map(x => ({ filename: x.filename as string }))
           if (atts.length > 0) ev.attachments = atts
         }
         out.push(ev)

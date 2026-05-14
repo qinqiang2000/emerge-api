@@ -13,9 +13,10 @@ type Props = {
   forceOpen: boolean | null
   onToggleExpand: () => void
   docs: DocSummary[]
-  activeDocId: string | null
+  /** On-disk filename of the open doc — the only doc handle now. */
+  activeFilename: string | null
   activeProjectId: string | null
-  onOpen: (pid: string, docId: string) => void
+  onOpen: (pid: string, filename: string) => void
   onSave: () => void
   onBack: () => void
   // ── inline tab strip ──
@@ -39,7 +40,7 @@ export default function ReviewBar({
   forceOpen,
   onToggleExpand,
   docs,
-  activeDocId,
+  activeFilename,
   activeProjectId,
   onOpen,
   onSave,
@@ -53,7 +54,7 @@ export default function ReviewBar({
   onToggleLeft,
   onToggleRight,
 }: Props) {
-  const idx = docs.findIndex((d) => d.doc_id === activeDocId)
+  const idx = docs.findIndex((d) => d.filename === activeFilename)
   const total = docs.length
   const hasPrev = idx > 0
   const hasNext = idx >= 0 && idx < total - 1
@@ -61,10 +62,10 @@ export default function ReviewBar({
   const nextDoc = hasNext ? docs[idx + 1] : null
 
   const handlePrev = () => {
-    if (prevDoc && activeProjectId) void onOpen(activeProjectId, prevDoc.doc_id)
+    if (prevDoc && activeProjectId) void onOpen(activeProjectId, prevDoc.filename)
   }
   const handleNext = () => {
-    if (nextDoc && activeProjectId) void onOpen(activeProjectId, nextDoc.doc_id)
+    if (nextDoc && activeProjectId) void onOpen(activeProjectId, nextDoc.filename)
   }
 
   const allExpanded = forceOpen === true

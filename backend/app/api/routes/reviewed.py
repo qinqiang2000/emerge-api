@@ -3,7 +3,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.routes._safety import safe_doc_id, safe_project_id
+from app.api.routes._safety import safe_filename, safe_project_id
 from app.config import get_settings
 from app.schemas.reviewed import ReviewedSource
 from app.tools.reviewed import get_reviewed, save_reviewed
@@ -20,19 +20,21 @@ class ReviewedBody(BaseModel):
     evidence: Optional[list[dict[str, Optional[int]]]] = Field(default=None, alias="_evidence")
 
 
-@router.post("/lab/projects/{project_id}/reviewed/{doc_id}")
+@router.post("/lab/projects/{project_id}/reviewed/{filename:path}")
 async def post_reviewed(
     project_id: str,
-    doc_id: str,
+    filename: str,
     body: ReviewedBody,
 ) -> dict:
+    """Save reviewed (ground-truth) entities for a doc. Keyed by the doc's
+    on-disk filename (the only doc handle)."""
     safe_project_id(project_id)
-    safe_doc_id(doc_id)
+    safe_filename(filename)
     settings = get_settings()
     await save_reviewed(
         settings.workspace_root,
         project_id,
-        doc_id,
+        filename,
         entities=body.entities,
         source=body.source,
         notes=body.notes,
@@ -41,12 +43,12 @@ async def post_reviewed(
     return {"ok": True}
 
 
-@router.get("/lab/projects/{project_id}/reviewed/{doc_id}")
-async def get_doc_reviewed(project_id: str, doc_id: str) -> dict:
+@router.get("/lab/projects/{project_id}/reviewed/{filename:path}")
+async def get_doc_reviewed(project_id: str, filename: str) -> dict:
     safe_project_id(project_id)
-    safe_doc_id(doc_id)
+    safe_filename(filename)
     settings = get_settings()
-    payload = await get_reviewed(settings.workspace_root, project_id, doc_id)
+    payload = await get_reviewed(settings.workspace_root, project_id, filename)
     if payload is None:
         raise HTTPException(status_code=404, detail="reviewed_not_found")
     return payload

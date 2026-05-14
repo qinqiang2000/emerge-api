@@ -98,25 +98,25 @@ def build_proposer_user_text(
     lines.append("")
     lines.append("=== sample errors (reviewed vs prediction) ===")
     any_err = False
-    for doc_id, rev_entities in reviewed.items():
+    for filename, rev_entities in reviewed.items():
         rev = rev_entities[0] if rev_entities else {}
-        pred_entities = predictions.get(doc_id, [])
+        pred_entities = predictions.get(filename, [])
         pred = pred_entities[0] if pred_entities else {}
         for f in schema:
             r = rev.get(f.name)
             p = pred.get(f.name)
             if r is not None and r != p:
                 any_err = True
-                lines.append(f"- {doc_id}.{f.name}: reviewed={r!r} predicted={p!r}")
+                lines.append(f"- {filename}.{f.name}: reviewed={r!r} predicted={p!r}")
     if not any_err:
         lines.append("(no field-level errors)")
 
     lines.append("")
     lines.append("=== user notes (high-priority hints) ===")
     flat: list[str] = []
-    for doc_id, per_field_notes in notes.items():
+    for filename, per_field_notes in notes.items():
         for fname, note in per_field_notes.items():
-            flat.append(f"- {doc_id}.{fname}: {note}")
+            flat.append(f"- {filename}.{fname}: {note}")
     if not flat:
         lines.append("(none)")
     else:
@@ -201,12 +201,12 @@ async def score_with_schema(
             reviewed[p.stem] = blob.get("entities", [])
 
     predictions: dict[str, list[dict[str, Any]]] = {}
-    for doc_id in reviewed:
+    for filename in reviewed:
         out = await extract_one_with_schema(
-            workspace, project_id, doc_id,
+            workspace, project_id, filename,
             schema=schema, provider=provider, model_id=model_id,
         )
-        predictions[doc_id] = out.get("entities", [])
+        predictions[filename] = out.get("entities", [])
 
     result = score(schema, predictions, reviewed)
     return result, predictions

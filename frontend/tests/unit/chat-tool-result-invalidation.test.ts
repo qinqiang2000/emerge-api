@@ -35,7 +35,7 @@ describe('handleToolResult side effects', () => {
       type: 'tool_call', tool_use_id: 't2', tool_name: 'mcp__emerge_tools__upload_doc',
       tool_input: {}, tool_result: null, ok: true,
     }]})
-    _testUtils.handleToolResult({ tool_use_id: 't2', result_text: '{"doc_id":"d_x"}', ok: true }, 'p_a', null)
+    _testUtils.handleToolResult({ tool_use_id: 't2', result_text: '{"filename":"a.pdf"}', ok: true }, 'p_a', null)
     expect(refresh).toHaveBeenCalledWith('p_a')
     refresh.mockRestore()
   })

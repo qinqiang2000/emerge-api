@@ -39,7 +39,7 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
         })}
         yield {"event": "tool_call", "data": json.dumps({
             "tool_name": "extract_batch",
-            "tool_input": {"project_id": "p_stub", "doc_ids": []},
+            "tool_input": {"project_id": "p_stub", "filenames": []},
             "tool_result": {"ok_count": 0, "err_count": 0, "per_doc": {}},
             "ok": True,
         })}
@@ -130,13 +130,13 @@ async def stub_chat(body: StubBody) -> EventSourceResponse:
             "tool_use_id": "tu_ext_list",
             "tool_name": "mcp__emerge_tools__list_docs",
             "tool_input": {"project_id": body.project_id},
-            "tool_result": "[{'doc_id':'d_a','filename':'a.pdf'},{'doc_id':'d_b','filename':'b.pdf'}]",
+            "tool_result": "[{'filename':'a.pdf'},{'filename':'b.pdf'}]",
             "ok": True,
         })}
         yield {"event": "tool_call", "data": json.dumps({
             "tool_use_id": "tu_ext_batch",
             "tool_name": "mcp__emerge_tools__extract_batch",
-            "tool_input": {"project_id": body.project_id, "doc_ids": ["d_a", "d_b"]},
+            "tool_input": {"project_id": body.project_id, "filenames": ["a.pdf", "b.pdf"]},
             "tool_result": json.dumps({"ok_count": 2, "err_count": 0, "per_doc": {}}),
             "ok": True,
         })}

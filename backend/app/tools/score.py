@@ -55,16 +55,16 @@ def score(
     counts = {field.name: {"tp": 0, "fp": 0, "fn": 0, "support": 0} for field in schema}
 
     n_reviewed_graded = 0
-    for doc_id, reviewed_entities in reviewed.items():
-        if doc_id not in predictions:
-            errors.append(f"doc {doc_id} has reviewed but no prediction")
+    for filename, reviewed_entities in reviewed.items():
+        if filename not in predictions:
+            errors.append(f"doc {filename} has reviewed but no prediction")
             continue
-        prediction_entities = predictions[doc_id]
+        prediction_entities = predictions[filename]
         # Multi-entity: pair by index. Mismatched lengths surface as errors
         # the user sees in the readiness checklist (Task 9).
         if len(prediction_entities) != len(reviewed_entities):
             errors.append(
-                f"doc {doc_id}: predicted {len(prediction_entities)} entities, "
+                f"doc {filename}: predicted {len(prediction_entities)} entities, "
                 f"reviewed {len(reviewed_entities)} — grading the overlap only"
             )
         n_reviewed_graded += 1
@@ -121,7 +121,7 @@ def score(
     macro_f1 = _safe_div(sum(field_score.f1 for field_score in per_field), len(per_field))
 
     return ScoreResult(
-        n_docs=len(reviewed) + sum(1 for doc_id in predictions if doc_id not in reviewed),
+        n_docs=len(reviewed) + sum(1 for fn in predictions if fn not in reviewed),
         n_reviewed=n_reviewed_graded,
         macro_f1=macro_f1,
         per_field=per_field,

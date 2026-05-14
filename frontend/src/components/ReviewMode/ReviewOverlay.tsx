@@ -29,7 +29,7 @@ export default function ReviewOverlay({
 }: Props) {
   const {
     activeProjectId,
-    activeDocId,
+    activeFilename,
     entities,
     evidence,
     notes,
@@ -136,14 +136,17 @@ export default function ReviewOverlay({
   // Auto-load every non-archived experiment's prediction so all tabs are
   // immediately switchable; loadExperimentPrediction is idempotent per id.
   useEffect(() => {
-    if (!activeProjectId || !activeDocId) return
+    if (!activeProjectId || !activeFilename) return
     for (const e of experimentList) {
       if (e.status === 'archived') continue
       void loadExperimentPrediction(e.experiment_id)
     }
-  }, [activeProjectId, activeDocId, experimentList, loadExperimentPrediction])
+  }, [activeProjectId, activeFilename, experimentList, loadExperimentPrediction])
 
-  const filename = docs.find(d => d.doc_id === activeDocId)?.filename
+  // `activeFilename` is the on-disk filename now; the lookup is essentially an
+  // existence check (and lets the field renderer show "(deleted)" if the doc
+  // dropped out of the project's docs list while open).
+  const filename = docs.find(d => d.filename === activeFilename)?.filename
 
   const handleToggleExpand = () => setForceOpen(v => (v === true ? false : true))
   const handleSetView = (v: 'form' | 'json') => {
@@ -161,7 +164,7 @@ export default function ReviewOverlay({
         forceOpen={forceOpen}
         onToggleExpand={handleToggleExpand}
         docs={docs}
-        activeDocId={activeDocId}
+        activeFilename={activeFilename}
         activeProjectId={activeProjectId}
         onOpen={open}
         onSave={() => void save()}

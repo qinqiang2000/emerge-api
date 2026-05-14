@@ -15,7 +15,16 @@ import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
 
-interface AttachInfo { filename: string; doc_id?: string; pending?: boolean }
+interface AttachInfo {
+  /** Display + key for the chip. Starts as `file.name`; after upload resolves,
+   *  reconciled to the dedupe filename returned by the server (e.g. the
+   *  second `foo.pdf` becomes `foo (1).pdf`). */
+  filename: string
+  /** The name the chip started with — kept so we can match the chip back to
+   *  its in-flight upload when the server-side filename differs after dedupe. */
+  originalName: string
+  pending?: boolean
+}
 
 export default function ChatPanel() {
   const { selectedId, projects } = useProjects()
@@ -66,16 +75,38 @@ export default function ChatPanel() {
   async function attach(files: File[]) {
     if (!selectedId) {
       // Project not yet created: keep filenames pending; agent will create project then we upload.
-      setPending(p => [...p, ...files.map(f => ({ filename: f.name, pending: true }))])
+      setPending(p => [...p, ...files.map(f => ({ filename: f.name, originalName: f.name, pending: true }))])
       return
     }
-    setPending(p => [...p, ...files.map(f => ({ filename: f.name, pending: true }))])
+    setPending(p => [...p, ...files.map(f => ({ filename: f.name, originalName: f.name, pending: true }))])
     for (const f of files) {
       try {
-        const { doc_id } = await uploadDoc(selectedId, f)
-        setPending(p => p.map(x => x.filename === f.name ? { filename: f.name, doc_id, pending: false } : x))
+        const { filename } = await uploadDoc(selectedId, f)
+        // Reconcile the chip to the server-returned name — may differ from
+        // `f.name` after dedupe (e.g. "foo.pdf" → "foo (1).pdf"). Match by
+        // originalName so concurrent uploads of the same name don't collide.
+        setPending(p => {
+          let consumed = false
+          return p.map(x => {
+            if (!consumed && x.originalName === f.name && x.pending) {
+              consumed = true
+              return { filename, originalName: f.name, pending: false }
+            }
+            return x
+          })
+        })
       } catch {
-        setPending(p => p.filter(x => x.filename !== f.name))
+        // Drop the first matching pending chip on failure (best-effort; rare).
+        setPending(p => {
+          let dropped = false
+          return p.filter(x => {
+            if (!dropped && x.originalName === f.name && x.pending) {
+              dropped = true
+              return false
+            }
+            return true
+          })
+        })
       }
     }
   }
@@ -117,10 +148,15 @@ export default function ChatPanel() {
       <Composer
         disabled={busy}
         pending={pending.map(p => ({ filename: p.filename }))}
+        projectId={selectedId ?? undefined}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onSubmit={async (text) => {
-          await send(selectedId ?? 'p_unset', text, pending.map(p => ({ filename: p.filename, doc_id: p.doc_id })))
+          // Only send chips that finished uploading (pending=false → filename
+          // is the dedupe-resolved on-disk name). The store also re-filters,
+          // but this keeps the wire format clean.
+          const ready = pending.filter(p => !p.pending).map(p => ({ filename: p.filename }))
+          await send(selectedId ?? 'p_unset', text, ready)
           setPending([])
         }}
         onCancel={() => useChat.getState().cancel()}

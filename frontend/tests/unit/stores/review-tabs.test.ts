@@ -5,7 +5,7 @@ import { useReview } from '../../../src/stores/review'
 describe('useReview tab state', () => {
   beforeEach(() => {
     useReview.setState({
-      activeProjectId: null, activeDocId: null,
+      activeProjectId: null, activeFilename: null,
       page: 1, pageCount: 1, loading: false, saving: false, err: null,
       entities: [], evidence: null, notes: {},
       activeTabKey: 'active', predictionsByExp: {},
@@ -17,7 +17,7 @@ describe('useReview tab state', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true, status: 200, json: async () => ({ entities: [{ supplier: 'EX' }] }),
     }))
-    useReview.setState({ activeProjectId: 'p_x', activeDocId: 'd_y' })
+    useReview.setState({ activeProjectId: 'p_x', activeFilename: 'd_y' })
     await useReview.getState().loadExperimentPrediction('ex_a')
     const s = useReview.getState()
     expect(s.predictionsByExp['ex_a']).toBeTruthy()
@@ -29,7 +29,7 @@ describe('useReview tab state', () => {
       ok: true, status: 200, json: async () => ({ entities: [{}] }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    useReview.setState({ activeProjectId: 'p_x', activeDocId: 'd_y' })
+    useReview.setState({ activeProjectId: 'p_x', activeFilename: 'd_y' })
     await useReview.getState().loadExperimentPrediction('ex_a')
     await useReview.getState().loadExperimentPrediction('ex_a')
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -52,7 +52,7 @@ describe('useReview tab state', () => {
       ok: false, status: 404, json: async () => ({}),
     }))
     useReview.setState({
-      activeProjectId: 'p_x', activeDocId: 'd_old',
+      activeProjectId: 'p_x', activeFilename: 'd_old',
       activeTabKey: 'ex_a',
       predictionsByExp: { ex_a: { entities: [{}] } },
     })
@@ -125,7 +125,7 @@ describe('useReview tab state', () => {
         ok: true, status: 200, json: async () => ({ entities: [{ supplier: 'OLD' }] }),
       })
     }))
-    useReview.setState({ activeProjectId: 'p_x', activeDocId: 'd_y' })
+    useReview.setState({ activeProjectId: 'p_x', activeFilename: 'd_y' })
     await useReview.getState().loadExperimentPrediction('ex_a')  // GET → OLD
     await useReview.getState().runExperimentPrediction('ex_a')   // POST → FRESH
     expect(postCalled).toBe(true)

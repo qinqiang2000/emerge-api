@@ -52,7 +52,7 @@ from tests.conftest import make_provider_result
 async def test_derive_schema_calls_provider(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = await create_project(workspace, name="x")
     pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
-    did = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+    meta = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
 
     stub_provider.extract.return_value = make_provider_result(
         {
@@ -66,7 +66,7 @@ async def test_derive_schema_calls_provider(workspace: Path, stub_provider: Asyn
     fields = await derive_schema(
         workspace,
         pid,
-        sample_doc_ids=[did],
+        sample_filenames=[meta["filename"]],
         intent="extract core invoice info",
         provider=stub_provider,
     )

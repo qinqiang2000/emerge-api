@@ -2,11 +2,16 @@
 export type DocStatus = 'reviewed' | 'draft' | 'pending'
 
 export interface DocSummary {
-  doc_id: string
+  /** Final on-disk filename — the only doc handle. May include spaces /
+   *  parens / unicode after dedupe. Use `encodeURIComponent` before stuffing
+   *  it into a URL. */
   filename: string
   ext: string
   page_count: number
+  sha256: string
   uploaded_at: string
+  /** Pre-dedup name the user uploaded. Display-only; never used for routing. */
+  original_name: string
   has_prediction: boolean
   has_reviewed: boolean
 }

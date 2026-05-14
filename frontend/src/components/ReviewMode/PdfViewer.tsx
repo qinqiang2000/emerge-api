@@ -4,7 +4,7 @@ import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
 
 export default function PdfViewer() {
-  const { activeProjectId, activeDocId, page, pageCount, setPageCount } = useReview()
+  const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
   const { byProject } = useDocs()
 
   const [visiblePage, setVisiblePage] = useState(1)
@@ -18,12 +18,13 @@ export default function PdfViewer() {
   const viewportRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
-  // Sync pageCount from doc store
+  // Sync pageCount from doc store. `activeFilename` is the on-disk filename
+  // (the only doc handle now); look up by `filename` field.
   useEffect(() => {
-    if (!activeProjectId || !activeDocId) return
-    const doc = byProject[activeProjectId]?.find(d => d.doc_id === activeDocId)
+    if (!activeProjectId || !activeFilename) return
+    const doc = byProject[activeProjectId]?.find(d => d.filename === activeFilename)
     if (doc?.page_count) setPageCount(doc.page_count)
-  }, [activeProjectId, activeDocId, byProject, setPageCount])
+  }, [activeProjectId, activeFilename, byProject, setPageCount])
 
   // Reset on doc change
   useEffect(() => {
@@ -34,7 +35,7 @@ export default function PdfViewer() {
     setLoadedPages(new Set([1]))
     setAspectRatio(11 / 8.5)
     pageRefs.current = {}
-  }, [activeDocId])
+  }, [activeFilename])
 
   // Track viewport inner width for rotation-aware fit
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function PdfViewer() {
     const ro = new ResizeObserver(measure)
     ro.observe(vp)
     return () => ro.disconnect()
-  }, [activeDocId])
+  }, [activeFilename])
 
   // Auto-scroll to page when store.page changes (field click → goPage)
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function PdfViewer() {
     }, { root: vp, rootMargin: '300px' })
     Object.entries(pageRefs.current).forEach(([, el]) => { if (el) obs.observe(el) })
     return () => obs.disconnect()
-  }, [pageCount, activeDocId])
+  }, [pageCount, activeFilename])
 
   // Scroll → update visible page indicator
   useEffect(() => {
@@ -136,7 +137,7 @@ export default function PdfViewer() {
     return { width: `${w * effZoom}px`, height: `${h * effZoom}px`, position: 'relative' }
   }
 
-  if (!activeProjectId || !activeDocId) return null
+  if (!activeProjectId || !activeFilename) return null
 
   return (
     <>
@@ -216,7 +217,7 @@ export default function PdfViewer() {
                 <div className="pgnum">page {p} / {pageCount}</div>
                 {loadedPages.has(p) ? (
                   <img
-                    src={pdfPageUrl(activeProjectId, activeDocId, p)}
+                    src={pdfPageUrl(activeProjectId, activeFilename, p)}
                     alt={`page ${p}`}
                     onLoad={p === 1 ? (e) => {
                       const img = e.target as HTMLImageElement

@@ -10,6 +10,7 @@ from app.workspace.ids import new_project_id
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
     docs_dir,
+    docs_meta_dir,
     model_path,
     models_dir,
     project_dir,
@@ -106,7 +107,12 @@ async def fork_project(
                         json.loads(f.read_text(encoding="utf-8")),
                     )
 
-        # 4. docs/ (optional)
+        # 4. docs/ (optional). Two layers to clone:
+        #   * top-level doc files (`docs/<filename>`) — the real bytes.
+        #   * sidecar JSONs (`docs/.meta/<filename>.json`) — without these the
+        #     forked project's docs would be listless / unreadable (list_docs
+        #     skips files that have no sidecar). The `_render/` cache is
+        #     deliberately NOT copied: it's cheap to regenerate and bulky.
         if include_docs:
             src_docs = docs_dir(workspace, src_pid)
             dst_docs = docs_dir(workspace, new_pid)
@@ -114,7 +120,21 @@ async def fork_project(
                 for f in src_docs.iterdir():
                     if not f.is_file():
                         continue
+                    if f.name.startswith("."):
+                        continue
                     target = dst_docs / f.name
+                    try:
+                        target.hardlink_to(f)
+                    except OSError:
+                        shutil.copy2(f, target)
+            src_meta = docs_meta_dir(workspace, src_pid)
+            if src_meta.exists():
+                dst_meta = docs_meta_dir(workspace, new_pid)
+                dst_meta.mkdir(parents=True, exist_ok=True)
+                for f in src_meta.iterdir():
+                    if not f.is_file() or not f.name.endswith(".json"):
+                        continue
+                    target = dst_meta / f.name
                     try:
                         target.hardlink_to(f)
                     except OSError:
