@@ -5,7 +5,6 @@ export interface SchemaField {
   type: string
   description: string
   required?: boolean
-  examples?: string[] | null
   enum?: string[] | null
   children?: SchemaField[] | null
 }

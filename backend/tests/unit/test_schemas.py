@@ -9,7 +9,6 @@ def test_simple_field_minimal() -> None:
     assert f.name == "invoice_no"
     assert f.type == FieldType.STRING
     assert f.required is False  # default
-    assert f.examples is None
     assert f.enum is None
     assert f.children is None
 

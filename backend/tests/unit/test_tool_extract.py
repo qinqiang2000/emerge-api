@@ -155,6 +155,24 @@ def test_response_schema_marks_all_fields_required_and_nullable() -> None:
         assert child_items["properties"][cname].get("nullable") is True, cname
 
 
+def test_enum_appears_both_in_schema_and_text_hint() -> None:
+    """`enum` is a hard constraint via response_schema AND a text-block hint
+    (belt-and-suspenders for providers that under-honor structural enums)."""
+    from app.tools.extract import _build_response_schema, _build_field_instructions
+
+    schema = [
+        SchemaField(
+            name="status",
+            type=FieldType.STRING,
+            description="Doc status",
+            enum=["draft", "final"],
+        ),
+    ]
+    props = _build_response_schema(schema)["properties"]["entities"]["items"]["properties"]
+    assert props["status"]["enum"] == ["draft", "final"]
+    assert "Allowed values: draft, final." in _build_field_instructions(schema)
+
+
 async def test_extract_one_preserves_null_fields_in_prediction(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:

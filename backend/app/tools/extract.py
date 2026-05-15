@@ -90,8 +90,6 @@ def _build_field_instructions(schema: list[SchemaField]) -> str:
     lines = ["Per-field instructions:"]
     for i, f in enumerate(schema, start=1):
         suffix = ""
-        if f.examples:
-            suffix += f" Examples: {', '.join(f.examples)}."
         if f.enum:
             suffix += f" Allowed values: {', '.join(f.enum)}."
         lines.append(f"{i}. `{f.name}` ({f.type.value}): {f.description}{suffix}")

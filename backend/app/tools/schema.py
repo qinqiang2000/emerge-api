@@ -101,7 +101,6 @@ _DERIVE_TOOL_SCHEMA = {
                     "type": {"type": "string", "enum": ["string", "number", "boolean", "date", "array<object>"]},
                     "description": {"type": "string"},
                     "required": {"type": "boolean"},
-                    "examples": {"type": "array", "items": {"type": "string"}},
                     "enum": {"type": "array", "items": {"type": "string"}},
                 },
             },

@@ -51,7 +51,7 @@
 .ql-field-required { font-family: var(--mono, ui-monospace, monospace); font-size: 10px; color: var(--ochre); letter-spacing: 0.08em; }
 .ql-field-desc { margin-top: 4px; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
 .ql-field-desc--empty { color: var(--ink-5); font-style: italic; }
-.ql-field-examples, .ql-field-enum, .ql-field-notes { margin-top: 4px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); }
+.ql-field-enum, .ql-field-notes { margin-top: 4px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); }
 .ql-field-disclosure { background: none; border: 0; cursor: pointer; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-3); padding: 4px 0 0 0; }
 .ql-field-children { margin-top: 8px; padding-left: 12px; border-left: 1px solid var(--paper-3); }
 

@@ -48,7 +48,7 @@ def test_schema_raw_returns_pretty_printed_text(client: TestClient, tmp_path: Pa
     assert "\n" in body
     assert '  "name": "invoice_number"' in body
     # round-trippable: endpoint now serializes via SchemaField.model_dump so optional
-    # fields (examples, enum, children) are included as None; check only core keys.
+    # fields (enum, children) are included as None; check only core keys.
     parsed = json.loads(body)
     assert len(parsed) == len(fields)
     for actual, expected in zip(parsed, fields):

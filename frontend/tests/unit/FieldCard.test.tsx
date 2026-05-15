@@ -30,12 +30,6 @@ describe('FieldCard', () => {
     expect(screen.getByText('(no description)')).toBeInTheDocument()
   })
 
-  it('renders examples joined by comma, capped at 6', () => {
-    render(<FieldCard field={F({ examples: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] })} />)
-    expect(screen.getByText(/examples · a, b, c, d, e, f/)).toBeInTheDocument()
-    expect(screen.getByText(/\+ 2 more/)).toBeInTheDocument()
-  })
-
   it('renders enum list when present', () => {
     render(<FieldCard field={F({ enum: ['draft', 'published'] })} />)
     expect(screen.getByText('enum · draft, published')).toBeInTheDocument()

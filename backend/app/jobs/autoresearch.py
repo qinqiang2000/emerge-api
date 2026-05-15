@@ -33,8 +33,9 @@ Hard constraints:
 - DO NOT retype fields.
 - Keep the field order identical.
 - For each field, return `name`, `type`, and `description` (and the original
-  `required`/`enum`/`examples`/`children` if present), but only `description`
-  may differ from the input.
+  `required`/`enum`/`children` if present), but only `description` may differ
+  from the input. Concrete value samples belong inside `description` prose
+  (e.g. "Examples: ABC-123, INV-2024-001.").
 
 Treat the user's inline `_notes` as high-priority hints - they are direct
 human feedback on what's wrong. Sample errors show concrete reviewed-vs-
@@ -61,7 +62,6 @@ PROPOSER_RESPONSE_SCHEMA: dict[str, Any] = {
                     },
                     "description": {"type": "string"},
                     "required": {"type": "boolean"},
-                    "examples": {"type": "array", "items": {"type": "string"}},
                     "enum": {"type": "array", "items": {"type": "string"}},
                 },
             },

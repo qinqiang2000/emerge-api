@@ -25,7 +25,6 @@ class SchemaField(BaseModel):
     type: FieldType
     description: str
     required: bool = False
-    examples: Optional[list[str]] = None
     enum: Optional[list[str]] = None
     children: Optional[list["SchemaField"]] = None
 
