@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react'
 import FieldRow from './FieldRow'
 import ObjectField from './ObjectField'
 import ArrayField from './ArrayField'
+import type { SchemaField } from '../../stores/schema'
 
 export interface SectionField {
   name: string
@@ -15,6 +16,8 @@ export interface SectionField {
   value: unknown
   note?: string
   evidencePage?: number | null
+  /** Row sub-schema for type='array<object>'. */
+  children?: SchemaField[] | null
 }
 
 interface Props {
@@ -88,13 +91,14 @@ export default function Section({
               )
             }
 
-            if (f.type === 'array') {
+            if (f.type === 'array<object>' || f.type === 'array') {
               return (
                 <ArrayField
                   key={f.name}
                   path={path}
                   name={f.name}
                   value={f.value}
+                  rowSchema={f.children ?? null}
                   active={isActive}
                   forceOpen={forceOpen}
                   readOnly={readOnly}

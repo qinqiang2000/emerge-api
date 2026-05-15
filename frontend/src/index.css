@@ -530,8 +530,21 @@ html, body, #root {
 .rev-arr .rhead .rwarn{font-family:var(--mono);font-size:10px;color:var(--ochre-2);background:var(--ochre-soft);padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.06em;flex-shrink:0}
 .rev-arr .rhead .ramt{font-family:var(--mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;flex-shrink:0}
 .rev-arr .rhead .caret{font-family:var(--mono);font-size:10px;color:var(--ink-4);width:10px;text-align:right;flex-shrink:0}
-.rev-arr .rbody{border-top:1px solid var(--rule-soft);padding:4px 4px 4px;background:var(--paper)}
+.rev-arr .rbody{border-top:1px solid var(--rule-soft);padding:6px 10px 8px;background:var(--paper)}
 .rev-arr .rfoot{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--rule-soft)}
+.rev-arr-rowwrap{position:relative}
+.rev-arr-empty{font-family:var(--mono);font-size:11px;color:var(--ink-5);padding:8px 10px}
+.rev-arr-rawpre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--ink-2);outline:none;white-space:pre-wrap;word-break:break-all;padding:4px 4px}
+/* Sub-field grid inside an array<object> row */
+.rev-arr-sub-grid{display:flex;flex-direction:column;gap:2px}
+.rev-arr-sub{display:grid;grid-template-columns:minmax(120px,180px) 1fr;gap:10px;align-items:baseline;padding:4px 4px;border-bottom:1px dashed var(--rule-soft)}
+.rev-arr-sub:last-child{border-bottom:0}
+.rev-arr-sub-key{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:hidden}
+.rev-arr-sub-name{font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rev-arr-sub-ty{font-family:var(--mono);font-size:10px;color:var(--ink-5);font-style:italic;flex-shrink:0}
+.rev-arr-sub-val{font-family:var(--serif);font-size:13.5px;color:var(--ink);line-height:1.5;outline:none;padding:1px 4px;border-radius:3px;min-height:18px;word-break:break-word}
+.rev-arr-sub-val:focus{background:var(--paper-2);box-shadow:0 0 0 1px var(--ochre-soft) inset}
+.rev-arr-sub-val:empty::before{content:'—';color:var(--ink-5)}
 .rev-page tr.rowhi td{background:rgba(181,100,44,.08)}
 .rev-json{overflow:auto;background:var(--paper);padding:10px 0 80px}
 .rev-json pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink-2)}

@@ -1,9 +1,9 @@
-// frontend/src/components/ReviewMode/ArrayField.tsx
-// T11.4 — port of review.jsx:78-137
-// Array sub-field schema not available; each entry renders as collapsible JSON card.
-// See design-decisions.md 2026-05-10 for rationale.
+// Array of objects — stack of row-cards. Each row's body shows the sub-fields
+// as a mini FieldRow grid (when `rowSchema` is supplied, i.e. type='array<object>').
+// Falls back to JSON-blob rendering when no rowSchema is available.
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import type { SchemaField } from '../../stores/schema'
 
 interface ArrayEntry {
   value: unknown
@@ -15,49 +15,98 @@ function parseEntries(value: unknown): ArrayEntry[] {
   return value.map((v) => ({ value: v }))
 }
 
-interface Props {
-  path: string
-  name: string
-  value: unknown
-  active: boolean
-  forceOpen?: boolean | null
-  readOnly?: boolean
-  onChange: (value: unknown) => void
-  onClick: (path: string) => void
+function summarize(entry: unknown, rowSchema: SchemaField[] | null): string | undefined {
+  if (typeof entry === 'string') return entry
+  if (!entry || typeof entry !== 'object') return undefined
+  const obj = entry as Record<string, unknown>
+  // Prefer the first string-typed field in the schema; fall back to any string value.
+  if (rowSchema) {
+    for (const f of rowSchema) {
+      const v = obj[f.name]
+      if (typeof v === 'string' && v.length > 0) return v
+    }
+  }
+  for (const v of Object.values(obj)) {
+    if (typeof v === 'string' && v.length > 0) return v as string
+  }
+  return undefined
 }
 
-function RowCard({
-  index,
-  entry,
-  forceOpen,
-  readOnly = false,
-  onChangeEntry,
-}: {
+interface SubFieldRowProps {
+  name: string
+  type: string
+  value: unknown
+  readOnly: boolean
+  onChange: (v: unknown) => void
+}
+
+function SubFieldRow({ name, type, value, readOnly, onChange }: SubFieldRowProps) {
+  const displayValue = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return (
+    <div className="rev-arr-sub">
+      <div className="rev-arr-sub-key">
+        <span className="rev-arr-sub-name">{name}</span>
+        <span className="rev-arr-sub-ty">{type}</span>
+      </div>
+      <span
+        className="rev-arr-sub-val"
+        contentEditable={!readOnly}
+        suppressContentEditableWarning
+        onBlur={(e) => {
+          if (readOnly) return
+          const next = e.currentTarget.textContent ?? ''
+          // Coerce back to the original primitive shape where reasonable.
+          if (type === 'number') {
+            const n = Number(next)
+            onChange(Number.isFinite(n) && next.trim() !== '' ? n : next)
+          } else if (type === 'boolean') {
+            const trimmed = next.trim().toLowerCase()
+            if (trimmed === 'true' || trimmed === 'false') onChange(trimmed === 'true')
+            else onChange(next)
+          } else {
+            onChange(next)
+          }
+        }}
+      >
+        {displayValue}
+      </span>
+    </div>
+  )
+}
+
+interface RowCardProps {
   index: number
   entry: ArrayEntry
+  rowSchema: SchemaField[] | null
   forceOpen?: boolean | null
-  readOnly?: boolean
+  readOnly: boolean
   onChangeEntry: (v: unknown) => void
-}) {
+}
+
+function RowCard({ index, entry, rowSchema, forceOpen, readOnly, onChangeEntry }: RowCardProps) {
   const [open, setOpen] = useState(false)
-  const preRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
     if (forceOpen !== null && forceOpen !== undefined) setOpen(forceOpen)
   }, [forceOpen])
 
-  const json = JSON.stringify(entry.value, null, 2)
-  const summary = typeof entry.value === 'string'
-    ? entry.value
-    : entry.value && typeof entry.value === 'object'
-      ? Object.values(entry.value as Record<string, unknown>).find(v => typeof v === 'string') as string | undefined
-      : undefined
+  const summary = summarize(entry.value, rowSchema)
+  const obj = (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value))
+    ? (entry.value as Record<string, unknown>)
+    : null
 
-  useEffect(() => {
-    if (preRef.current && preRef.current !== document.activeElement) {
-      preRef.current.textContent = json
-    }
-  }, [json])
+  // Surface a tabular amount if the row has one — common in line-item arrays.
+  const amount = obj
+    ? (typeof obj.amount === 'number' ? obj.amount
+       : typeof obj.unit_price === 'number' ? obj.unit_price
+       : typeof obj.total === 'number' ? obj.total
+       : undefined)
+    : undefined
+
+  const handleSubChange = (key: string, value: unknown) => {
+    const base = obj ?? {}
+    onChangeEntry({ ...base, [key]: value })
+  }
 
   return (
     <div className={`rcard${entry.warn ? ' warn' : ''}${open ? ' open' : ''}`}>
@@ -65,33 +114,81 @@ function RowCard({
         <span className="ix">#{index + 1}</span>
         <span className="rsum">{summary ?? '—'}</span>
         {entry.warn && <span className="rwarn">{entry.warn}</span>}
+        {amount !== undefined && <span className="ramt">{amount}</span>}
         <span className="caret">{open ? '▾' : '▸'}</span>
       </div>
       {open && (
         <div className="rbody">
-          <pre
-            ref={preRef}
-            contentEditable={!readOnly}
-            suppressContentEditableWarning
-            style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.55, color: 'var(--ink-2)', outline: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '4px 8px' }}
-            onBlur={(e) => {
-              if (readOnly) return
-              try {
-                onChangeEntry(JSON.parse(e.currentTarget.textContent ?? 'null'))
-              } catch {
-                if (preRef.current) preRef.current.textContent = json
-              }
-            }}
-          >
-            {json}
-          </pre>
+          {rowSchema && obj ? (
+            <div className="rev-arr-sub-grid">
+              {rowSchema.map(child => (
+                <SubFieldRow
+                  key={child.name}
+                  name={child.name}
+                  type={child.type}
+                  value={obj[child.name] ?? null}
+                  readOnly={readOnly}
+                  onChange={(v) => handleSubChange(child.name, v)}
+                />
+              ))}
+            </div>
+          ) : (
+            <RawJsonEditor value={entry.value} readOnly={readOnly} onChange={onChangeEntry} />
+          )}
         </div>
       )}
     </div>
   )
 }
 
-export default function ArrayField({ path, name, value, active, forceOpen, readOnly = false, onChange, onClick }: Props) {
+function RawJsonEditor({
+  value,
+  readOnly,
+  onChange,
+}: { value: unknown; readOnly: boolean; onChange: (v: unknown) => void }) {
+  const json = JSON.stringify(value, null, 2)
+  return (
+    <pre
+      className="rev-arr-rawpre"
+      contentEditable={!readOnly}
+      suppressContentEditableWarning
+      onBlur={(e) => {
+        if (readOnly) return
+        try {
+          onChange(JSON.parse(e.currentTarget.textContent ?? 'null'))
+        } catch {
+          e.currentTarget.textContent = json
+        }
+      }}
+    >
+      {json}
+    </pre>
+  )
+}
+
+interface Props {
+  path: string
+  name: string
+  value: unknown
+  rowSchema: SchemaField[] | null
+  active: boolean
+  forceOpen?: boolean | null
+  readOnly?: boolean
+  onChange: (value: unknown) => void
+  onClick: (path: string) => void
+}
+
+export default function ArrayField({
+  path,
+  name,
+  value,
+  rowSchema,
+  active,
+  forceOpen,
+  readOnly = false,
+  onChange,
+  onClick,
+}: Props) {
   const [open, setOpen] = useState(true)
 
   useEffect(() => {
@@ -102,13 +199,17 @@ export default function ArrayField({ path, name, value, active, forceOpen, readO
   const arrValue = Array.isArray(value) ? (value as unknown[]) : []
 
   const handleChangeEntry = (index: number, v: unknown) => {
-    const next = arrValue.map((item, i) => i === index ? v : item)
-    onChange(next)
+    onChange(arrValue.map((item, i) => i === index ? v : item))
   }
 
   const handleAddRow = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onChange([...arrValue, {}])
+    // Seed with empty values keyed by the schema so the row renders sensibly.
+    const seed: Record<string, unknown> = {}
+    if (rowSchema) {
+      for (const f of rowSchema) seed[f.name] = null
+    }
+    onChange([...arrValue, seed])
   }
 
   const handleDuplicateRow = (e: React.MouseEvent, index: number) => {
@@ -129,7 +230,6 @@ export default function ArrayField({ path, name, value, active, forceOpen, readO
       onClick={() => onClick(path)}
     >
       <div className="arrhead" onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}>
-        {/* Confidence dot — hard-coded to 'high' per design-decisions.md */}
         <span className="cdot" title="confidence: high" />
         <span className="name">{name}</span>
         <span className="ty">array · {entries.length} rows</span>
@@ -145,15 +245,14 @@ export default function ArrayField({ path, name, value, active, forceOpen, readO
       {open && (
         <div className="arrlist">
           {entries.length === 0 && (
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-5)', padding: '8px 10px' }}>
-              no items
-            </div>
+            <div className="rev-arr-empty">no items</div>
           )}
           {entries.map((entry, idx) => (
-            <div key={idx} style={{ position: 'relative' }}>
+            <div key={idx} className="rev-arr-rowwrap">
               <RowCard
                 index={idx}
                 entry={entry}
+                rowSchema={rowSchema}
                 forceOpen={forceOpen}
                 readOnly={readOnly}
                 onChangeEntry={(v) => handleChangeEntry(idx, v)}

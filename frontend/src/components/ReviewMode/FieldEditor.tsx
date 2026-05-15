@@ -17,6 +17,7 @@ interface SchemaField {
   type: string
   description?: string
   enum?: string[] | null
+  children?: SchemaField[] | null
 }
 
 interface Props {
@@ -80,6 +81,7 @@ export default function FieldEditor({
       value: currentEntity[f.name] ?? null,
       note: notes[f.name],
       evidencePage: evidenceForEntity?.[f.name] ?? null,
+      children: f.children ?? null,
     }))
     // If/when backend grows section support, read from schema; for now, one section.
     return [{ id: 'fields', label: 'fields', fields }]
