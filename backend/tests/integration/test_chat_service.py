@@ -13,9 +13,11 @@ def test_chat_service_constructs(workspace: Path, stub_provider: AsyncMock) -> N
 
 
 def _build_options_for(svc: ChatService, msg: str) -> str:
-    """Re-construct the system_prompt the service would send for this user
-    message. Uses the new _select_system_prompt helper."""
-    return svc._select_system_prompt(msg)
+    """Re-construct the skill text the service would route to for this user
+    message. Skill routing is `_select_skill`; the full system_prompt (skill
+    + Active context) is `_build_system_prompt` — these tests only care
+    about the skill-selection half."""
+    return svc._select_skill(msg)
 
 
 def test_improve_loads_autoresearch_skill(workspace: Path, stub_provider: AsyncMock) -> None:

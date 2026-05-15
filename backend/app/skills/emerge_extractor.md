@@ -8,6 +8,19 @@ it to every tool that takes a `slug` parameter (or `src_slug` / `into_slug`).
 The opaque `project_id` (`p_xxx`) is an immutable internal event anchor (in
 chat jsonl); you typically never see it.
 
+## Read the Active context block first
+
+Every turn ends with a `## Active context` block that pins the project the
+user is *looking at right now* in the UI — slug, chat_id, and the active
+prompt / model. **Use that slug for every tool call** unless the user
+explicitly names a different project. Do NOT call `list_projects` to
+discover the current project — it's already in the Active context. Only
+call `list_projects` when the user asks to see all projects, switch
+between them, or pick one from a list.
+
+If Active context says "no project yet" (empty-hero state), call
+`create_project` first and use its returned slug afterwards.
+
 ## Discipline (red lines — never violate)
 
 - The ONLY knowledge channel into the extraction model is each field's

@@ -35,7 +35,7 @@ from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
 from app.tools.projects import create_project as _create_project
-from app.workspace.paths import chat_attachment_path, doc_path
+from app.workspace.paths import chat_attachment_path, doc_path, project_json_path
 from app.workspace.staging import StagingClaimError, claim_staged_to_chat
 
 
@@ -128,6 +128,73 @@ def _placeholder_project_name() -> str:
     return f"Chat-{ts}"
 
 
+# Sentinel for the empty-hero composer (also defined in routes/chat.py).
+# Kept here so this module can identify "no project yet" without importing
+# the route layer.
+_UNSET_SLUG = "p_unset"
+
+
+def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
+    """Render the "Active context" block that gets spliced into the system
+    prompt every turn.
+
+    The agent otherwise has no idea which project the user is *looking at*
+    in the UI — it would have to call `list_projects` and guess. This block
+    pins the URL/page state (slug + active prompt + active model) directly
+    into the system prompt so the agent calls tools with the right `slug`
+    on the first try.
+
+    Reading `project.json` is best-effort: a freshly-minted project may not
+    yet have the file flushed, and a renamed slug between turns may briefly
+    point at a stale path. In either case we fall back to a minimal block
+    containing just the slug — better than nothing, and the agent can still
+    operate.
+    """
+    if slug == _UNSET_SLUG:
+        return (
+            "## Active context\n\n"
+            "The user has NOT selected a project yet (empty-hero state). "
+            "No project-scoped tools work until a project is created — call "
+            "`create_project` first, then use its returned slug for "
+            "subsequent tool calls. Do NOT call `list_projects` to look for "
+            "an active project; there isn't one."
+        )
+
+    name = slug
+    active_prompt_id: str | None = None
+    active_model_id: str | None = None
+    extract_model: str | None = None
+    try:
+        blob = json.loads(project_json_path(workspace, slug).read_text())
+        name = str(blob.get("name") or slug)
+        active_prompt_id = blob.get("active_prompt_id")
+        active_model_id = blob.get("active_model_id")
+        extract_model = blob.get("extract_model")
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    lines = [
+        "## Active context",
+        "",
+        f"The user is in project **{name}** (slug=`{slug}`), chat_id=`{chat_id}`.",
+        "",
+        "Use this slug for every tool call that takes a `slug` parameter "
+        "unless the user explicitly names a different project. Do NOT call "
+        "`list_projects` to discover the current selection — it is given here.",
+    ]
+    if active_prompt_id or active_model_id or extract_model:
+        detail = []
+        if active_prompt_id:
+            detail.append(f"active prompt: `{active_prompt_id}`")
+        if active_model_id:
+            detail.append(f"active model: `{active_model_id}`")
+        if extract_model:
+            detail.append(f"extract model: `{extract_model}`")
+        lines.append("")
+        lines.append(", ".join(detail) + ".")
+    return "\n".join(lines)
+
+
 async def _emerge_only_permission(
     tool_name: str,
     _input: dict[str, Any],
@@ -174,8 +241,13 @@ class ChatService:
             workspace=workspace, provider=provider, job_runner=self.job_runner,
         )
 
-    def _select_system_prompt(self, user_message: str) -> str:
-        """Choose which skills to load based on the slash intent."""
+    def _select_skill(self, user_message: str) -> str:
+        """Choose which skill text to load based on the slash intent.
+
+        Slash-routed skills are appended after the base extractor skill so
+        the agent keeps its core toolbelt knowledge while also picking up
+        the specialised playbook for `/improve` or `/publish`.
+        """
         stripped = user_message.lstrip()
         if stripped.startswith("/improve"):
             return self._extractor_skill + "\n\n---\n\n" + self._autoresearch_skill
@@ -183,11 +255,28 @@ class ChatService:
             return self._extractor_skill + "\n\n---\n\n" + self._publish_skill
         return self._extractor_skill
 
+    def _build_system_prompt(
+        self, user_message: str, *, slug: str, chat_id: str,
+    ) -> str:
+        """Skill text + live Active context block. Active context tells the
+        agent which slug it is operating on for this turn — see
+        `_build_active_context` for the rationale."""
+        return (
+            self._select_skill(user_message)
+            + "\n\n---\n\n"
+            + _build_active_context(self.workspace, slug, chat_id)
+        )
+
     def _build_options(
-        self, user_message: str, *, resume: str | None = None
+        self,
+        user_message: str,
+        *,
+        slug: str,
+        chat_id: str,
+        resume: str | None = None,
     ) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
-            system_prompt=self._select_system_prompt(user_message),
+            system_prompt=self._build_system_prompt(user_message, slug=slug, chat_id=chat_id),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
             # Resume the prior SDK conversation so the agent remembers earlier
@@ -381,7 +470,9 @@ class ChatService:
                         yield sse_event(etype, sse_payload)
 
         try:
-            options = self._build_options(user_message, resume=prev_sid)
+            options = self._build_options(
+                user_message, slug=slug, chat_id=chat_id, resume=prev_sid,
+            )
             try:
                 async for chunk in _run(options):
                     yield chunk
@@ -400,7 +491,9 @@ class ChatService:
                 write_chat_session_id(self.workspace, slug, chat_id, None)
                 latest_sid = None
                 yielded_any = False
-                options = self._build_options(user_message, resume=None)
+                options = self._build_options(
+                    user_message, slug=slug, chat_id=chat_id, resume=None,
+                )
                 async for chunk in _run(options):
                     yield chunk
         except Exception as e:  # noqa: BLE001
