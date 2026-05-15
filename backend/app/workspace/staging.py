@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 from app.tools.docs import upload_doc
+from app.workspace.paths import chat_attachments_dir, dedupe_filename
 
 
 _STAGE_TOKEN_RE = re.compile(r"^st_[a-f0-9]{16}$")
@@ -159,6 +160,35 @@ async def claim_staged(
     meta = await upload_doc(workspace, project_id, data, filename)
     shutil.rmtree(dirp, ignore_errors=True)
     return meta["filename"]
+
+
+async def claim_staged_to_chat(
+    workspace: Path,
+    stage_token: str,
+    slug: str,
+    chat_id: str,
+) -> str:
+    """Move a staged file into `chats/<chat_id>/attachments/` with dedupe.
+    No sidecar — chat attachments are ephemeral, not curated samples.
+
+    Returns the post-dedupe on-disk filename. Raises `StagingClaimError` if
+    the token is unknown. Promotion to `docs/` is a separate, explicit step
+    via the `promote_attachment_to_docs` tool — see the design note in
+    `docs/superpowers/plans/2026-05-14-paste-attachments-vs-docs.md`."""
+    dirp = stage_dir(workspace, stage_token)
+    if not dirp.exists() or not dirp.is_dir():
+        raise StagingClaimError(f"stage_token not found: {stage_token!r}")
+    files = [p for p in dirp.iterdir() if p.is_file()]
+    if not files:
+        raise StagingClaimError(f"stage_token has no file: {stage_token!r}")
+    src = files[0]
+    target_dir = chat_attachments_dir(workspace, slug, chat_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    final_name = dedupe_filename(target_dir, src.name)
+    target = target_dir / final_name
+    shutil.move(str(src), str(target))
+    shutil.rmtree(dirp, ignore_errors=True)
+    return final_name
 
 
 def cleanup_stale(workspace: Path, max_age_hours: float = 24.0) -> int:

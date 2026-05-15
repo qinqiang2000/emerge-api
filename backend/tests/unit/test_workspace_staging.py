@@ -14,11 +14,12 @@ from pathlib import Path
 import pytest
 
 from app.tools.projects import create_project
-from app.workspace.paths import doc_meta_path, doc_path
+from app.workspace.paths import chat_attachments_dir, doc_meta_path, doc_path
 from app.workspace.staging import (
     StagingClaimError,
     StagingError,
     claim_staged,
+    claim_staged_to_chat,
     cleanup_stale,
     stage_dir,
     stage_file,
@@ -85,6 +86,46 @@ async def test_claim_staged_moves_to_project(workspace: Path) -> None:
     assert meta["original_name"] == "invoice.pdf"
     # Staging dir is removed after a successful claim.
     assert not stage_dir(workspace, token).exists()  # type: ignore[arg-type]
+
+
+async def test_claim_staged_to_chat_moves_and_dedupes(workspace: Path) -> None:
+    """Claim into chat scope: file lands at `chats/<chat_id>/attachments/<name>`
+    with no sidecar; second claim under the same chat collides and dedupes."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+
+    info1 = await stage_file(workspace, SAMPLE_PDF, "scan.pdf")
+    name1 = await claim_staged_to_chat(
+        workspace, info1["stage_token"], pid, chat_id,
+    )  # type: ignore[arg-type]
+    assert name1 == "scan.pdf"
+    att_dir = chat_attachments_dir(workspace, pid, chat_id)
+    assert (att_dir / "scan.pdf").read_bytes() == SAMPLE_PDF
+    # Chat claim must NOT pollute docs/ (create_project may have made the
+    # empty dir, but no file should be inside).
+    docs_d = workspace / pid / "docs"
+    if docs_d.exists():
+        assert [p.name for p in docs_d.iterdir() if p.is_file()] == []
+    # No sidecar in chat scope.
+    assert not (workspace / pid / "docs" / ".meta" / "scan.pdf.json").exists()
+
+    info2 = await stage_file(workspace, SAMPLE_PDF, "scan.pdf")
+    name2 = await claim_staged_to_chat(
+        workspace, info2["stage_token"], pid, chat_id,
+    )  # type: ignore[arg-type]
+    assert name2 == "scan (1).pdf"
+    assert (att_dir / "scan (1).pdf").exists()
+    # Staging dirs cleaned up.
+    assert not stage_dir(workspace, info1["stage_token"]).exists()  # type: ignore[arg-type]
+    assert not stage_dir(workspace, info2["stage_token"]).exists()  # type: ignore[arg-type]
+
+
+async def test_claim_staged_to_chat_unknown_token_raises(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    with pytest.raises(StagingClaimError):
+        await claim_staged_to_chat(
+            workspace, "st_deadbeefdeadbeef", pid, "c_abc123def456",
+        )
 
 
 async def test_claim_staged_unknown_token_raises(workspace: Path) -> None:

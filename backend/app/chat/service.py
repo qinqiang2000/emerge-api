@@ -35,8 +35,8 @@ from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
 from app.tools.projects import create_project as _create_project
-from app.workspace.paths import doc_path
-from app.workspace.staging import StagingClaimError, claim_staged
+from app.workspace.paths import chat_attachment_path, doc_path
+from app.workspace.staging import StagingClaimError, claim_staged_to_chat
 
 
 # Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
@@ -53,6 +53,7 @@ _IMAGE_MEDIA_TYPE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpe
 def _load_image_blocks(
     workspace: Path,
     slug: str,
+    chat_id: str,
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Build Anthropic image content blocks for any attached images already on
@@ -60,8 +61,10 @@ def _load_image_blocks(
     files we can't read — the surrounding `[attachments: ...]` text mention
     still lets the agent reference them by name.
 
-    Post-d_xxx-removal: attachments carry only `{filename}` (the on-disk
-    handle); we read the bytes directly via `doc_path`."""
+    Dispatches on `source`:
+      - `chat` (default for paste/drop) → reads via `chat_attachment_path`
+      - `docs` (post-promote refs) → reads via `doc_path`
+    """
     if not attachments:
         return []
     blocks: list[dict[str, Any]] = []
@@ -73,8 +76,13 @@ def _load_image_blocks(
         media_type = _IMAGE_MEDIA_TYPE.get(ext)
         if not media_type:
             continue
+        source = a.get("source", "chat")
+        if source == "docs":
+            path = doc_path(workspace, slug, filename)
+        else:
+            path = chat_attachment_path(workspace, slug, chat_id, filename)
         try:
-            data = doc_path(workspace, slug, filename).read_bytes()
+            data = path.read_bytes()
         except OSError:
             continue
         b64 = base64.standard_b64encode(data).decode("ascii")
@@ -111,10 +119,13 @@ _SDK_BUILT_IN_TOOLS = [
 
 def _placeholder_project_name() -> str:
     """Auto-name for projects minted by chat_turn when the user drops files
-    into the empty-hero state. The agent is expected to rename via the
-    `rename_project` tool once the user's intent (project name) is clear."""
+    into the empty-hero state. The `Chat-` prefix signals "this is a
+    conversation, not a curated project" — paste/drop files land in
+    `chats/<chat_id>/attachments/`, never auto-promoted into `docs/`. The
+    agent is expected to rename via `rename_project` once user intent is
+    clear (and to call `promote_attachment_to_docs` only on explicit ack)."""
     ts = datetime.now(timezone.utc).strftime("%y%m%d-%H%M%S")
-    return f"Untitled-{ts}"
+    return f"Chat-{ts}"
 
 
 async def _emerge_only_permission(
@@ -220,19 +231,13 @@ class ChatService:
         both atomically and surfaces them on the `project_minted` SSE event.
         """
         # ── pre-flight: claim staged files into a freshly-minted project ──
-        # When the user drops files into the empty-hero state, the frontend
-        # uploads each file to `/lab/uploads/staging` immediately (so per-file
-        # progress/retry is visible while they type) and then submits the chat
-        # with `slug='p_unset'` plus `attachments[i].stage_token`. This block
-        # intercepts that pattern: mint a placeholder-named project, claim
-        # each staged file into its `docs/` (via the same `upload_doc`
-        # pipeline a normal POST /upload would use — sidecar at
-        # `docs/.meta/<filename>.json`, slug+dedupe applied), rewrite each
-        # attachment to `{filename}` (the only doc handle in the post-d_xxx
-        # world), and rebind `slug` so every subsequent log line + tool call
-        # lands under the new project (no post-hoc migration needed). The
-        # agent is expected to rename the project via `rename_project` once
-        # the user's intent is clear.
+        # Empty-hero drop flow: frontend stages each file to
+        # `/lab/uploads/staging` then submits with `slug='p_unset'` plus
+        # `attachments[i].stage_token`. Here we mint a placeholder project
+        # (named `Chat-{ts}` to signal "conversation, not curated set") and
+        # claim each staged file into `chats/<chat_id>/attachments/`. Files
+        # do NOT enter `docs/` — that requires an explicit user-ack
+        # `promote_attachment_to_docs` later.
         minted: dict[str, str] | None = None
         if (
             slug == "p_unset"
@@ -242,11 +247,6 @@ class ChatService:
             placeholder = _placeholder_project_name()
             try:
                 _proj = await _create_project(self.workspace, name=placeholder)
-                # `create_project` returns `{project_id, slug}`. The folder
-                # handle for path helpers is the slug; the immutable pid is
-                # the event-stream anchor that gets carried on the SSE
-                # `project_minted` event so any audit trail / log line can
-                # join back to the original mint even after a rename.
                 new_slug = _proj["slug"]
                 new_pid = _proj["project_id"]
             except Exception as e:  # noqa: BLE001
@@ -262,32 +262,21 @@ class ChatService:
                 tok = a.get("stage_token")
                 if isinstance(tok, str):
                     try:
-                        # `claim_staged` returns the post-dedupe on-disk
-                        # filename (may differ from the chip name if the
-                        # project already had a collision — unlikely on a
-                        # freshly-minted project, but handled for free).
-                        final_name = await claim_staged(self.workspace, tok, new_slug)
-                        claimed.append({"filename": final_name})
+                        final_name = await claim_staged_to_chat(
+                            self.workspace, tok, new_slug, chat_id,
+                        )
+                        claimed.append({"filename": final_name, "source": "chat"})
                     except (StagingClaimError, ValueError):
                         # Stale / unknown token — drop silently rather than
                         # fail the whole turn; the agent sees one fewer doc
                         # but the rest succeed.
                         continue
                 else:
-                    # Attachment without a stage_token in the p_unset path
-                    # is a legacy/no-op entry — preserve its filename so the
-                    # mention text still works, but no claim is performed.
                     fname = a.get("filename") or ""
                     if isinstance(fname, str) and fname:
-                        claimed.append({"filename": fname})
+                        claimed.append({"filename": fname, "source": "chat"})
             attachments = claimed
             slug = new_slug
-            # `project_minted` payload carries both the slug (FE handle) and
-            # the immutable pid (audit anchor). Agent-4 will switch the FE
-            # to bind `selectedSlug` from `slug`; the legacy `project_id`
-            # field is preserved during the transition so older builds keep
-            # working — its value is the slug for back-compat, with the
-            # explicit pid available alongside.
             minted = {
                 "project_id": new_slug,
                 "slug": new_slug,
@@ -298,9 +287,13 @@ class ChatService:
         # Keep only render-relevant fields on the persisted attachment record —
         # the agent doesn't need anything else, and we deliberately don't carry
         # base64 image bytes into events.jsonl (it would balloon the chat log).
-        # Filename is now the only doc handle — no separate `doc_id`.
+        # `source` distinguishes chat-scoped paste/drop (`"chat"`) from
+        # docs-promoted refs (`"docs"`); image-block resolver dispatches on it.
         persisted_attachments = [
-            {"filename": a.get("filename")}
+            {
+                "filename": a.get("filename"),
+                "source": a.get("source") if a.get("source") in ("chat", "docs") else "chat",
+            }
             for a in (attachments or [])
             if isinstance(a.get("filename"), str) and a.get("filename")
         ]
@@ -341,7 +334,7 @@ class ChatService:
         # Inline image attachments as multimodal content blocks so the agent
         # can actually see what the user pasted/dropped. PDFs stay as filename
         # mentions only — those flow through the extractor tools, not vision.
-        image_blocks = _load_image_blocks(self.workspace, slug, attachments)
+        image_blocks = _load_image_blocks(self.workspace, slug, chat_id, attachments)
 
         def _make_query_payload() -> str | AsyncIterator[dict[str, Any]]:
             """Fresh query payload per `_run` attempt — AsyncIterables can't be

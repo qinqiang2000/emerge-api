@@ -107,6 +107,39 @@ def chat_meta_path(workspace: Path, slug: str, chat_id: str) -> Path:
     return chats_dir(workspace, slug) / f"{chat_id}.meta.json"
 
 
+def chat_attachments_dir(workspace: Path, slug: str, chat_id: str) -> Path:
+    """Conversation-scoped attachment dir. Files dropped/pasted in chat land
+    here, NOT in `docs/` — `docs/` is the curated sample set that drives
+    AutoResearch eval, predictions, and review-mode click-to-page. Promotion
+    to `docs/` is a separate, explicit user-confirmed step via the
+    `promote_attachment_to_docs` tool."""
+    return chats_dir(workspace, slug) / chat_id / "attachments"
+
+
+def chat_attachment_path(
+    workspace: Path, slug: str, chat_id: str, filename: str,
+) -> Path:
+    return chat_attachments_dir(workspace, slug, chat_id) / filename
+
+
+def dedupe_filename(parent: Path, name: str) -> str:
+    """If `name` already exists under `parent`, return `<stem> (1).<ext>` (or
+    `(2)`, `(3)`, …) instead. Extension-aware split — the suffix after the
+    final dot stays glued to the new copy."""
+    target = parent / name
+    if not target.exists():
+        return name
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    i = 1
+    while True:
+        candidate = f"{stem} ({i})" + (f".{ext}" if ext else "")
+        if not (parent / candidate).exists():
+            return candidate
+        i += 1
+
+
 def keys_path(workspace: Path) -> Path:
     return workspace / "_keys.json"
 

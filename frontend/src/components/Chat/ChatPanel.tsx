@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { stageUpload, uploadDoc } from '../../lib/api'
+import { attachToChat, stageUpload } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
@@ -23,7 +23,9 @@ import ImproveBanner from '../Improve/ImproveBanner'
  *   We hang onto the original `File` handle so a failed upload can be
  *   retried without asking the user to re-drag the file.
  * - In a *selected-project* state the file is uploaded straight to
- *   `/lab/projects/{pid}/upload` and surfaces the post-dedupe `filename`.
+ *   `/lab/projects/{slug}/chats/{chatId}/attach` (chat-scoped scratch — NOT
+ *   `docs/`) and surfaces the post-dedupe `filename`. Promotion into `docs/`
+ *   is a separate user-acked agent call (`promote_attachment_to_docs`).
  *
  * `originalName` is what the chip started with — kept so we can match a
  * chip back to its in-flight upload when the server-side filename differs
@@ -109,12 +111,9 @@ export default function ChatPanel() {
     }
   }
 
-  async function _uploadOne(file: File, projectId: string): Promise<void> {
+  async function _uploadOne(file: File, slug: string, cid: string): Promise<void> {
     try {
-      // Filename is the only doc handle now — reconcile the chip name to the
-      // server-returned (post-dedupe) filename in case `foo.pdf` already
-      // existed and we got `foo (1).pdf` back.
-      const { filename } = await uploadDoc(projectId, file)
+      const { filename } = await attachToChat(slug, cid, file)
       setPending(p => p.map(x => _matchPending(x, file.name, file)
         ? { ...x, status: 'uploaded', filename, error: undefined }
         : x))
@@ -130,8 +129,8 @@ export default function ChatPanel() {
     if (files.length === 0) return
     if (!selectedSlug) {
       // No project yet: stage each file under workspace/_staging/{token}/.
-      // Chat turn will mint a project + claim the staged files when the
-      // user submits, so we don't need a pid to start uploading.
+      // Chat turn will mint a project + claim the staged files into
+      // chats/<chat_id>/attachments/ when the user submits.
       const initial = files.map<AttachInfo>(f => ({
         filename: f.name, originalName: f.name, file: f, status: 'staging',
       }))
@@ -139,12 +138,14 @@ export default function ChatPanel() {
       await Promise.all(files.map(_stageOne))
       return
     }
-    // Project selected: upload straight into its docs/.
+    // Project selected: write to the current chat's attachments dir (NOT
+    // docs/). Promotion to docs/ requires explicit user ack via the agent
+    // tool `promote_attachment_to_docs`.
     const initial = files.map<AttachInfo>(f => ({
       filename: f.name, originalName: f.name, file: f, status: 'uploading',
     }))
     setPending(p => [...p, ...initial])
-    await Promise.all(files.map(f => _uploadOne(f, selectedSlug)))
+    await Promise.all(files.map(f => _uploadOne(f, selectedSlug, chatId)))
   }
 
   async function retry(index: number) {
@@ -152,7 +153,7 @@ export default function ChatPanel() {
     if (!target || target.status !== 'failed') return
     if (selectedSlug) {
       setPending(p => p.map((x, i) => i === index ? { ...x, status: 'uploading', error: undefined } : x))
-      await _uploadOne(target.file, selectedSlug)
+      await _uploadOne(target.file, selectedSlug, chatId)
     } else {
       setPending(p => p.map((x, i) => i === index ? { ...x, status: 'staging', error: undefined } : x))
       await _stageOne(target.file)
@@ -211,6 +212,7 @@ export default function ChatPanel() {
             .filter(p => p.status === 'uploaded' || p.status === 'staged')
             .map(p => ({
               filename: p.filename,
+              source: 'chat' as const,
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
             }))
           await send(selectedSlug ?? 'p_unset', text, ready)

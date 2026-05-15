@@ -13,6 +13,7 @@ from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
 from app.tools import predictions as predictions_mod
+from app.tools import promote as promote_mod
 from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
@@ -55,7 +56,7 @@ def build_emerge_mcp(
         "The folder is renamed to a slug derived from `name` (single-concept "
         "rename — name and slug stay locked). Use this on the first turn after "
         "the user drops files into an empty-hero state (the project was "
-        "auto-minted with a placeholder name like 'Untitled-251205-093012'); "
+        "auto-minted with a placeholder name like 'Chat-251205-093012'); "
         "rename to whatever the user's intent suggests.",
         {"slug": str, "name": str},
     )
@@ -81,6 +82,21 @@ def build_emerge_mcp(
         data = Path(args["tmp_path"]).read_bytes()
         meta = await docs_mod.upload_doc(workspace, args["slug"], data, args["filename"])
         return {"content": [{"type": "text", "text": meta["filename"]}]}
+
+    @tool(
+        "promote_attachment_to_docs",
+        "Move a chat-scoped attachment from `chats/<chat_id>/attachments/` "
+        "into the curated `docs/` sample set (with sidecar + sha256 + dedupe). "
+        "Use this ONLY after the user explicitly confirms they want the file "
+        "added to the project's samples — paste/drop defaults to "
+        "conversational scratch. Returns `{final_name}`.",
+        {"slug": str, "chat_id": str, "filename": str},
+    )
+    async def t_promote_attachment_to_docs(args: dict[str, Any]) -> dict[str, Any]:
+        out = await promote_mod.promote_attachment_to_docs(
+            workspace, args["slug"], args["chat_id"], args["filename"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool("list_docs", "List documents in a project.", {"slug": str})
     async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
@@ -640,6 +656,7 @@ def build_emerge_mcp(
             t_rename_project,
             t_list_projects,
             t_upload_doc,
+            t_promote_attachment_to_docs,
             t_list_docs,
             t_pdf_render_page,
             t_derive_schema,
@@ -685,7 +702,8 @@ def build_emerge_mcp(
 
 
 _EMERGE_TOOL_NAMES = (
-    "create_project", "rename_project", "list_projects", "upload_doc", "list_docs", "pdf_render_page",
+    "create_project", "rename_project", "list_projects", "upload_doc",
+    "promote_attachment_to_docs", "list_docs", "pdf_render_page",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",

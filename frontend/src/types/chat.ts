@@ -1,10 +1,11 @@
-/** Attachment carried on a user message. `filename` is the only doc handle
- *  (post-d_xxx removal) — thumbnails fetch
- *  `/lab/projects/{pid}/docs/by-name/{encodeURIComponent(filename)}/pages/1`.
- *  Pre-upload pending chips (no real filename on disk yet) don't make it into
- *  chat events. */
+/** Attachment carried on a user message. `filename` is the only doc handle.
+ *  `source` distinguishes conversational scratch (`"chat"` — default for
+ *  paste/drop, lives in `chats/<chat_id>/attachments/`) from docs-promoted
+ *  refs (`"docs"` — lives in `docs/`, powers eval/predictions/review).
+ *  Renderers dispatch thumbnail / link URLs on `source`. */
 export interface ChatAttachment {
   filename: string
+  source?: 'chat' | 'docs'
 }
 
 export type ChatEvent =

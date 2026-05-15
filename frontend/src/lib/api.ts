@@ -49,6 +49,46 @@ export async function uploadDoc(slug: string, file: File): Promise<UploadDocResp
   return r.json()
 }
 
+export interface ChatAttachmentResponse {
+  /** Final on-disk filename inside `chats/<chat_id>/attachments/` after
+   *  dedupe. The frontend stores this on the user-bubble attachment record. */
+  filename: string
+}
+
+/** Paste/drop a file into a chat's conversational scratch (NOT into `docs/`).
+ *  `docs/` is the curated sample set; entries there power eval + predictions
+ *  + review-mode. To promote a chat attachment into `docs/`, the agent must
+ *  call `promote_attachment_to_docs` after explicit user ack. */
+export async function attachToChat(
+  slug: string,
+  chatId: string,
+  file: File,
+): Promise<ChatAttachmentResponse> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch(
+    `${API}/lab/projects/${encodeURIComponent(slug)}/chats/${encodeURIComponent(chatId)}/attach`,
+    { method: 'POST', body: fd },
+  )
+  if (!r.ok) {
+    let detail = ''
+    try { detail = (await r.json()).detail ?? '' } catch { /* swallow */ }
+    throw new Error(detail || `attachToChat ${r.status}`)
+  }
+  return r.json()
+}
+
+/** Inline-renderable URL for a chat attachment (image thumbnail, PDF chip
+ *  link). Returns 404 if the file was promoted to docs/ in between renders —
+ *  the caller should fall back to `pdfPageUrl` once `source === 'docs'`. */
+export function chatAttachmentUrl(
+  slug: string,
+  chatId: string,
+  filename: string,
+): string {
+  return `/lab/projects/${encodeURIComponent(slug)}/chats/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(filename)}`
+}
+
 export interface StagedFile {
   stage_token: string
   filename: string

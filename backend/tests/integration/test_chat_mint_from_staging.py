@@ -3,14 +3,14 @@
 When the frontend submits with `project_id='p_unset'` and at least one
 attachment carrying a `stage_token`, the chat service must:
 
-1. Mint a fresh project (placeholder name like `Untitled-…`).
-2. Move each staged file into the new project's `docs/` via the normal
-   `upload_doc` pipeline (file → `docs/<filename>`, sidecar →
-   `docs/.meta/<filename>.json`) and rewrite each attachment to
-   `{filename}` only — the post-`d_xxx` doc handle.
+1. Mint a fresh project (placeholder name like `Chat-…` — signals
+   "conversational scratch, not a curated set").
+2. Move each staged file into the new project's
+   `chats/<chat_id>/attachments/` (NOT into `docs/` — that requires an
+   explicit `promote_attachment_to_docs` call).
 3. Emit a `project_minted` SSE event so the frontend can flip `selectedId`,
    persist `activeChatId` under the new pid, and refresh stores.
-4. Append the user line under the new pid (no post-hoc chat migration).
+4. Append the user line under the new pid with `attachments[i].source='chat'`.
 """
 from __future__ import annotations
 
@@ -20,7 +20,13 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from app.chat.service import ChatService
-from app.workspace.paths import chats_dir, docs_dir, docs_meta_dir, project_json_path
+from app.workspace.paths import (
+    chat_attachments_dir,
+    chats_dir,
+    docs_dir,
+    docs_meta_dir,
+    project_json_path,
+)
 from app.workspace.staging import stage_file, stage_dir
 
 
@@ -75,7 +81,8 @@ async def test_p_unset_with_stage_token_mints_project_and_claims_file(
     workspace: Path,
 ) -> None:
     """The whole happy path: one PDF staged, one chat turn with stage_token,
-    project minted, file moved into docs/, project_minted SSE emitted."""
+    project minted as `Chat-…`, file moved into chat attachments (NOT docs/),
+    project_minted SSE emitted, persisted attachment carries source='chat'."""
     staged = await stage_file(workspace, SAMPLE_PDF, "invoice.pdf")
     token = staged["stage_token"]
 
@@ -93,44 +100,81 @@ async def test_p_unset_with_stage_token_mints_project_and_claims_file(
     minted = [e for e in events if e[0] == "project_minted"]
     assert len(minted) == 1, f"expected exactly one project_minted event; got {events!r}"
     payload = minted[0][1]
-    # `project_minted` carries both the slug (FE handle, in `slug` / legacy
-    # `project_id`) and the immutable pid (in `pid`) — the audit anchor.
     new_slug = payload["slug"]
     assert new_slug == payload["project_id"], "legacy back-compat key must match slug"
     assert payload["pid"].startswith("p_"), f"pid must be the p_xxx audit anchor: {payload!r}"
     name = payload["name"]
-    assert name.startswith("Untitled-")
-    # Folder name is the slug, derived from the placeholder name.
-    assert new_slug.startswith("untitled-"), new_slug
+    assert name.startswith("Chat-"), f"placeholder must be Chat-…, got {name!r}"
+    assert new_slug.startswith("chat-"), new_slug
 
     # Project exists on disk under the new slug.
     blob = json.loads(project_json_path(workspace, new_slug).read_text())
     assert blob["name"] == name
     assert blob["project_id"] == payload["pid"]
 
-    # Staged file moved into the new project's docs/, sidecar landed in
-    # `docs/.meta/`, staging dir gone.
-    doc_files = [p for p in docs_dir(workspace, new_slug).iterdir() if p.is_file()]
-    assert [p.name for p in doc_files] == ["invoice.pdf"]
-    assert doc_files[0].read_bytes() == SAMPLE_PDF
-    doc_metas = list(docs_meta_dir(workspace, new_slug).glob("*.json"))
-    assert len(doc_metas) == 1
-    moved_meta = json.loads(doc_metas[0].read_text())
-    assert moved_meta["filename"] == "invoice.pdf"
-    assert moved_meta["original_name"] == "invoice.pdf"
+    # File landed in chat attachments, NOT in docs/.
+    att_files = [
+        p for p in chat_attachments_dir(workspace, new_slug, CID).iterdir() if p.is_file()
+    ]
+    assert [p.name for p in att_files] == ["invoice.pdf"]
+    assert att_files[0].read_bytes() == SAMPLE_PDF
+    assert not docs_dir(workspace, new_slug).exists() or not list(
+        docs_dir(workspace, new_slug).glob("*.pdf")
+    ), "paste/drop must not pollute docs/"
+    assert not docs_meta_dir(workspace, new_slug).exists() or not list(
+        docs_meta_dir(workspace, new_slug).glob("*.json")
+    ), "no docs sidecar for chat attachments"
     assert not stage_dir(workspace, token).exists()  # type: ignore[arg-type]
 
-    # User line was logged under the *new* slug (no p_unset leftover).
+    # User line was logged under the *new* slug with source='chat'.
     log_path = chats_dir(workspace, new_slug) / f"{CID}.jsonl"
     assert log_path.exists()
     first_line = json.loads(log_path.read_text().splitlines()[0])
     assert first_line["type"] == "user"
-    # The attachments persisted to the chat log carry only `filename` — we
-    # strip `stage_token` at the persist boundary, and there is no `doc_id`
-    # in the filename-native world.
-    assert first_line["attachments"][0] == {"filename": "invoice.pdf"}
+    assert first_line["attachments"][0] == {
+        "filename": "invoice.pdf", "source": "chat",
+    }
     assert "stage_token" not in first_line["attachments"][0]
-    assert "doc_id" not in first_line["attachments"][0]
+
+
+async def test_p_unset_renames_placeholder_to_chat_prefix(workspace: Path) -> None:
+    """Placeholder uses `Chat-` prefix (not the legacy `Untitled-`)."""
+    staged = await stage_file(workspace, SAMPLE_PDF, "invoice.pdf")
+    svc = _make_service(workspace)
+    with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
+        chunks = [
+            c async for c in svc.chat_turn(
+                slug="p_unset",
+                chat_id=CID,
+                user_message="/init",
+                attachments=[{"filename": "invoice.pdf", "stage_token": staged["stage_token"]}],
+            )
+        ]
+    events = _events(chunks)
+    minted = next(e[1] for e in events if e[0] == "project_minted")
+    assert minted["name"].startswith("Chat-")
+    assert not minted["name"].startswith("Untitled-")
+
+
+async def test_mint_files_do_not_enter_docs_dir(workspace: Path) -> None:
+    """Negative assertion: after empty-hero paste, `docs/` is either missing
+    or empty. Promotion is the only path into `docs/`."""
+    staged = await stage_file(workspace, SAMPLE_PDF, "scan.pdf")
+    svc = _make_service(workspace)
+    with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
+        chunks = [
+            c async for c in svc.chat_turn(
+                slug="p_unset",
+                chat_id=CID,
+                user_message="what's this?",
+                attachments=[{"filename": "scan.pdf", "stage_token": staged["stage_token"]}],
+            )
+        ]
+    events = _events(chunks)
+    new_slug = next(e[1]["slug"] for e in events if e[0] == "project_minted")
+    docs_d = docs_dir(workspace, new_slug)
+    if docs_d.exists():
+        assert [p.name for p in docs_d.iterdir() if p.is_file()] == []
 
 
 async def test_p_unset_without_stage_token_no_mint(workspace: Path) -> None:

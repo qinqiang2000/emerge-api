@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, Copy, FileText, Info, Pencil, RotateCcw } from 'lucide-react'
 
+import { chatAttachmentUrl, pdfPageUrl } from '../../lib/api'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
 import type { ChatAttachment } from '../../types/chat'
@@ -31,6 +32,7 @@ function _isImage(filename: string): boolean {
  *  chat is idle. Truncation is destructive (no branching). */
 export default function UserMessage({ text, userIndex, attachments }: Props) {
   const busy = useChat(s => s.busy)
+  const chatId = useChat(s => s.chatId)
   const selectedSlug = useProjects(s => s.selectedSlug)
   const rewindAndSend = useChat(s => s.rewindAndSend)
 
@@ -70,11 +72,11 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
     const trimmed = draft.trim()
     if (!trimmed || trimmed === text.trim()) return
     setEditing(false)
-    await rewindAndSend(selectedSlug ?? 'p_unset', trimmed, userIndex)
+    await rewindAndSend(selectedSlug ?? 'p_unset', trimmed, userIndex, attachments)
   }
 
   async function retry() {
-    await rewindAndSend(selectedSlug ?? 'p_unset', text, userIndex)
+    await rewindAndSend(selectedSlug ?? 'p_unset', text, userIndex, attachments)
   }
 
   async function copy() {
@@ -132,10 +134,15 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
       {renderAttachments && (
         <div className="att-tray" role="group" aria-label="Attachments">
           {attachments!.map((a, i) => {
-            // Filename is the only doc handle; encode it for the URL since
-            // dedupe / unicode can produce names with spaces or parens.
+            // Dispatch URL on `source`:
+            //  - "chat" (paste/drop scratch) → chat-attachment endpoint
+            //  - "docs" (post-promote ref)   → docs page-1 render
+            // Filename is the only doc handle; encode for unicode / spaces.
+            const source = a.source ?? 'chat'
             const url = selectedSlug
-              ? `/lab/projects/${encodeURIComponent(selectedSlug)}/docs/by-name/${encodeURIComponent(a.filename)}/pages/1`
+              ? (source === 'docs'
+                  ? pdfPageUrl(selectedSlug, a.filename, 1)
+                  : chatAttachmentUrl(selectedSlug, chatId, a.filename))
               : null
             if (url && _isImage(a.filename)) {
               return (

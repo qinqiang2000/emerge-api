@@ -10,6 +10,7 @@ from typing import Any
 from app.workspace.atomic import atomic_write_bytes, atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
+    dedupe_filename,
     doc_meta_path,
     doc_path,
     doc_render_dir,
@@ -62,24 +63,6 @@ def _slug_filename(name: str) -> str:
         else:
             cleaned = cleaned.encode("utf-8")[:255].decode("utf-8", errors="ignore")
     return cleaned
-
-
-def _dedupe_filename(docs_d: Path, name: str) -> str:
-    """If `name` already exists under `docs/`, return `<stem> (1).<ext>` (or
-    `(2)`, `(3)`, …) instead. Extension-aware split — the suffix after the
-    final dot stays glued to the new copy."""
-    target = docs_d / name
-    if not target.exists():
-        return name
-    stem, dot, ext = name.rpartition(".")
-    if not dot:
-        stem, ext = name, ""
-    i = 1
-    while True:
-        candidate = f"{stem} ({i})" + (f".{ext}" if ext else "")
-        if not (docs_d / candidate).exists():
-            return candidate
-        i += 1
 
 
 def _ext_from_filename(filename: str) -> str:
@@ -137,7 +120,7 @@ async def upload_doc(
         docs_meta_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
 
         slugged = _slug_filename(filename)
-        final_name = _dedupe_filename(docs_d, slugged)
+        final_name = dedupe_filename(docs_d, slugged)
         meta = {
             "filename": final_name,
             "original_name": filename,

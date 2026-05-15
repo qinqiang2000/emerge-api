@@ -63,3 +63,76 @@ def test_staging_upload_rejects_spoofed_extension() -> None:
     files = {"file": ("scan.png", io.BytesIO(b"<!doctype html>"), "image/png")}
     r = client.post("/lab/uploads/staging", files=files)
     assert r.status_code == 400
+
+
+async def test_attach_to_chat_endpoint_writes_file_and_returns_filename(
+    workspace: Path,
+) -> None:
+    """In-project paste path: POST /lab/projects/{slug}/chats/{cid}/attach
+    writes to `chats/<cid>/attachments/<name>`, NOT to `docs/`."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("scan.pdf", io.BytesIO(pdf), "application/pdf")},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"filename": "scan.pdf"}
+    assert (
+        workspace / pid / "chats" / chat_id / "attachments" / "scan.pdf"
+    ).read_bytes() == pdf
+    # docs/ untouched.
+    assert not (workspace / pid / "docs" / "scan.pdf").exists()
+
+
+async def test_attach_to_chat_dedupes_collisions(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    r1 = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("dup.pdf", io.BytesIO(pdf), "application/pdf")},
+    )
+    r2 = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("dup.pdf", io.BytesIO(pdf), "application/pdf")},
+    )
+    assert r1.json()["filename"] == "dup.pdf"
+    assert r2.json()["filename"] == "dup (1).pdf"
+
+
+async def test_attach_to_chat_rejects_spoofed_bytes(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("evil.png", io.BytesIO(b"<!doctype html>"), "image/png")},
+    )
+    assert r.status_code == 400
+
+
+async def test_get_chat_attachment_serves_bytes(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("a.png", io.BytesIO(png), "image/png")},
+    )
+    r = client.get(f"/lab/projects/{pid}/chats/{chat_id}/attachments/a.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content == png
+
+
+async def test_get_chat_attachment_404_when_missing(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    r = client.get(f"/lab/projects/{pid}/chats/{chat_id}/attachments/ghost.png")
+    assert r.status_code == 404

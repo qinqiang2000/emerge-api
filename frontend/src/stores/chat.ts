@@ -69,15 +69,19 @@ interface State {
   interrupted: boolean
   /** Send a turn. `attachments` carries the doc handles for this message.
    *  Filename is the only post-pid handle; `stage_token` is the pre-pid
-   *  bridge (the backend's chat_turn claims each token, drops it, and
-   *  persists `{filename}` only). */
-  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string }[]) => Promise<void>
+   *  bridge (the backend's chat_turn claims each token into chat-scope and
+   *  persists `{filename, source: "chat"}`). `source` defaults to "chat"
+   *  for paste/drop; reserved `"docs"` value is for future explicit-promote
+   *  refs but not yet emitted by the composer. */
+  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[]) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
-   *  targets the *last* user message. Powers retry (text = original) /
-   *  edit-save (text = edited) on any user bubble. No-op when busy. */
-  rewindAndSend: (projectId: string, text: string, userIndex?: number) => Promise<void>
+   *  targets the *last* user message. `attachments` re-carries the original
+   *  message's chat-scope handles so the agent sees the same image blocks on
+   *  the re-run (files in `chats/<chat_id>/attachments/` survive rewind).
+   *  Powers retry (text = original) / edit-save (text = edited). No-op when busy. */
+  rewindAndSend: (projectId: string, text: string, userIndex?: number, attachments?: { filename: string; source?: 'chat' | 'docs' }[]) => Promise<void>
   /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle. */
   cancel: () => void
   enterProject: (projectId: string) => void
@@ -103,7 +107,7 @@ export const useChat = create<State>((set, get) => ({
     a.abort()
     set({ interrupted: true })
   },
-  rewindAndSend: async (projectId, text, userIndex) => {
+  rewindAndSend: async (projectId, text, userIndex, attachments) => {
     if (get().busy) return
     // rewindAndSend owns the rewind; clear the flag so send() doesn't try to
     // rewind a second time on the (already-cleaned) tail.
@@ -132,7 +136,7 @@ export const useChat = create<State>((set, get) => ({
       if (ordinal < 0 || ordinal >= userIdxs.length) return s
       return { events: s.events.slice(0, userIdxs[ordinal]) }
     })
-    await get().send(projectId, text)
+    await get().send(projectId, text, attachments)
   },
   enterProject: (projectId) => {
     if (projectId === 'p_unset') return
@@ -276,7 +280,7 @@ export const useChat = create<State>((set, get) => ({
     // view stays consistent with the persisted log.
     const userAttachments = (attachments ?? [])
       .filter(a => typeof a.filename === 'string' && a.filename.length > 0)
-      .map(a => ({ filename: a.filename }))
+      .map(a => ({ filename: a.filename, source: a.source ?? 'chat' as const }))
     set(s => ({
       events: [
         ...s.events,
@@ -543,14 +547,15 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
         const ev: ChatEvent = { type: 'user', text: String(o.text ?? '') }
         const rawAtts = o.attachments
         if (Array.isArray(rawAtts)) {
-          // Filename is the only doc handle; ignore any legacy `doc_id` fields
-          // from pre-cut log lines. Drop entries without a string filename.
           const atts = rawAtts
             .map(x => x && typeof x === 'object' ? x as Record<string, unknown> : null)
             .filter((x): x is Record<string, unknown> =>
               x !== null && typeof x.filename === 'string' && (x.filename as string).length > 0,
             )
-            .map(x => ({ filename: x.filename as string }))
+            .map(x => ({
+              filename: x.filename as string,
+              source: x.source === 'docs' ? 'docs' as const : 'chat' as const,
+            }))
           if (atts.length > 0) ev.attachments = atts
         }
         out.push(ev)

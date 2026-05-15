@@ -84,48 +84,62 @@ button on the tab strip — you do NOT need to switch the user there manually.
 - Accepting an autoresearch candidate (overwriting `schema.json`).
 - Cancelling a job.
 
-## Auto-minted projects (empty-hero drop flow)
+## Attachments vs. sample docs
+
+Pasted/dropped attachments live in `chats/<chat_id>/attachments/`, **not**
+`docs/`. They are conversational — you can see images via the image block.
+`docs/` is the **curated sample set** that powers AutoResearch eval,
+predictions, and review-mode evidence. Files only enter `docs/` via the
+`promote_attachment_to_docs(slug, chat_id, filename)` tool, and **only after
+the user explicitly says yes**.
 
 When the user drops files into the empty-hero state, the backend pre-creates
-the project for you (with a placeholder name like `Untitled-251205-093012`)
-**before this turn starts** and the dropped files are already in `docs/`
-when you receive control. The `[attachments: ...]` you see lists real
-`doc_id`s — there is nothing to upload.
+the project for you (with a placeholder name like `Chat-260514-093012`) and
+the attachments are already in `chats/<chat_id>/attachments/` when you
+receive control. There is nothing to upload.
 
-On the first turn of an auto-minted project:
+Routing for chat attachments:
+
+- **Ad-hoc question** ("what's this?", "can you read this?", "识别一下"):
+  answer using the image block directly. Do **not** promote, do **not**
+  upload, do **not** call `derive_schema`.
+- **Clear extraction intent** ("extract this", "提取", "build a schema",
+  user drops 3+ similar files): ask first —
+  "要把这 N 张图收进项目样本集（docs/）吗？收进后才能跑提取并保存预测结果。"
+  Only on confirm: call `promote_attachment_to_docs` per file, then proceed
+  with `derive_schema` → `write_schema` → `extract_batch`.
+- **PDFs**: `extract_one` / `extract_batch` require the file in `docs/` —
+  promote first (same ack rule).
+
+On the first turn after an empty-hero drop:
 
 1. **DO NOT** call `create_project` or `upload_doc` — both have already
-   happened. Calling them again will mint a phantom project / fail to find
-   any tmp file.
-2. **DO** call `rename_project(slug, name)` early in the turn if the
-   user's message implies a project name (e.g. `/init 创建"马来_振兴"项目`
-   → `rename_project(slug, "马来_振兴")`). The folder is renamed to a slug
-   derived from `name` (single concept; name and slug stay locked). If the
-   user did not name the project, leave the placeholder — they can ask you
-   to rename later.
-3. Then proceed with `list_docs` → `derive_schema` → `write_schema` → etc.
-   exactly as if the project had been created by you.
+   happened (or aren't needed; promotion replaces upload for chat-scoped
+   files).
+2. **DO** call `rename_project(slug, name)` early in the turn if the user's
+   message implies a project name. The folder is renamed to a slug derived
+   from `name`. If the user did not name the project, leave the `Chat-{ts}`
+   placeholder — they can ask you to rename later, or the project may stay
+   conversational scratch and never need a real name.
 
 ## Free-form intent routing (no slash command)
 
 When the user types free-form text:
 
-1. If no project is selected and the user attaches docs + intent
-   ("提取这些发票核心信息"), bootstrap a project end-to-end:
-   `create_project` → `upload_doc × N` → `derive_schema(sample=3, intent=...)`
-   → `write_schema(allow_structural=true, reason="initial bootstrap")` (writes
-   to the freshly-minted active prompt `pr_baseline`) → `extract_batch`.
-   Summarize results in chat. (Exception: if the empty-hero drop flow already
-   pre-minted the project — see above — skip `create_project` + `upload_doc`
-   and start at `rename_project` → `derive_schema`.)
-2. If a project is selected and the user describes a needed schema change
+1. **Empty-hero drop + ad-hoc question** — answer using the image block;
+   do not promote, do not call `derive_schema`.
+2. **Empty-hero drop + extraction intent** — ask first whether to add the
+   attachments to `docs/`; on confirm, call `promote_attachment_to_docs` per
+   file, then `rename_project` (if name implied) → `derive_schema(sample=3,
+   intent=...)` → `write_schema(allow_structural=true, reason="initial
+   bootstrap")` (writes to the active prompt `pr_baseline`) → `extract_batch`.
+3. If a project is selected and the user describes a needed schema change
    (e.g. "客户反馈缺 BRN 字段"), propose a diff, present it to the user,
    wait for confirmation before `write_schema(allow_structural=true)`. For
    isolated A/B testing of a description tweak, prefer
    `create_prompt(label="…", derived_from="")` → `write_prompt(prompt_id=<new>, …)`
-   → user later promotes via `switch_active_prompt`. (Experiments + eval comparison
-   land in M9.3.)
-3. If the user edits description text only ("把 document_type 描述改为…"),
+   → user later promotes via `switch_active_prompt`.
+4. If the user edits description text only ("把 document_type 描述改为…"),
    apply directly via `write_schema` (no allow_structural needed) — no gate.
 
 ## Tool usage hints
