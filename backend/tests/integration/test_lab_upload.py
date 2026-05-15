@@ -136,3 +136,54 @@ async def test_get_chat_attachment_404_when_missing(workspace: Path) -> None:
     client = TestClient(app)
     r = client.get(f"/lab/projects/{pid}/chats/{chat_id}/attachments/ghost.png")
     assert r.status_code == 404
+
+
+async def test_ingest_local_endpoint_imports_directory(
+    workspace: Path, tmp_path: Path, monkeypatch,
+) -> None:
+    """POST /lab/projects/{slug}/ingest-local walks a server-local path,
+    silently skips non-pdf/png/jpg, and lands the rest in `docs/`."""
+    src = tmp_path / "scans"
+    src.mkdir()
+    (src / "a.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+    (src / "b.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (src / "junk.txt").write_bytes(b"hello")
+    # Whitelist the test's tmp_path via env override so the default allowlist
+    # doesn't have to include pytest's tmpdir.
+    monkeypatch.setenv("EMERGE_INGEST_LOCAL_EXTRA_ROOTS", str(tmp_path))
+    pid = (await create_project(workspace, name="x"))["slug"]
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/ingest-local",
+        json={"path": str(src), "target": "docs"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert {f["filename"] for f in body["ingested"]} == {"a.pdf", "b.png"}
+    assert body["skipped"] == [{"name": "junk.txt", "reason": "not pdf/png/jpg"}]
+    assert (workspace / pid / "docs" / "a.pdf").exists()
+
+
+async def test_ingest_local_endpoint_rejects_outside_allowlist(
+    workspace: Path, tmp_path: Path,
+) -> None:
+    """No env override → tmp_path is NOT under the built-in defaults
+    (/tmp, ~/Downloads, ..., repo root), so the route must 400."""
+    src = tmp_path / "scans"
+    src.mkdir()
+    (src / "a.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+    pid = (await create_project(workspace, name="x"))["slug"]
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/ingest-local",
+        json={"path": str(src)},
+    )
+    assert r.status_code == 400
+    assert "allowlist" in r.json()["detail"]
+
+
+async def test_ingest_local_endpoint_requires_path(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    client = TestClient(app)
+    r = client.post(f"/lab/projects/{pid}/ingest-local", json={})
+    assert r.status_code == 400

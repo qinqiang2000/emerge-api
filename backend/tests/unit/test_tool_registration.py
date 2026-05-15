@@ -16,6 +16,7 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "create_project",
         "rename_project",
         "upload_doc",
+        "ingest_local_path",
         "list_docs",
         "list_projects",
         "derive_schema",

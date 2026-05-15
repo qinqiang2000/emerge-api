@@ -84,6 +84,42 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": meta["filename"]}]}
 
     @tool(
+        "ingest_local_path",
+        "Bulk-ingest a server-side local path (file or directory) into the "
+        "project. Use this when the user gives a filesystem path like "
+        "`/tmp/receipts/` or `~/Downloads/scans/` and asks to import the "
+        "files in it — you have NO filesystem listing tool of your own, so "
+        "this is the only way. `target` defaults to 'docs' (the curated "
+        "sample set) because path-based bulk import is itself the user's "
+        "explicit sample-set intent; pass 'attachments' + a chat_id only if "
+        "the user said the files are just scratch. Non-pdf/png/jpg files are "
+        "silently skipped (magic-byte filter). Capped at 500 files per call. "
+        "Returns {ingested, skipped, errors} — summarize counts to the user, "
+        "do not re-list per file unless they ask. The path must live under "
+        "an allowlisted root (defaults cover /tmp, ~/Downloads, ~/Desktop, "
+        "~/Documents, and the emerge repo root); paths outside that produce "
+        "an error the user must resolve via EMERGE_INGEST_LOCAL_EXTRA_ROOTS.",
+        {"slug": str, "path": str, "recursive": bool, "target": str, "chat_id": str},
+    )
+    async def t_ingest_local_path(args: dict[str, Any]) -> dict[str, Any]:
+        from app.config import get_settings  # local to keep tool import light
+
+        allowlist = get_settings().ingest_allowlist()
+        try:
+            out = await docs_mod.ingest_local_path(
+                workspace,
+                args["slug"],
+                args["path"],
+                allowlist=allowlist,
+                recursive=bool(args.get("recursive", False)),
+                target=str(args.get("target", "docs")),
+                chat_id=args.get("chat_id") or None,
+            )
+        except docs_mod.IngestLocalError as e:
+            return {"content": [{"type": "text", "text": _json.dumps({"ok": False, "error": {"error_code": "ingest_local_rejected", "error_message_en": str(e)}})}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
         "promote_attachment_to_docs",
         "Move a chat-scoped attachment from `chats/<chat_id>/attachments/` "
         "into the curated `docs/` sample set (with sidecar + sha256 + dedupe). "
@@ -656,6 +692,7 @@ def build_emerge_mcp(
             t_rename_project,
             t_list_projects,
             t_upload_doc,
+            t_ingest_local_path,
             t_promote_attachment_to_docs,
             t_list_docs,
             t_pdf_render_page,
@@ -703,6 +740,7 @@ def build_emerge_mcp(
 
 _EMERGE_TOOL_NAMES = (
     "create_project", "rename_project", "list_projects", "upload_doc",
+    "ingest_local_path",
     "promote_attachment_to_docs", "list_docs", "pdf_render_page",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",

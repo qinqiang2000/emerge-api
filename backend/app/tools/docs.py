@@ -10,6 +10,7 @@ from typing import Any
 from app.workspace.atomic import atomic_write_bytes, atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
+    chat_attachments_dir,
     dedupe_filename,
     doc_meta_path,
     doc_path,
@@ -214,3 +215,143 @@ async def pdf_render_page(
         pix = pdf[page - 1].get_pixmap(dpi=dpi)
         atomic_write_bytes(out, pix.tobytes("png"))
     return out
+
+
+class IngestLocalError(ValueError):
+    """Caller-supplied path is outside the allowlist, missing, or otherwise
+    unusable. The HTTP route surfaces this as 400; the MCP tool surfaces it as
+    a normal tool error envelope."""
+
+
+_INGEST_MAX_FILES_DEFAULT = 500
+
+
+def _resolve_under_allowlist(path: Path, allowlist: tuple[Path, ...]) -> Path:
+    """Return the resolved (symlink-followed) absolute path iff it lives under
+    one of the allowlist roots. Resolution happens BEFORE the prefix check so
+    `allowed_root/symlink_to_/etc` cannot escape.
+    """
+    try:
+        resolved = path.expanduser().resolve()
+    except (OSError, RuntimeError) as e:
+        raise IngestLocalError(f"path not resolvable: {path}") from e
+    for root in allowlist:
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    raise IngestLocalError(
+        f"path {str(resolved)!r} is outside the ingest allowlist; "
+        f"set EMERGE_INGEST_LOCAL_EXTRA_ROOTS to whitelist it"
+    )
+
+
+async def ingest_local_path(
+    workspace: Path,
+    project_id: str,
+    src_path: str,
+    *,
+    allowlist: tuple[Path, ...],
+    recursive: bool = False,
+    target: str = "docs",
+    chat_id: str | None = None,
+    max_files: int = _INGEST_MAX_FILES_DEFAULT,
+) -> dict[str, Any]:
+    """Bulk-ingest a local directory (or single file) into the project.
+
+    Walks `src_path`, sniffs each candidate's leading bytes, and routes valid
+    PDF / PNG / JPG payloads into either `docs/` (curated sample set, with
+    sidecar + dedupe + sha) or `chats/<chat_id>/attachments/` (conversational
+    scratch). Non-document files are silently skipped — same magic-byte
+    contract as `upload_doc` / `stage_file`.
+
+    `allowlist` is the resolved set of roots the caller is allowed to reach
+    (see `Settings.ingest_allowlist`); the path must resolve under one of
+    them or we raise `IngestLocalError`. `max_files` caps the per-call ingest
+    so an accidental `/` never floods `docs/`.
+
+    Returns:
+        `{"target": "docs"|"attachments", "ingested": [{filename, original_name,
+        ext, size}], "skipped": [{name, reason}], "errors": [{name, error}]}`
+    """
+    if target not in ("docs", "attachments"):
+        raise IngestLocalError(f"target must be 'docs' or 'attachments', got {target!r}")
+    if target == "attachments" and not chat_id:
+        raise IngestLocalError("target='attachments' requires chat_id")
+
+    resolved = _resolve_under_allowlist(Path(src_path), allowlist)
+    if not resolved.exists():
+        raise IngestLocalError(f"path does not exist: {resolved}")
+
+    if resolved.is_file():
+        candidates = [resolved]
+    elif resolved.is_dir():
+        candidates = sorted(
+            p for p in (resolved.rglob("*") if recursive else resolved.iterdir())
+            if p.is_file() and not p.name.startswith(".")
+        )
+    else:
+        raise IngestLocalError(f"path is neither file nor directory: {resolved}")
+
+    if len(candidates) > max_files:
+        raise IngestLocalError(
+            f"too many files at {resolved}: found {len(candidates)}, "
+            f"max_files={max_files}"
+        )
+
+    ingested: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = []
+
+    for fp in candidates:
+        try:
+            data = fp.read_bytes()
+        except OSError as e:
+            errors.append({"name": fp.name, "error": str(e)})
+            continue
+        sniff = _sniff_ext(data)
+        if sniff is None:
+            skipped.append({"name": fp.name, "reason": "not pdf/png/jpg"})
+            continue
+        # upload_doc validates by filename extension first; pass a normalized
+        # filename so a `.heic` whose bytes are jpg still lands as `.jpg`.
+        if "." in fp.name:
+            stem = fp.name.rsplit(".", 1)[0]
+        else:
+            stem = fp.name
+        landing_name = f"{stem}.{sniff}"
+        try:
+            if target == "docs":
+                meta = await upload_doc(workspace, project_id, data, landing_name)
+                ingested.append({
+                    "filename": meta["filename"],
+                    "original_name": fp.name,
+                    "ext": meta["ext"],
+                    "size": len(data),
+                    "sha256": meta["sha256"],
+                    "page_count": meta["page_count"],
+                })
+            else:
+                assert chat_id is not None  # narrowed by the guard above
+                target_dir = chat_attachments_dir(workspace, project_id, chat_id)
+                target_dir.mkdir(parents=True, exist_ok=True)
+                final_name = dedupe_filename(target_dir, landing_name)
+                (target_dir / final_name).write_bytes(data)
+                ingested.append({
+                    "filename": final_name,
+                    "original_name": fp.name,
+                    "ext": sniff,
+                    "size": len(data),
+                })
+        except ValueError as e:
+            errors.append({"name": fp.name, "error": str(e)})
+        except OSError as e:
+            errors.append({"name": fp.name, "error": str(e)})
+
+    return {
+        "target": target,
+        "ingested": ingested,
+        "skipped": skipped,
+        "errors": errors,
+    }

@@ -1,11 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.routes._safety import safe_chat_id, safe_filename, safe_slug
 from app.config import get_settings
-from app.tools.docs import upload_doc
+from app.tools.docs import IngestLocalError, ingest_local_path, upload_doc
 from app.workspace.paths import (
     chat_attachment_path,
     chat_attachments_dir,
@@ -108,6 +108,45 @@ async def attach_to_chat(
     final_name = dedupe_filename(target_dir, src_name)
     (target_dir / final_name).write_bytes(data)
     return {"filename": final_name}
+
+
+@router.post("/lab/projects/{slug}/ingest-local")
+async def ingest_local(slug: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Bulk-ingest a server-local path (file or directory) into the project.
+
+    The path must resolve under one of the configured ingest roots
+    (`Settings.ingest_allowlist`). Non-pdf/png/jpg payloads are silently
+    skipped via magic-byte sniffing — same filter as `upload_doc`. Caller
+    chooses `target='docs'` (curated sample set) or `target='attachments'`
+    (chat-scoped scratch; requires `chat_id`).
+
+    Body schema:
+        {"path": str, "recursive"?: bool, "target"?: "docs"|"attachments",
+         "chat_id"?: str}
+    """
+    safe_slug(slug)
+    path = body.get("path")
+    if not isinstance(path, str) or not path:
+        raise HTTPException(status_code=400, detail="path is required")
+    recursive = bool(body.get("recursive", False))
+    target = str(body.get("target", "docs"))
+    chat_id = body.get("chat_id")
+    if chat_id is not None:
+        safe_chat_id(str(chat_id))
+    settings = get_settings()
+    try:
+        result = await ingest_local_path(
+            settings.workspace_root,
+            slug,
+            path,
+            allowlist=settings.ingest_allowlist(),
+            recursive=recursive,
+            target=target,
+            chat_id=chat_id or None,
+        )
+    except IngestLocalError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 @router.get("/lab/projects/{slug}/chats/{chat_id}/attachments/{filename:path}")

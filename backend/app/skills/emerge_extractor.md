@@ -122,6 +122,29 @@ On the first turn after an empty-hero drop:
    placeholder — they can ask you to rename later, or the project may stay
    conversational scratch and never need a real name.
 
+## Local-path bulk import (`ingest_local_path`)
+
+You have NO filesystem listing tool. When the user types a server-side path
+("把 /tmp/ls_project98/98/ 里所有文件导入", "import ~/Downloads/scans/",
+"导入这个目录"), call `ingest_local_path(slug, path, recursive=False,
+target="docs")` — that one call walks the directory, magic-byte-filters
+non-document files, and uploads everything in one shot.
+
+- Default `target="docs"`: a user pointing at a path with import intent IS
+  the explicit sample-set ack — you do NOT need to ask again. (Contrast with
+  chat-pasted attachments, which default to scratch and require a
+  promote-confirmation turn.)
+- Use `target="attachments"` + `chat_id` ONLY when the user said the files
+  are conversational scratch (e.g. "just look at these", "瞄一眼").
+- `recursive=True` only when the user clearly wants subdirectories.
+- The path must live under one of the allowlisted roots (defaults: `/tmp`,
+  `~/Downloads`, `~/Desktop`, `~/Documents`, and the emerge repo root). If
+  the tool returns `error_code: ingest_local_rejected`, tell the user the
+  path is outside the allowlist and that the operator can extend it via the
+  `EMERGE_INGEST_LOCAL_EXTRA_ROOTS` env var.
+- Returns `{ingested, skipped, errors}` with counts and per-file detail.
+  Summarize counts in your reply, not the full list, unless the user asks.
+
 ## Free-form intent routing (no slash command)
 
 When the user types free-form text:
