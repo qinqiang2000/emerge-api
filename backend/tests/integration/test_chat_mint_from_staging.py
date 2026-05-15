@@ -177,9 +177,15 @@ async def test_mint_files_do_not_enter_docs_dir(workspace: Path) -> None:
         assert [p.name for p in docs_d.iterdir() if p.is_file()] == []
 
 
-async def test_p_unset_without_stage_token_no_mint(workspace: Path) -> None:
-    """If attachments lack stage_token, the chat stays in p_unset land —
-    no mint, no project_minted event. The existing legacy behaviour."""
+async def test_p_unset_plain_text_still_mints_placeholder(workspace: Path) -> None:
+    """Plain-text empty-hero turn (no attachments) must STILL mint a
+    placeholder project so chat events never write to `workspace/p_unset/`.
+
+    Earlier behaviour gated the mint on stage_token attachments; that left
+    an unlistable `workspace/p_unset/chats/<cid>/events.jsonl` orphan every
+    time a user typed text without dropping files. The new contract: any
+    `slug == 'p_unset'` turn mints, regardless of attachments.
+    """
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         chunks = [
@@ -191,9 +197,13 @@ async def test_p_unset_without_stage_token_no_mint(workspace: Path) -> None:
             )
         ]
     events = _events(chunks)
-    assert not any(e[0] == "project_minted" for e in events)
-    # Chat log lives under p_unset/, not under any minted pid.
-    assert (chats_dir(workspace, "p_unset") / f"{CID}.jsonl").exists()
+    minted = [e for e in events if e[0] == "project_minted"]
+    assert len(minted) == 1, f"expected one project_minted, got {events!r}"
+    new_slug = minted[0][1]["slug"]
+    assert new_slug.startswith("chat-")
+    # Chat log lives under the new slug, NOT under p_unset/.
+    assert (chats_dir(workspace, new_slug) / f"{CID}.jsonl").exists()
+    assert not (workspace / "p_unset").exists()
 
 
 async def test_unknown_stage_token_dropped_silently(workspace: Path) -> None:

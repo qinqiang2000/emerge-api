@@ -139,60 +139,77 @@ async def create_project(
     from app.schemas.prompt_variant import PromptVariant
     from app.workspace.paths import model_path, models_dir, prompt_path, prompts_dir
 
+    import shutil
+
+    from app.schemas.model_config import ModelConfig, infer_provider_from_model_id
+    from app.schemas.prompt_variant import PromptVariant
+    from app.workspace.paths import model_path, models_dir, prompt_path, prompts_dir
+
     pid = new_project_id()
     slug = _ensure_unique_slug(workspace, derive_slug(name))
 
     pdir = project_dir(workspace, slug)
     pdir.mkdir(parents=True, exist_ok=False)
-    docs_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
-    predictions_draft_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
-    versions_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
-    chats_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
-    prompts_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
-    models_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+    # Multiple atomic writes follow; if any of them fails (disk full, OOM
+    # mid-serialize, etc.) the freshly-made `pdir` would be left without
+    # `project.json` — an un-listable orphan that pollutes `workspace/`
+    # forever (we observed both `untitled-260514-152406` and `p_unset/`
+    # accumulating during dogfood). Wrap the post-mkdir setup so any failure
+    # rolls the directory back. The mkdir itself is atomic per POSIX, so
+    # we don't need to handle a partial-mkdir case.
+    try:
+        docs_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+        predictions_draft_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+        versions_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+        chats_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+        prompts_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
+        models_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
 
-    settings = get_settings()
-    now = _now_iso()
+        settings = get_settings()
+        now = _now_iso()
 
-    pv = PromptVariant(
-        prompt_id="pr_baseline",
-        label="Baseline",
-        schema=[],
-        global_notes="",
-        derived_from=None,
-        created_at=now,
-        updated_at=now,
-    )
-    atomic_write_json(prompt_path(workspace, slug, "pr_baseline"), pv.model_dump(mode="json"))
+        pv = PromptVariant(
+            prompt_id="pr_baseline",
+            label="Baseline",
+            schema=[],
+            global_notes="",
+            derived_from=None,
+            created_at=now,
+            updated_at=now,
+        )
+        atomic_write_json(prompt_path(workspace, slug, "pr_baseline"), pv.model_dump(mode="json"))
 
-    mc = ModelConfig(
-        model_id="m_default",
-        label=f"Default ({settings.default_extract_model})",
-        provider=infer_provider_from_model_id(settings.default_extract_model),
-        provider_model_id=settings.default_extract_model,
-        params={"temperature": 0.0},
-        created_at=now,
-    )
-    atomic_write_json(model_path(workspace, slug, "m_default"), mc.model_dump(mode="json"))
+        mc = ModelConfig(
+            model_id="m_default",
+            label=f"Default ({settings.default_extract_model})",
+            provider=infer_provider_from_model_id(settings.default_extract_model),
+            provider_model_id=settings.default_extract_model,
+            params={"temperature": 0.0},
+            created_at=now,
+        )
+        atomic_write_json(model_path(workspace, slug, "m_default"), mc.model_dump(mode="json"))
 
-    blob = {
-        "project_id": pid,
-        "slug": slug,
-        "name": name,
-        "project_type": project_type,
-        "created_at": now,
-        "active_prompt_id": "pr_baseline",
-        "active_model_id": "m_default",
-        "active_version_id": None,
-        "autoresearch_proposer_model": None,
-        "extract_model": settings.default_extract_model,
-        "extract_params": {"temperature": 0.0},
-        "published_ids": [],
-    }
-    atomic_write_json(project_json_path(workspace, slug), blob)
+        blob = {
+            "project_id": pid,
+            "slug": slug,
+            "name": name,
+            "project_type": project_type,
+            "created_at": now,
+            "active_prompt_id": "pr_baseline",
+            "active_model_id": "m_default",
+            "active_version_id": None,
+            "autoresearch_proposer_model": None,
+            "extract_model": settings.default_extract_model,
+            "extract_params": {"temperature": 0.0},
+            "published_ids": [],
+        }
+        atomic_write_json(project_json_path(workspace, slug), blob)
 
-    # schema.json is intentionally NOT written for new projects.
-    get_index(workspace).register(pid, slug)
+        # schema.json is intentionally NOT written for new projects.
+        get_index(workspace).register(pid, slug)
+    except Exception:
+        shutil.rmtree(pdir, ignore_errors=True)
+        raise
     return {"project_id": pid, "slug": slug}
 
 

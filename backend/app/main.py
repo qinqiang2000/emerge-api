@@ -74,9 +74,16 @@ async def _cleanup_staging_on_startup() -> None:
     cleanup_stale(settings.workspace_root, max_age_hours=24.0)
 
 
+async def _cleanup_orphan_projects_on_startup() -> None:
+    from app.workspace.orphans import cleanup_orphan_projects
+    settings = get_settings()
+    cleanup_orphan_projects(settings.workspace_root)
+
+
 app.include_router(publish_route.router)
 app.router.on_startup.append(_load_keystore_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
+app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
 
 
 @app.get("/healthz")

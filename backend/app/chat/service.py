@@ -319,20 +319,18 @@ class ChatService:
         slug, which can be renamed. The empty-hero drop case below mints
         both atomically and surfaces them on the `project_minted` SSE event.
         """
-        # ── pre-flight: claim staged files into a freshly-minted project ──
-        # Empty-hero drop flow: frontend stages each file to
-        # `/lab/uploads/staging` then submits with `slug='p_unset'` plus
-        # `attachments[i].stage_token`. Here we mint a placeholder project
-        # (named `Chat-{ts}` to signal "conversation, not curated set") and
-        # claim each staged file into `chats/<chat_id>/attachments/`. Files
-        # do NOT enter `docs/` — that requires an explicit user-ack
-        # `promote_attachment_to_docs` later.
+        # ── pre-flight: mint a placeholder project whenever slug is unset ──
+        # Empty-hero entry: frontend submits with `slug='p_unset'` either
+        # because the user dropped files (each carries a `stage_token`) OR
+        # because they just typed text with no files. Both branches mint a
+        # placeholder project (`Chat-{ts}`) so chat events never write to
+        # `workspace/p_unset/` (which used to leave an unlistable orphan dir
+        # behind). When stage tokens exist we claim them into the new
+        # project's `chats/<chat_id>/attachments/`; files do NOT enter
+        # `docs/` (that requires an explicit user-ack
+        # `promote_attachment_to_docs` later).
         minted: dict[str, str] | None = None
-        if (
-            slug == "p_unset"
-            and attachments
-            and any(isinstance(a.get("stage_token"), str) for a in attachments)
-        ):
+        if slug == "p_unset":
             placeholder = _placeholder_project_name()
             try:
                 _proj = await _create_project(self.workspace, name=placeholder)
@@ -347,7 +345,7 @@ class ChatService:
                 yield sse_event("turn_end", {})
                 return
             claimed: list[dict[str, Any]] = []
-            for a in attachments:
+            for a in (attachments or []):
                 tok = a.get("stage_token")
                 if isinstance(tok, str):
                     try:
