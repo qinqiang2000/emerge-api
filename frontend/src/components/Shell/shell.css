@@ -13,6 +13,10 @@
 .shell.dragging *{user-select:none !important;cursor:col-resize !important}
 .shell.no-left{--left-w:0px}
 .shell.no-right{--right-w:0px}
+/* When right panel is hidden, the .conv center column expands to viewport edge.
+   Leave room for the fixed .edge-toggle.right (28px wide at right:10px) so the
+   chat toolbar (.conv-hd, anchored at right:14px of .conv) doesn't collide with it. */
+.shell.no-right .conv-hd{right:52px}
 .shell.no-left .fs{opacity:0;pointer-events:none;transform:translateX(-20px);transition:opacity .2s, transform .25s}
 
 /* drag handle */

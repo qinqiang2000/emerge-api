@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react'
 
 import type { ChatSummary } from '../../lib/api'
 
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/i.test(
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+      navigator.platform ||
+      navigator.userAgent,
+  )
+const NEW_CHAT_SHORTCUT = IS_MAC ? '⌘⇧O' : 'Ctrl+Shift+O'
+
 interface Props {
   activeProject: string
   currentChatId: string
@@ -75,7 +84,7 @@ export default function ConvHeader({ activeProject, currentChatId, chats, onNew,
             <line x1="8" y1="3" x2="8" y2="13" />
             <line x1="3" y1="8" x2="13" y2="8" />
           </svg>
-          <span className="tip">New chat</span>
+          <span className="tip">New chat <span className="kbd">{NEW_CHAT_SHORTCUT}</span></span>
         </button>
       </div>
       {open && (

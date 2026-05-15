@@ -21,6 +21,7 @@ html, body, #root {
 .conv-hd .chip.on{background:var(--paper-3);color:var(--ink);border-color:var(--rule)}
 .conv-hd .chip svg{display:block}
 .conv-hd .tip{position:absolute;top:36px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:4px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s;letter-spacing:.02em}
+.conv-hd .tip .kbd{opacity:.6;margin-left:4px}
 .conv-hd .chip:hover .tip{opacity:1;transition-delay:.35s}
 
 /* history popover */
