@@ -57,7 +57,7 @@ async def test_full_publish_then_extract(workspace, monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
 
     client = TestClient(app)
@@ -112,7 +112,7 @@ async def test_case2_v2_publish_with_added_field(workspace, monkeypatch) -> None
     )
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
 
     client = TestClient(app)

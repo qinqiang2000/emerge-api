@@ -101,7 +101,7 @@ async def extract_one(
     project_id: str,
     filename: str,
     *,
-    provider: Provider,
+    provider: Provider | None = None,
     model_id: str | None = None,
 ) -> dict[str, Any]:
     from app.tools.model import read_active_model
@@ -115,8 +115,16 @@ async def extract_one(
     if model_id is None:
         mc = await read_active_model(workspace, project_id)
         mid = mc.provider_model_id
+        if provider is None:
+            from app.provider import get_provider_for_model
+
+            provider = get_provider_for_model(mid, provider=mc.provider)
     else:
         mid = model_id
+    if provider is None:
+        from app.provider import get_provider_for_model
+
+        provider = get_provider_for_model(mid)
 
     user_blocks: list[ContentBlock] = [
         TextBlock(text=_build_field_instructions(schema)),
@@ -210,7 +218,7 @@ async def extract_batch(
     project_id: str,
     filenames: list[str],
     *,
-    provider: Provider,
+    provider: Provider | None = None,
     model_id: str | None = None,
     concurrency: int = 4,
 ) -> dict[str, Any]:
@@ -220,7 +228,9 @@ async def extract_batch(
     async def _run_one(fn: str) -> None:
         async with sem:
             try:
-                payload = await extract_one(workspace, project_id, fn, provider=provider, model_id=model_id)
+                payload = await extract_one(
+                    workspace, project_id, fn, provider=provider, model_id=model_id,
+                )
                 per_doc[fn] = {"ok": True, "entities": payload.get("entities", [])}
             except Exception as e:  # noqa: BLE001
                 per_doc[fn] = {"ok": False, "error": str(e)}

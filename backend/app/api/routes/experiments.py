@@ -101,7 +101,7 @@ async def run_experiment_prediction(
             detail={"error_code": "experiment_not_found"},
         )
     model = await read_model(workspace, slug, ex.model_id)
-    provider = get_provider_for_model(model.provider_model_id)
+    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
     payload = await extract_with_experiment(
         workspace, slug, experiment_id, filename, provider=provider,
     )

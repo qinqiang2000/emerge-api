@@ -10,13 +10,37 @@ import os
 from typing import Optional
 
 from app.provider.base import Provider
+from app.schemas.model_config import Provider as ModelProvider
 
 
-def get_provider_for_model(model_id: str, *, api_key: Optional[str] = None) -> Provider:
+def get_provider_for_model(
+    model_id: str,
+    *,
+    provider: ModelProvider | None = None,
+    api_key: Optional[str] = None,
+) -> Provider:
     """Returns an extractor Provider for the given model_id.
 
     Reads API keys and proxy URLs from environment unless explicitly passed.
     """
+    if provider == "codex":
+        from app.provider.codex import CodexCliProvider
+
+        return CodexCliProvider()
+    if provider == "google":
+        from app.provider.google import GoogleProvider
+
+        return GoogleProvider(
+            api_key=api_key or os.getenv("GOOGLE_API_KEY", ""),
+            proxy=os.getenv("GOOGLE_PROXY") or None,
+        )
+    if provider == "anthropic":
+        from app.provider.anthropic import AnthropicProvider
+
+        return AnthropicProvider(
+            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
+            proxy=os.getenv("ANTHROPIC_PROXY") or None,
+        )
     if model_id.startswith("gemini"):
         from app.provider.google import GoogleProvider
 

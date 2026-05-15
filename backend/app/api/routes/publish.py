@@ -118,7 +118,11 @@ async def v1_extract(
     model_id = blob.get("model_id")
     if not isinstance(model_id, str) or not model_id:
         return _error(500, "published_corrupt", "frozen artifact has no model_id")
-    provider = get_provider_for_model(model_id)
+    provider_name = blob.get("provider")
+    provider = get_provider_for_model(
+        model_id,
+        provider=provider_name if provider_name in {"anthropic", "openai", "google", "codex"} else None,
+    )
     try:
         out = await extract_bytes_with_schema(
             content=content,

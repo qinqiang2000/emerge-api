@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-Provider = Literal["anthropic", "openai", "google"]
+Provider = Literal["anthropic", "openai", "google", "codex"]
 
 
 class ModelConfig(BaseModel):

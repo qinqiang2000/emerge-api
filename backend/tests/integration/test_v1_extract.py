@@ -59,7 +59,7 @@ async def test_v1_extract_happy(workspace: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
     client = TestClient(app)
     r = client.post(
@@ -164,7 +164,7 @@ async def test_v1_extract_does_not_read_schema_json(workspace: Path, monkeypatch
     fake_provider.extract.side_effect = _capture
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
     client = TestClient(app)
     r = client.post(
@@ -216,7 +216,7 @@ async def test_v1_extract_one_key_multiple_pubs(workspace: Path, monkeypatch) ->
     )
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
     client = TestClient(app)
     for pub in (pub_a, pub_b):
@@ -250,7 +250,7 @@ async def test_v1_extract_survives_project_rename(workspace: Path, monkeypatch) 
     )
     monkeypatch.setattr(
         "app.api.routes.publish.get_provider_for_model",
-        lambda model_id: fake_provider,
+        lambda model_id, **_kw: fake_provider,
     )
     client = TestClient(app)
     r = client.post(

@@ -29,6 +29,18 @@ def test_with_params() -> None:
     assert mc.params["temperature"] == 0.0
 
 
+def test_codex_provider_config() -> None:
+    mc = ModelConfig(
+        model_id="m_codex_gpt55_fast",
+        label="Codex GPT-5.5 Fast",
+        provider="codex",
+        provider_model_id="gpt-5.5",
+        params={"temperature": 0.0, "fast": True, "reasoning_effort": "high"},
+        created_at="2026-05-12T00:00:00+00:00",
+    )
+    assert mc.provider == "codex"
+
+
 def test_provider_literal_constraint() -> None:
     with pytest.raises(ValidationError):
         ModelConfig(

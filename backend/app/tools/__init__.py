@@ -264,7 +264,7 @@ def build_emerge_mcp(
     @tool(
         "write_model",
         "Upsert a model config (create if missing, otherwise update label/params/provider_model_id). "
-        "provider is one of 'anthropic'|'openai'|'google'.",
+        "provider is one of 'anthropic'|'openai'|'google'|'codex'.",
         {
             "slug": str,
             "model_id": str,
@@ -371,7 +371,9 @@ def build_emerge_mcp(
             workspace, args["slug"], ex.model_id,
         )
         from app.provider import get_provider_for_model
-        exp_provider = get_provider_for_model(model.provider_model_id)
+        exp_provider = get_provider_for_model(
+            model.provider_model_id, provider=model.provider,
+        )
         payload = await experiment_mod.extract_with_experiment(
             workspace, args["slug"], args["experiment_id"], args["filename"],
             provider=exp_provider,
@@ -393,7 +395,9 @@ def build_emerge_mcp(
             workspace, args["slug"], ex.model_id,
         )
         from app.provider import get_provider_for_model
-        exp_provider = get_provider_for_model(model.provider_model_id)
+        exp_provider = get_provider_for_model(
+            model.provider_model_id, provider=model.provider,
+        )
         ev = await experiment_mod.run_experiment_eval(
             workspace, args["slug"], args["experiment_id"],
             provider=exp_provider,
