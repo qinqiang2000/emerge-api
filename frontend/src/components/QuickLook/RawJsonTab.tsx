@@ -25,7 +25,7 @@ export default function RawJsonTab() {
     return <div className="ql-field-desc ql-field-desc--empty">loading…</div>
   }
   return (
-    <div>
+    <div className="ql-raw-wrap">
       <button
         type="button"
         className="ql-raw-copy"

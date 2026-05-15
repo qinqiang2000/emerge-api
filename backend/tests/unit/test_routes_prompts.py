@@ -72,6 +72,59 @@ def test_get_prompt_missing_404(client: TestClient, tmp_path: Path) -> None:
     assert r.json()["detail"]["error_code"] == "prompt_not_found"
 
 
+def test_put_active_prompt_writes_schema(client: TestClient, tmp_path: Path) -> None:
+    import asyncio
+    from app.tools.projects import create_project as _create
+
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
+    body = {
+        "schema": [
+            {"name": "vendor_name", "type": "string", "description": "vendor", "required": True},
+            {"name": "total", "type": "number", "description": "total amount"},
+        ],
+        "global_notes": "edited inline",
+    }
+    r = client.put(f"/lab/projects/{pid}/prompts/active", json=body)
+    assert r.status_code == 200, r.text
+    blob = r.json()
+    names = [f["name"] for f in blob["schema"]]
+    assert names == ["vendor_name", "total"]
+    assert blob["global_notes"] == "edited inline"
+
+    # Verify it persisted: a fresh GET returns the same shape.
+    r2 = client.get(f"/lab/projects/{pid}/prompts/active")
+    assert r2.status_code == 200
+    assert [f["name"] for f in r2.json()["schema"]] == ["vendor_name", "total"]
+
+
+def test_put_active_prompt_rejects_invalid_snake_case(client: TestClient, tmp_path: Path) -> None:
+    import asyncio
+    from app.tools.projects import create_project as _create
+
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
+    r = client.put(
+        f"/lab/projects/{pid}/prompts/active",
+        json={"schema": [{"name": "BadCamel", "type": "string", "description": "x"}]},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error_code"] == "invalid_schema_field"
+
+
+def test_put_active_prompt_allows_empty_schema_wipe(client: TestClient, tmp_path: Path) -> None:
+    import asyncio
+    from app.tools.projects import create_project as _create
+
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
+    # Seed a non-empty schema first so the wipe path is meaningful.
+    client.put(
+        f"/lab/projects/{pid}/prompts/active",
+        json={"schema": [{"name": "x", "type": "string", "description": "x"}]},
+    )
+    r = client.put(f"/lab/projects/{pid}/prompts/active", json={"schema": []})
+    assert r.status_code == 200
+    assert r.json()["schema"] == []
+
+
 def test_list_prompts_legacy_project_migrates_first(client: TestClient, tmp_path: Path) -> None:
     pid = "p_legacyhttp02"
     pdir = tmp_path / pid

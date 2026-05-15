@@ -3,16 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
+from app.schemas.schema_field import SchemaField
 from app.tools.prompt import (
+    PromptClearError,
     PromptNotFoundError,
     import_prompt,
     list_prompts,
     read_active_prompt,
     read_prompt,
+    write_prompt,
 )
 from app.workspace.migrate import migrate_project_if_needed
 from app.workspace.paths import project_json_path
@@ -44,6 +47,55 @@ async def get_project_prompts(slug: str) -> list[dict]:
 async def get_project_active_prompt(slug: str) -> dict:
     workspace = _project_or_404(slug)
     await migrate_project_if_needed(workspace, slug)
+    pv = await read_active_prompt(workspace, slug)
+    return pv.model_dump(mode="json")
+
+
+class _PutActivePromptBody(BaseModel):
+    # Raw dicts — validated by SchemaField below so pydantic errors surface
+    # field-level details for the UI rather than a generic 422.
+    schema: list[dict]
+    global_notes: str = ""
+
+
+@router.put("/lab/projects/{slug}/prompts/active")
+async def put_project_active_prompt(slug: str, body: _PutActivePromptBody) -> dict:
+    """Direct human edit of the active prompt — bypasses the agent.
+
+    Structural changes (add/remove/rename/retype) are allowed because the
+    user is the one driving them. Empty-schema saves are allowed too so the
+    user can wipe and restart from a blank slate.
+    """
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        fields = [SchemaField(**f) for f in body.schema]
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "invalid_schema_field",
+                "error_message_en": str(exc),
+            },
+        )
+    try:
+        await write_prompt(
+            workspace, slug,
+            prompt_id=None,
+            schema=fields,
+            global_notes=body.global_notes,
+            allow_clear=True,
+        )
+    except PromptNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "prompt_not_found"},
+        )
+    except PromptClearError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "prompt_clear_refused", "error_message_en": str(exc)},
+        )
     pv = await read_active_prompt(workspace, slug)
     return pv.model_dump(mode="json")
 

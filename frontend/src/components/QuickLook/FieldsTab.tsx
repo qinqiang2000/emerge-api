@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useSchema } from '../../stores/schema'
 import FieldCard from './FieldCard'
+import SchemaFieldEditor from './SchemaFieldEditor'
 import type { QuickLookTarget } from '../../stores/quicklook'
 import type { SchemaField } from '../../stores/schema'
 
@@ -59,14 +60,7 @@ function SchemaFields({ pid }: { pid: string }) {
   if (fields === undefined) {
     return <div className="ql-field-desc ql-field-desc--empty">loading…</div>
   }
-  if (fields.length === 0) {
-    return (
-      <div className="ql-field ql-field-desc ql-field-desc--empty">
-        no schema yet — type /init in the chat
-      </div>
-    )
-  }
-  return <FieldList fields={fields} />
+  return <SchemaFieldEditor pid={pid} fields={fields} />
 }
 
 function VersionFields({ pid, versionId }: { pid: string; versionId: string }) {

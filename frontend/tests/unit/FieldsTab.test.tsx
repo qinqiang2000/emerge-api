@@ -8,10 +8,11 @@ describe('FieldsTab', () => {
     useSchema.setState({ byProject: {} })
   })
 
-  it('renders empty placeholder when project has no fields (schema kind)', () => {
+  it('renders editor empty state with + field affordance when project has no fields (schema kind)', () => {
     useSchema.setState({ byProject: { p_test: [] } })
     render(<FieldsTab target={{ kind: 'schema', pid: 'p_test' }} />)
-    expect(screen.getByText(/no schema yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/no fields yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /\+ field/i })).toBeInTheDocument()
   })
 
   it('shows loading state when byProject has no entry for the pid yet (deep-link safety net)', async () => {

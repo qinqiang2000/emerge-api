@@ -9,10 +9,19 @@ export interface SchemaField {
   children?: SchemaField[] | null
 }
 
+export interface SaveError {
+  error_code: string
+  error_message_en?: string
+}
+
 interface State {
   byProject: Record<string, SchemaField[]>
   loading: Record<string, boolean>
   load: (projectId: string) => Promise<SchemaField[]>
+  /** Direct human edit of the active prompt. Returns null on success
+   *  or a SaveError envelope. On success, byProject is updated so the
+   *  UI reflects the persisted state. */
+  saveActive: (projectId: string, fields: SchemaField[], globalNotes?: string) => Promise<SaveError | null>
   invalidate: (projectId: string) => void
   reset: () => void
 }
@@ -53,6 +62,30 @@ export const useSchema = create<State>((set, get) => ({
     } catch {
       set((s) => ({ loading: { ...s.loading, [projectId]: false } }))
       return []
+    }
+  },
+
+  saveActive: async (projectId, fields, globalNotes) => {
+    try {
+      const r = await fetch(`/lab/projects/${encodeURIComponent(projectId)}/prompts/active`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema: fields, global_notes: globalNotes ?? '' }),
+      })
+      if (!r.ok) {
+        let detail: SaveError = { error_code: `http_${r.status}` }
+        try {
+          const j = await r.json()
+          detail = j?.detail ?? detail
+        } catch { /* not json */ }
+        return detail
+      }
+      const blob = await r.json() as { schema: SchemaField[] }
+      const next = blob.schema ?? fields
+      set((s) => ({ byProject: { ...s.byProject, [projectId]: next } }))
+      return null
+    } catch (e) {
+      return { error_code: 'network_error', error_message_en: (e as Error).message }
     }
   },
 }))
