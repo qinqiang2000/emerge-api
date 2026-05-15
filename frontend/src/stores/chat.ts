@@ -331,6 +331,27 @@ export const useChat = create<State>((set, get) => ({
           void useDocs.getState().refresh(slug)
           continue
         }
+        if (ev.event === 'project_renamed') {
+          // Agent called `rename_project` mid-turn — the on-disk slug has
+          // changed and chat_turn already rerouted post-rename appends to
+          // the new path. Mirror that on the FE: re-point selectedSlug
+          // (triggers App.tsx's URL sync to push /p/{new_slug}), move our
+          // activeChatId mapping to the new slug, and refresh projects so
+          // the sidebar shows the new name. The conversation array stays
+          // intact (mapped events are already in `s.events`).
+          const d = ev.data as { old_slug: string; new_slug: string }
+          if (d.new_slug && d.new_slug !== d.old_slug) {
+            const cid = get().chatId
+            if (cid) _writeChatId(d.new_slug, cid)
+            mintedPid = d.new_slug
+            set({ loadedProjectId: d.new_slug })
+            void useProjects.getState().refresh()
+            useProjects.getState().select(d.new_slug)
+            void get().listChats(d.new_slug)
+            void useDocs.getState().refresh(d.new_slug)
+          }
+          continue
+        }
         const mapped = mapSse(ev.event, ev.data)
         if (mapped === null) continue   // ignored event (user_acknowledged etc.)
         if (mapped.type === 'turn_end') break

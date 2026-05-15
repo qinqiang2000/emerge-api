@@ -50,3 +50,4 @@ frontend/tests/dogfood-out/
 # dev.sh runtime
 .dev.pid
 .dev-logs/
+.dogfood/

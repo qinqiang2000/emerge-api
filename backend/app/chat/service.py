@@ -36,6 +36,7 @@ from app.skills import load_skill
 from app.tools import build_emerge_mcp
 from app.tools.projects import create_project as _create_project
 from app.workspace.paths import chat_attachment_path, doc_path, project_json_path
+from app.workspace.pid_index import get_index
 from app.workspace.staging import StagingClaimError, claim_staged_to_chat
 
 
@@ -371,6 +372,32 @@ class ChatService:
                 "name": placeholder,
             }
 
+        # Anchor on the immutable project_id so post-rename IO lands in the
+        # right place. If the agent calls `rename_project` mid-turn,
+        # `slug` (a local var) silently goes stale: subsequent `append_event`
+        # calls would `mkdir` the OLD path and split chat history into two
+        # dirs (we observed this on dogfood — 3 events landed in the
+        # renamed dir, 9 in the stranded husk). `_current_slug()` re-asks
+        # the pid_index on every read so every IO sees the up-to-date slug.
+        # Falls back to the captured `slug` when the pid is unknown (e.g.
+        # legacy projects without an index entry); behaviour-preserving.
+        anchor_pid: str | None = None
+        if minted is not None:
+            anchor_pid = minted["pid"]
+        else:
+            try:
+                anchor_pid = json.loads(
+                    project_json_path(self.workspace, slug).read_text()
+                ).get("project_id")
+            except (OSError, json.JSONDecodeError):
+                anchor_pid = None
+        initial_slug = slug
+
+        def _current_slug() -> str:
+            if anchor_pid is None:
+                return slug
+            return get_index(self.workspace).resolve_pid(anchor_pid) or slug
+
         # Keep only render-relevant fields on the persisted attachment record —
         # the agent doesn't need anything else, and we deliberately don't carry
         # base64 image bytes into events.jsonl (it would balloon the chat log).
@@ -460,7 +487,7 @@ class ChatService:
                         sse_payload = redactor.scrub_for_sse(etype, payload)
                         await append_event(
                             self.workspace,
-                            slug,
+                            _current_slug(),
                             chat_id,
                             {"type": etype, **persist_payload},
                         )
@@ -498,14 +525,27 @@ class ChatService:
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
                 self.workspace,
-                slug,
+                _current_slug(),
                 chat_id,
                 {"type": "error", **err},
             )
             yield sse_event("error", err)
         finally:
+            final_slug = _current_slug()
             if latest_sid and latest_sid != prev_sid:
-                write_chat_session_id(self.workspace, slug, chat_id, latest_sid)
+                write_chat_session_id(self.workspace, final_slug, chat_id, latest_sid)
+            # Mid-turn `rename_project` updates the pid_index — let the
+            # frontend re-point its selectedSlug (and thus the URL) so the
+            # user keeps seeing the conversation under the right address.
+            # Skip the no-op case where rename ended up at the starting
+            # slug. Also skip when initial_slug==minted placeholder and
+            # final differs (project_minted already steered the frontend
+            # to the placeholder; project_renamed completes the hop).
+            if final_slug != initial_slug:
+                yield sse_event(
+                    "project_renamed",
+                    {"old_slug": initial_slug, "new_slug": final_slug},
+                )
             yield sse_event("turn_end", {})
 
 
