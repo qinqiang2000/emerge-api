@@ -36,6 +36,12 @@ export const usePrompts = create<State>((set, get) => ({
 
   reset: () => set({ list: {}, activeByProject: {}, loading: {} }),
 
+  // Drops both caches for the project. Nothing here schedules a refetch —
+  // callers must either call load() right after or be sure a mount-time
+  // effect (e.g. FSSpine's selectedSlug effect) will refill. Otherwise the
+  // spine flashes "(none yet)" and Quick-look's active-prompt readers see
+  // undefined until the next page mount. Prefer patching activeByProject
+  // in place when you already know the new value.
   invalidate: (projectId) =>
     set((s) => {
       const list = { ...s.list }; delete list[projectId]
