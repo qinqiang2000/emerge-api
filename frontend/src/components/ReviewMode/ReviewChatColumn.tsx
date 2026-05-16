@@ -15,6 +15,9 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageSquare, X } from 'lucide-react'
 
 import ChatPanel from '../Chat/ChatPanel'
+import ChatHistoryActions from '../Chat/ChatHistoryActions'
+import { useChat } from '../../stores/chat'
+import { useProjects } from '../../stores/projects'
 
 export const REV_CHAT_WIDTH_KEY = 'emerge.revChatW'
 export const REV_CHAT_DEFAULT_W = 360
@@ -102,6 +105,20 @@ export default function ReviewChatColumn({
       ? JSON.stringify(activeValue)
       : String(activeValue)
 
+  // Mount the chat-history + new-chat affordance inside `rev-chat-hd` so a
+  // session in review mode can start a fresh thread without leaving the
+  // overlay. Persistence is handled by `useChat` (per-project chat id keyed
+  // off slug); a fresh chat doesn't lose memory because the agent's extractor
+  // skill auto-routes corrections into durable artifacts (per-doc _notes,
+  // global_notes, schema descriptions) — see plan
+  // image-1-chat-velvety-duckling.md.
+  const { selectedSlug, projects } = useProjects()
+  const chatId = useChat(s => s.chatId)
+  const chatsByProject = useChat(s => s.chatsByProject)
+  const showHistoryActions = Boolean(selectedSlug) && selectedSlug !== 'p_unset'
+  const projectName = projects.find(p => p.slug === selectedSlug)?.name ?? selectedSlug ?? ''
+  const chatsForProject = selectedSlug ? (chatsByProject[selectedSlug] ?? []) : []
+
   return (
     <>
       <div
@@ -134,6 +151,17 @@ export default function ReviewChatColumn({
             </span>
           ) : (
             <span className="rev-chat-hd-chip muted">no doc selected</span>
+          )}
+          {showHistoryActions && selectedSlug && (
+            <ChatHistoryActions
+              variant="compact"
+              activeProject={projectName}
+              currentChatId={chatId}
+              chats={chatsForProject}
+              onNew={() => useChat.getState().newChat(selectedSlug)}
+              onSwitch={(cid) => useChat.getState().switchChat(selectedSlug, cid)}
+              onOpen={() => { void useChat.getState().listChats(selectedSlug) }}
+            />
           )}
           <button
             type="button"

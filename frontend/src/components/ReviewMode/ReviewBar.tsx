@@ -86,7 +86,7 @@ export default function ReviewBar({
 
   return (
     <div className="rev-bar">
-      <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat" title="back to chat">
+      <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat (Esc)" title="back to chat · Esc">
         <ArrowLeft size={16} strokeWidth={1.75} />
       </button>
       {leftHidden && onToggleLeft && (

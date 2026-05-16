@@ -426,6 +426,18 @@ html, body, #root {
 .rev-chat-hd-chip .val{color:var(--ink-3);font-style:italic;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .rev-chat-hd-close{display:inline-flex;align-items:center;justify-content:center;padding:4px;border-radius:4px;background:transparent;color:var(--ink-4);cursor:default;border:1px solid transparent;flex-shrink:0}
 .rev-chat-hd-close:hover{background:var(--paper-2);color:var(--ink)}
+/* compact chip cluster inside rev-chat-hd — sits between filename chip and
+   close button, mirrors ConvHeader's chip+popover but at the smaller 26px
+   header scale (icon-only, no .tip labels). */
+.rev-chat-hd-actions{display:inline-flex;align-items:center;gap:2px;flex-shrink:0;position:relative}
+.rev-chat-hd-actions button{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border-radius:4px;background:transparent;color:var(--ink-4);cursor:default;border:1px solid transparent}
+.rev-chat-hd-actions button:hover{background:var(--paper-2);color:var(--ink)}
+.rev-chat-hd-actions button.on{background:var(--paper-2);color:var(--ochre-2)}
+.rev-chat-hd-actions svg{display:block}
+/* Anchor the history popover to the cluster's right edge so it doesn't clip
+   in narrow columns (280px min). Override the default `.hist-pop` top/right
+   that targets the main shell's `.conv` container. */
+.rev-chat-hd-actions .hist-pop{position:absolute;top:calc(100% + 6px);right:0;left:auto;max-width:calc(100vw - 32px);z-index:50}
 .rev-chat-body{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
 .rev-chat-body > *{flex:1;min-height:0;display:flex;flex-direction:column}
 /* ChatPanel's composer-wrap uses position:absolute pinned to the main

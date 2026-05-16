@@ -210,6 +210,7 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
       <Composer
         disabled={busy}
         pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
+        focusOnMount={!compact}
         projectId={selectedSlug ?? undefined}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}

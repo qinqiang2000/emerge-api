@@ -6,6 +6,9 @@
 //   3. The left splitter persists width to localStorage on drag
 //   4. When `rightHidden` is true at the App level, ContextSurface stays hidden
 //      (verified separately in App-level integration; here we test column-only)
+//   5. NEW: when a project is selected, the header includes the compact
+//      ChatHistoryActions chip cluster (Chat history + New chat); when no
+//      project is selected, the cluster is hidden.
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +20,15 @@ vi.mock('../../../src/components/Chat/ChatPanel', () => ({
     <div data-testid="mock-chatpanel" data-compact={compact ? '1' : '0'}>chat</div>,
 }))
 
+// Mock useChat / useProjects so the header's history-actions wiring is
+// deterministic. Both are Zustand stores; the hook is called with a selector
+// in production code, so the mock must call the selector with mocked state.
+vi.mock('../../../src/stores/chat', () => ({ useChat: vi.fn() }))
+vi.mock('../../../src/stores/projects', () => ({ useProjects: vi.fn() }))
+
+import { useChat } from '../../../src/stores/chat'
+import { useProjects } from '../../../src/stores/projects'
+
 import ReviewChatColumn, {
   REV_CHAT_WIDTH_KEY,
   REV_CHAT_DEFAULT_W,
@@ -24,8 +36,43 @@ import ReviewChatColumn, {
   writeRevChatWidth,
 } from '../../../src/components/ReviewMode/ReviewChatColumn'
 
+const mockNewChat = vi.fn()
+const mockSwitchChat = vi.fn()
+const mockListChats = vi.fn()
+
+function setupStores({
+  selectedSlug = 'us-invoice' as string | null,
+  chatId = 'c_test',
+  chats = [] as Array<{ chat_id: string; label: string; kind: string; ts_iso: string; n_events: number }>,
+} = {}) {
+  const projectsState = {
+    selectedSlug,
+    projects: selectedSlug
+      ? [{ project_id: 'p_a', slug: selectedSlug, name: selectedSlug, project_type: 'extraction', active_version_id: null }]
+      : [],
+  }
+  ;(useProjects as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (selector?: (s: unknown) => unknown) => selector ? selector(projectsState) : projectsState,
+  )
+  const chatState = {
+    chatId,
+    chatsByProject: selectedSlug ? { [selectedSlug]: chats } : {},
+    newChat: mockNewChat,
+    switchChat: mockSwitchChat,
+    listChats: mockListChats,
+  }
+  ;(useChat as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (selector?: (s: unknown) => unknown) => selector ? selector(chatState) : chatState,
+  )
+  ;(useChat as unknown as { getState: () => unknown }).getState = () => chatState
+}
+
 beforeEach(() => {
   localStorage.clear()
+  mockNewChat.mockReset()
+  mockSwitchChat.mockReset()
+  mockListChats.mockReset()
+  setupStores()
 })
 
 describe('ReviewChatColumn', () => {
@@ -125,6 +172,88 @@ describe('ReviewChatColumn', () => {
     fireEvent.mouseMove(window, { clientX: 1500 })
     expect(onWidthChange).toHaveBeenLastCalledWith(280)
     fireEvent.mouseUp(window)
+  })
+})
+
+describe('ReviewChatColumn — ChatHistoryActions in compact header', () => {
+  it('renders Chat history + New chat buttons when a project is selected', () => {
+    setupStores({ selectedSlug: 'proj_a', chats: [
+      { chat_id: 'c_aaaaaaaaaaaa', label: 'tune', kind: 'tune', ts_iso: '2026-05-12T10:00:00+00:00', n_events: 3 },
+    ] })
+    render(
+      <ReviewChatColumn
+        filename="inv-042.pdf"
+        activeField={null}
+        width={REV_CHAT_DEFAULT_W}
+        onWidthChange={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByLabelText('Chat history')).toBeInTheDocument()
+    expect(screen.getByLabelText('New chat')).toBeInTheDocument()
+  })
+
+  it('clicking New chat calls useChat.newChat with the active slug', () => {
+    setupStores({ selectedSlug: 'proj_a' })
+    render(
+      <ReviewChatColumn
+        filename="inv-042.pdf"
+        activeField={null}
+        width={REV_CHAT_DEFAULT_W}
+        onWidthChange={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('New chat'))
+    expect(mockNewChat).toHaveBeenCalledWith('proj_a')
+  })
+
+  it('opening the history popover calls listChats then shows rows', () => {
+    setupStores({ selectedSlug: 'proj_a', chats: [
+      { chat_id: 'c_aaaaaaaaaaaa', label: 'tune weak fields', kind: 'tune', ts_iso: '2026-05-12T14:08:00+00:00', n_events: 12 },
+    ] })
+    render(
+      <ReviewChatColumn
+        filename="inv-042.pdf"
+        activeField={null}
+        width={REV_CHAT_DEFAULT_W}
+        onWidthChange={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Chat history'))
+    expect(mockListChats).toHaveBeenCalledWith('proj_a')
+    expect(screen.getByText('tune weak fields')).toBeInTheDocument()
+  })
+
+  it('does NOT render the ChatHistoryActions cluster when no project is selected', () => {
+    setupStores({ selectedSlug: null })
+    const { container } = render(
+      <ReviewChatColumn
+        filename={null}
+        activeField={null}
+        width={REV_CHAT_DEFAULT_W}
+        onWidthChange={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.queryByLabelText('Chat history')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('New chat')).not.toBeInTheDocument()
+    expect(container.querySelector('.rev-chat-hd-actions')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the cluster when slug is p_unset', () => {
+    setupStores({ selectedSlug: 'p_unset' })
+    render(
+      <ReviewChatColumn
+        filename={null}
+        activeField={null}
+        width={REV_CHAT_DEFAULT_W}
+        onWidthChange={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.queryByLabelText('Chat history')).not.toBeInTheDocument()
   })
 })
 

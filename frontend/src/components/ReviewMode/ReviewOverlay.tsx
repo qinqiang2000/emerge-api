@@ -7,6 +7,7 @@ import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useExperiments } from '../../stores/experiments'
 import { useModels } from '../../stores/models'
+import { useChat } from '../../stores/chat'
 
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
@@ -275,10 +276,16 @@ export default function ReviewOverlay({
       }
 
       if (e.key === 'Escape') {
-        if (!armedDelete) return
-        claim()
-        setArmedDelete(false)
-        return
+        if (armedDelete) {
+          claim()
+          setArmedDelete(false)
+          return
+        }
+        if (!inField && !useChat.getState().busy) {
+          claim()
+          onBack()
+          return
+        }
       }
     }
     window.addEventListener('keydown', onKey, true)

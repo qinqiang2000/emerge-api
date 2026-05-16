@@ -71,6 +71,9 @@ interface Props {
    *  window level to cancel the in-flight turn. Optional so existing call
    *  sites (and tests) without cancel support still compile. */
   onCancel?: () => void
+  /** Focus the textarea immediately on mount. Pass true for the main shell
+   *  ChatPanel; leave unset for compact (review chat column) instances. */
+  focusOnMount?: boolean
   /** Current project id — when present and not `p_unset`, the `@` mention
    *  menu also renders a per-project file tree below the projects section.
    *  When absent / `p_unset` (empty hero), the menu still opens but only
@@ -115,7 +118,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, projectId }: Props) {
+export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -264,6 +267,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   useEffect(() => {
     if (showMention) setActiveIdx(0)
   }, [showMention, mentionToken?.dir, mentionToken?.query])
+
+  useEffect(() => {
+    if (focusOnMount) taRef.current?.focus()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // While the agent is responding (`disabled` true) and a cancel handler is
   // wired, Esc at the window level stops the turn. The textarea is disabled
