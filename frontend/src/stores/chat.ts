@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { getChatEvents, getChatList, rewindChat, type ChatSummary } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
+import { dispatchUiAction } from '../lib/surfaceRouter'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
@@ -54,17 +55,31 @@ function chatIdFor(projectId: string): string {
   return fresh
 }
 
-/** Snapshot of the review-overlay UI state at message-submit time, threaded
- *  into the chat envelope so the backend can inject a `## Review focus` block
- *  in the system prompt. The snapshot MUST be taken at submit time (not at
- *  render time) — the user may navigate to the next doc mid-response, and
- *  the agent's tool calls must bind to the doc they were looking at when
- *  they hit Enter. */
-export interface ReviewContext {
+/** Snapshot of the active surface's UI state at message-submit time, threaded
+ *  into the chat envelope so the backend can inject a `## Surface context`
+ *  block in the system prompt. The snapshot MUST be taken at submit time
+ *  (not at render time) — the user may navigate mid-response, and the
+ *  agent's tool calls must bind to what they were looking at when they hit
+ *  Enter.
+ *
+ *  Phase 1 only `surface: 'review'` exists; ambient navigation fields (page,
+ *  page_count, etc.) are filled in opportunistically when the snapshotter has
+ *  them. */
+export interface SurfaceContext {
+  surface: 'review'  // phase 2 will add 'home' | 'schema' | ...
+  // ── review identity ──
   filename: string
   field?: string | null
   current_value?: unknown
   entity_index?: number
+  // ── ambient navigation (review) ──
+  page?: number
+  page_count?: number
+  entity_count?: number
+  /** 'active' for the saved annotation tab; otherwise an experiment_id. */
+  active_tab_key?: string
+  /** Non-null iff `active_tab_key !== 'active'`. */
+  experiment_id?: string | null
 }
 
 interface State {
@@ -86,11 +101,11 @@ interface State {
    *  persists `{filename, source: "chat"}`). `source` defaults to "chat"
    *  for paste/drop; reserved `"docs"` value is for future explicit-promote
    *  refs but not yet emitted by the composer.
-   *  `reviewContext` is the submit-time snapshot of the review overlay's
-   *  cell selection — present only for sends from the compact review chat
-   *  column (ReviewChatColumn). Main-shell ChatPanel callers must pass
+   *  `surfaceContext` is the submit-time snapshot of whichever surface the
+   *  user is on (only review in phase 1). Present only for sends from a
+   *  surface that snapshots; main-shell ChatPanel callers must pass
    *  undefined; their behavior is unchanged. */
-  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[], reviewContext?: ReviewContext) => Promise<void>
+  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[], surfaceContext?: SurfaceContext) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
@@ -248,7 +263,7 @@ export const useChat = create<State>((set, get) => ({
     }
     return false
   },
-  send: async (projectId, message, attachments, reviewContext) => {
+  send: async (projectId, message, attachments, surfaceContext) => {
     // Capture the new pid emitted by the backend when chat_turn auto-mints a
     // project from a `p_unset` + stage_token submission. We listen for the
     // `project_minted` SSE event and re-bind on the fly: localStorage chatId
@@ -317,16 +332,30 @@ export const useChat = create<State>((set, get) => ({
           chat_id: get().chatId,
           user_message: message,
           attachments,
-          // Phase B: only sent when the user submits from the review
-          // overlay's compact chat column. Backend treats absence as the
-          // pre-Phase-B path (no `## Review focus` block in system prompt).
-          ...(reviewContext ? { review_context: reviewContext } : {}),
+          // Only sent when the user submits from a surface that snapshots
+          // state (currently: review overlay's compact chat column).
+          // Backend treats absence as the pre-Phase-B path (no
+          // `## Surface context` block in system prompt).
+          ...(surfaceContext ? { surface_context: surfaceContext } : {}),
         }),
         signal: abortCtrl.signal,
       })) {
         if (ev.event === 'tool_result') {
           const d = ev.data as { tool_use_id: string; result_text: string; ok: boolean }
           handleToolResult(d, mintedPid ?? projectId, _findRecentVersionId())
+          continue
+        }
+        if (ev.event === 'ui_action') {
+          // Out-of-band navigation push from the agent's ui_* tools. The
+          // router resolves `action` (e.g. 'review:goto_page') to the
+          // appropriate store mutation. Best-effort: if router rejects the
+          // params or the surface is wrong, we swallow — the user's main
+          // chat experience must not stall on a navigation glitch.
+          try {
+            dispatchUiAction(ev.data)
+          } catch (err) {
+            console.warn('ui_action dispatch failed', err)
+          }
           continue
         }
         if (ev.event === 'project_minted') {

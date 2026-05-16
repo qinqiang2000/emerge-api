@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { attachToChat, stageUpload } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
-import { useChat, type ReviewContext } from '../../stores/chat'
+import { useChat, type SurfaceContext } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
@@ -228,17 +228,14 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
               source: 'chat' as const,
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
             }))
-          // Phase B: in compact mode we are rendered inside the review
-          // overlay's chat column — snapshot the active (filename, field,
-          // value, entity_index) BEFORE awaiting send so the agent's tool
-          // calls bind to what the user was looking at when they hit Enter,
-          // not to whatever they navigate to mid-response. Reading via
-          // `useReview.getState()` here (rather than hook-derived values)
-          // is intentional — the hook would have closed over render-time
-          // state. The chip header in ReviewChatColumn already shows
-          // (filename, field, value) so by-construction the user expects
-          // submit-time binding to match what they were looking at.
-          let reviewContext: ReviewContext | undefined
+          // In compact mode we are rendered inside the review overlay's chat
+          // column — snapshot the active surface state BEFORE awaiting send
+          // so the agent's tool calls bind to what the user was looking at
+          // when they hit Enter, not to whatever they navigate to mid-
+          // response. Reading via `useReview.getState()` here (rather than
+          // hook-derived values) is intentional — the hook would have
+          // closed over render-time state.
+          let surfaceContext: SurfaceContext | undefined
           if (compact) {
             const rev = useReview.getState()
             if (rev.activeFilename) {
@@ -247,15 +244,22 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
               const currentValue = rev.activeField
                 ? (entity as Record<string, unknown>)[rev.activeField] ?? null
                 : null
-              reviewContext = {
+              const tabKey = rev.activeTabKey
+              surfaceContext = {
+                surface: 'review',
                 filename: rev.activeFilename,
                 field: rev.activeField ?? null,
                 current_value: currentValue,
                 entity_index: idx,
+                page: rev.page,
+                page_count: rev.pageCount,
+                entity_count: rev.entities.length,
+                active_tab_key: tabKey,
+                experiment_id: tabKey && tabKey !== 'active' ? tabKey : null,
               }
             }
           }
-          await send(selectedSlug ?? 'p_unset', text, ready, reviewContext)
+          await send(selectedSlug ?? 'p_unset', text, ready, surfaceContext)
           setPending([])
         }}
         onCancel={() => useChat.getState().cancel()}

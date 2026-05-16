@@ -22,6 +22,8 @@ from app.tools import experiment as experiment_mod
 from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
+from app.tools import surface_state as surface_state_mod
+from app.tools import ui_actions as ui_actions_mod
 
 if TYPE_CHECKING:
     from app.jobs.runner import JobRunner
@@ -719,6 +721,81 @@ def build_emerge_mcp(
         await jobs_mod.cancel_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": "cancelled"}]}
 
+    @tool(
+        "get_surface_state",
+        "Read rich state of a UI surface the user is looking at. Phase 1 "
+        "supports surface='review' (requires `filename`) and returns "
+        "{review_status: 'unprocessed'|'pending'|'reviewed', has_prediction, "
+        "has_reviewed, page_count, evidence, notes, entity_count, "
+        "experiments_with_prediction}. Call this when the user asks 'what's "
+        "the status of this doc' / 'pending 是什么意思' / 'which experiments "
+        "have run on this' — it replies from disk truth so you don't have "
+        "to invent.",
+        {"surface": str, "slug": str, "filename": str},
+    )
+    async def t_get_surface_state(args: dict[str, Any]) -> dict[str, Any]:
+        out = await surface_state_mod.get_surface_state(
+            workspace,
+            surface=args["surface"],
+            slug=args["slug"],
+            filename=args.get("filename") or None,
+        )
+        return {
+            "content": [
+                {"type": "text", "text": _json.dumps(out, ensure_ascii=False, indent=2)}
+            ]
+        }
+
+    @tool(
+        "ui_goto_page",
+        "Navigate the review viewer to page N (1-indexed). Pure navigation; "
+        "no disk side-effect. Errors if called outside an active chat turn.",
+        {"slug": str, "filename": str, "page": int},
+    )
+    async def t_ui_goto_page(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ui_actions_mod.ui_goto_page(
+            slug=args["slug"], filename=args["filename"], page=args["page"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "ui_set_active_field",
+        "Focus a specific field row in the review editor. `path` is the "
+        "field identifier the editor uses (e.g. `buyer_name` or "
+        "`line_items[0].amount`). Pure navigation; no disk side-effect.",
+        {"slug": str, "filename": str, "path": str},
+    )
+    async def t_ui_set_active_field(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ui_actions_mod.ui_set_active_field(
+            slug=args["slug"], filename=args["filename"], path=args["path"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "ui_set_active_tab",
+        "Switch the review tab strip. `tab_key='active'` selects the saved "
+        "annotation; any other value is treated as an experiment_id. Pure "
+        "navigation; no disk side-effect.",
+        {"slug": str, "filename": str, "tab_key": str},
+    )
+    async def t_ui_set_active_tab(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ui_actions_mod.ui_set_active_tab(
+            slug=args["slug"], filename=args["filename"], tab_key=args["tab_key"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "ui_set_active_entity",
+        "Switch the entity tab in a multi-entity doc. `idx` is 0-indexed. "
+        "Pure navigation; no disk side-effect.",
+        {"slug": str, "filename": str, "idx": int},
+    )
+    async def t_ui_set_active_entity(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ui_actions_mod.ui_set_active_entity(
+            slug=args["slug"], filename=args["filename"], idx=args["idx"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",
@@ -769,6 +846,11 @@ def build_emerge_mcp(
             t_pause_job,
             t_resume_job,
             t_cancel_job,
+            t_get_surface_state,
+            t_ui_goto_page,
+            t_ui_set_active_field,
+            t_ui_set_active_tab,
+            t_ui_set_active_entity,
         ],
     )
 
@@ -788,6 +870,8 @@ _EMERGE_TOOL_NAMES = (
     "score",
     "start_job", "get_job", "pause_job", "resume_job", "cancel_job",
     "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
+    "get_surface_state",
+    "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
 )
 
 

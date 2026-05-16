@@ -17,7 +17,7 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { useChat, type ReviewContext } from '../../stores/chat'
+import { useChat, type SurfaceContext } from '../../stores/chat'
 import type { ChatEvent } from '../../types/chat'
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
@@ -45,9 +45,10 @@ function _extractScope(call: ToolCallEvent): {
   return { slug, filename, field, noteText }
 }
 
-function _reviewContext(filename: string | null, field: string | null): ReviewContext | undefined {
+function _surfaceContext(filename: string | null, field: string | null): SurfaceContext | undefined {
   if (!filename) return undefined
   return {
+    surface: 'review',
     filename,
     field: field ?? null,
     // Escalation prompts don't need a current value — they're talking about
@@ -69,7 +70,7 @@ export default function SaveReviewedAdapter({ call }: Props) {
   // field) triple — otherwise the chip can't bind to anything actionable.
   if (!slug || !filename || !field) return null
 
-  const ctx = _reviewContext(filename, field)
+  const ctx = _surfaceContext(filename, field)
 
   function escalateToDescription() {
     if (!slug) return

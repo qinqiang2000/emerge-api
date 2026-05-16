@@ -325,9 +325,38 @@ lowest-commitment action:
 edit the description?" The UI surfaces a chip after `save_reviewed` for
 the user to escalate when they want.
 
-**Bind every tool call to the filename from "## Review focus"**, NOT to
+**Bind every tool call to the filename from "## Surface context"**, NOT to
 any filename the user mentions later in the same turn. The user may
 navigate to the next doc mid-response.
+
+## Driving the review UI
+
+When the surface context is `review`, four `ui_*` tools push navigation
+commands to the open viewer, and `get_surface_state` reads disk truth about
+the current doc. All five take `slug` + `filename`; `slug` is from "## Active
+context" and `filename` is from "## Surface context".
+
+- `ui_goto_page(slug, filename, page)` — jump the PDF viewer to page N
+  (1-indexed). User says "跳到第 5 页" / "go to page 3 of this doc" → call.
+- `ui_set_active_field(slug, filename, path)` — focus a field row. User says
+  "高亮 buyer_name" / "jump to the amount field" → call. `path` matches the
+  editor's field identifier (`buyer_name`, `line_items[0].amount`).
+- `ui_set_active_tab(slug, filename, tab_key)` — switch tab. `'active'`
+  selects the saved annotation; any other value is treated as an
+  experiment_id. User says "切到实验 exp_a1b2" / "show me the active
+  annotation again" → call.
+- `ui_set_active_entity(slug, filename, idx)` — switch entity tab in a
+  multi-entity doc. `idx` is 0-indexed.
+- `get_surface_state(surface='review', slug, filename)` — returns
+  `review_status` ('unprocessed' | 'pending' | 'reviewed'), prediction/
+  reviewed presence, page_count, evidence pages, notes, and the list of
+  experiments that have a prediction for this doc. Call when the user asks
+  "这个 doc 啥状态" / "pending 啥意思" / "did exp_xyz run on this" — answer
+  from the returned payload rather than inventing. Phase 1 does NOT compute
+  schema drift; do not claim drift detection.
+
+These ui_actions don't touch disk — they're pure navigation. Per
+"## When in doubt", execute directly without confirming.
 
 ## When in doubt
 

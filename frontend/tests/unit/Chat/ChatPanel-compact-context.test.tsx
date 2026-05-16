@@ -1,9 +1,11 @@
 // tests/unit/Chat/ChatPanel-compact-context.test.tsx
 //
-// Phase B contract: in compact mode, ChatPanel.onSubmit snapshots
-// (filename, field, current_value, entity_index) from useReview.getState()
-// AT SUBMIT TIME and threads it as the 4th argument to useChat.send.
-// Submitting in non-compact mode passes undefined as the 4th arg.
+// Contract: in compact mode, ChatPanel.onSubmit snapshots the active review
+// surface state (filename, field, current_value, entity_index + ambient
+// page/page_count/entity_count/tab) from useReview.getState() AT SUBMIT TIME
+// and threads it as the 4th argument to useChat.send under
+// `{surface: 'review', ...}`. Submitting in non-compact mode passes undefined
+// as the 4th arg.
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +41,9 @@ const reviewState = {
   activeField: null as string | null,
   activeEntityIdx: 0,
   entities: [] as Record<string, unknown>[],
+  page: 1,
+  pageCount: 1,
+  activeTabKey: 'active' as 'active' | string,
 }
 
 function setupStores({
@@ -106,7 +111,7 @@ async function typeAndSubmit(text: string) {
   fireEvent.click(sendBtn)
 }
 
-describe('ChatPanel compact mode — review_context snapshot', () => {
+describe('ChatPanel compact mode — surface_context snapshot', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSend.mockResolvedValue(undefined)
@@ -114,13 +119,18 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     reviewState.activeField = null
     reviewState.activeEntityIdx = 0
     reviewState.entities = []
+    reviewState.page = 1
+    reviewState.pageCount = 1
+    reviewState.activeTabKey = 'active'
   })
 
-  it('compact + active field → send receives reviewContext at submit time', async () => {
+  it('compact + active field → send receives surfaceContext at submit time', async () => {
     reviewState.activeFilename = '0017292f.pdf'
     reviewState.activeField = 'receipt_type'
     reviewState.activeEntityIdx = 0
     reviewState.entities = [{ receipt_type: '住宿发票' }]
+    reviewState.page = 2
+    reviewState.pageCount = 4
     setupStores()
     render(<ChatPanel compact />)
     await typeAndSubmit('应该是 住宿账单')
@@ -128,16 +138,22 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     const args = mockSend.mock.calls[0]
     expect(args[0]).toBe('us-invoice')
     expect(args[1]).toBe('应该是 住宿账单')
-    // 4th arg = reviewContext snapshot
+    // 4th arg = surfaceContext snapshot
     expect(args[3]).toEqual({
+      surface: 'review',
       filename: '0017292f.pdf',
       field: 'receipt_type',
       current_value: '住宿发票',
       entity_index: 0,
+      page: 2,
+      page_count: 4,
+      entity_count: 1,
+      active_tab_key: 'active',
+      experiment_id: null,
     })
   })
 
-  it('compact + no active field → reviewContext carries filename only', async () => {
+  it('compact + no active field → surfaceContext carries filename only', async () => {
     reviewState.activeFilename = '0017292f.pdf'
     reviewState.activeField = null
     reviewState.activeEntityIdx = 0
@@ -147,14 +163,20 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     await typeAndSubmit('doc-level question')
     const args = mockSend.mock.calls[0]
     expect(args[3]).toEqual({
+      surface: 'review',
       filename: '0017292f.pdf',
       field: null,
       current_value: null,
       entity_index: 0,
+      page: 1,
+      page_count: 1,
+      entity_count: 1,
+      active_tab_key: 'active',
+      experiment_id: null,
     })
   })
 
-  it('compact + no active filename → reviewContext is undefined', async () => {
+  it('compact + no active filename → surfaceContext is undefined', async () => {
     reviewState.activeFilename = null
     setupStores()
     render(<ChatPanel compact />)
@@ -163,7 +185,7 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     expect(args[3]).toBeUndefined()
   })
 
-  it('non-compact mode never sends reviewContext (chat-mode regression guard)', async () => {
+  it('non-compact mode never sends surfaceContext (chat-mode regression guard)', async () => {
     reviewState.activeFilename = '0017292f.pdf'
     reviewState.activeField = 'receipt_type'
     reviewState.activeEntityIdx = 0
@@ -173,6 +195,22 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     await typeAndSubmit('hello')
     const args = mockSend.mock.calls[0]
     expect(args[3]).toBeUndefined()
+  })
+
+  it('experiment tab carries experiment_id alongside tab_key', async () => {
+    reviewState.activeFilename = '0017292f.pdf'
+    reviewState.activeField = 'receipt_type'
+    reviewState.entities = [{ receipt_type: '住宿发票' }]
+    reviewState.activeTabKey = 'exp_abc123'
+    setupStores()
+    render(<ChatPanel compact />)
+    await typeAndSubmit('试试看')
+    const args = mockSend.mock.calls[0]
+    expect(args[3]).toMatchObject({
+      surface: 'review',
+      active_tab_key: 'exp_abc123',
+      experiment_id: 'exp_abc123',
+    })
   })
 
   it('snapshot is taken BEFORE await — mutating the store mid-send does not leak into the in-flight call', async () => {
@@ -196,7 +234,8 @@ describe('ChatPanel compact mode — review_context snapshot', () => {
     reviewState.entities = [{ other_field: 'value' }]
     // Resolve and confirm the argument captured at submit time is unchanged.
     resolveSend()
-    expect(argsBeforeMutate).toEqual({
+    expect(argsBeforeMutate).toMatchObject({
+      surface: 'review',
       filename: '0017292f.pdf',
       field: 'receipt_type',
       current_value: '住宿发票',

@@ -23,24 +23,33 @@ router = APIRouter()
 _UNSET_SLUG = "p_unset"
 
 
-class ReviewContext(BaseModel):
-    """UI-state snapshot from the review overlay's chat column.
+class SurfaceContext(BaseModel):
+    """UI-state snapshot of whichever surface the user submitted from.
 
-    The frontend snapshots `(filename, field, current_value, entity_index)`
-    at submit time (NOT render time — the user may navigate to the next doc
-    mid-response) and threads it into the chat envelope. The chat service
-    appends a `## Review focus` block to the system prompt so the agent
-    treats the message as feedback about this specific (filename, field).
+    The frontend snapshots ambient state at submit time (NOT render time —
+    the user may navigate mid-response) and threads it into the chat envelope.
+    The chat service appends a `## Surface context` block to the system prompt
+    so the agent knows what the user is looking at.
 
-    All fields except `filename` are optional; absent `field` means the
-    user hasn't selected a row yet (e.g. they jumped into chat to ask a
-    doc-level question).
+    Phase 1 only `surface='review'` exists. `filename` is the only field
+    required for review; the rest are optional ambient signals the snapshotter
+    fills in when they are known.
     """
 
+    # Phase 1: only 'review' is meaningful. Future surfaces ('home', 'schema',
+    # 'docs', 'experiments', 'publish') get added here.
+    surface: str = "review"
+    # ── review surface fields ─────────────────────────────────────────
     filename: str
     field: str | None = None
     current_value: Any = None
     entity_index: int = 0
+    # ── ambient navigation state (review) ─────────────────────────────
+    page: int | None = None
+    page_count: int | None = None
+    entity_count: int | None = None
+    active_tab_key: str | None = None
+    experiment_id: str | None = None
 
 
 class ChatBody(BaseModel):
@@ -52,10 +61,11 @@ class ChatBody(BaseModel):
     chat_id: str
     user_message: str
     attachments: list[dict[str, Any]] | None = None
-    # Present only when the user submits from the review overlay's chat column.
-    # When absent, the chat service behaves identically to pre-Phase-B
-    # (no `## Review focus` block in the system prompt).
-    review_context: ReviewContext | None = None
+    # Present only when the user submits from a surface that snapshots state
+    # (currently: review overlay's chat column). When absent, the chat service
+    # behaves identically to pre-Phase-B (no `## Surface context` block in the
+    # system prompt).
+    surface_context: SurfaceContext | None = None
 
 
 def _get_chat_service() -> ChatService:
@@ -84,7 +94,7 @@ async def lab_chat(body: ChatBody) -> EventSourceResponse:
             chat_id=body.chat_id,
             user_message=body.user_message,
             attachments=body.attachments,
-            review_context=body.review_context.model_dump() if body.review_context else None,
+            surface_context=body.surface_context.model_dump() if body.surface_context else None,
         ):
             # sse_starlette wants {event, data} dicts; ChatService yields fully-formed
             # "event: x\ndata: y\n\n" strings. Re-parse them so sse_starlette can re-emit.

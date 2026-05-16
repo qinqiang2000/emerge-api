@@ -60,7 +60,7 @@ describe('SaveReviewedAdapter', () => {
     expect(screen.getByRole('button', { name: /dismiss escalation chips/i })).toBeInTheDocument()
   })
 
-  it('"升级到 description" chip calls send with reviewContext bound to the saved doc/field', () => {
+  it('"升级到 description" chip calls send with surfaceContext bound to the saved doc/field', () => {
     render(<SaveReviewedAdapter call={makeCall()} />)
     fireEvent.click(screen.getByRole('button', { name: /upgrade note to description/i }))
     expect(mockSend).toHaveBeenCalledTimes(1)
@@ -68,8 +68,9 @@ describe('SaveReviewedAdapter', () => {
     expect(args[0]).toBe('us-invoice')  // slug from tool_input
     expect(args[1]).toMatch(/description/)
     expect(args[1]).toMatch(/receipt_type/)
-    // 4th arg = reviewContext snapshot
+    // 4th arg = surfaceContext snapshot
     expect(args[3]).toEqual({
+      surface: 'review',
       filename: '0017292f.pdf',
       field: 'receipt_type',
       current_value: null,

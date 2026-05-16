@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from app.chat.log import (
     write_chat_session_id,
 )
 from app.chat.redactor import EventRedactor
+from app.chat.sse_context import current_sse_writer
 from app.chat.stream import sse_event
 from app.jobs import get_runner
 from app.provider.base import Provider
@@ -196,23 +198,35 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     return "\n".join(lines)
 
 
-def _build_review_focus(review_context: dict[str, Any]) -> str:
-    """Render the "## Review focus" block that gets appended to the system
-    prompt for any turn submitted from the review overlay's chat column.
+def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
+    """Render the "## Surface context" block that gets appended to the system
+    prompt for any turn submitted from a surface that snapshots state
+    (currently only review).
 
     The signal here is load-bearing: without it the default extractor skill
     routes feedback messages through its intent classifier, which for an
     empty-project state could misread "应该是 住宿账单" as a project rename
     intent and call `rename_project` instead of `save_reviewed`. See plan
     `/Users/qinqiang02/.claude/plans/1-human-snazzy-hare.md` motivating bug.
+
+    Phase 1 only handles `surface == 'review'`. Ambient navigation state
+    (page, page_count, entity_count, active_tab_key, experiment_id) is
+    appended whenever the frontend has it — those let the agent answer
+    "what am I looking at" without round-tripping through `get_surface_state`.
     """
-    filename = str(review_context.get("filename") or "")
-    field = review_context.get("field")
-    current_value = review_context.get("current_value")
-    entity_index = int(review_context.get("entity_index") or 0)
+    surface = str(surface_context.get("surface") or "review")
+    if surface != "review":
+        # Forward-compat: render an empty block rather than crash if a future
+        # frontend sends an unknown surface.
+        return f"## Surface context\n\n(unknown surface `{surface}`)"
+
+    filename = str(surface_context.get("filename") or "")
+    field = surface_context.get("field")
+    current_value = surface_context.get("current_value")
+    entity_index = int(surface_context.get("entity_index") or 0)
 
     lines = [
-        "## Review focus",
+        "## Surface context",
         "",
         f"The user is reviewing **{filename}** in this project. They selected",
     ]
@@ -250,6 +264,49 @@ def _build_review_focus(review_context: dict[str, Any]) -> str:
         )
         lines.append(
             "explicitly broaden scope."
+        )
+
+    page = surface_context.get("page")
+    page_count = surface_context.get("page_count")
+    entity_count = surface_context.get("entity_count")
+    if isinstance(page, int) and isinstance(page_count, int) and page_count > 0:
+        ambient = f"Currently viewing page {page} of {page_count}."
+        if isinstance(entity_count, int) and entity_count > 0:
+            ambient += (
+                f" This document has {entity_count} "
+                f"{'entity' if entity_count == 1 else 'entities'} "
+                f"(user is on idx {entity_index})."
+            )
+        lines.append("")
+        lines.append(ambient)
+    elif isinstance(entity_count, int) and entity_count > 0:
+        lines.append("")
+        lines.append(
+            f"This document has {entity_count} "
+            f"{'entity' if entity_count == 1 else 'entities'} "
+            f"(user is on idx {entity_index})."
+        )
+
+    experiment_id = surface_context.get("experiment_id")
+    active_tab_key = surface_context.get("active_tab_key")
+    if experiment_id:
+        # Active tab is an experiment — values shown are predictions from that
+        # experiment, NOT the saved annotation. A value-correction here must
+        # NOT call `save_reviewed` against the active annotation without first
+        # confirming intent with the user.
+        lines.append("")
+        lines.append(
+            f"User is comparing against experiment `{experiment_id}` — values "
+            f"shown are predictions from that experiment, NOT the saved "
+            f"annotation. Treat field references in the message as referring "
+            f"to the experiment's output unless they clarify otherwise."
+        )
+    elif active_tab_key and active_tab_key != "active":
+        # Defensive: tab key signals an experiment but `experiment_id` was not
+        # threaded — render a softer warning rather than crash.
+        lines.append("")
+        lines.append(
+            f"User is on tab `{active_tab_key}` (non-annotation view)."
         )
     return "\n".join(lines)
 
@@ -320,29 +377,30 @@ class ChatService:
         *,
         slug: str,
         chat_id: str,
-        review_context: dict[str, Any] | None = None,
+        surface_context: dict[str, Any] | None = None,
     ) -> str:
-        """Skill text + live Active context block + optional Review focus.
+        """Skill text + live Active context block + optional Surface context.
 
         Active context tells the agent which slug it is operating on for this
         turn — see `_build_active_context` for the rationale.
 
-        Review focus is appended only when the chat envelope carries a
-        `review_context` (i.e. the user submitted from the review overlay's
+        Surface context is appended only when the chat envelope carries a
+        `surface_context` (i.e. the user submitted from the review overlay's
         chat column). The block pins the (filename, field, current_value,
-        entity_index) snapshot so the agent treats the message as feedback
-        about that specific cell instead of routing through default extractor
-        intent classifiers (which would, e.g., misread "应该是 住宿账单" as a
-        project rename intent on an empty-hero turn).
+        entity_index) snapshot + ambient navigation state so the agent treats
+        the message as feedback about that specific cell instead of routing
+        through default extractor intent classifiers (which would, e.g.,
+        misread "应该是 住宿账单" as a project rename intent on an empty-hero
+        turn).
         """
         parts = [
             self._select_skill(user_message),
             "---",
             _build_active_context(self.workspace, slug, chat_id),
         ]
-        if review_context is not None:
+        if surface_context is not None:
             parts.append("---")
-            parts.append(_build_review_focus(review_context))
+            parts.append(_build_surface_context_block(surface_context))
         return "\n\n".join(parts)
 
     def _build_options(
@@ -352,11 +410,11 @@ class ChatService:
         slug: str,
         chat_id: str,
         resume: str | None = None,
-        review_context: dict[str, Any] | None = None,
+        surface_context: dict[str, Any] | None = None,
     ) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
             system_prompt=self._build_system_prompt(
-                user_message, slug=slug, chat_id=chat_id, review_context=review_context,
+                user_message, slug=slug, chat_id=chat_id, surface_context=surface_context,
             ),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
@@ -391,7 +449,7 @@ class ChatService:
         chat_id: str,
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
-        review_context: dict[str, Any] | None = None,
+        surface_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Yield SSE-encoded event strings; caller passes them through to the response.
 
@@ -551,6 +609,25 @@ class ChatService:
         latest_sid: str | None = None
         yielded_any = False
 
+        # Out-of-band event queue for tools that want to push SSE frames
+        # (ui_action). The tool body runs synchronously inside the SDK message
+        # loop, drops a payload into this queue, and the loop drains it on the
+        # next iteration. `current_sse_writer` is set below for the lifetime of
+        # the turn so tools can `current_sse_writer.get()` to find the writer.
+        ui_action_queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+
+        async def _ui_writer(event_type: str, payload: dict[str, Any]) -> None:
+            await ui_action_queue.put((event_type, payload))
+
+        def _drain_queue() -> list[tuple[str, dict[str, Any]]]:
+            drained: list[tuple[str, dict[str, Any]]] = []
+            while True:
+                try:
+                    drained.append(ui_action_queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            return drained
+
         async def _run(opts: ClaudeAgentOptions) -> AsyncIterator[str]:
             nonlocal latest_sid, yielded_any
             redactor = EventRedactor()
@@ -574,14 +651,25 @@ class ChatService:
                         )
                         yielded_any = True
                         yield sse_event(etype, sse_payload)
+                    # Drain any ui_action events that landed during this
+                    # message — tool bodies run inline with the message loop,
+                    # so anything they pushed is now ready to forward.
+                    for etype, payload in _drain_queue():
+                        yielded_any = True
+                        yield sse_event(etype, payload)
 
+        # Install the SSE writer for the lifetime of this turn so MCP tools
+        # (ui_action_*) can push events. ContextVar isolates concurrent turns
+        # — each request has its own writer; tools outside a chat turn (e.g.
+        # the public `/v1/extract` fast-path) see `None` and refuse cleanly.
+        token = current_sse_writer.set(_ui_writer)
         try:
             options = self._build_options(
                 user_message,
                 slug=slug,
                 chat_id=chat_id,
                 resume=prev_sid,
-                review_context=review_context,
+                surface_context=surface_context,
             )
             try:
                 async for chunk in _run(options):
@@ -606,7 +694,7 @@ class ChatService:
                     slug=slug,
                     chat_id=chat_id,
                     resume=None,
-                    review_context=review_context,
+                    surface_context=surface_context,
                 )
                 async for chunk in _run(options):
                     yield chunk
@@ -620,6 +708,11 @@ class ChatService:
             )
             yield sse_event("error", err)
         finally:
+            current_sse_writer.reset(token)
+            # Flush any ui_action events that arrived in the small window
+            # between the final SDK message and the end of the loop.
+            for etype, payload in _drain_queue():
+                yield sse_event(etype, payload)
             final_slug = _current_slug()
             if latest_sid and latest_sid != prev_sid:
                 write_chat_session_id(self.workspace, final_slug, chat_id, latest_sid)
