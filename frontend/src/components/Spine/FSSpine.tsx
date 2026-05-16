@@ -1,5 +1,5 @@
 // frontend/src/components/Spine/FSSpine.tsx
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './spine.css'
 
 import { useProjects } from '../../stores/projects'
@@ -15,9 +15,13 @@ import PanelToggle from '../Shell/PanelToggle'
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; onClick?: () => void }
 type GhostNode = { kind: 'ghost'; name: string }
-type LeafNode  = FileNode | GhostNode
+type MoreNode  = { kind: 'more'; remaining: number; onClick: () => void }
+type LeafNode  = FileNode | GhostNode | MoreNode
 type DirGroup  = { name: string; count: number; items: LeafNode[] }
 interface BuiltTree { groups: DirGroup[]; rootFiles: FileNode[] }
+
+const DOCS_INITIAL = 5
+const DOCS_PAGE = 20
 
 const STATUS_DOT: Record<string, string> = {
   live: 'var(--moss)',
@@ -33,13 +37,15 @@ function buildTree(
   modelItems: LeafNode[],
   experimentItems: LeafNode[],
   openDoc: (slug: string, filename: string) => void,
+  docsVisible: number,
+  onLoadMoreDocs: () => void,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
   // a stamp on each docs/ row, so a separate group is pure duplication.
   const docsItems: LeafNode[] = []
-  const first5 = docs.slice(0, 5)
-  for (const doc of first5) {
+  const visible = docs.slice(0, docsVisible)
+  for (const doc of visible) {
     let stamp: string
     if (doc.has_reviewed) stamp = 'reviewed'
     else if (doc.has_prediction) stamp = 'pending'
@@ -51,8 +57,8 @@ function buildTree(
       onClick: () => openDoc(slug, doc.filename),
     })
   }
-  const remaining = docs.length - first5.length
-  if (remaining > 0) docsItems.push({ kind: 'ghost', name: `… ${remaining} more` })
+  const remaining = docs.length - visible.length
+  if (remaining > 0) docsItems.push({ kind: 'more', remaining, onClick: onLoadMoreDocs })
 
   // ── versions/ ──────────────────────────────────────────────────────────
   const versionItems: LeafNode[] = activeVersionId
@@ -99,6 +105,25 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // Only docs/ open by default; prompts/ and models/ closed by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
   const toggleDir = (name: string) => setOpenDirs(s => ({ ...s, [name]: !s[name] }))
+
+  // docs/ pagination: first DOCS_INITIAL shown; user clicks "… N more" to
+  // load DOCS_PAGE more. Once the user has clicked at least once, an
+  // IntersectionObserver on the same button auto-loads the next page when
+  // it scrolls into view (lazy infinite scroll, gated on explicit intent).
+  const [docsVisible, setDocsVisible] = useState(DOCS_INITIAL)
+  const [docsAutoload, setDocsAutoload] = useState(false)
+  const moreBtnRef = useRef<HTMLDivElement | null>(null)
+
+  // Reset pagination when switching project
+  useEffect(() => {
+    setDocsVisible(DOCS_INITIAL)
+    setDocsAutoload(false)
+  }, [selectedSlug])
+
+  const loadMoreDocs = useCallback(() => {
+    setDocsVisible(v => v + DOCS_PAGE)
+    setDocsAutoload(true)
+  }, [])
 
   // On mount: refresh project list
   useEffect(() => { void useProjects.getState().refresh() }, [])
@@ -175,10 +200,31 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           modelItems,
           experimentItems,
           (slug, filename) => { void openReview(slug, filename) },
+          docsVisible,
+          loadMoreDocs,
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview, docsVisible, loadMoreDocs],
   )
+
+  // Auto-load more docs once user has clicked "more" at least once and
+  // the button is scrolled into view. Re-arms whenever the button remounts
+  // (after each page load) by keying observer on docsVisible.
+  useEffect(() => {
+    if (!docsAutoload) return
+    const el = moreBtnRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          loadMoreDocs()
+          break
+        }
+      }
+    }, { root: null, threshold: 0.1 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [docsAutoload, docsVisible, loadMoreDocs])
 
   return (
     <div className="fs">
@@ -257,6 +303,22 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                   </div>
                   {open && g.items.map((n, j) => {
                     if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
+                    if (n.kind === 'more') {
+                      return (
+                        <div
+                          key={j}
+                          ref={g.name === 'docs/' ? moreBtnRef : undefined}
+                          className="branch more"
+                          onClick={n.onClick}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.onClick() } }}
+                        >
+                          <span style={{ color: 'var(--ink-5)' }}>…</span>
+                          <span>{n.remaining} more</span>
+                        </div>
+                      )
+                    }
                     const isVersion = g.name === 'versions/' && selectedSlug
                     const clickHandler = isVersion
                       ? () => openVersion(selectedSlug!, n.name)

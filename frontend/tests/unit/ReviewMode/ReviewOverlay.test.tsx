@@ -47,6 +47,7 @@ function seedStores(opts: {
     activeProjectId: 'p_x', activeFilename: 'd_y',
     entities: opts.activeEntities ?? [{ supplier: 'ACTIVE' }],
     evidence: null, notes: {},
+    activeField: null, activeEntityIdx: 0,
     activeTabKey: opts.activeTab ?? 'active',
     predictionsByExp: opts.predictionsByExp ?? {},
     loading: false, saving: false, err: null, page: 1, pageCount: 1,

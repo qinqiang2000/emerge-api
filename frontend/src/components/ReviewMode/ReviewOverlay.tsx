@@ -11,6 +11,7 @@ import { useModels } from '../../stores/models'
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
 import ReviewBar from './ReviewBar'
+import ReviewChatColumn, { readRevChatWidth, writeRevChatWidth } from './ReviewChatColumn'
 
 type Props = {
   onBack: () => void
@@ -37,7 +38,6 @@ export default function ReviewOverlay({
     saving,
     err,
     setField,
-    setNote,
     addEntity,
     removeEntity,
     goPage,
@@ -49,9 +49,12 @@ export default function ReviewOverlay({
     setActiveTab,
     adoptPrediction,
     adoptPredictionField,
+    activeField: activeFieldPath,
+    activeEntityIdx,
   } = useReview()
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
+  const removeDocFromStore = useDocs((s) => s.remove)
   const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
   const loadExperiments = useExperiments((s) => s.load)
@@ -86,6 +89,21 @@ export default function ReviewOverlay({
 
   const [view, setView] = useState<'form' | 'json'>('form')
   const [forceOpen, setForceOpen] = useState<boolean | null>(null)
+
+  // ── review chat column width (px, persisted) ──
+  // The third-column toggle is driven by App.tsx's existing right-rail
+  // hidden state (KEY_RIGHT_REVIEW), threaded down as `rightHidden`. Width
+  // is independent state because the toggle is binary and width is analog.
+  const [chatW, setChatW] = useState<number>(() => readRevChatWidth())
+  const chatOpen = !rightHidden
+  const handleChatWidthChange = (px: number) => {
+    setChatW(px)
+    writeRevChatWidth(px)
+  }
+  const currentEntityForChat = entities[activeEntityIdx] ?? entities[0] ?? {}
+  const activeFieldValue = activeFieldPath
+    ? (currentEntityForChat as Record<string, unknown>)[activeFieldPath]
+    : undefined
 
   // ── draggable splitter ──────────────────────────────────────────────
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -148,6 +166,65 @@ export default function ReviewOverlay({
   // dropped out of the project's docs list while open).
   const filename = docs.find(d => d.filename === activeFilename)?.filename
 
+  // ── neighbor + delete + key-nav helpers ──
+  // Centralized so the trash button and the ← / → key handler share one
+  // navigation rule: prefer the next doc, fall back to prev, otherwise close.
+  const currentIdx = activeFilename
+    ? docs.findIndex(d => d.filename === activeFilename)
+    : -1
+  const stepTo = (delta: -1 | 1) => {
+    if (!activeProjectId || currentIdx < 0) return
+    const target = currentIdx + delta
+    if (target < 0 || target >= docs.length) return
+    void open(activeProjectId, docs[target].filename)
+  }
+  const handleDelete = async (target: string) => {
+    if (!activeProjectId) return
+    // Pick the doc to jump to *before* the list shrinks. Prefer the next
+    // doc (so users moving forward through a review queue keep flowing);
+    // fall back to the previous one; otherwise close the overlay.
+    const fallback = docs[currentIdx + 1] ?? docs[currentIdx - 1] ?? null
+    try {
+      await removeDocFromStore(activeProjectId, target)
+    } catch {
+      // surface via the existing err banner; useDocs.remove only throws on
+      // network/HTTP errors, and the overlay's `err` slot is owned by the
+      // review store. Best-effort: just bail.
+      return
+    }
+    if (fallback) {
+      void open(activeProjectId, fallback.filename)
+    } else {
+      onBack()
+    }
+  }
+
+  // ← / → step through docs. We skip when the user is typing in a text field
+  // (input / textarea / contentEditable) so editing a value never triggers
+  // navigation. PDF area gets the keys — the viewer has no horizontal-arrow
+  // controls of its own.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t) {
+        const tag = t.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+        // `isContentEditable` reflects the rendered editable bit; cover both
+        // the property AND the attribute path so this works in jsdom where
+        // the property occasionally lags the attribute set during fireEvent.
+        if (t.isContentEditable) return
+        if (t.closest && t.closest('[contenteditable="true"]')) return
+      }
+      e.preventDefault()
+      stepTo(e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, activeFilename, docs.length, currentIdx])
+
   const handleToggleExpand = () => setForceOpen(v => (v === true ? false : true))
   const handleSetView = (v: 'form' | 'json') => {
     setView(v)
@@ -169,6 +246,7 @@ export default function ReviewOverlay({
         onOpen={open}
         onSave={() => void save()}
         onBack={onBack}
+        onDelete={handleDelete}
         activeTabKey={activeTabKey}
         availableExperiments={experimentList}
         onSwitchTab={setActiveTab}
@@ -186,9 +264,17 @@ export default function ReviewOverlay({
       )}
 
       <div
-        className={'rev-body' + (splitDrag ? ' dragging' : '')}
+        className={
+          'rev-body'
+          + (splitDrag ? ' dragging' : '')
+          + (chatOpen ? ' has-chat' : '')
+        }
         ref={bodyRef}
-        style={{ '--rev-split': splitPct + '%' } as React.CSSProperties}
+        style={{
+          '--rev-split': splitPct + '%',
+          '--rev-split-frac': splitPct / 100,
+          '--rev-chat-w': chatW + 'px',
+        } as React.CSSProperties}
       >
         <div className="rev-pdf">
           <PdfViewer />
@@ -212,7 +298,6 @@ export default function ReviewOverlay({
               notes={notes}
               evidence={displayEvidence ?? null}
               onChange={setField}
-              onSetNote={setNote}
               onAddEntity={addEntity}
               onRemoveEntity={removeEntity}
               onJumpToPage={goPage}
@@ -225,6 +310,16 @@ export default function ReviewOverlay({
             />
           )}
         </div>
+        {chatOpen && onToggleRight && (
+          <ReviewChatColumn
+            filename={activeFilename}
+            activeField={activeFieldPath}
+            activeValue={activeFieldValue}
+            width={chatW}
+            onWidthChange={handleChatWidthChange}
+            onClose={onToggleRight}
+          />
+        )}
       </div>
     </div>
   )

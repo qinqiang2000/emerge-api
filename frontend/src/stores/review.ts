@@ -19,6 +19,13 @@ interface State {
   entities: FieldsValue[]
   evidence: Record<string, number | null>[] | null
   notes: Record<string, string>
+  /** Path of the field row currently highlighted in the FieldEditor — hoisted
+   *  out of FieldEditor local state so the review chat column can render a
+   *  contextual chip ("inv-042.pdf · buyer_name = …") in its header. */
+  activeField: string | null
+  /** Which entity tab the user is viewing in multi-entity docs. Lives in the
+   *  store so the chat column can reach it for review_context. */
+  activeEntityIdx: number
   // ── experiment-tab state ─────────────────────────────────────────
   activeTabKey: 'active' | string  // 'active' or experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
@@ -27,6 +34,9 @@ interface State {
   close: () => void
   setField: (entityIdx: number, name: string, value: unknown) => void
   setNote: (name: string, note: string) => void
+  /** Toggle-set: passing the currently-active path clears selection. */
+  setActiveField: (path: string | null) => void
+  setActiveEntityIdx: (idx: number) => void
   addEntity: () => void
   removeEntity: (idx: number) => void
   goPage: (page: number) => void
@@ -59,6 +69,8 @@ export const useReview = create<State>((set, get) => ({
   entities: [],
   evidence: null,
   notes: {},
+  activeField: null,
+  activeEntityIdx: 0,
   activeTabKey: 'active',
   predictionsByExp: {},
   open: async (projectId, filename) => {
@@ -72,6 +84,8 @@ export const useReview = create<State>((set, get) => ({
       entities: [],
       evidence: null,
       notes: {},
+      activeField: null,
+      activeEntityIdx: 0,
       // ── tab state reset ──
       activeTabKey: 'active',
       predictionsByExp: {},
@@ -102,7 +116,7 @@ export const useReview = create<State>((set, get) => ({
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1 }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0 }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -110,6 +124,11 @@ export const useReview = create<State>((set, get) => ({
     return { entities: next }
   }),
   setNote: (name, note) => set((s) => ({ notes: { ...s.notes, [name]: note } })),
+  setActiveField: (path) => set((s) => ({
+    // Toggle semantics — clicking the row that's already active deselects it.
+    activeField: path !== null && s.activeField === path ? null : path,
+  })),
+  setActiveEntityIdx: (idx) => set({ activeEntityIdx: Math.max(0, idx) }),
   addEntity: () => set((s) => ({ entities: [...s.entities, {}] })),
   removeEntity: (idx) => set((s) => ({
     entities: s.entities.length > 1 ? s.entities.filter((_, i) => i !== idx) : s.entities,

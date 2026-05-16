@@ -2,6 +2,11 @@
 // T11.2 — port of review.jsx:14-46
 // Confidence dots are hard-coded to 'high' (moss) — backend doesn't emit per-field
 // confidence yet. See design-decisions.md 2026-05-10 entry.
+//
+// Inline note input was removed when the review chat column landed: per-doc
+// note traffic is 1–2 entries on average and far better captured in NL via the
+// new "/" -anchored chat column. The `notes` map still loads from disk for
+// future display (e.g., hover hint), but no longer has a UI editor here.
 
 import { ArrowLeftToLine } from 'lucide-react'
 import { useRef, useState, useEffect } from 'react'
@@ -11,13 +16,11 @@ export interface FieldRowProps {
   name: string           // display name
   type: string
   value: unknown
-  note?: string
   evidencePage?: number | null
   active: boolean
   nested?: boolean
   readOnly?: boolean
   onChange: (value: string) => void
-  onSetNote?: (note: string) => void
   onJumpToPage?: (page: number) => void
   onClick: (path: string) => void
   /** When readOnly, render a hover-revealed button to copy this single value
@@ -30,23 +33,16 @@ export default function FieldRow({
   name,
   type,
   value,
-  note,
   evidencePage,
   active,
   nested = false,
   readOnly = false,
   onChange,
-  onSetNote,
   onJumpToPage,
   onClick,
   onAdopt,
 }: FieldRowProps) {
-  const [showNotes, setShowNotes] = useState(false)
   const valRef = useRef<HTMLSpanElement>(null)
-  const noteRef = useRef<HTMLSpanElement>(null)
-
-  // Show notes field when there's a note or the row is active
-  const notesVisible = showNotes || !!note || active
 
   const displayValue = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 
@@ -90,11 +86,9 @@ export default function FieldRow({
             className={`val${isEdited ? ' edited' : ''}`}
             contentEditable={!readOnly}
             suppressContentEditableWarning
-            onFocus={() => setShowNotes(true)}
             onBlur={(e) => {
               if (!readOnly) {
                 onChange(e.currentTarget.textContent ?? '')
-                setShowNotes(false)
               }
             }}
           >
@@ -103,18 +97,6 @@ export default function FieldRow({
           {isEdited && <span className="edstamp" title="edited">●</span>}
         </div>
       </div>
-      {notesVisible && (
-        <span
-          ref={noteRef}
-          className="notes"
-          contentEditable={!readOnly}
-          suppressContentEditableWarning
-          onBlur={(e) => { if (!readOnly) onSetNote?.(e.currentTarget.textContent ?? '') }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {note ?? ''}
-        </span>
-      )}
       {readOnly && onAdopt && (
         <button
           type="button"

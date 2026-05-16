@@ -3,10 +3,18 @@
 // Old M5 tests replaced with integration smoke tests per T11.10 spec.
 
 import { useState } from 'react'
+import { beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import FieldEditor from '../../src/components/ReviewMode/FieldEditor'
+import { useReview } from '../../src/stores/review'
+
+// FieldEditor reads activeField + activeEntityIdx from the review store now;
+// reset between tests so state from one block doesn't leak into the next.
+beforeEach(() => {
+  useReview.setState({ activeField: null, activeEntityIdx: 0 })
+})
 
 const SCHEMA = [
   { name: 'invoice_number', type: 'string', description: 'invoice no' },

@@ -14,6 +14,7 @@ export interface SectionField {
   type: string
   description?: string
   value: unknown
+  /** Loaded for future hover hint; FieldRow no longer offers inline editing. */
   note?: string
   evidencePage?: number | null
   /** Row sub-schema for type='array<object>'. */
@@ -30,7 +31,6 @@ interface Props {
   entityIdx: number
   readOnly?: boolean
   onChange: (entityIdx: number, name: string, value: unknown) => void
-  onSetNote?: (name: string, note: string) => void
   onJumpToPage?: (page: number) => void
   onSetActiveField: (path: string) => void
   /** Per-field copy from prediction → annotation (only meaningful when readOnly). */
@@ -47,7 +47,6 @@ export default function Section({
   entityIdx,
   readOnly = false,
   onChange,
-  onSetNote,
   onJumpToPage,
   onSetActiveField,
   onAdoptField,
@@ -115,12 +114,10 @@ export default function Section({
                 name={f.name}
                 type={f.type}
                 value={f.value}
-                note={f.note}
                 evidencePage={f.evidencePage}
                 active={isActive}
                 readOnly={readOnly}
                 onChange={(v) => onChange(entityIdx, f.name, v)}
-                onSetNote={onSetNote ? (note) => onSetNote(f.name, note) : undefined}
                 onJumpToPage={onJumpToPage}
                 onClick={onSetActiveField}
                 onAdopt={

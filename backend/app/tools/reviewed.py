@@ -4,10 +4,17 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from app.schemas.reviewed import Reviewed, ReviewedSource
+from app.schemas.reviewed import NoteConsumption, Reviewed, ReviewedSource
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import reviewed_dir, reviewed_path
+
+
+# Sentinel to distinguish "caller omitted notes_consumed" (preserve existing
+# on-disk map) from "caller passed an explicit empty dict" (clear the map).
+# Using a plain None as the omitted-marker means callers can never explicitly
+# "clear" via None — they must pass {} to clear. This is documented behavior.
+_OMITTED = object()
 
 
 async def save_reviewed(
@@ -19,16 +26,59 @@ async def save_reviewed(
     source: ReviewedSource = ReviewedSource.MANUAL,
     notes: Optional[dict[str, str]] = None,
     evidence: Optional[list[dict[str, Optional[int]]]] = None,
+    notes_consumed: Any = _OMITTED,
 ) -> None:
     """Persist a corrected extraction as ground truth for a doc.
 
     Overwrites any existing reviewed file for the same (project, filename).
     Reviewed files are keyed by the doc's on-disk filename — that's the only
     doc handle in this codebase.
+
+    `notes_consumed` defensive merge semantics:
+        - **omitted** (default sentinel) → if the on-disk file already has a
+          `_notes_consumed` map, preserve it. Agent value-correction calls
+          that don't round-trip the consumption metadata would otherwise
+          silently clear the audit trail.
+        - explicit `None` → treated the same as omitted (preserve).
+        - explicit dict (including empty `{}`) → use as-is. Callers that
+          genuinely want to clear must pass `{}`.
+
+    `notes_consumed` accepts either `dict[str, NoteConsumption]` or
+    `dict[str, dict[str, str]]` (raw kwargs from the MCP tool boundary).
     """
-    payload = Reviewed(entities=entities, source=source, notes=notes, evidence=evidence).model_dump(
-        by_alias=True, exclude_none=True, mode="json"
-    )
+    # Resolve notes_consumed against the existing on-disk map.
+    resolved_consumed: Optional[dict[str, NoteConsumption]]
+    if notes_consumed is _OMITTED or notes_consumed is None:
+        # Preserve any existing on-disk map.
+        existing = await get_reviewed(workspace, project_id, filename)
+        if existing and isinstance(existing.get("_notes_consumed"), dict):
+            raw = existing["_notes_consumed"]
+            resolved_consumed = {
+                k: NoteConsumption(**v) if not isinstance(v, NoteConsumption) else v
+                for k, v in raw.items()
+            }
+        else:
+            resolved_consumed = None
+    elif isinstance(notes_consumed, dict):
+        if not notes_consumed:
+            # Explicit empty dict → clear.
+            resolved_consumed = None
+        else:
+            resolved_consumed = {
+                k: NoteConsumption(**v) if not isinstance(v, NoteConsumption) else v
+                for k, v in notes_consumed.items()
+            }
+    else:
+        # Fallback: ignore garbage shapes.
+        resolved_consumed = None
+
+    payload = Reviewed(
+        entities=entities,
+        source=source,
+        notes=notes,
+        notes_consumed=resolved_consumed,
+        evidence=evidence,
+    ).model_dump(by_alias=True, exclude_none=True, mode="json")
     async with project_lock(workspace, project_id):
         reviewed_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(reviewed_path(workspace, project_id, filename), payload)

@@ -120,6 +120,14 @@ export async function listProjectDocs(slug: string): Promise<DocSummary[]> {
   return r.json()
 }
 
+export async function deleteProjectDoc(slug: string, filename: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' },
+  )
+  if (!r.ok) throw new Error(`deleteProjectDoc ${r.status}`)
+}
+
 export async function getPrediction(slug: string, filename: string): Promise<PredictionPayload | null> {
   const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/predictions/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
@@ -8,9 +10,14 @@ from pydantic import BaseModel
 
 from app.api.routes._safety import safe_job_id, safe_slug
 from app.config import get_settings
+from app.schemas.reviewed import NoteConsumption, ReviewedSource
 from app.schemas.schema_field import SchemaField
+from app.tools.reviewed import get_reviewed, save_reviewed
 from app.tools.schema import StructuralChangeError, write_schema
-from app.workspace.paths import candidate_turn_path, parse_version_id, version_path
+from app.workspace.paths import candidate_turn_path, parse_version_id, project_json_path, version_path
+
+
+log = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -43,7 +50,131 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
             status_code=400,
             detail={"error_code": "structural_change_in_candidate", "error_message_en": str(exc)},
         )
-    return {"ok": True, "rationale": blob.get("rationale", "")}
+
+    # Phase B: write `_notes_consumed` entries for the reviewed files whose
+    # inline notes drove this candidate's description changes. `notes_hit`
+    # was already sanity-filtered by the proposer pipeline, but we still
+    # gate per-field on the reviewed file actually having that note in
+    # `_notes` (defensive against any candidate JSON that got hand-edited or
+    # came from an older code path).
+    consumed_summary = await _mark_notes_consumed(
+        workspace=settings.workspace_root,
+        slug=slug,
+        notes_hit=blob.get("notes_hit") or [],
+        job_id=body.job_id,
+        turn=body.turn,
+    )
+    out: dict = {"ok": True, "rationale": blob.get("rationale", "")}
+    if consumed_summary:
+        out["notes_consumed"] = consumed_summary
+    return out
+
+
+async def _mark_notes_consumed(
+    *,
+    workspace,
+    slug: str,
+    notes_hit: list,
+    job_id: str,
+    turn: int,
+) -> dict[str, list[str]]:
+    """Best-effort: for each validated `<filename>.<field>` hit, write a
+    `_notes_consumed[field]` entry on the matching reviewed file.
+
+    Wrapped in per-file try/except so one bad reviewed file doesn't fail the
+    whole accept. Returns a `{filename: [fields_consumed]}` map for the
+    response payload so callers can confirm what was written.
+    """
+    if not notes_hit:
+        return {}
+    # Group hits by filename. Split on the LAST dot because filenames
+    # legitimately contain dots (e.g. `inv-042.pdf.buyer_name` reads as
+    # filename `inv-042.pdf` + field `buyer_name`); field names are
+    # snake_case identifiers with no dot.
+    grouped: dict[str, list[str]] = {}
+    for hit in notes_hit:
+        if not isinstance(hit, str) or "." not in hit:
+            continue
+        filename, _, field = hit.rpartition(".")
+        if filename and field:
+            grouped.setdefault(filename, []).append(field)
+    if not grouped:
+        return {}
+
+    # Read the project's active prompt id so the consumption record is
+    # anchored to the prompt that just changed. (publish bumps versions; the
+    # prompt is the right runtime anchor.)
+    active_prompt_id = ""
+    try:
+        proj = json.loads(project_json_path(workspace, slug).read_text())
+        active_prompt_id = str(proj.get("active_prompt_id") or "")
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    source_ref = f"{job_id}.turn_{turn}"
+    consumed_summary: dict[str, list[str]] = {}
+
+    for filename, fields in grouped.items():
+        try:
+            existing = await get_reviewed(workspace, slug, filename)
+            if not existing:
+                # No reviewed file for this hit → skip silently. Should be
+                # unreachable since proposer notes_hit are filtered against
+                # reviewed_dict, but defensive.
+                continue
+            notes_map = existing.get("_notes") or {}
+            existing_consumed_raw = existing.get("_notes_consumed") or {}
+            # Re-parse existing consumed map into NoteConsumption to merge
+            # cleanly; preserve everything already there.
+            consumed: dict[str, NoteConsumption] = {}
+            if isinstance(existing_consumed_raw, dict):
+                for k, v in existing_consumed_raw.items():
+                    try:
+                        consumed[k] = NoteConsumption(**v)
+                    except Exception:  # noqa: BLE001
+                        # Malformed prior entry — skip rather than fail.
+                        continue
+            consumed_this_file: list[str] = []
+            for field in fields:
+                # Defensive: only mark consumption when the field truly has
+                # an inline note. Prevents `notes_hit` referring to a field
+                # that exists in the schema but had no user note from
+                # writing a phantom audit record.
+                if field not in notes_map:
+                    continue
+                consumed[field] = NoteConsumption(
+                    consumed_at=now_iso,
+                    consumed_via="accept_candidate",
+                    source_ref=source_ref,
+                    active_prompt_id=active_prompt_id,
+                )
+                consumed_this_file.append(field)
+            if not consumed_this_file:
+                continue
+            # Re-persist with merged consumed map. Keep entities / notes /
+            # evidence intact (read-modify-write). save_reviewed's
+            # defensive merge would also preserve the existing map if we
+            # omitted notes_consumed entirely; here we explicitly pass the
+            # merged map to add the new entries.
+            await save_reviewed(
+                workspace,
+                slug,
+                filename,
+                entities=existing.get("entities") or [],
+                source=ReviewedSource(existing.get("source", "manual")),
+                notes=notes_map or None,
+                evidence=existing.get("_evidence"),
+                notes_consumed={k: v.model_dump(mode="json") for k, v in consumed.items()},
+            )
+            consumed_summary[filename] = consumed_this_file
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "accept_candidate: failed to mark notes_consumed for %s/%s: %s",
+                slug, filename, exc,
+            )
+            continue
+    return consumed_summary
 
 
 @router.get("/lab/projects/{slug}/schema/raw", response_class=PlainTextResponse)

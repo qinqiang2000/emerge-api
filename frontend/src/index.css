@@ -372,7 +372,34 @@ html, body, #root {
 .rev-bar .nav .arrow:hover{background:var(--paper-2)}
 .rev-bar .save{font-family:var(--mono);font-size:11.5px;padding:6px 12px;background:var(--ink);color:var(--paper);border-radius:5px;cursor:default;white-space:nowrap;flex-shrink:0}
 .rev-bar .save:hover{background:var(--ink-2)}
+/* ── title (post-back, pre-tabstrip): "reviewing <chip>filename</chip> <status>" ── */
+.rev-bar .title{font-family:var(--serif);font-size:16px;font-style:italic;color:var(--ink);display:flex;align-items:baseline;gap:10px;white-space:nowrap;min-width:0;flex-shrink:1;overflow:hidden;text-overflow:ellipsis}
+.rev-bar .title .doc{font-family:var(--mono);font-size:12px;font-style:normal;color:var(--ink-3);background:var(--paper-2);padding:3px 8px;border-radius:4px;border:1px solid var(--rule);max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rev-bar .title .status{font-family:var(--mono);font-size:11px;font-style:normal;letter-spacing:.04em;text-transform:lowercase}
+.rev-bar .title .status.reviewed{color:var(--moss)}
+.rev-bar .title .status.draft{color:var(--ochre-2)}
+.rev-bar .title .status.pending{color:var(--ink-3)}
+.rev-bar .title .title-actions{display:inline-flex;align-items:center;margin-left:2px;opacity:0;transition:opacity .12s}
+.rev-bar .title:hover .title-actions,
+.rev-bar .title:focus-within .title-actions,
+.rev-bar .title .title-actions:has(.armed){opacity:1}
+.rev-bar .title .trash{position:relative;display:inline-flex;align-items:center;gap:6px;padding:3px 5px;border-radius:4px;color:var(--ink-4);background:transparent;cursor:pointer;border:1px solid transparent;transition:background .12s,color .12s,border-color .12s}
+.rev-bar .title .trash:hover{color:var(--rose);background:var(--rose-soft);border-color:var(--rose-soft)}
+.rev-bar .title .trash:disabled{opacity:.4;cursor:wait}
+.rev-bar .title .trash.armed{color:var(--paper);background:var(--rose);border-color:var(--rose)}
+.rev-bar .title .trash.armed:hover{background:var(--rose);color:var(--paper)}
+.rev-bar .title .trash .trash-confirm{font-family:var(--mono);font-size:10.5px;font-style:normal;letter-spacing:.04em;white-space:nowrap}
+.rev-bar .nav .navcount{display:inline-flex;align-items:baseline;gap:6px;padding:0 4px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.rev-bar .nav .navcount .kbd{font-size:9.5px;color:var(--ink-4);letter-spacing:.12em}
+/* 2-col default: PDF | splitter | Fields.
+   3-col when .has-chat: add a vertical splitter + the chat column.
+   `--rev-chat-w` (px) is supplied inline by ReviewOverlay; defaults to 360px.
+   `--rev-split` is the PDF column percentage of the **row minus the chat
+   column** so the chat column doesn't crush the Fields panel. In 2-col mode
+   we use the percentage directly; in 3-col mode we scale it against the
+   available space (row width − chat width − splitter widths). */
 .rev-body{flex:1;display:grid;grid-template-columns:var(--rev-split,52%) 6px 1fr;min-height:0;min-width:0;position:relative}
+.rev-body.has-chat{grid-template-columns:minmax(0,calc((100% - var(--rev-chat-w,360px) - 10px) * var(--rev-split-frac,0.52))) 6px minmax(0,1fr) 4px var(--rev-chat-w,360px)}
 .rev-body.dragging{cursor:col-resize;user-select:none}
 .rev-body.dragging *{user-select:none !important;cursor:col-resize !important}
 .rev-pdf{background:#F8F3E6;border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;overflow:hidden}
@@ -382,6 +409,45 @@ html, body, #root {
 .rev-split::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:36px;margin-left:-1.5px;margin-top:-18px;border-radius:2px;background:transparent;transition:background .15s, transform .15s}
 .rev-split:hover::before,.rev-split.active::before{background:var(--ochre-soft)}
 .rev-split:hover::after,.rev-split.active::after{background:var(--ochre);transform:scaleY(1.05)}
+
+/* ── review chat column (third column when chat is open) ──────────── */
+.rev-chat-split-v{position:relative;cursor:col-resize;background:transparent;display:flex;align-items:center;justify-content:center;z-index:5}
+.rev-chat-split-v::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;margin-left:-0.5px;background:var(--rule);transition:background .15s}
+.rev-chat-split-v:hover::before,.rev-chat-split-v.active::before{background:var(--ochre)}
+.rev-chat-col{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--paper);border-left:1px solid var(--rule)}
+.rev-chat-hd{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--rule);background:var(--paper);min-width:0;flex-shrink:0}
+.rev-chat-hd-icon{color:var(--ink-4);flex-shrink:0}
+.rev-chat-hd-chip{display:inline-flex;align-items:baseline;gap:6px;font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--paper-2);padding:3px 8px;border-radius:4px;border:1px solid var(--rule-soft);min-width:0;flex:1 1 auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.rev-chat-hd-chip.muted{color:var(--ink-5);font-style:italic}
+.rev-chat-hd-chip .fname{color:var(--ink-3);flex-shrink:0;max-width:18ch;overflow:hidden;text-overflow:ellipsis}
+.rev-chat-hd-chip .sep{color:var(--ink-5)}
+.rev-chat-hd-chip .fld{color:var(--ink);font-weight:500;flex-shrink:0;max-width:14ch;overflow:hidden;text-overflow:ellipsis}
+.rev-chat-hd-chip .eq{color:var(--ink-5)}
+.rev-chat-hd-chip .val{color:var(--ink-3);font-style:italic;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.rev-chat-hd-close{display:inline-flex;align-items:center;justify-content:center;padding:4px;border-radius:4px;background:transparent;color:var(--ink-4);cursor:default;border:1px solid transparent;flex-shrink:0}
+.rev-chat-hd-close:hover{background:var(--paper-2);color:var(--ink)}
+.rev-chat-body{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
+.rev-chat-body > *{flex:1;min-height:0;display:flex;flex-direction:column}
+/* ChatPanel's composer-wrap uses position:absolute pinned to the main
+   <main> element. Re-anchor it to the chat-body in compact mode so it
+   doesn't escape to the overlay root. Tighter padding too — the 56px the
+   main shell uses doesn't fit in a 360–560px column. */
+.rev-chat-body .composer-wrap{padding:12px 14px 12px}
+.rev-chat-body .conv-scroll{padding:18px 14px 100px}
+.rev-chat-body .conv-inner{max-width:none}
+/* ChatPanel compact-mode placeholder (replaces EmptyHero in third column) */
+.chat-compact-empty{flex:1;display:flex;align-items:center;justify-content:center;padding:24px 14px;font-family:var(--serif);font-size:13px;font-style:italic;color:var(--ink-5);text-align:center;line-height:1.5}
+
+/* SaveReviewedAdapter — escalation chip row beneath the hoisted save_reviewed
+   tool card. Renders inside the chat thread (main shell or review chat
+   column). Inline-block chips so a narrow review column wraps gracefully. */
+.rev-chat-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 14px 14px;font-family:var(--mono);font-size:11px}
+.rev-chat-chips-badge{color:var(--ink-4);font-size:11px;padding:2px 6px;background:transparent;border-radius:3px}
+.rev-chat-chips-badge code{font-family:var(--mono);background:var(--paper-2);padding:0 4px;border-radius:3px;color:var(--ink-2)}
+.rev-chat-chip{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:4px;background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule-soft);cursor:default;transition:background .12s,color .12s,border-color .12s}
+.rev-chat-chip:hover{background:var(--paper);color:var(--ochre-2);border-color:var(--ochre)}
+.rev-chat-chip-muted{color:var(--ink-5)}
+.rev-chat-chip-muted:hover{color:var(--ink-3);border-color:var(--rule)}
 
 /* ── doc viewer ──────────────────────────────────────────────────── */
 .dv-toolbar{display:flex;align-items:center;gap:4px;padding:8px 10px;background:rgba(250,250,247,.86);-webkit-backdrop-filter:blur(10px) saturate(150%);backdrop-filter:blur(10px) saturate(150%);border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:11px;color:var(--ink-3);flex-shrink:0;flex-wrap:wrap;row-gap:4px}

@@ -36,7 +36,7 @@ def patched_loop(monkeypatch: pytest.MonkeyPatch):
     _score.calls = 0
 
     async def _propose(**kwargs):
-        return kwargs["schema"], "rat"
+        return kwargs["schema"], "rat", [], []
 
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
@@ -72,7 +72,7 @@ async def test_runner_cancel(workspace: Path, monkeypatch: pytest.MonkeyPatch) -
         await asyncio.sleep(0.2)
         return _fake_score(0.5), {}
     async def _propose(**kwargs):
-        return kwargs["schema"], "rat"
+        return kwargs["schema"], "rat", [], []
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 
@@ -100,7 +100,7 @@ async def test_runner_pause_resume(workspace: Path, monkeypatch: pytest.MonkeyPa
         return _fake_score(seq[i]), {}
     _score.calls = 0
     async def _propose(**kwargs):
-        return kwargs["schema"], "rat"
+        return kwargs["schema"], "rat", [], []
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 

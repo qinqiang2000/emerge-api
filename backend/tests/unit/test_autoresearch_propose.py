@@ -74,7 +74,7 @@ async def test_propose_schema_returns_revised_descriptions() -> None:
     provider = AsyncMock()
     provider.extract.return_value = ProviderResult(raw_json=new_blob, model_id="stub")
 
-    proposed, rationale = await propose_schema(
+    proposed, rationale, validated_hit, filtered_hit = await propose_schema(
         provider=provider, model_id="stub", schema=schema,
         reviewed={}, predictions={}, per_field=[], notes={},
     )
@@ -82,6 +82,9 @@ async def test_propose_schema_returns_revised_descriptions() -> None:
     assert proposed[0].name == "invoice_no"
     assert proposed[0].description == "new sharper desc"
     assert rationale == "tightened format guidance"
+    # No notes_hit declared by proposer → both arrays empty.
+    assert validated_hit == []
+    assert filtered_hit == []
 
 
 async def test_propose_schema_rejects_added_field() -> None:

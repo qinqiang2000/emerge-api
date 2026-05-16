@@ -17,6 +17,10 @@ from app.workspace.paths import (
     doc_render_dir,
     docs_dir,
     docs_meta_dir,
+    experiment_prediction_path,
+    experiments_dir,
+    prediction_draft_path,
+    reviewed_path,
 )
 
 
@@ -181,6 +185,76 @@ async def list_docs(workspace: Path, project_id: str) -> list[dict[str, Any]]:
 async def read_doc(workspace: Path, project_id: str, filename: str) -> bytes:
     """Return the raw bytes for one doc. `filename` is the on-disk name."""
     return doc_path(workspace, project_id, filename).read_bytes()
+
+
+async def delete_doc(
+    workspace: Path, project_id: str, filename: str,
+) -> dict[str, Any]:
+    """Remove a doc from the project. Wipes every artifact keyed off the
+    filename — the file itself, sidecar meta, PDF render cache, draft
+    prediction, reviewed JSON, and any per-experiment predictions — so the
+    next `list_docs` no longer sees it and stale predictions can't resurrect
+    later.
+
+    No-op if the doc file isn't present (caller will see `removed: False`).
+    Raises only on permission errors or filesystem failures the caller is
+    expected to surface."""
+    removed: list[str] = []
+
+    async with project_lock(workspace, project_id):
+        primary = doc_path(workspace, project_id, filename)
+        if not primary.exists():
+            return {"removed": False, "filename": filename, "artifacts": []}
+        primary.unlink()
+        removed.append("doc")
+
+        side = doc_meta_path(workspace, project_id, filename)
+        if side.exists():
+            side.unlink()
+            removed.append("meta")
+
+        render_d = doc_render_dir(workspace, project_id, filename)
+        if render_d.exists():
+            _rm_tree(render_d)
+            removed.append("render_cache")
+
+        draft = prediction_draft_path(workspace, project_id, filename)
+        if draft.exists():
+            draft.unlink()
+            removed.append("prediction_draft")
+
+        rev = reviewed_path(workspace, project_id, filename)
+        if rev.exists():
+            rev.unlink()
+            removed.append("reviewed")
+
+        edir = experiments_dir(workspace, project_id)
+        if edir.exists():
+            wiped = 0
+            for sub in edir.iterdir():
+                if not sub.is_dir():
+                    continue
+                ep = experiment_prediction_path(
+                    workspace, project_id, sub.name, filename,
+                )
+                if ep.exists():
+                    ep.unlink()
+                    wiped += 1
+            if wiped:
+                removed.append(f"experiment_predictions×{wiped}")
+
+    return {"removed": True, "filename": filename, "artifacts": removed}
+
+
+def _rm_tree(root: Path) -> None:
+    """Best-effort recursive directory removal. Used by `delete_doc` for the
+    per-doc render cache (`docs/.meta/_render/<filename>/`)."""
+    for child in root.iterdir():
+        if child.is_dir():
+            _rm_tree(child)
+        else:
+            child.unlink()
+    root.rmdir()
 
 
 async def pdf_render_page(

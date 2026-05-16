@@ -12,6 +12,7 @@ import { useProjects } from '../../stores/projects'
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
+import SaveReviewedAdapter from './SaveReviewedAdapter'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import ToolStack from './ToolStack'
@@ -208,6 +209,17 @@ function HoistedToolCard({ call }: { call: ToolCallEvent }) {
   }
   if (call.tool_name === 'mcp__emerge_tools__score') {
     return <EvalCardAdapter call={call} />
+  }
+  if (call.tool_name === 'mcp__emerge_tools__save_reviewed') {
+    // Render the regular plumbing tool card AND the escalation chip row
+    // below it — the user sees both "the agent saved this" affordance and
+    // the "promote this to a stronger commitment" affordance in one place.
+    return (
+      <>
+        <PlumbingToolCard call={call} />
+        <SaveReviewedAdapter call={call} />
+      </>
+    )
   }
   // Fallback (shouldn't trigger — HOISTED_TOOL_NAMES in groupChatEvents owns the list):
   return <PlumbingToolCard call={call} />

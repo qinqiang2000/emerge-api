@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
-from app.tools.docs import pdf_render_page
+from app.tools.docs import delete_doc, pdf_render_page
 from app.workspace.paths import doc_meta_path, doc_path
 
 
@@ -49,3 +49,18 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     return FileResponse(path, media_type="image/png")
+
+
+@router.delete("/lab/projects/{slug}/docs/by-name/{filename:path}")
+async def delete_doc_endpoint(slug: str, filename: str) -> dict:
+    """Delete a doc and every artifact keyed off its filename — sidecar meta,
+    PDF render cache, draft prediction, reviewed JSON, per-experiment
+    predictions. Returns 404 if the doc isn't on disk so callers can
+    distinguish a real removal from a no-op."""
+    safe_slug(slug)
+    safe_filename(filename)
+    settings = get_settings()
+    result = await delete_doc(settings.workspace_root, slug, filename)
+    if not result["removed"]:
+        raise HTTPException(status_code=404, detail="doc_not_found")
+    return result

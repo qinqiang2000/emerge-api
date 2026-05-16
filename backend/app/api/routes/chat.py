@@ -23,6 +23,26 @@ router = APIRouter()
 _UNSET_SLUG = "p_unset"
 
 
+class ReviewContext(BaseModel):
+    """UI-state snapshot from the review overlay's chat column.
+
+    The frontend snapshots `(filename, field, current_value, entity_index)`
+    at submit time (NOT render time — the user may navigate to the next doc
+    mid-response) and threads it into the chat envelope. The chat service
+    appends a `## Review focus` block to the system prompt so the agent
+    treats the message as feedback about this specific (filename, field).
+
+    All fields except `filename` are optional; absent `field` means the
+    user hasn't selected a row yet (e.g. they jumped into chat to ask a
+    doc-level question).
+    """
+
+    filename: str
+    field: str | None = None
+    current_value: Any = None
+    entity_index: int = 0
+
+
 class ChatBody(BaseModel):
     # Field name kept as `project_id` for back-compat with the frontend SSE
     # request payload; the value carried is the slug (folder name) for any
@@ -32,6 +52,10 @@ class ChatBody(BaseModel):
     chat_id: str
     user_message: str
     attachments: list[dict[str, Any]] | None = None
+    # Present only when the user submits from the review overlay's chat column.
+    # When absent, the chat service behaves identically to pre-Phase-B
+    # (no `## Review focus` block in the system prompt).
+    review_context: ReviewContext | None = None
 
 
 def _get_chat_service() -> ChatService:
@@ -60,6 +84,7 @@ async def lab_chat(body: ChatBody) -> EventSourceResponse:
             chat_id=body.chat_id,
             user_message=body.user_message,
             attachments=body.attachments,
+            review_context=body.review_context.model_dump() if body.review_context else None,
         ):
             # sse_starlette wants {event, data} dicts; ChatService yields fully-formed
             # "event: x\ndata: y\n\n" strings. Re-parse them so sse_starlette can re-emit.

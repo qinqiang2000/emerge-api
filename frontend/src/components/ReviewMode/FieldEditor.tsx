@@ -4,13 +4,17 @@
 // - Multi-entity nav: small strip above sections to swap entityIdx
 // - forceOpen and view props wired from ReviewOverlay
 // - M5 evidence click-to-page preserved via onJumpToPage
-// - Notes editing preserved via onSetNote
 // - add/remove entity preserved
+//
+// `activeField` and `entityIdx` are hoisted into the review store so the review
+// chat column header can show "<filename> · <field>" context without prop-drilling
+// through ReviewOverlay.
 
 import { ArrowLeftToLine } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
+import { useReview } from '../../stores/review'
 
 interface SchemaField {
   name: string
@@ -26,7 +30,6 @@ interface Props {
   notes?: Record<string, string>
   evidence?: (Record<string, number | null> | undefined)[] | null
   onChange: (entityIdx: number, name: string, value: unknown) => void
-  onSetNote?: (name: string, note: string) => void
   onAddEntity: () => void
   onRemoveEntity: (idx: number) => void
   onJumpToPage?: (page: number) => void
@@ -52,7 +55,6 @@ export default function FieldEditor({
   notes = {},
   evidence,
   onChange,
-  onSetNote,
   onAddEntity,
   onRemoveEntity,
   onJumpToPage,
@@ -63,11 +65,12 @@ export default function FieldEditor({
   onAdopt,
   onAdoptField,
 }: Props) {
-  // Active field path for highlighting (local state — one-way field→page, not PDF→field)
-  const [activeField, setActiveField] = useState<string | null>(null)
-
-  // Current entity index for multi-entity nav
-  const [entityIdx, setEntityIdx] = useState(0)
+  // Active field + entity selection live in the review store now so the chat
+  // column can read them without prop-drilling.
+  const activeField = useReview(s => s.activeField)
+  const setActiveField = useReview(s => s.setActiveField)
+  const entityIdx = useReview(s => s.activeEntityIdx)
+  const setEntityIdx = useReview(s => s.setActiveEntityIdx)
   const safeIdx = Math.min(entityIdx, Math.max(0, entities.length - 1))
   const currentEntity = entities[safeIdx] ?? {}
   const evidenceForEntity = evidence?.[safeIdx] ?? undefined
@@ -87,9 +90,9 @@ export default function FieldEditor({
     return [{ id: 'fields', label: 'fields', fields }]
   }, [schema, currentEntity, notes, evidenceForEntity])
 
-  const handleSetActiveField = (path: string) => {
-    setActiveField(prev => prev === path ? null : path)
-  }
+  // Store-level `setActiveField` already implements toggle semantics — pass it
+  // straight to Section. `notes` is still threaded through SectionField for
+  // future hover hint use, but the row no longer offers inline editing.
 
   return (
     <div className="flex flex-col h-full">
@@ -101,7 +104,7 @@ export default function FieldEditor({
               type="button"
               aria-label="previous entity"
               disabled={safeIdx === 0}
-              onClick={() => setEntityIdx(i => Math.max(0, i - 1))}
+              onClick={() => setEntityIdx(Math.max(0, safeIdx - 1))}
               className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
             >
               ‹
@@ -113,7 +116,7 @@ export default function FieldEditor({
               type="button"
               aria-label="next entity"
               disabled={safeIdx === entities.length - 1}
-              onClick={() => setEntityIdx(i => Math.min(entities.length - 1, i + 1))}
+              onClick={() => setEntityIdx(Math.min(entities.length - 1, safeIdx + 1))}
               className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
             >
               ›
@@ -124,7 +127,7 @@ export default function FieldEditor({
                 aria-label={`remove entity ${safeIdx + 1}`}
                 onClick={() => {
                   onRemoveEntity(safeIdx)
-                  setEntityIdx(i => Math.max(0, i - 1))
+                  setEntityIdx(Math.max(0, safeIdx - 1))
                 }}
                 className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 text-rose ml-1"
               >
@@ -184,9 +187,8 @@ export default function FieldEditor({
                 entityIdx={safeIdx}
                 readOnly={readOnly}
                 onChange={onChange}
-                onSetNote={onSetNote}
                 onJumpToPage={onJumpToPage}
-                onSetActiveField={handleSetActiveField}
+                onSetActiveField={setActiveField}
                 onAdoptField={onAdoptField}
               />
             ))}

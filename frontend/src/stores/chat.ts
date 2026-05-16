@@ -54,6 +54,19 @@ function chatIdFor(projectId: string): string {
   return fresh
 }
 
+/** Snapshot of the review-overlay UI state at message-submit time, threaded
+ *  into the chat envelope so the backend can inject a `## Review focus` block
+ *  in the system prompt. The snapshot MUST be taken at submit time (not at
+ *  render time) — the user may navigate to the next doc mid-response, and
+ *  the agent's tool calls must bind to the doc they were looking at when
+ *  they hit Enter. */
+export interface ReviewContext {
+  filename: string
+  field?: string | null
+  current_value?: unknown
+  entity_index?: number
+}
+
 interface State {
   chatId: string
   events: ChatEvent[]
@@ -72,8 +85,12 @@ interface State {
    *  bridge (the backend's chat_turn claims each token into chat-scope and
    *  persists `{filename, source: "chat"}`). `source` defaults to "chat"
    *  for paste/drop; reserved `"docs"` value is for future explicit-promote
-   *  refs but not yet emitted by the composer. */
-  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[]) => Promise<void>
+   *  refs but not yet emitted by the composer.
+   *  `reviewContext` is the submit-time snapshot of the review overlay's
+   *  cell selection — present only for sends from the compact review chat
+   *  column (ReviewChatColumn). Main-shell ChatPanel callers must pass
+   *  undefined; their behavior is unchanged. */
+  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[], reviewContext?: ReviewContext) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →
@@ -231,7 +248,7 @@ export const useChat = create<State>((set, get) => ({
     }
     return false
   },
-  send: async (projectId, message, attachments) => {
+  send: async (projectId, message, attachments, reviewContext) => {
     // Capture the new pid emitted by the backend when chat_turn auto-mints a
     // project from a `p_unset` + stage_token submission. We listen for the
     // `project_minted` SSE event and re-bind on the fly: localStorage chatId
@@ -300,6 +317,10 @@ export const useChat = create<State>((set, get) => ({
           chat_id: get().chatId,
           user_message: message,
           attachments,
+          // Phase B: only sent when the user submits from the review
+          // overlay's compact chat column. Backend treats absence as the
+          // pre-Phase-B path (no `## Review focus` block in system prompt).
+          ...(reviewContext ? { review_context: reviewContext } : {}),
         }),
         signal: abortCtrl.signal,
       })) {

@@ -4,8 +4,9 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { attachToChat, stageUpload } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
-import { useChat } from '../../stores/chat'
+import { useChat, type ReviewContext } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
+import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
 import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
@@ -44,7 +45,15 @@ interface AttachInfo {
   error?: string
 }
 
-export default function ChatPanel() {
+interface ChatPanelProps {
+  /** Compact mode — used by ReviewChatColumn so the chat fits into a narrow
+   *  third column. Hides ConvHeader (history popover is reachable from the main
+   *  shell when you exit review) and swaps EmptyHero for a one-line placeholder
+   *  since the hero's hero-text wouldn't survive a 360px-wide column. */
+  compact?: boolean
+}
+
+export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   const { selectedSlug, projects } = useProjects()
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
@@ -166,7 +175,7 @@ export default function ChatPanel() {
 
   return (
     <>
-      {selectedSlug && (
+      {!compact && selectedSlug && (
         <ConvHeader
           activeProject={projectName}
           currentChatId={chatId}
@@ -186,6 +195,10 @@ export default function ChatPanel() {
               <MessageList events={events} busy={busy} />
             </ChatErrorBoundary>
           </div>
+        </div>
+      ) : compact ? (
+        <div className="chat-compact-empty" role="status">
+          <span>start by asking about a field…</span>
         </div>
       ) : (
         <EmptyHero
@@ -215,7 +228,34 @@ export default function ChatPanel() {
               source: 'chat' as const,
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
             }))
-          await send(selectedSlug ?? 'p_unset', text, ready)
+          // Phase B: in compact mode we are rendered inside the review
+          // overlay's chat column — snapshot the active (filename, field,
+          // value, entity_index) BEFORE awaiting send so the agent's tool
+          // calls bind to what the user was looking at when they hit Enter,
+          // not to whatever they navigate to mid-response. Reading via
+          // `useReview.getState()` here (rather than hook-derived values)
+          // is intentional — the hook would have closed over render-time
+          // state. The chip header in ReviewChatColumn already shows
+          // (filename, field, value) so by-construction the user expects
+          // submit-time binding to match what they were looking at.
+          let reviewContext: ReviewContext | undefined
+          if (compact) {
+            const rev = useReview.getState()
+            if (rev.activeFilename) {
+              const idx = rev.activeEntityIdx ?? 0
+              const entity = rev.entities[idx] ?? {}
+              const currentValue = rev.activeField
+                ? (entity as Record<string, unknown>)[rev.activeField] ?? null
+                : null
+              reviewContext = {
+                filename: rev.activeFilename,
+                field: rev.activeField ?? null,
+                current_value: currentValue,
+                entity_index: idx,
+              }
+            }
+          }
+          await send(selectedSlug ?? 'p_unset', text, ready, reviewContext)
           setPending([])
         }}
         onCancel={() => useChat.getState().cancel()}

@@ -1,7 +1,9 @@
 // frontend/src/components/ReviewMode/ReviewBar.tsx
-import { ArrowLeft } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, MessageSquare, Trash2 } from 'lucide-react'
 
 import type { DocSummary, ExperimentSummary } from '../../types/review'
+import { docStatus } from '../../types/review'
 import ExperimentTabStrip from './ExperimentTabStrip'
 import PanelToggle from '../Shell/PanelToggle'
 
@@ -19,6 +21,9 @@ type Props = {
   onOpen: (pid: string, filename: string) => void
   onSave: () => void
   onBack: () => void
+  /** Delete the currently-open doc. Receives the filename so the parent can
+   *  decide what to navigate to next (next doc, prev doc, or back to chat). */
+  onDelete: (filename: string) => Promise<void> | void
   // ── inline tab strip ──
   activeTabKey: 'active' | string
   availableExperiments: ExperimentSummary[]
@@ -45,6 +50,7 @@ export default function ReviewBar({
   onOpen,
   onSave,
   onBack,
+  onDelete,
   activeTabKey,
   availableExperiments,
   onSwitchTab,
@@ -60,6 +66,7 @@ export default function ReviewBar({
   const hasNext = idx >= 0 && idx < total - 1
   const prevDoc = hasPrev ? docs[idx - 1] : null
   const nextDoc = hasNext ? docs[idx + 1] : null
+  const activeDoc = idx >= 0 ? docs[idx] : null
 
   const handlePrev = () => {
     if (prevDoc && activeProjectId) void onOpen(activeProjectId, prevDoc.filename)
@@ -69,6 +76,35 @@ export default function ReviewBar({
   }
 
   const allExpanded = forceOpen === true
+
+  // ── two-step delete confirm ──
+  // First click reveals the confirm popover anchored to the trash icon; second
+  // click runs the delete. A 3 s no-action timer rolls it back so an accidental
+  // first click can't sit waiting forever. We track `armed` on the button (not
+  // the popover) so clicking elsewhere also dismisses.
+  const [armed, setArmed] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const armTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (!armed) return
+    armTimer.current = window.setTimeout(() => setArmed(false), 3000)
+    return () => {
+      if (armTimer.current != null) window.clearTimeout(armTimer.current)
+    }
+  }, [armed])
+  // Reset arm state when the active doc changes (navigating past a half-armed
+  // confirm should never carry over to the next doc).
+  useEffect(() => { setArmed(false) }, [activeFilename])
+
+  const handleTrashClick = () => {
+    if (!activeFilename || deleting) return
+    if (!armed) { setArmed(true); return }
+    setArmed(false)
+    setDeleting(true)
+    Promise.resolve(onDelete(activeFilename)).finally(() => setDeleting(false))
+  }
+
+  const status = activeDoc ? docStatus(activeDoc) : null
 
   return (
     <div className="rev-bar">
@@ -83,6 +119,27 @@ export default function ReviewBar({
           className="spinepeek icon"
           size={14}
         />
+      )}
+
+      {activeFilename && (
+        <div className="title" title={activeFilename}>
+          reviewing
+          <span className="doc">{activeFilename}</span>
+          {status && <span className={`status ${status}`}>{status}</span>}
+          <span className="title-actions">
+            <button
+              type="button"
+              className={'trash' + (armed ? ' armed' : '')}
+              onClick={handleTrashClick}
+              disabled={deleting}
+              aria-label={armed ? 'click again to confirm delete' : 'delete this file'}
+              title={armed ? "click again — can't be undone" : 'delete this file'}
+            >
+              <Trash2 size={13} strokeWidth={1.75} />
+              {armed && <span className="trash-confirm">confirm · can't be undone</span>}
+            </button>
+          </span>
+        </div>
       )}
 
       {availableExperiments.some((e) => e.status !== 'archived') ? (
@@ -126,8 +183,28 @@ export default function ReviewBar({
       </div>
 
       <div className="nav">
-        <button className="arrow" onClick={handlePrev} disabled={!hasPrev} aria-label="previous doc" type="button">‹</button>
-        <button className="arrow" onClick={handleNext} disabled={!hasNext} aria-label="next doc" type="button">›</button>
+        <button
+          className="arrow"
+          onClick={handlePrev}
+          disabled={!hasPrev}
+          aria-label="previous doc (left arrow)"
+          title="previous doc · ←"
+          type="button"
+        >‹</button>
+        {idx >= 0 && total > 0 && (
+          <span className="navcount" title="use ← / → to step through docs">
+            {idx + 1} / {total}
+            <span className="kbd" aria-hidden>← →</span>
+          </span>
+        )}
+        <button
+          className="arrow"
+          onClick={handleNext}
+          disabled={!hasNext}
+          aria-label="next doc (right arrow)"
+          title="next doc · →"
+          type="button"
+        >›</button>
       </div>
 
       <button
@@ -135,18 +212,23 @@ export default function ReviewBar({
         onClick={onSave}
         disabled={saving || !canSave}
         type="button"
-        title={!canSave ? 'save only persists on the ✏ reviewed tab — switch to it, or use “adopt as reviewed”' : undefined}
+        title={!canSave ? 'save only persists on the ✏ reviewed tab — switch to it, or use "adopt as reviewed"' : undefined}
       >
         {saving ? 'saving…' : 'save'}
       </button>
       {rightHidden && onToggleRight && (
-        <PanelToggle
-          side="right"
-          hidden={true}
-          onClick={onToggleRight}
+        // Review-mode right peek: in review, the right "panel" is the chat
+        // column (not ContextSurface). Swap PanelToggle's panel-icon for a
+        // chat bubble so the affordance reads correctly.
+        <button
+          type="button"
           className="spinepeek icon"
-          size={14}
-        />
+          onClick={onToggleRight}
+          aria-label="open chat"
+          title="open chat (⌘⇧.)"
+        >
+          <MessageSquare size={14} strokeWidth={1.75} />
+        </button>
       )}
     </div>
   )

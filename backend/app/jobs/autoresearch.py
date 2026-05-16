@@ -41,6 +41,13 @@ Treat the user's inline `_notes` as high-priority hints - they are direct
 human feedback on what's wrong. Sample errors show concrete reviewed-vs-
 prediction disagreements per doc.
 
+When your description rewording was materially driven by a user `_note`,
+list the corresponding `<filename>.<field>` key in `notes_hit`. Omit fields
+whose description is unchanged or whose change was driven by sample-error
+analysis rather than by a user note. Hallucinated entries (notes_hit that
+reference fields you did not actually change, or filenames not present in
+the input) will be filtered server-side, so be conservative.
+
 Output via the propose_schema tool. Include a short `rationale` explaining
 which descriptions you changed and why."""
 
@@ -67,6 +74,14 @@ PROPOSER_RESPONSE_SCHEMA: dict[str, Any] = {
             },
         },
         "rationale": {"type": "string"},
+        # Per Phase B plan: proposer self-declares which `<filename>.<field>`
+        # user notes materially drove this turn's description rewordings.
+        # Server-side `_validate_notes_hit` drops hallucinated entries before
+        # they reach the candidate JSON.
+        "notes_hit": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
     },
 }
 
@@ -130,6 +145,62 @@ class ProposerStructuralChangeError(Exception):
     The autoresearch loop treats this as a non-improving turn and continues."""
 
 
+def _validate_notes_hit(
+    raw_hits: list[str],
+    baseline_schema: list[SchemaField],
+    proposed_schema: list[SchemaField],
+    reviewed_dict: dict[str, list[dict[str, Any]]],
+) -> tuple[list[str], list[str]]:
+    """Server-side sanity filter for proposer-declared `notes_hit`.
+
+    The proposer LLM @ T=0.2 occasionally hallucinates — it may claim a note
+    drove a change when the description text in fact didn't move (e.g. it
+    reordered prose), or reference a filename that wasn't in the input. We
+    drop those entries before they reach the candidate JSON so downstream
+    `accept_candidate` doesn't write phantom `_notes_consumed` entries.
+
+    Returns `(validated, filtered)`:
+        - validated: hits that survived all three checks
+        - filtered: hits that were dropped (preserved in candidate JSON
+          under `notes_hit_filtered` for monitoring)
+
+    Drop rules:
+        (a) filename component not in `reviewed_dict`
+        (b) field component not in `proposed_schema` field names
+        (c) the field's description in `proposed_schema` equals its
+            description in `baseline_schema` (i.e. unchanged)
+    """
+    baseline_desc = {f.name: f.description for f in baseline_schema}
+    proposed_desc = {f.name: f.description for f in proposed_schema}
+    proposed_names = set(proposed_desc)
+
+    validated: list[str] = []
+    filtered: list[str] = []
+    for hit in raw_hits:
+        if not isinstance(hit, str) or "." not in hit:
+            filtered.append(hit if isinstance(hit, str) else str(hit))
+            continue
+        # Split on the LAST dot. Filenames legitimately contain dots (e.g.
+        # `inv-042.pdf.buyer_name` reads as filename `inv-042.pdf` + field
+        # `buyer_name`); field names are snake_case identifiers with no dot.
+        filename, _, field = hit.rpartition(".")
+        if not filename or not field:
+            filtered.append(hit)
+            continue
+        if filename not in reviewed_dict:
+            filtered.append(hit)
+            continue
+        if field not in proposed_names:
+            filtered.append(hit)
+            continue
+        if baseline_desc.get(field) == proposed_desc.get(field):
+            # Description text didn't actually change — proposer was wrong.
+            filtered.append(hit)
+            continue
+        validated.append(hit)
+    return validated, filtered
+
+
 async def propose_schema(
     *,
     provider: Provider,
@@ -139,8 +210,14 @@ async def propose_schema(
     predictions: dict[str, list[dict[str, Any]]],
     per_field: list[dict[str, Any]],
     notes: dict[str, dict[str, str]],
-) -> tuple[list[SchemaField], str]:
-    """One proposer LLM call. Returns (revised schema, rationale).
+) -> tuple[list[SchemaField], str, list[str], list[str]]:
+    """One proposer LLM call. Returns (revised schema, rationale,
+    validated_notes_hit, filtered_notes_hit).
+
+    The 4-tuple return arity (Phase B): the validated/filtered notes_hit
+    arrays surface server-side sanity-filtering for downstream
+    `accept_candidate` to write `_notes_consumed` entries against. The
+    candidate JSON persists both arrays (filtered → monitoring only).
 
     Raises ProposerStructuralChangeError if the proposer attempts to add /
     remove / rename / retype any field - only `description` text may change.
@@ -159,6 +236,9 @@ async def propose_schema(
     blob = result.raw_json
     rationale = str(blob.get("rationale", ""))
     raw_fields: list[dict[str, Any]] = list(blob.get("fields") or [])
+    raw_notes_hit: list[str] = [
+        h for h in (blob.get("notes_hit") or []) if isinstance(h, str)
+    ]
 
     if len(raw_fields) != len(schema):
         raise ProposerStructuralChangeError(
@@ -180,7 +260,10 @@ async def propose_schema(
         merged["description"] = str(new.get("description", old.description))
         proposed.append(SchemaField(**merged))
 
-    return proposed, rationale
+    validated_hit, filtered_hit = _validate_notes_hit(
+        raw_notes_hit, schema, proposed, reviewed,
+    )
+    return proposed, rationale, validated_hit, filtered_hit
 
 
 async def score_with_schema(
@@ -232,10 +315,12 @@ def _save_candidate_turn(
     predictions: dict[str, list[dict[str, Any]]],
     rationale: str,
     parent_turn: int | None,
+    notes_hit: list[str] | None = None,
+    notes_hit_filtered: list[str] | None = None,
 ) -> Path:
     candidate_dir(workspace, project_id, job_id).mkdir(parents=True, exist_ok=True)
     target = candidate_turn_path(workspace, project_id, job_id, turn)
-    payload = {
+    payload: dict[str, Any] = {
         "turn": turn,
         "parent_turn": parent_turn,
         "schema": [f.model_dump(mode="json") for f in schema],
@@ -245,6 +330,14 @@ def _save_candidate_turn(
         "predictions": predictions,
         "ts": score_result.ts,
     }
+    # Always emit the two notes_hit arrays (empty lists OK) for downstream
+    # `accept_candidate` lookup — keeps the on-disk shape uniform across the
+    # baseline turn and improving turns. Baseline (turn 0) has no proposer
+    # call so both lists are empty by convention.
+    if notes_hit is not None:
+        payload["notes_hit"] = notes_hit
+    if notes_hit_filtered is not None:
+        payload["notes_hit_filtered"] = notes_hit_filtered
     atomic_write_json(target, payload)
     return target
 
@@ -291,6 +384,7 @@ async def run_autoresearch_loop(
         workspace=workspace, project_id=project_id, job_id=job_id, turn=0,
         schema=initial_schema, score_result=baseline, predictions=baseline_predictions,
         rationale="baseline", parent_turn=None,
+        notes_hit=[], notes_hit_filtered=[],
     )
     await emit(JobEvent(
         type="turn", ts=now_iso_filename_safe(), turn=0,
@@ -322,7 +416,7 @@ async def run_autoresearch_loop(
         reviewed_blob, notes_blob = _load_reviewed_with_notes(workspace, project_id)
 
         try:
-            proposed, rationale = await propose_schema(
+            proposed, rationale, notes_hit, notes_hit_filtered = await propose_schema(
                 provider=provider, model_id=model_id, schema=current_schema,
                 reviewed=reviewed_blob, predictions=baseline_predictions,
                 per_field=[fs.model_dump(mode="json") for fs in baseline.per_field],
@@ -352,6 +446,7 @@ async def run_autoresearch_loop(
                 workspace=workspace, project_id=project_id, job_id=job_id, turn=turn,
                 schema=proposed, score_result=scored, predictions=predictions,
                 rationale=rationale, parent_turn=best_turn,
+                notes_hit=notes_hit, notes_hit_filtered=notes_hit_filtered,
             )
             best_macro_f1 = scored.macro_f1
             best_turn = turn
@@ -388,6 +483,19 @@ async def run_autoresearch_loop(
 def _load_reviewed_with_notes(
     workspace: Path, project_id: str,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, str]]]:
+    """Load reviewed entities + active (unconsumed) user notes.
+
+    Filters out any note whose field name appears as a key in the reviewed
+    file's `_notes_consumed` map — those notes have already been folded
+    into the schema by a prior `accept_candidate` (or manual edit) and
+    re-surfacing them would have the proposer re-edit a description it
+    already incorporated, then claim a fresh `notes_hit` on the same note.
+    The `_notes` text itself is left intact on disk (we keep the human
+    authorship for posterity / future re-consumption flows).
+
+    Old reviewed files (pre-Phase-B, no `_notes_consumed` key) parse as
+    "nothing consumed" and behave identically to the previous loop.
+    """
     rdir = reviewed_dir(workspace, project_id)
     reviewed: dict[str, list[dict[str, Any]]] = {}
     notes: dict[str, dict[str, str]] = {}
@@ -396,6 +504,15 @@ def _load_reviewed_with_notes(
     for p in sorted(rdir.glob("*.json")):
         blob = json.loads(p.read_text())
         reviewed[p.stem] = blob.get("entities", [])
-        if blob.get("_notes"):
-            notes[p.stem] = blob["_notes"]
+        raw_notes = blob.get("_notes") or {}
+        if not raw_notes:
+            continue
+        consumed_map = blob.get("_notes_consumed") or {}
+        consumed_keys = set(consumed_map) if isinstance(consumed_map, dict) else set()
+        active = {
+            fname: text for fname, text in raw_notes.items()
+            if fname not in consumed_keys
+        }
+        if active:
+            notes[p.stem] = active
     return reviewed, notes

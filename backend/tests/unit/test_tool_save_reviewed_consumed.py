@@ -1,0 +1,194 @@
+# backend/tests/unit/test_tool_save_reviewed_consumed.py
+"""Phase B `save_reviewed` + `_notes_consumed` round-trip.
+
+Verifies:
+    * Reviewed pydantic model parses old files (no `_notes_consumed` key) as
+      None (backward compat — zero migration).
+    * save_reviewed round-trips an explicit `_notes_consumed` map.
+    * save_reviewed defensive merge: omitting `notes_consumed` preserves any
+      existing on-disk map (the load-bearing safety net for agent value
+      corrections that don't round-trip consumption metadata).
+    * save_reviewed passing explicit `{}` clears the map.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from app.schemas.reviewed import NoteConsumption, Reviewed, ReviewedSource
+from app.tools.reviewed import get_reviewed, save_reviewed
+from app.workspace.paths import reviewed_path
+
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> Path:
+    return tmp_path
+
+
+def test_reviewed_model_parses_old_file_without_notes_consumed() -> None:
+    """Files written before Phase B simply lack `_notes_consumed`. They must
+    still parse cleanly with `notes_consumed = None`."""
+    blob = {
+        "entities": [{"buyer_name": "ACME"}],
+        "source": "manual",
+        "_notes": {"buyer_name": "should be ACME Sdn Bhd"},
+    }
+    r = Reviewed(**blob)
+    assert r.notes == {"buyer_name": "should be ACME Sdn Bhd"}
+    assert r.notes_consumed is None
+    out = r.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert "_notes_consumed" not in out
+
+
+def test_reviewed_model_round_trips_notes_consumed() -> None:
+    blob = {
+        "entities": [{"buyer_name": "ACME"}],
+        "source": "manual",
+        "_notes": {"buyer_name": "official: ACME Sdn Bhd"},
+        "_notes_consumed": {
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:32:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_3a8c9.turn_4",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    }
+    r = Reviewed(**blob)
+    assert r.notes_consumed is not None
+    assert "buyer_name" in r.notes_consumed
+    assert r.notes_consumed["buyer_name"].consumed_via == "accept_candidate"
+    out = r.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert out["_notes_consumed"]["buyer_name"]["source_ref"] == "j_3a8c9.turn_4"
+
+
+async def test_save_reviewed_round_trips_explicit_notes_consumed(workspace: Path) -> None:
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{"buyer_name": "ACME"}],
+        notes={"buyer_name": "should be ACME Sdn Bhd"},
+        notes_consumed={
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:32:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_x.turn_1",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    )
+    blob = json.loads(reviewed_path(workspace, "p_a", "inv-001.pdf").read_text())
+    assert blob["_notes_consumed"]["buyer_name"]["consumed_via"] == "accept_candidate"
+
+
+async def test_save_reviewed_omitted_notes_consumed_preserves_existing(workspace: Path) -> None:
+    """Defensive merge: agent does a value correction without passing
+    `notes_consumed`. The on-disk consumption record must NOT be cleared."""
+    # Seed an on-disk reviewed file WITH a consumed entry.
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{"buyer_name": "OLD"}],
+        notes={"buyer_name": "should be ACME"},
+        notes_consumed={
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:00:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_x.turn_3",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    )
+    # Agent value-correction call that OMITS notes_consumed.
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{"buyer_name": "ACME"}],
+        notes={"buyer_name": "should be ACME"},
+        # notes_consumed omitted
+    )
+    blob = json.loads(reviewed_path(workspace, "p_a", "inv-001.pdf").read_text())
+    # Value was updated.
+    assert blob["entities"][0]["buyer_name"] == "ACME"
+    # Audit trail survives.
+    assert blob["_notes_consumed"]["buyer_name"]["source_ref"] == "j_x.turn_3"
+
+
+async def test_save_reviewed_explicit_empty_dict_clears(workspace: Path) -> None:
+    """Explicit `{}` is the only way for a caller to genuinely clear the
+    consumption map. (None / omitted both preserve.)"""
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{}],
+        notes_consumed={
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:00:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_x.turn_3",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    )
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{}],
+        notes_consumed={},
+    )
+    blob = json.loads(reviewed_path(workspace, "p_a", "inv-001.pdf").read_text())
+    assert "_notes_consumed" not in blob
+
+
+async def test_save_reviewed_none_notes_consumed_preserves_existing(workspace: Path) -> None:
+    """Explicit None is treated like omitted — preserves on-disk."""
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{}],
+        notes_consumed={
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:00:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_x.turn_3",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    )
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{}],
+        notes_consumed=None,
+    )
+    blob = json.loads(reviewed_path(workspace, "p_a", "inv-001.pdf").read_text())
+    assert blob["_notes_consumed"]["buyer_name"]["source_ref"] == "j_x.turn_3"
+
+
+async def test_get_reviewed_returns_notes_consumed(workspace: Path) -> None:
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{}],
+        notes_consumed={
+            "buyer_name": {
+                "consumed_at": "2026-05-16T10:00:00Z",
+                "consumed_via": "accept_candidate",
+                "source_ref": "j_x.turn_3",
+                "active_prompt_id": "pr_baseline",
+            },
+        },
+    )
+    payload = await get_reviewed(workspace, "p_a", "inv-001.pdf")
+    assert payload is not None
+    assert payload["_notes_consumed"]["buyer_name"]["consumed_via"] == "accept_candidate"

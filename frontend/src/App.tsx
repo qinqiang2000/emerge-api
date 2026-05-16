@@ -14,6 +14,12 @@ import { pathForSlug, readSlugFromPathname } from './lib/slugUrl'
 const KEY_LEFT_CHAT    = 'emerge.panel.leftHidden.chat'
 const KEY_RIGHT_CHAT   = 'emerge.panel.rightHidden.chat'
 const KEY_LEFT_REVIEW  = 'emerge.panel.leftHidden.review'
+// In review mode this controls the review chat third column (PDF | Fields |
+// ReviewChatColumn). It used to control ContextSurface visibility in review,
+// but ContextSurface is never rendered while in review (the form needs the
+// full chrome). Key name is preserved so existing user preferences carry over —
+// `true` (the default) keeps the chat closed, matching the prior behavior of
+// hiding the right rail on first entry.
 const KEY_RIGHT_REVIEW = 'emerge.panel.rightHidden.review'
 
 const DEFAULTS = {
@@ -80,13 +86,21 @@ export default function App() {
   const inReview = !!activeFilename
 
   const leftHidden  = inReview ? leftHiddenReview  : leftHiddenChat
-  // Right rail: in chat mode with no project selected, the only payload
-  // is metrics — which needs a project. Force-hide rather than show a
-  // dead "select a project to see metrics" panel. Don't persist this; it
-  // overrides the stored state only while !selectedSlug.
-  const rightHiddenRaw = inReview ? rightHiddenReview : rightHiddenChat
-  const rightHidden = !inReview && !selectedSlug ? true : rightHiddenRaw
-  const rightToggleEnabled = !(!inReview && !selectedSlug)
+  // Right rail behavior:
+  //   - chat mode  → controls the `ContextSurface` fixed overlay and Shell's
+  //                  right-column spacer (so center doesn't slide under it).
+  //                  Force-hidden when no project (metrics need a project).
+  //   - review mode → controls the **review chat third column** *inside*
+  //                  ReviewOverlay. ContextSurface is not rendered. Shell's
+  //                  right-column spacer must collapse to 0 regardless, so the
+  //                  review's 3-col layout can occupy the full center width.
+  const rightHiddenChatEffective = !selectedSlug ? true : rightHiddenChat
+  // For Shell: in review mode always collapse the spacer (no overlay lives
+  // there). For the third column itself we still honor the review-scoped
+  // hidden state — passed separately to ReviewOverlay.
+  const shellRightHidden = inReview ? true : rightHiddenChatEffective
+  const reviewChatHidden = rightHiddenReview
+  const rightToggleEnabled = inReview || !!selectedSlug
 
   const onToggleLeft = useCallback(() => {
     if (inReview) {
@@ -139,17 +153,19 @@ export default function App() {
           ? <ReviewOverlay
               onBack={() => useReview.getState().close()}
               leftHidden={leftHidden}
-              rightHidden={rightHidden}
+              rightHidden={reviewChatHidden}
               onToggleLeft={onToggleLeft}
               onToggleRight={onToggleRight}
             />
           : <ChatPanel />}
         leftHidden={leftHidden}
-        rightHidden={rightHidden}
+        rightHidden={shellRightHidden}
       />
 
-      {/* Floating context panel — fixed overlay, visible when not hidden */}
-      {!rightHidden && rightToggleEnabled && (
+      {/* Floating context panel — fixed overlay, visible when not hidden.
+          Never rendered in review mode: the third column (ReviewChatColumn)
+          owns the right rail there. */}
+      {!inReview && !shellRightHidden && rightToggleEnabled && (
         <aside className="ctx">
           <ContextSurface onToggleRight={onToggleRight} />
         </aside>
@@ -164,7 +180,7 @@ export default function App() {
           className="edge-toggle left"
         />
       )}
-      {!inReview && rightHidden && rightToggleEnabled && (
+      {!inReview && shellRightHidden && rightToggleEnabled && (
         <PanelToggle
           side="right"
           hidden={true}

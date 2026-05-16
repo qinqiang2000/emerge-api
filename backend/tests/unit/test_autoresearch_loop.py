@@ -43,10 +43,13 @@ def _patched_score_and_propose(monkeypatch: pytest.MonkeyPatch, plan: _Plan) -> 
         counters["score"] += 1
         return _fake_score(plan.score_seq[i]), {}
 
-    async def _fake_propose_schema(**kwargs) -> tuple[list[SchemaField], str]:
+    async def _fake_propose_schema(**kwargs) -> tuple[list[SchemaField], str, list[str], list[str]]:
         i = counters["propose"]
         counters["propose"] += 1
-        return plan.propose_seq[i], "rat"
+        # Phase B: propose_schema now returns (proposed, rationale,
+        # validated_notes_hit, filtered_notes_hit). The loop tests don't care
+        # about notes_hit semantics so we return empty lists for both.
+        return plan.propose_seq[i], "rat", [], []
 
     monkeypatch.setattr(ar, "score_with_schema", _fake_score_with_schema)
     monkeypatch.setattr(ar, "propose_schema", _fake_propose_schema)
@@ -166,7 +169,7 @@ async def test_loop_handles_proposer_structural_change(workspace: Path, monkeypa
         counters["propose"] += 1
         if counters["propose"] == 1:
             raise ProposerStructuralChangeError("tried to add field")
-        return [_f()], "ok"
+        return [_f()], "ok", [], []
 
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)

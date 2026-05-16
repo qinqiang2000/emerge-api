@@ -1,13 +1,16 @@
 // frontend/src/stores/docs.ts
 import { create } from 'zustand'
 
-import { listProjectDocs } from '../lib/api'
+import { deleteProjectDoc, listProjectDocs } from '../lib/api'
 import type { DocSummary } from '../types/review'
 
 interface State {
   byProject: Record<string, DocSummary[]>
   loading: boolean
   refresh: (projectId: string) => Promise<void>
+  /** Remove a doc from the server and drop it from local state. The caller
+   *  (review overlay) decides where to navigate next. */
+  remove: (projectId: string, filename: string) => Promise<void>
 }
 
 export const useDocs = create<State>((set) => ({
@@ -21,5 +24,17 @@ export const useDocs = create<State>((set) => ({
     } catch {
       set({ loading: false })
     }
+  },
+  remove: async (projectId, filename) => {
+    await deleteProjectDoc(projectId, filename)
+    set((s) => {
+      const list = s.byProject[projectId] ?? []
+      return {
+        byProject: {
+          ...s.byProject,
+          [projectId]: list.filter((d) => d.filename !== filename),
+        },
+      }
+    })
   },
 }))

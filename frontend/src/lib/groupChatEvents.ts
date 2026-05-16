@@ -10,6 +10,10 @@ const HOISTED_TOOL_NAMES = new Set([
   'mcp__emerge_tools__readiness_check',
   'mcp__emerge_tools__issue_api_key',
   'mcp__emerge_tools__score',
+  // Phase B: save_reviewed is hoisted so its SaveReviewedAdapter (the
+  // "升级到 description / global_notes / 忽略" chip row) renders inline
+  // beneath the tool card after a review-mode feedback turn.
+  'mcp__emerge_tools__save_reviewed',
 ])
 
 export function groupChatEvents(events: ChatEvent[]): RenderItem[] {

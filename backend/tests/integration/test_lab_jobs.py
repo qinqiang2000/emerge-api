@@ -39,7 +39,7 @@ async def test_get_job_status(workspace: Path, monkeypatch) -> None:
     )
 
     async def _score(**kwargs): return _fake_score(0.5), {}
-    async def _propose(**kwargs): return kwargs["schema"], "rat"
+    async def _propose(**kwargs): return kwargs["schema"], "rat", [], []
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 
@@ -87,7 +87,7 @@ async def test_post_job_cancel(workspace: Path, monkeypatch) -> None:
     async def _score(**kwargs):
         await asyncio.sleep(0.5)
         return _fake_score(0.5), {}
-    async def _propose(**kwargs): return kwargs["schema"], "rat"
+    async def _propose(**kwargs): return kwargs["schema"], "rat", [], []
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 

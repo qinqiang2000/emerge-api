@@ -140,6 +140,18 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": str(items)}]}
 
     @tool(
+        "delete_doc",
+        "Remove a doc and every artifact keyed off its filename — file, "
+        "sidecar meta, render cache, draft prediction, reviewed JSON, and "
+        "per-experiment predictions. Returns {removed, filename, artifacts}. "
+        "Destructive; only call after the user explicitly confirms.",
+        {"slug": str, "filename": str},
+    )
+    async def t_delete_doc(args: dict[str, Any]) -> dict[str, Any]:
+        out = await docs_mod.delete_doc(workspace, args["slug"], args["filename"])
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
         "pdf_render_page",
         "Render a PDF page as PNG; returns the path.",
         {"slug": str, "filename": str, "page": int},
@@ -520,23 +532,42 @@ def build_emerge_mcp(
 
     @tool(
         "save_reviewed",
-        "Save a corrected extraction as ground truth for a doc.",
+        "Save a corrected extraction as ground truth for a doc. "
+        "`notes_consumed` is an audit-trail map keyed by field name; it is "
+        "lifecycle metadata maintained by the AutoResearch `accept_candidate` "
+        "flow — agents should normally OMIT it (defensive merge will preserve "
+        "the existing on-disk map). Pass an explicit empty `{}` only when the "
+        "intent is genuinely to clear the map.",
         {
             "slug": str,
             "filename": str,
             "entities": list,
-            "source": str,  # "manual" | "feedback"
+            "source": str,  # "manual" | "feedback" — OMIT to default to "manual"
             "notes": dict,  # optional; pass {} if none
+            "notes_consumed": dict,  # optional; OMIT to preserve existing
         },
     )
     async def t_save_reviewed(args: dict[str, Any]) -> dict[str, Any]:
+        # If the agent omits `notes_consumed`, the kwarg disappears entirely
+        # (so save_reviewed sees its _OMITTED sentinel and preserves on-disk).
+        # If it's present (even {}), pass it through verbatim — save_reviewed
+        # interprets `{}` as "clear" and a populated dict as "replace".
+        try:
+            source = ReviewedSource(args.get("source", "manual"))
+        except ValueError:
+            source = ReviewedSource.MANUAL
+        save_kwargs: dict[str, Any] = {
+            "entities": args["entities"],
+            "source": source,
+            "notes": args.get("notes") or None,
+        }
+        if "notes_consumed" in args:
+            save_kwargs["notes_consumed"] = args["notes_consumed"]
         await reviewed_mod.save_reviewed(
             workspace,
             args["slug"],
             args["filename"],
-            entities=args["entities"],
-            source=ReviewedSource(args.get("source", "manual")),
-            notes=args.get("notes") or None,
+            **save_kwargs,
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 

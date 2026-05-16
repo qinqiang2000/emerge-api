@@ -293,6 +293,42 @@ A tool returns `{ok: false, error: {error_code, error_message_en}}`.
 Surface the error to the user in chat (Chinese OK), suggest a corrective
 action, and do not proceed silently.
 
+## Review-mode feedback triage
+
+When a turn carries a "## Review focus" block, the user is in review mode
+and has selected a specific cell to talk about. Default-route to the
+lowest-commitment action:
+
+1. **Value correction** ("应该是 2024-03-12", "this is wrong, it's ACME"):
+   fix one value on one doc. → `get_prediction` → patch entity →
+   `save_reviewed` (carry forward existing `_notes` and `_notes_consumed`).
+
+2. **Behavior hint** ("这个字段不该等于 PO 号", "always strip currency"):
+   teach about this doc-field, not yet asserting global rule.
+   → `get_reviewed` → set `_notes[field]` → `save_reviewed`.
+   AutoResearch will pick this up next /improve turn. Reply with one
+   short sentence confirming. Do NOT also call `write_prompt`.
+
+3. **Global rule** ("for ALL invoices…", "across the whole project…"):
+   user is asserting policy. Edit `global_notes` directly via
+   `write_prompt` (current schema, new global_notes). No confirm needed.
+
+4. **Schema description edit** ("the description for buyer_name should
+   mention…"): rewrite that field's description.
+   → `read_schema` → mutate description → `write_prompt`. No confirm.
+
+5. **Structural change** ("we need a separate `tax_id` field"): same
+   gate as outside review — propose diff, ask confirmation, then
+   `write_schema(allow_structural=true)`.
+
+**Auto-route. Do NOT ask** "do you want me to save this as a note or
+edit the description?" The UI surfaces a chip after `save_reviewed` for
+the user to escalate when they want.
+
+**Bind every tool call to the filename from "## Review focus"**, NOT to
+any filename the user mentions later in the same turn. The user may
+navigate to the next doc mid-response.
+
 ## When in doubt
 
 Prefer doing the action and showing the user the result. Ask only when

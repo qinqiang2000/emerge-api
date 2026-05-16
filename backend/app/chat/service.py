@@ -196,6 +196,64 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     return "\n".join(lines)
 
 
+def _build_review_focus(review_context: dict[str, Any]) -> str:
+    """Render the "## Review focus" block that gets appended to the system
+    prompt for any turn submitted from the review overlay's chat column.
+
+    The signal here is load-bearing: without it the default extractor skill
+    routes feedback messages through its intent classifier, which for an
+    empty-project state could misread "应该是 住宿账单" as a project rename
+    intent and call `rename_project` instead of `save_reviewed`. See plan
+    `/Users/qinqiang02/.claude/plans/1-human-snazzy-hare.md` motivating bug.
+    """
+    filename = str(review_context.get("filename") or "")
+    field = review_context.get("field")
+    current_value = review_context.get("current_value")
+    entity_index = int(review_context.get("entity_index") or 0)
+
+    lines = [
+        "## Review focus",
+        "",
+        f"The user is reviewing **{filename}** in this project. They selected",
+    ]
+    if field:
+        # Pre-render the value as a short repr — quoting strings, json-ifying
+        # objects, leaving primitives plain. Keep it terse: the agent only
+        # needs the value to anchor the message; long blobs would just bloat
+        # the prompt.
+        if current_value is None:
+            value_repr = "(empty)"
+        elif isinstance(current_value, str):
+            value_repr = repr(current_value)
+        elif isinstance(current_value, (int, float, bool)):
+            value_repr = str(current_value)
+        else:
+            try:
+                value_repr = json.dumps(current_value, ensure_ascii=False)
+            except (TypeError, ValueError):
+                value_repr = str(current_value)
+        lines.append(
+            f"field `{field}` (current value: {value_repr}, entity index {entity_index}) before"
+        )
+        lines.append(
+            "sending this message. Treat the message as feedback about this"
+        )
+        lines.append(
+            "(filename, field) unless they explicitly broaden scope."
+        )
+    else:
+        lines.append(
+            f"this document but no specific field is selected (entity index {entity_index})."
+        )
+        lines.append(
+            "Treat the message as feedback about this document unless they"
+        )
+        lines.append(
+            "explicitly broaden scope."
+        )
+    return "\n".join(lines)
+
+
 async def _emerge_only_permission(
     tool_name: str,
     _input: dict[str, Any],
@@ -257,16 +315,35 @@ class ChatService:
         return self._extractor_skill
 
     def _build_system_prompt(
-        self, user_message: str, *, slug: str, chat_id: str,
+        self,
+        user_message: str,
+        *,
+        slug: str,
+        chat_id: str,
+        review_context: dict[str, Any] | None = None,
     ) -> str:
-        """Skill text + live Active context block. Active context tells the
-        agent which slug it is operating on for this turn — see
-        `_build_active_context` for the rationale."""
-        return (
-            self._select_skill(user_message)
-            + "\n\n---\n\n"
-            + _build_active_context(self.workspace, slug, chat_id)
-        )
+        """Skill text + live Active context block + optional Review focus.
+
+        Active context tells the agent which slug it is operating on for this
+        turn — see `_build_active_context` for the rationale.
+
+        Review focus is appended only when the chat envelope carries a
+        `review_context` (i.e. the user submitted from the review overlay's
+        chat column). The block pins the (filename, field, current_value,
+        entity_index) snapshot so the agent treats the message as feedback
+        about that specific cell instead of routing through default extractor
+        intent classifiers (which would, e.g., misread "应该是 住宿账单" as a
+        project rename intent on an empty-hero turn).
+        """
+        parts = [
+            self._select_skill(user_message),
+            "---",
+            _build_active_context(self.workspace, slug, chat_id),
+        ]
+        if review_context is not None:
+            parts.append("---")
+            parts.append(_build_review_focus(review_context))
+        return "\n\n".join(parts)
 
     def _build_options(
         self,
@@ -275,9 +352,12 @@ class ChatService:
         slug: str,
         chat_id: str,
         resume: str | None = None,
+        review_context: dict[str, Any] | None = None,
     ) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
-            system_prompt=self._build_system_prompt(user_message, slug=slug, chat_id=chat_id),
+            system_prompt=self._build_system_prompt(
+                user_message, slug=slug, chat_id=chat_id, review_context=review_context,
+            ),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
             # Resume the prior SDK conversation so the agent remembers earlier
@@ -311,6 +391,7 @@ class ChatService:
         chat_id: str,
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
+        review_context: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Yield SSE-encoded event strings; caller passes them through to the response.
 
@@ -496,7 +577,11 @@ class ChatService:
 
         try:
             options = self._build_options(
-                user_message, slug=slug, chat_id=chat_id, resume=prev_sid,
+                user_message,
+                slug=slug,
+                chat_id=chat_id,
+                resume=prev_sid,
+                review_context=review_context,
             )
             try:
                 async for chunk in _run(options):
@@ -517,7 +602,11 @@ class ChatService:
                 latest_sid = None
                 yielded_any = False
                 options = self._build_options(
-                    user_message, slug=slug, chat_id=chat_id, resume=None,
+                    user_message,
+                    slug=slug,
+                    chat_id=chat_id,
+                    resume=None,
+                    review_context=review_context,
                 )
                 async for chunk in _run(options):
                     yield chunk
