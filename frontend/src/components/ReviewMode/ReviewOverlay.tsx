@@ -106,6 +106,9 @@ export default function ReviewOverlay({
     : undefined
 
   // ── draggable splitter ──────────────────────────────────────────────
+  // Delta-based: capture startX/startPct on mousedown so the handle stays
+  // glued to the cursor instead of snapping its left edge to clientX on the
+  // first mousemove (which made the splitter jump away from the press point).
   const bodyRef = useRef<HTMLDivElement>(null)
   const SPLIT_MIN = 22, SPLIT_MAX = 78
   const [splitPct, setSplitPct] = useState(() => {
@@ -113,6 +116,8 @@ export default function ReviewOverlay({
     return (v >= SPLIT_MIN && v <= SPLIT_MAX) ? v : 52
   })
   const [splitDrag, setSplitDrag] = useState(false)
+  const splitStartX = useRef(0)
+  const splitStartPct = useRef(splitPct)
 
   useEffect(() => { localStorage.setItem('emerge.revSplit', String(splitPct)) }, [splitPct])
 
@@ -122,8 +127,9 @@ export default function ReviewOverlay({
       const body = bodyRef.current; if (!body) return
       const rect = body.getBoundingClientRect()
       const x = 'touches' in e ? e.touches[0].clientX : e.clientX
-      const pct = ((x - rect.left) / rect.width) * 100
-      setSplitPct(Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, pct)))
+      const dxPct = ((x - splitStartX.current) / rect.width) * 100
+      const next = splitStartPct.current + dxPct
+      setSplitPct(Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, next)))
       if (e.cancelable) e.preventDefault()
     }
     function onUp() { setSplitDrag(false) }
@@ -140,8 +146,10 @@ export default function ReviewOverlay({
   }, [splitDrag])
 
   function startSplitDrag(e: React.MouseEvent | React.TouchEvent) {
-    e.preventDefault()
+    splitStartX.current = 'touches' in e ? e.touches[0].clientX : e.clientX
+    splitStartPct.current = splitPct
     setSplitDrag(true)
+    e.preventDefault()
   }
 
   useEffect(() => {
