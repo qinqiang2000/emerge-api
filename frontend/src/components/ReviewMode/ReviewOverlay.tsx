@@ -207,31 +207,84 @@ export default function ReviewOverlay({
     }
   }
 
-  // ← / → step through docs. We skip when the user is typing in a text field
+  // ── two-step delete (shared by trash button + Backspace shortcut) ──
+  // armed/deleting live here so the keyboard handler can drive them too;
+  // ReviewBar's trash button is purely presentational.
+  const [armedDelete, setArmedDelete] = useState(false)
+  const [deletingDoc, setDeletingDoc] = useState(false)
+  const armTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!armedDelete) return
+    armTimerRef.current = window.setTimeout(() => setArmedDelete(false), 3000)
+    return () => { if (armTimerRef.current != null) window.clearTimeout(armTimerRef.current) }
+  }, [armedDelete])
+  useEffect(() => { setArmedDelete(false) }, [activeFilename])
+
+  const armOrConfirmDelete = () => {
+    if (!activeFilename || deletingDoc) return
+    if (!armedDelete) { setArmedDelete(true); return }
+    setArmedDelete(false)
+    setDeletingDoc(true)
+    void Promise.resolve(handleDelete(activeFilename)).finally(() => setDeletingDoc(false))
+  }
+
+  // Keyboard nav + delete. We skip when the user is typing in a text field
   // (input / textarea / contentEditable) so editing a value never triggers
-  // navigation. PDF area gets the keys — the viewer has no horizontal-arrow
-  // controls of its own.
+  // navigation or delete. PDF area gets the keys — the viewer has no
+  // horizontal-arrow controls of its own.
+  //   ← / →         step through docs
+  //   ⌫ (Backspace) arm delete; second press confirms
+  //   Esc           cancel armed delete
+  //
+  // Enter is intentionally NOT bound: too many focusable elements (sidebar doc
+  // rows, buttons) convert Enter into a click, and a "press Enter to confirm
+  // destructive action" shortcut would either fight those handlers or
+  // require capture-phase interception that surprises users.
+  //
+  // We register in the *capture* phase so this fires before per-element
+  // onKeyDown handlers — Backspace/←/→/Esc are claimed before any inner
+  // listener (e.g. spine rows) can see them.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
       const t = e.target as HTMLElement | null
-      if (t) {
+      const inField = !!t && (() => {
         const tag = t.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-        // `isContentEditable` reflects the rendered editable bit; cover both
-        // the property AND the attribute path so this works in jsdom where
-        // the property occasionally lags the attribute set during fireEvent.
-        if (t.isContentEditable) return
-        if (t.closest && t.closest('[contenteditable="true"]')) return
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+        if (t.isContentEditable) return true
+        if (t.closest && t.closest('[contenteditable="true"]')) return true
+        return false
+      })()
+
+      const claim = () => { e.preventDefault(); e.stopImmediatePropagation() }
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (e.metaKey || e.ctrlKey || e.altKey) return
+        if (inField) return
+        claim()
+        stepTo(e.key === 'ArrowLeft' ? -1 : 1)
+        return
       }
-      e.preventDefault()
-      stepTo(e.key === 'ArrowLeft' ? -1 : 1)
+
+      if (e.key === 'Backspace') {
+        if (e.metaKey || e.ctrlKey || e.altKey) return
+        if (inField) return
+        if (!activeFilename) return
+        claim()
+        armOrConfirmDelete()
+        return
+      }
+
+      if (e.key === 'Escape') {
+        if (!armedDelete) return
+        claim()
+        setArmedDelete(false)
+        return
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId, activeFilename, docs.length, currentIdx])
+  }, [activeProjectId, activeFilename, docs.length, currentIdx, armedDelete, deletingDoc])
 
   const handleToggleExpand = () => setForceOpen(v => (v === true ? false : true))
   const handleSetView = (v: 'form' | 'json') => {
@@ -254,7 +307,9 @@ export default function ReviewOverlay({
         onOpen={open}
         onSave={() => void save()}
         onBack={onBack}
-        onDelete={handleDelete}
+        armedDelete={armedDelete}
+        deletingDoc={deletingDoc}
+        onDeleteTrigger={armOrConfirmDelete}
         activeTabKey={activeTabKey}
         availableExperiments={experimentList}
         onSwitchTab={setActiveTab}

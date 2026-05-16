@@ -1,5 +1,4 @@
 // frontend/src/components/ReviewMode/ReviewBar.tsx
-import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, MessageSquare, Trash2 } from 'lucide-react'
 
 import type { DocSummary, ExperimentSummary } from '../../types/review'
@@ -21,9 +20,13 @@ type Props = {
   onOpen: (pid: string, filename: string) => void
   onSave: () => void
   onBack: () => void
-  /** Delete the currently-open doc. Receives the filename so the parent can
-   *  decide what to navigate to next (next doc, prev doc, or back to chat). */
-  onDelete: (filename: string) => Promise<void> | void
+  /** Two-step delete state lives in the parent so the Backspace shortcut and
+   *  the trash button drive the same armed/confirm cycle. */
+  armedDelete: boolean
+  deletingDoc: boolean
+  /** Single entry point for "the user wants to delete": first call arms,
+   *  second call (within 3 s) confirms. Parent owns the timer + side effect. */
+  onDeleteTrigger: () => void
   // ── inline tab strip ──
   activeTabKey: 'active' | string
   availableExperiments: ExperimentSummary[]
@@ -50,7 +53,9 @@ export default function ReviewBar({
   onOpen,
   onSave,
   onBack,
-  onDelete,
+  armedDelete,
+  deletingDoc,
+  onDeleteTrigger,
   activeTabKey,
   availableExperiments,
   onSwitchTab,
@@ -77,33 +82,6 @@ export default function ReviewBar({
 
   const allExpanded = forceOpen === true
 
-  // ── two-step delete confirm ──
-  // First click reveals the confirm popover anchored to the trash icon; second
-  // click runs the delete. A 3 s no-action timer rolls it back so an accidental
-  // first click can't sit waiting forever. We track `armed` on the button (not
-  // the popover) so clicking elsewhere also dismisses.
-  const [armed, setArmed] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const armTimer = useRef<number | null>(null)
-  useEffect(() => {
-    if (!armed) return
-    armTimer.current = window.setTimeout(() => setArmed(false), 3000)
-    return () => {
-      if (armTimer.current != null) window.clearTimeout(armTimer.current)
-    }
-  }, [armed])
-  // Reset arm state when the active doc changes (navigating past a half-armed
-  // confirm should never carry over to the next doc).
-  useEffect(() => { setArmed(false) }, [activeFilename])
-
-  const handleTrashClick = () => {
-    if (!activeFilename || deleting) return
-    if (!armed) { setArmed(true); return }
-    setArmed(false)
-    setDeleting(true)
-    Promise.resolve(onDelete(activeFilename)).finally(() => setDeleting(false))
-  }
-
   const status = activeDoc ? docStatus(activeDoc) : null
 
   return (
@@ -129,14 +107,14 @@ export default function ReviewBar({
           <span className="title-actions">
             <button
               type="button"
-              className={'trash' + (armed ? ' armed' : '')}
-              onClick={handleTrashClick}
-              disabled={deleting}
-              aria-label={armed ? 'click again to confirm delete' : 'delete this file'}
-              title={armed ? "click again — can't be undone" : 'delete this file'}
+              className={'trash' + (armedDelete ? ' armed' : '')}
+              onClick={onDeleteTrigger}
+              disabled={deletingDoc}
+              aria-label={armedDelete ? '⌫ again to confirm delete, Esc to cancel' : 'delete this file (⌫)'}
+              title={armedDelete ? "⌫ again to confirm · Esc cancel" : 'delete this file · ⌫'}
             >
               <Trash2 size={13} strokeWidth={1.75} />
-              {armed && <span className="trash-confirm">confirm · can't be undone</span>}
+              {armedDelete && <span className="trash-confirm">⌫ again to confirm · Esc cancel</span>}
             </button>
           </span>
         </div>
