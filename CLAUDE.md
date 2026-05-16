@@ -48,6 +48,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - **不读取/打印/提交 secrets**：不要读取或输出 `backend/.env`、provider key、JWT、API key 明文、token/password；前端示例只使用 `EMERGE_API_KEY` 等占位符。API key 明文只允许在 create-key 响应后的 one-time reveal 中短暂存在
 - **Agent brain (SDK) 与 Extract LLM (provider adapter) 是分离代码路径**。tool 内绝不递归回 SDK
 - **`schema.json` 只通过 `write_schema` tool 修改**；autoresearch 只写 `versions/_candidate/`，user-accept 才 atomic copy 到 `schema.json`
+- **Doc vision is pulled, not pushed**。当前 review doc 通过 `surface_context.filename` 暴露为指针——字节不会自动 inline 进任何 chat turn。Agent 在（且仅在）问题需要视觉时调 `read_doc_image(slug, filename, page)`。不要给 `_load_image_blocks` 加 "auto-attach current doc" 分支——多数 review turn 是纯文字反馈，那样会无谓推高 token 成本
 
 ## 仓库布局
 

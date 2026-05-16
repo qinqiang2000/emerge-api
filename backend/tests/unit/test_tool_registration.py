@@ -151,3 +151,19 @@ def test_fork_and_import_in_emerge_tool_names() -> None:
     from app.tools import _EMERGE_TOOL_NAMES
     assert "fork_project" in _EMERGE_TOOL_NAMES
     assert "import_prompt" in _EMERGE_TOOL_NAMES
+
+
+async def test_read_doc_image_registered(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """`read_doc_image` is the pull-mode vision tool added by the
+    progressive-doc-vision plan (2026-05-16). Mirrors the assertion shape
+    used for the other "tool exists" smoke checks above — present in both
+    the live MCP server and the `_EMERGE_TOOL_NAMES` canonical tuple."""
+    from unittest.mock import MagicMock
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    names = await _extract_tool_names(server)
+    assert "read_doc_image" in names
+    assert "read_doc_image" in _emerge_tool_names()

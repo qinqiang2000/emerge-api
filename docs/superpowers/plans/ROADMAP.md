@@ -29,6 +29,7 @@
 | **M9.3** — experiments axis + Review-mode multi-tab (7 MCP tools + 4 HTTP routes + `useExperiments` store + `ExperimentTabStrip` + FSSpine group + read-only experiment tabs; closes M9.2 follow-up: delete_prompt/delete_model now block on non-archived experiment refs) | `2026-05-13-m9-3-experiments-and-review-tabs.md` | ✅ shipped | `f0f6f13..aa1847b` (25 commits — 18 feat/fix/test/docs + 7 polish from spec/code reviews) |
 | **M9.4** — cross-project fork + import_prompt (clone-at-time, hard rule "no live link"; whitelist-driven fork copies project.json + prompts/ + models/; import mints fresh prompt_id with `{src_pid}/{src_prompt_id}` lineage) | `2026-05-14-m9-4-fork-and-import.md` | ✅ shipped (pending T8 live dogfood) | `1732f2e..4fe82f2` (8 task commits + 1 polish) |
 | **M9.5** — paste-attachments ≠ docs samples (chat-scoped attachments + `promote_attachment_to_docs` tool; "显式告知才进入样本集") | `2026-05-14-paste-attachments-vs-docs.md` | 🚧 in progress | — |
+| **2026-05-16** — progressive doc vision (pull-mode `read_doc_image` tool + Hard rule: doc vision is pulled, not pushed) | `2026-05-16-progressive-doc-vision.md` | 🚧 in progress (T1–T4 done, awaiting T5 live verify) | — |
 
 ## What each milestone delivers
 

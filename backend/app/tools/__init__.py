@@ -165,6 +165,37 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": str(p)}]}
 
     @tool(
+        "read_doc_image",
+        "Return the visual content of one doc as an inline image so you can see "
+        "what the user sees. Use this when the user asks about the visual content "
+        "of a doc you can't read from JSON state alone (e.g. 'what is this doc', "
+        "'识别一下', 'is this page blurry'). PNG/JPG: pass page=1 (ignored). "
+        "PDF: pass the specific page; check surface_context.page if the user is "
+        "in review mode. Do NOT call extract just to 'see' a doc — that uses an "
+        "LLM call to produce structured JSON; this tool gives you direct vision. "
+        "If you need multiple pages of a long PDF, call this tool once per page.",
+        {"slug": str, "filename": str, "page": int},
+    )
+    async def t_read_doc_image(args: dict[str, Any]) -> dict[str, Any]:
+        out = await docs_mod.read_doc_image(
+            workspace, args["slug"], args["filename"],
+            page=int(args.get("page") or 1),
+        )
+        return {
+            "content": [
+                {"type": "image", "data": out["data"], "mimeType": out["mime"]},
+                {
+                    "type": "text",
+                    "text": _json.dumps({
+                        "filename": out["filename"],
+                        "page": out["page"],
+                        "page_count": out["page_count"],
+                    }),
+                },
+            ]
+        }
+
+    @tool(
         "derive_schema",
         "Propose a schema from sample documents and a user intent.",
         {"slug": str, "sample_filenames": list, "intent": str},
@@ -808,6 +839,7 @@ def build_emerge_mcp(
             t_promote_attachment_to_docs,
             t_list_docs,
             t_pdf_render_page,
+            t_read_doc_image,
             t_derive_schema,
             t_read_schema,
             t_write_schema,
@@ -858,7 +890,7 @@ def build_emerge_mcp(
 _EMERGE_TOOL_NAMES = (
     "create_project", "rename_project", "list_projects", "upload_doc",
     "ingest_local_path",
-    "promote_attachment_to_docs", "list_docs", "pdf_render_page",
+    "promote_attachment_to_docs", "list_docs", "pdf_render_page", "read_doc_image",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",

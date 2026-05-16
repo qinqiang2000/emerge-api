@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -289,6 +290,75 @@ async def pdf_render_page(
         pix = pdf[page - 1].get_pixmap(dpi=dpi)
         atomic_write_bytes(out, pix.tobytes("png"))
     return out
+
+
+# Filename suffix → mime returned by `read_doc_image`. Mirrors
+# `chat/service._load_image_blocks`'s `_IMAGE_MEDIA_TYPE` for the PNG/JPG
+# branch; PDFs render to PNG via `pdf_render_page` first.
+_IMAGE_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+
+
+async def read_doc_image(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    *,
+    page: int = 1,
+) -> dict[str, Any]:
+    """Return one doc as a base64 image payload for MCP tool-result content.
+
+    - PNG/JPG → reads `docs/<filename>` directly; `page` is ignored
+      (single-page assets).
+    - PDF → calls `pdf_render_page(... page=page)` to (re-)materialize the
+      cached PNG and reads those bytes; mime is `image/png`.
+
+    `page_count` comes from the sidecar at `doc_meta_path(...)` (PNG/JPG
+    sidecars carry `page_count=1` by `_count_pages` contract).
+
+    Unsupported extensions raise `ValueError`. Missing files surface the
+    underlying `OSError` from `read_bytes()` (same shape as `read_doc`).
+
+    Returns:
+        `{"data": "<base64>", "mime": "image/png"|"image/jpeg",
+          "filename": <on-disk name>, "page": <int>, "page_count": <int>}`
+    """
+    if "." not in filename:
+        raise ValueError(f"read_doc_image unsupported ext: {filename!r}")
+    ext = filename.rsplit(".", 1)[1].lower()
+
+    if ext in _IMAGE_MIME:
+        data = doc_path(workspace, project_id, filename).read_bytes()
+        mime = _IMAGE_MIME[ext]
+        resolved_page = 1
+    elif ext == "pdf":
+        rendered = await pdf_render_page(
+            workspace, project_id, filename, page=page,
+        )
+        data = rendered.read_bytes()
+        mime = "image/png"
+        resolved_page = page
+    else:
+        raise ValueError(f"read_doc_image unsupported ext: {filename!r}")
+
+    try:
+        meta = json.loads(
+            doc_meta_path(workspace, project_id, filename).read_text()
+        )
+        page_count = int(meta.get("page_count", 1) or 1)
+    except (OSError, json.JSONDecodeError):
+        # Sidecar missing/corrupt isn't fatal — image bytes are valid; we
+        # just don't know the page total. Falls back to 1 (best the agent
+        # can do without it).
+        page_count = 1
+
+    b64 = base64.standard_b64encode(data).decode("ascii")
+    return {
+        "data": b64,
+        "mime": mime,
+        "filename": filename,
+        "page": resolved_page,
+        "page_count": page_count,
+    }
 
 
 class IngestLocalError(ValueError):

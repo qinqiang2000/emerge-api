@@ -116,6 +116,11 @@ Routing for chat attachments:
 - **Ad-hoc question** ("what's this?", "can you read this?", "识别一下"):
   answer using the image block directly. Do **not** promote, do **not**
   upload, do **not** call `derive_schema`.
+- **For `docs/` files the user references but did NOT just paste this turn**:
+  the file is NOT in the current turn's image blocks (we don't auto-attach).
+  To see it, call `read_doc_image(slug, filename, page)`. Do NOT ask the
+  user to re-paste — they can already see the file in the UI; we just need
+  a pull instead of a push.
 - **Clear extraction intent** ("extract this", "提取", "build a schema",
   user drops 3+ similar files): ask first —
   "要把这 N 张图收进项目样本集（docs/）吗？收进后才能跑提取并保存预测结果。"
@@ -354,6 +359,20 @@ context" and `filename` is from "## Surface context".
   "这个 doc 啥状态" / "pending 啥意思" / "did exp_xyz run on this" — answer
   from the returned payload rather than inventing. Phase 1 does NOT compute
   schema drift; do not claim drift detection.
+- `read_doc_image(slug, filename, page)` — pull the visual content of one
+  doc as an inline image. Use when the user asks about visible content
+  ("这是什么文档", "这张图里写的啥", "is the receipt blurry") and the
+  surface_context filename + JSON state from `get_surface_state` aren't
+  enough. PDF: pass `surface_context.page`; PNG/JPG: page=1.
+
+  **Pull, not push.** We do NOT auto-attach the current doc to every
+  review turn — vision tokens are only paid when you call this tool. If
+  the question is about labels, descriptions, or schema state, answer
+  from JSON tools (`read_schema`, `get_prediction`, `get_reviewed`,
+  `get_surface_state`) without calling this one. Also: do NOT call
+  `extract_one` / `extract_batch` just to "see" a doc — extract produces
+  structured JSON via a separate LLM call; `read_doc_image` gives you
+  direct vision at no extra LLM cost.
 
 These ui_actions don't touch disk — they're pure navigation. Per
 "## When in doubt", execute directly without confirming.
