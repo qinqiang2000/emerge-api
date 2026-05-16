@@ -4,7 +4,7 @@ import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
 import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
-import SchemaQuickLook from './components/QuickLook/SchemaQuickLook'
+import PromptQuickLook from './components/QuickLook/PromptQuickLook'
 import PanelToggle from './components/Shell/PanelToggle'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
@@ -188,7 +188,7 @@ export default function App() {
           className="edge-toggle right"
         />
       )}
-      <SchemaQuickLook />
+      <PromptQuickLook />
     </>
   )
 }

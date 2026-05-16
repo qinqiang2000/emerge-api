@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import SchemaQuickLook from '../../src/components/QuickLook/SchemaQuickLook'
+import PromptQuickLook from '../../src/components/QuickLook/PromptQuickLook'
 import { useQuickLook } from '../../src/stores/quicklook'
 import { useProjects } from '../../src/stores/projects'
 import { useSchema } from '../../src/stores/schema'
 import { usePrompts } from '../../src/stores/prompts'
 
-describe('SchemaQuickLook', () => {
+describe('PromptQuickLook', () => {
   beforeEach(() => {
     useQuickLook.getState().close()
     // Slug = 'p_test' here only because the original fixture used `p_test` as
@@ -27,60 +27,89 @@ describe('SchemaQuickLook', () => {
   })
 
   it('renders nothing when target is null', () => {
-    const { container } = render(<SchemaQuickLook />)
+    const { container } = render(<PromptQuickLook />)
     expect(container.firstChild).toBeNull()
   })
 
-  it('opens with fields tab by default', () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+  it('opens with prompt tab by default', () => {
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     expect(screen.getByText('prompts/active')).toBeInTheDocument()
     expect(screen.getByText('invoice_number')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /fields/i })).toHaveClass('ql-tab--active')
+    expect(screen.getByRole('button', { name: /^prompt$/i })).toHaveClass('ql-tab--active')
   })
 
   it('Esc key closes the sheet', async () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     await userEvent.keyboard('{Escape}')
     expect(useQuickLook.getState().target).toBeNull()
   })
 
   it('scrim click closes the sheet', async () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     await userEvent.click(screen.getByTestId('ql-scrim'))
     expect(useQuickLook.getState().target).toBeNull()
   })
 
   it('click on sheet body does not close', async () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     await userEvent.click(screen.getByText('prompts/active'))
     expect(useQuickLook.getState().target).not.toBeNull()
   })
 
   it('switching project closes the sheet', () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     useProjects.setState({ selectedSlug: 'p_other' })
     expect(useQuickLook.getState().target).toBeNull()
   })
 
-  it('tab click switches between fields and raw json', async () => {
+  it('tab click switches between prompt and raw json', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('[]', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      new Response(JSON.stringify({ prompt_id: 'pr_baseline', schema: [], global_notes: '' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
     )
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
     await userEvent.click(screen.getByRole('button', { name: /raw json/i }))
     expect(screen.getByRole('button', { name: /raw json/i })).toHaveClass('ql-tab--active')
   })
 
-  it('footer renders the description-vs-notes hint', () => {
-    useQuickLook.getState().openSchema('p_test')
-    render(<SchemaQuickLook />)
-    expect(screen.getByText(/description goes into the prompt/i)).toBeInTheDocument()
+  it('footer renders the notes-vs-review hint', () => {
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
+    expect(screen.getByText(/notes \+ field descriptions go into the prompt/i)).toBeInTheDocument()
     expect(screen.getByText(/feed AutoResearch/i)).toBeInTheDocument()
+  })
+
+  it('renders notes textarea pre-populated from activePrompt', () => {
+    usePrompts.setState({
+      list: { p_test: [] },
+      activeByProject: { p_test: { prompt_id: 'pr_baseline', label: 'Baseline', schema: [], global_notes: 'be terse', derived_from: null, created_at: 'x', updated_at: 'x' } as any },
+      loading: {},
+    })
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
+    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    expect(ta.value).toBe('be terse')
+  })
+
+  it('blur on notes textarea dispatches saveActive(slug, fields, notes)', async () => {
+    const saveSpy = vi.spyOn(useSchema.getState(), 'saveActive').mockResolvedValue(null)
+    useQuickLook.getState().openPrompt('p_test')
+    render(<PromptQuickLook />)
+    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    await userEvent.click(ta)
+    await userEvent.type(ta, 'new notes')
+    ta.blur()
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled())
+    const fields = useSchema.getState().byProject['p_test']
+    expect(saveSpy).toHaveBeenCalledWith('p_test', fields, 'new notes')
+    saveSpy.mockRestore()
   })
 })

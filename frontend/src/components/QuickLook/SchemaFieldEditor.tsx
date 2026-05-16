@@ -74,9 +74,9 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
     return (
       <div>
         <div className="ql-edit-empty">
-          no fields yet — add one to start, or type /init in the chat for an agent-assisted draft.
+          还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + add fields。
         </div>
-        <FooterAdd onAdd={handleAdd} />
+        <FooterAdd onAdd={handleAdd} label="+ add fields" />
         {error && <ErrorBanner err={error} />}
       </div>
     )
@@ -98,11 +98,11 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
   )
 }
 
-function FooterAdd({ onAdd, pending }: { onAdd: () => void; pending?: boolean }) {
+function FooterAdd({ onAdd, pending, label }: { onAdd: () => void; pending?: boolean; label?: string }) {
   return (
     <div className="ql-edit-foot">
       <button type="button" className="ql-edit-add" onClick={onAdd} disabled={pending}>
-        + field
+        {label ?? '+ field'}
       </button>
       {pending && <span className="ql-edit-pending">saving…</span>}
     </div>

@@ -44,11 +44,11 @@ describe('FSSpine → QuickLook wiring', () => {
     expect(screen.getByText('models/')).toBeInTheDocument()
   })
 
-  it('clicking the active prompt row opens schema QuickLook', async () => {
+  it('clicking the active prompt row opens prompt QuickLook', async () => {
     render(<FSSpine />)
     await userEvent.click(screen.getByText('prompts/'))
     await userEvent.click(screen.getByText('Baseline'))
-    expect(useQuickLook.getState().target).toEqual({ kind: 'schema', pid: SLUG })
+    expect(useQuickLook.getState().target).toEqual({ kind: 'prompt', pid: SLUG, promptId: undefined })
   })
 
   it('clicking a versions/vN leaf opens version QuickLook', async () => {

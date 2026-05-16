@@ -7,7 +7,7 @@ import { useQuickLook } from '../../src/stores/quicklook'
 describe('RawJsonTab', () => {
   beforeEach(() => {
     useQuickLook.setState({
-      target: { kind: 'schema', pid: 'p_test' },
+      target: { kind: 'prompt', pid: 'p_test' },
       rawJson: { value: null, loading: false, error: null },
     })
   })
@@ -23,10 +23,10 @@ describe('RawJsonTab', () => {
 
   it('shows error message and retry link on failure', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('{"detail":{"error_code":"schema_not_found"}}', { status: 404 }),
+      new Response('{"detail":{"error_code":"prompt_not_found"}}', { status: 404 }),
     )
     render(<RawJsonTab />)
-    await waitFor(() => expect(screen.getByText(/schema_not_found/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/prompt_not_found/i)).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
   })
 
@@ -34,7 +34,7 @@ describe('RawJsonTab', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     useQuickLook.setState({
-      target: { kind: 'schema', pid: 'p_test' },
+      target: { kind: 'prompt', pid: 'p_test' },
       rawJson: { value: '[\n  "abc"\n]', loading: false, error: null },
     })
     render(<RawJsonTab />)

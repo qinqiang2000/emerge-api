@@ -97,7 +97,6 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const modelListByProject = useModels(s => s.list)
   const experimentListByProject = useExperiments(s => s.list)
 
-  const openSchema = useQuickLook(s => s.openSchema)
   const openVersion = useQuickLook(s => s.openVersion)
   const openPrompt = useQuickLook(s => s.openPrompt)
   const openReview = useReview(s => s.open)
@@ -155,10 +154,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       stamp: '',
       active: row.is_active,
       onClick: row.is_active
-        ? () => openSchema(selectedSlug)
+        ? () => openPrompt(selectedSlug)
         : () => openPrompt(selectedSlug, row.prompt_id),
     }))
-  }, [selectedSlug, promptListByProject, openSchema, openPrompt])
+  }, [selectedSlug, promptListByProject, openPrompt])
 
   // Build models leaf nodes
   const modelItems: LeafNode[] = useMemo(() => {

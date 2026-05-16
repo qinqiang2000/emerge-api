@@ -3,10 +3,10 @@
 interface Item { cmd: string; desc: string }
 
 const COMMANDS: Item[] = [
-  { cmd: '/init',    desc: 'derive a schema from the documents in this folder' },
+  { cmd: '/init',    desc: 'derive a prompt from the documents in this folder' },
   { cmd: '/extract', desc: 'run extraction on every doc, or a subset' },
   { cmd: '/review',  desc: 'open the next pending document for review' },
-  { cmd: '/eval',    desc: 'score current schema against reviewed/' },
+  { cmd: '/eval',    desc: 'score current prompt against reviewed/' },
   { cmd: '/improve', desc: 'long-running: refine field descriptions to lift F1' },
   { cmd: '/publish', desc: 'freeze a version and mint an API key' },
 ]

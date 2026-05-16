@@ -19,9 +19,9 @@ test('quick-look: schema entry points + tab switch + close affordances', async (
   await expect(page.locator('.ql-sheet')).toBeVisible()
   await expect(page.locator('.ql-title')).toHaveText('prompts/active')
 
-  // Fields tab is default; both seeded fields render.
-  await expect(page.locator('.ql-field-name', { hasText: 'invoice_number' })).toBeVisible()
-  await expect(page.locator('.ql-field-name', { hasText: 'total_amount' })).toBeVisible()
+  // Prompt tab is default; both seeded fields render.
+  await expect(page.locator('.ql-edit-name', { hasText: 'invoice_number' })).toBeVisible()
+  await expect(page.locator('.ql-edit-name', { hasText: 'total_amount' })).toBeVisible()
 
   // Lineage row renders pr_baseline for a fresh project (M9.1 baseline lineage).
   await expect(page.locator('.ql-lineage')).toContainText('derived from:')
@@ -43,8 +43,8 @@ test('quick-look: schema entry points + tab switch + close affordances', async (
   await expect(page.locator('.ql-sheet')).toBeVisible()
   await expect(page.locator('.ql-title')).toHaveText('prompts/active')
 
-  // Footer hint (description-vs-notes) is present.
-  await expect(page.locator('.ql-footer')).toContainText('description goes into the prompt')
+  // Footer hint (notes-vs-review) is present.
+  await expect(page.locator('.ql-footer')).toContainText('notes + field descriptions go into the prompt')
   await expect(page.locator('.ql-footer')).toContainText('AutoResearch')
 
   // Close with scrim click (click outside the sheet body).

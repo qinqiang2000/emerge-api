@@ -11,7 +11,7 @@ export default function QuickLookHeader({ target, activeVersionId, derivedFrom, 
   let title: string
   if (target.kind === 'version') {
     title = `versions/${target.versionId}`
-  } else if (target.kind === 'prompt') {
+  } else if (target.promptId) {
     title = `prompts/${target.promptId}`
   } else {
     title = 'prompts/active'
@@ -20,7 +20,7 @@ export default function QuickLookHeader({ target, activeVersionId, derivedFrom, 
   let badge: { text: string; tone: 'active' | 'frozen' | 'draft' }
   if (target.kind === 'version') {
     badge = { text: `${target.versionId} · frozen`, tone: 'frozen' }
-  } else if (target.kind === 'prompt') {
+  } else if (target.promptId) {
     badge = { text: 'variant', tone: 'draft' }
   } else if (activeVersionId) {
     badge = { text: `${activeVersionId} · active`, tone: 'active' }

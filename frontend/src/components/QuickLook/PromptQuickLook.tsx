@@ -4,20 +4,20 @@ import { useQuickLook } from '../../stores/quicklook'
 import { useProjects } from '../../stores/projects'
 import { usePrompts } from '../../stores/prompts'
 import QuickLookHeader from './QuickLookHeader'
-import FieldsTab from './FieldsTab'
+import PromptTab from './PromptTab'
 import RawJsonTab from './RawJsonTab'
 import './styles.css'
 
-type Tab = 'fields' | 'raw'
+type Tab = 'prompt' | 'raw'
 
-export default function SchemaQuickLook() {
+export default function PromptQuickLook() {
   const target = useQuickLook(s => s.target)
   const close = useQuickLook(s => s.close)
   const projects = useProjects(s => s.projects)
-  const [tab, setTab] = useState<Tab>('fields')
+  const [tab, setTab] = useState<Tab>('prompt')
 
   // Reset tab when a new target opens.
-  useEffect(() => { setTab('fields') }, [target])
+  useEffect(() => { setTab('prompt') }, [target])
 
   // Esc to close.
   useEffect(() => {
@@ -46,7 +46,7 @@ export default function SchemaQuickLook() {
   const promptList = usePrompts(s => target ? s.list[target.pid] : undefined)
   const loadPrompts = usePrompts(s => s.load)
   useEffect(() => {
-    if (target && (target.kind === 'schema' || target.kind === 'prompt')) void loadPrompts(target.pid)
+    if (target && target.kind === 'prompt') void loadPrompts(target.pid)
   }, [target, loadPrompts])
 
   if (!target) return null
@@ -54,10 +54,12 @@ export default function SchemaQuickLook() {
   // QuickLook `target.pid` holds a slug (post-transparency rename). Match by slug.
   const activeVersionId = projects.find(p => p.slug === target.pid)?.active_version_id ?? null
   let derivedFrom: string | null = null
-  if (target.kind === 'schema') {
-    derivedFrom = activePrompt?.derived_from ?? null
-  } else if (target.kind === 'prompt') {
-    derivedFrom = promptList?.find(p => p.prompt_id === target.promptId)?.derived_from ?? null
+  if (target.kind === 'prompt') {
+    if (target.promptId) {
+      derivedFrom = promptList?.find(p => p.prompt_id === target.promptId)?.derived_from ?? null
+    } else {
+      derivedFrom = activePrompt?.derived_from ?? null
+    }
   }
 
   return createPortal(
@@ -72,10 +74,10 @@ export default function SchemaQuickLook() {
         <div className="ql-tabs">
           <button
             type="button"
-            className={`ql-tab${tab === 'fields' ? ' ql-tab--active' : ''}`}
-            onClick={() => setTab('fields')}
+            className={`ql-tab${tab === 'prompt' ? ' ql-tab--active' : ''}`}
+            onClick={() => setTab('prompt')}
           >
-            fields
+            prompt
           </button>
           <button
             type="button"
@@ -87,12 +89,12 @@ export default function SchemaQuickLook() {
         </div>
 
         <div className="ql-body">
-          {tab === 'fields' ? <FieldsTab target={target} /> : <RawJsonTab />}
+          {tab === 'prompt' ? <PromptTab target={target} /> : <RawJsonTab />}
         </div>
 
         <div className="ql-footer">
-          description goes into the prompt at publish time. review notes (per-doc) feed
-          AutoResearch only — they propose description tweaks but never become prompt.
+          notes + field descriptions go into the prompt at publish time. review notes (per-doc)
+          feed AutoResearch only — they propose tweaks but never become prompt.
         </div>
       </div>
     </div>,
