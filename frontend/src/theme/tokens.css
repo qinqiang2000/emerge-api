@@ -12,10 +12,17 @@
   --ochre:      #B5642C;
   --ochre-2:    #8E4A1E;
   --ochre-soft: #EFD9C4;
+  --ochre-edge: #E9C8AB;
   --moss:       #5C6B3A;
+  --moss-2:     #445228;
   --moss-soft:  #D7DBC2;
+  --moss-edge:  #C4CBA8;
   --rose:       #A6453F;
+  --rose-2:     #82302B;
   --rose-soft:  #EAC9C5;
+  --rose-edge:  #DDB4AE;
+  --mute:       #7A766A;
+  --mute-soft:  #E2DFD5;
   --serif: 'Lora', 'Iowan Old Style', 'Apple Garamond', Georgia, serif;
   --mono:  'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans:  'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;

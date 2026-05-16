@@ -66,6 +66,35 @@
 /* Footer */
 .ql-footer { padding: 12px 20px; border-top: 1px solid var(--paper-3); font-size: 12px; color: var(--ink-4); line-height: 1.4; }
 
+/* ── Prompt tab stack: notes on top, fields below ───────────────────────── */
+.ql-prompt-stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── Notes editor (global_notes for the active prompt) ──────────────────── */
+.ql-notes { display: flex; flex-direction: column; gap: 4px; }
+.ql-notes-lab {
+  font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px;
+  color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.06em;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.ql-notes-ta {
+  width: 100%; box-sizing: border-box;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.5;
+  color: var(--ink); background: var(--paper-2);
+  border: 1px solid var(--paper-3); border-radius: 4px;
+  padding: 8px 10px; outline: none; resize: vertical;
+  min-height: 64px; max-height: 50vh; overflow-y: auto;
+}
+.ql-notes-ta:focus { box-shadow: 0 0 0 1px var(--ochre-soft) inset; }
+.ql-notes-ta::placeholder { color: var(--ink-5); font-style: italic; }
+.ql-notes-ro {
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.5;
+  color: var(--ink-2); background: var(--paper-2);
+  border: 1px solid var(--paper-3); border-radius: 4px;
+  padding: 8px 10px; margin: 0; white-space: pre-wrap; word-break: break-word;
+  max-height: 50vh; overflow-y: auto;
+}
+.ql-notes-ro--empty { color: var(--ink-5); font-style: italic; }
+
 /* ── Schema editor (prompts/active inline edit) ─────────────────────────── */
 .ql-edit-list { display: flex; flex-direction: column; }
 .ql-edit-empty { font-size: 13px; color: var(--ink-5); font-style: italic; padding: 12px 0; }

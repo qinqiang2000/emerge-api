@@ -1,0 +1,100 @@
+/* Reminder — unified callout for notes / tips / cautions / warnings.
+   See design source: Desktop/emerge-api/Reminder Component.html
+   Forms ship in tranches; current set: block + inline pill. */
+
+/* Each intent maps to three local vars (bg / edge / rail). Forms read these
+   so adding a new form is layout-only — never repeats the intent table. */
+.rm,
+.rm-inline {
+  --rm-bg: var(--paper);
+  --rm-edge: var(--rule);
+  --rm-rail: var(--mute);
+}
+.rm.note,    .rm-inline.note    { --rm-bg: #FBFAF6; --rm-edge: var(--rule);       --rm-rail: var(--mute); }
+.rm.tip,     .rm-inline.tip     { --rm-bg: #F7F8EE; --rm-edge: var(--moss-edge);  --rm-rail: var(--moss-2); }
+.rm.caution, .rm-inline.caution { --rm-bg: #FBF1E5; --rm-edge: var(--ochre-edge); --rm-rail: var(--ochre-2); }
+.rm.warning, .rm-inline.warning { --rm-bg: #FAEBE8; --rm-edge: var(--rose-edge);  --rm-rail: var(--rose-2); }
+
+/* ── block form ────────────────────────────────────────────────────────── */
+.rm {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  padding: 14px 16px 14px 14px;
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-edge);
+  border-left: 3px solid var(--rm-rail);
+  border-radius: 6px;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  letter-spacing: 0.005em;
+}
+.rm-icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--rm-edge);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--rm-rail);
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-style: italic;
+  font-size: 13px;
+}
+.rm-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rm-title {
+  font-family: var(--serif);
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--ink);
+  font-style: italic;
+  letter-spacing: 0.005em;
+}
+.rm-text { color: inherit; }
+.rm-text code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--rm-rail);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* ── inline pill ───────────────────────────────────────────────────────── */
+.rm-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 8px 2px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--rm-edge);
+  background: var(--rm-bg);
+  color: var(--rm-rail);
+  vertical-align: baseline;
+  line-height: 1.4;
+}
+.rm-inline .rm-glyph {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--rm-rail);
+  line-height: 1;
+}
+.rm-inline.note { color: var(--ink-3); }
+
+/* Fade entry — keeps the saved-pill from popping in jarringly. */
+.rm-inline {
+  animation: rm-pill-in 140ms ease-out;
+}
+@keyframes rm-pill-in {
+  from { opacity: 0; transform: translateY(-1px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
