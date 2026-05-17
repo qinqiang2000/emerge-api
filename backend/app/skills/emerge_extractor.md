@@ -67,6 +67,40 @@ Workflow:
 The user views per-experiment extracts in Review mode by clicking the `[+]`
 button on the tab strip — you do NOT need to switch the user there manually.
 
+## Pro labeler (pre-label)
+
+A stronger, slower model (the "pro old-timer", e.g. `gemini-pro-latest`) can
+draft labels for the human boss to verify. Use this when the user says
+"pro 先标一版" / "用大模型预标这批" / "stand by N张" / "labeler 跑一遍".
+
+Workflow:
+
+1. Call `pre_label(slug, filenames=[...], labeler_model?)` — writes draft to
+   `reviewed/_pending/{filename}.json` per doc. Skips docs already in
+   `reviewed/` (human-verified wins). Overwrites existing pending (re-run with
+   a different model OK). Returns
+   `{processed, skipped, errors, labeler_model}`.
+2. **Batch constraint**: cap each call at ≤10 filenames so chat feedback
+   streams smoothly. For larger sets, split across multiple calls and report
+   progress between calls.
+3. The user opens Review mode → top banner shows "Pro-labeled by {model} ·
+   please verify". Boss edits / confirms / saves.
+4. `save_reviewed` atomically deletes the matching `_pending/` draft — the
+   handoff from Pro draft → human ground truth is automatic from your side.
+5. If the user says "换 pro 模型" / "use X as pro", call
+   `set_labeler_model(slug, model_id)`.
+
+Hard rules:
+
+- `pre_label` is **NOT** a substitute for `extract`. Output goes to
+  `reviewed/_pending/`, never `predictions/_draft/`, never `reviewed/`.
+- `pre_label` is **NOT** a promoter. Only `save_reviewed` (i.e. the boss
+  clicking Save) moves data into ground truth.
+- If `pre_label` returns
+  `{ok: false, error: {error_code: "labeler_model_not_configured"}}`, ask
+  the user to either pass a model explicitly or set the project's
+  `labeler_model` via `set_labeler_model`.
+
 ## Risk gates (ALWAYS confirm with user before invoking)
 
 - Structural prompt changes: `write_prompt` (or legacy `write_schema`) with
@@ -96,6 +130,10 @@ button on the tab strip — you do NOT need to switch the user there manually.
   the user moves on from an experiment.
 - Accepting an autoresearch candidate (overwriting `schema.json`).
 - Cancelling a job.
+- `pre_label` for batches > 30 files. Small batches (≤ 10) don't need
+  confirmation when the user explicitly asks. For 30+ ask first — "用 pro
+  标 N 张大约要花 X 分钟，确定吗？" Also call `set_labeler_model` is no-risk
+  (recoverable) — don't bother asking.
 
 ## Attachments vs. sample docs
 
