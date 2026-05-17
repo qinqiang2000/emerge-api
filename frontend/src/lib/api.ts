@@ -3,6 +3,7 @@ import type {
   Experiment,
   ExperimentPredictionPayload,
   ExperimentSummary,
+  PendingPayload,
   PredictionPayload,
   ReviewedPayload,
 } from '../types/review'
@@ -139,6 +140,19 @@ export async function getReviewed(slug: string, filename: string): Promise<Revie
   const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/reviewed/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null
   if (!r.ok) throw new Error(`getReviewed ${r.status}`)
+  return r.json()
+}
+
+/** Pro-labeler pending draft (awaiting human boss verify). 404 → null so the
+ *  caller can fall through to the prediction layer without throwing. */
+export async function getPending(
+  slug: string, filename: string,
+): Promise<PendingPayload | null> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/pending/${encodeURIComponent(filename)}`,
+  )
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(`getPending ${r.status}`)
   return r.json()
 }
 

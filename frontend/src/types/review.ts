@@ -28,6 +28,17 @@ export interface ReviewedPayload {
   _evidence?: Record<string, number | null>[]
 }
 
+/** Pro-labeler draft sitting at `reviewed/_pending/{filename}.json`. Same
+ *  shape as a Reviewed payload's entities/evidence — but `source` is absent
+ *  (the pending zone is its own bucket, not a reviewed sub-type) and
+ *  `labeler_model` + `created_at` record provenance. */
+export interface PendingPayload {
+  entities: Record<string, unknown>[]
+  _evidence?: Record<string, number | null>[]
+  labeler_model?: string
+  created_at?: string
+}
+
 export function docStatus(d: DocSummary): DocStatus {
   if (d.has_reviewed) return 'reviewed'
   if (d.has_prediction) return 'draft'
