@@ -19,6 +19,7 @@ from app.workspace.paths import (
     doc_path,
     experiment_prediction_path,
     experiments_dir,
+    pending_reviewed_path,
 )
 
 
@@ -126,6 +127,12 @@ async def _review_state(
             ).exists():
                 experiments_with_prediction.append(sub.name)
 
+    # has_pending is independent of has_prediction / has_reviewed — it's a
+    # Pro-labeler draft awaiting boss verification. The doc-list `review_status`
+    # enum stays at {unprocessed, pending, reviewed}; visual differentiation
+    # for pre-labeled is surfaced via a banner in Review mode (frontend).
+    has_pending = pending_reviewed_path(workspace, slug, filename).exists()
+
     return {
         "ok": True,
         "surface": "review",
@@ -134,6 +141,7 @@ async def _review_state(
         "review_status": review_status,
         "has_prediction": prediction is not None,
         "has_reviewed": reviewed is not None,
+        "has_pending": has_pending,
         "page_count": meta.get("page_count"),
         "ext": meta.get("ext"),
         "uploaded_at": meta.get("uploaded_at"),

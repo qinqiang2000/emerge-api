@@ -71,9 +71,37 @@ async def test_surface_state_review_unprocessed(workspace: Path) -> None:
     assert out["review_status"] == "unprocessed"
     assert out["has_prediction"] is False
     assert out["has_reviewed"] is False
+    assert out["has_pending"] is False
     assert out["page_count"] == 3
     assert out["entity_count"] == 0
     assert out["experiments_with_prediction"] == []
+
+
+async def test_surface_state_review_has_pending_flag(workspace: Path) -> None:
+    """has_pending flips True when reviewed/_pending/{filename}.json exists.
+    review_status enum stays at {unprocessed, pending, reviewed} — pre-labeled
+    docs surface their distinction via the banner, not via a new enum value."""
+    from app.workspace.paths import pending_reviewed_dir, pending_reviewed_path
+    pid = (await create_project(workspace, name="x"))["slug"]
+    await _seed_doc(workspace, pid, "x.pdf")
+    pending_reviewed_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        pending_reviewed_path(workspace, pid, "x.pdf"),
+        {
+            "entities": [{}],
+            "labeler_model": "gemini-pro-latest",
+            "created_at": "2026-05-17T00:00:00+00:00",
+        },
+    )
+    out = await get_surface_state(
+        workspace, surface="review", slug=pid, filename="x.pdf",
+    )
+    assert out["has_pending"] is True
+    # No flash prediction either way — pre-labeled doc with no _draft means
+    # review_status stays 'unprocessed' (enum unchanged).
+    assert out["review_status"] == "unprocessed"
+    assert out["has_prediction"] is False
+    assert out["has_reviewed"] is False
 
 
 async def test_surface_state_review_pending(workspace: Path) -> None:
