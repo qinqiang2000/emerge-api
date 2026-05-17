@@ -86,11 +86,14 @@ async def pre_label(
     soft — the batch keeps going.
     """
     await migrate_project_if_needed(workspace, slug)
+    # Resolve labeler first so an unconfigured project gets the canonical
+    # `labeler_model_not_configured` error (HTTP 400 in the route) rather than
+    # a vague "empty schema" — labeler config is the more fundamental signal.
+    mid = await _resolve_labeler_model(workspace, slug, labeler_model)
     schema = await read_schema(workspace, slug)
     if not schema:
         raise ValueError("project has empty schema; nothing to pre-label")
 
-    mid = await _resolve_labeler_model(workspace, slug, labeler_model)
     if provider is None:
         provider = get_provider_for_model(mid)
 

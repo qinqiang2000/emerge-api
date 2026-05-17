@@ -1,0 +1,76 @@
+"""HTTP routes for the Pro Labeler.
+
+Mirrors the MCP tool surface (`pre_label`, `set_labeler_model`) so a CLI agent
+or non-Claude client can drive the same pre-label flow over plain HTTP.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict
+
+from app.api.routes._safety import safe_slug
+from app.config import get_settings
+from app.tools.pre_label import (
+    LabelerNotConfiguredError,
+    pre_label,
+    set_labeler_model,
+)
+from app.workspace.paths import project_json_path
+
+
+router = APIRouter()
+
+
+def _project_or_404(slug: str) -> Path:
+    safe_slug(slug)
+    settings = get_settings()
+    if not project_json_path(settings.workspace_root, slug).exists():
+        raise HTTPException(
+            status_code=404, detail={"error_code": "project_not_found"},
+        )
+    return settings.workspace_root
+
+
+class _PreLabelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filenames: Optional[list[str]] = None
+    labeler_model: Optional[str] = None
+
+
+@router.post("/lab/projects/{slug}/pre_label")
+async def post_pre_label(slug: str, body: _PreLabelBody) -> dict:
+    """Run the Pro-labeler synchronously over `filenames` (or all unreviewed
+    docs when omitted). Returns the standard `{processed, skipped, errors,
+    labeler_model}` envelope. Maps `LabelerNotConfiguredError → 400` with
+    error_code `labeler_model_not_configured` so the frontend can surface a
+    clear "configure a labeler first" affordance."""
+    workspace = _project_or_404(slug)
+    try:
+        return await pre_label(
+            workspace, slug,
+            filenames=body.filenames,
+            labeler_model=body.labeler_model,
+        )
+    except LabelerNotConfiguredError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "labeler_model_not_configured",
+                "error_message_en": str(e),
+            },
+        )
+
+
+class _LabelerModelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_id: str
+
+
+@router.post("/lab/projects/{slug}/labeler_model")
+async def post_labeler_model(slug: str, body: _LabelerModelBody) -> dict:
+    workspace = _project_or_404(slug)
+    await set_labeler_model(workspace, slug, body.model_id)
+    return {"ok": True}
