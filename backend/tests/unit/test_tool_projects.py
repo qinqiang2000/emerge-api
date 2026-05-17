@@ -26,6 +26,9 @@ async def test_create_project_writes_project_json(workspace: Path) -> None:
     assert blob["project_id"] == out["project_id"]
     assert blob["slug"] == slug
     assert blob["published_ids"] == []
+    # Pro labeler slot seeded; None when EMERGE_DEFAULT_LABELER_MODEL unset.
+    assert "labeler_model" in blob
+    assert blob["labeler_model"] is None
 
 
 async def test_create_project_writes_active_prompt_and_model(workspace: Path) -> None:

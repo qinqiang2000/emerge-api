@@ -201,6 +201,7 @@ async def create_project(
             "autoresearch_proposer_model": None,
             "extract_model": settings.default_extract_model,
             "extract_params": {"temperature": 0.0},
+            "labeler_model": settings.default_labeler_model,
             "published_ids": [],
         }
         atomic_write_json(project_json_path(workspace, slug), blob)
