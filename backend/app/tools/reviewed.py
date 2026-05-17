@@ -7,7 +7,7 @@ from typing import Any, Optional
 from app.schemas.reviewed import NoteConsumption, Reviewed, ReviewedSource
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
-from app.workspace.paths import reviewed_dir, reviewed_path
+from app.workspace.paths import pending_reviewed_path, reviewed_dir, reviewed_path
 
 
 # Sentinel to distinguish "caller omitted notes_consumed" (preserve existing
@@ -82,6 +82,15 @@ async def save_reviewed(
     async with project_lock(workspace, project_id):
         reviewed_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(reviewed_path(workspace, project_id, filename), payload)
+        # Pro-labeler draft becomes obsolete the moment human-verified ground
+        # truth is written. Atomic delete inside the same project_lock so
+        # nobody can observe a state where both files exist.
+        pending = pending_reviewed_path(workspace, project_id, filename)
+        if pending.exists():
+            try:
+                pending.unlink()
+            except FileNotFoundError:
+                pass
 
 
 async def list_reviewed(workspace: Path, project_id: str) -> list[dict[str, Any]]:
