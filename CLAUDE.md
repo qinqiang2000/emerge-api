@@ -28,15 +28,16 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - 单一 schema 真相: `backend/app/schemas/schema_field.py` 的 `SchemaField` pydantic model
 - **任务类型无关的 UI**：本 shell 要复用到非文档提取任务（matching、classification 等）。chrome 层（按钮、空状态、popover、slash-menu copy、kind chips）用通用动词（`init / run / tune / review / publish / ingest`），不出现 `extract` / `invoice` / 文档提取专用名词；提取专用术语只允许出现在 content/help 文案和真实路径（如 `docs/`）里。API 发布层（`/v1/{pid}/extract` 路由名等已固化部分）保持现状不破坏兼容
 
-## 三层 LLM（互不交叉）
+## 四层 LLM（互不交叉）
 
 | 角色 | 走哪 | 配置 |
 |---|---|---|
 | Agent brain | `claude_agent_sdk.ClaudeSDKClient`（chat 大脑） | 系统级 env，锁 Anthropic |
 | Extract LLM | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project，`project.json.extract_model` |
 | Proposer LLM (autoresearch) | 同上，直连 HTTP | 系统默认 + per-job override |
+| Labeler LLM (pro 预标) | 同上，直连 HTTP | per project `project.json.labeler_model`，env `EMERGE_DEFAULT_LABELER_MODEL` 兜底 |
 
-工具体内绝不递归回 SDK——Agent 与 Extract 是分开的代码路径。
+工具体内绝不递归回 SDK——Agent 与 Extract / Proposer / Labeler 是分开的代码路径。
 
 ## Hard rules (red lines)
 

@@ -30,6 +30,7 @@
 | **M9.4** — cross-project fork + import_prompt (clone-at-time, hard rule "no live link"; whitelist-driven fork copies project.json + prompts/ + models/; import mints fresh prompt_id with `{src_pid}/{src_prompt_id}` lineage) | `2026-05-14-m9-4-fork-and-import.md` | ✅ shipped (pending T8 live dogfood) | `1732f2e..4fe82f2` (8 task commits + 1 polish) |
 | **M9.5** — paste-attachments ≠ docs samples (chat-scoped attachments + `promote_attachment_to_docs` tool; "显式告知才进入样本集") | `2026-05-14-paste-attachments-vs-docs.md` | 🚧 in progress | — |
 | **2026-05-16** — progressive doc vision (pull-mode `read_doc_image` tool + Hard rule: doc vision is pulled, not pushed) | `2026-05-16-progressive-doc-vision.md` | ✅ shipped + dogfooded | `5051aaf` (1 commit; T5 live verify on 默沙东_小票/009b14cc.jpg — positive: agent called `read_doc_image` and described the hand-occluded restaurant receipt with visible-only details; reverse: schema question called only `read_schema`, no vision over-fire) |
+| **M10** — Pro Labeler (pre_label → reviewed/_pending/ → boss verify → save_reviewed cleans pending) | `2026-05-17-pro-labeler.md` | 🚧 in progress | — |
 
 ## What each milestone delivers
 
@@ -271,6 +272,42 @@
 - `fork_project(..., include_reviewed=True)` opt-in flag from spec §3.4 — not implemented this milestone; raise as follow-up if user demand surfaces.
 - Hardlink-aware "stale fork" warning (if src doc replaces a hardlinked file, fork still sees the old inode) → only relevant if hardlinking becomes default; defer.
 - T8 live dogfood is pending user execution (user-driven step; the chat path + skill section is in place).
+
+### M10 — Pro Labeler
+
+**Goal:** unblock `/improve` training by inserting a stronger LLM ("pro old-timer", e.g. `gemini-pro-latest`) that produces draft `reviewed/_pending/{filename}.json` for the human boss to verify. On save, the pending file is atomically deleted and the existing `reviewed/{filename}.json` is the only ground truth — so `score()`, `/improve`, `/publish`, `readiness_check` are untouched (they glob `reviewed/*.json` and the `_pending/` subdir is naturally excluded).
+
+**Scope (see `2026-05-17-pro-labeler.md`):**
+- T1: backend paths — `pending_reviewed_dir` / `pending_reviewed_path` (`reviewed/_pending/{filename}.json`); `Settings.default_labeler_model` (env `EMERGE_DEFAULT_LABELER_MODEL`).
+- T2: `create_project` blob seeds `labeler_model: settings.default_labeler_model` (may be None).
+- T3: `app/tools/pre_label.py` — `pre_label(slug, filenames?, labeler_model?)` synchronous batch loop (reuses `extract_one`'s `_EXTRACT_SYSTEM` / `_build_field_instructions` / `_build_response_schema` / `_doc_to_block`), `get_pending`, `set_labeler_model`. Labeler resolution: call-arg > `project.json.labeler_model` > `settings.default_labeler_model` > `LabelerNotConfiguredError`. Returns `{processed, skipped, errors, labeler_model}`; skip docs that already have `reviewed/`, overwrite existing pending.
+- T4: `save_reviewed` atomically deletes matching `_pending/{filename}.json` inside the same `project_lock`.
+- T5: MCP tool registration — 3 new tools (`pre_label`, `get_pending`, `set_labeler_model`) added to `build_emerge_mcp` and `_EMERGE_TOOL_NAMES`.
+- T6: HTTP symmetry — `POST /lab/projects/{slug}/pre_label`, `POST /lab/projects/{slug}/labeler_model`, `GET /lab/projects/{slug}/pending/{filename:path}`. `pre_label` route maps `LabelerNotConfiguredError → 400` with `error_code=labeler_model_not_configured`. Mount via `main.py`.
+- T7: `surface_state._review_state` returns `has_pending` (independent of `has_prediction` / `has_reviewed`). Enum `review_status` unchanged.
+- T8: skill markdown — Pro labeler section + ≤10/batch hint + risk-gate note for batches > 30.
+- T10-T13: frontend — `PendingPayload` type, `getPending` fetch helper, `useReview.open()` falls back to pending (sets `isPending` + `labelerModel`), cross-store invalidate on `mcp__emerge_tools__pre_label`, `PreLabelNotice` banner mounted between `ReviewBar` and `rev-body`.
+
+**Hard rules respected:**
+- `reviewed/` only human-writable. Pro labeler writes to `reviewed/_pending/` only; `save_reviewed` is the only path that moves data into `reviewed/` (and atomically removes the matching pending).
+- `score()` / `/improve` / `/publish` / `readiness_check` glob `reviewed/*.json` — the `_pending/` subdir is naturally excluded; no changes needed in those paths.
+- No new slash command — agent-driven NL only.
+- AutoResearch-style "never auto-promote" generalized: Pro labeler is NOT a promoter; the boss is.
+- Atomic writes via `atomic_write_json`; project mutations under `project_lock`.
+- Three-layer LLM stays — adding a fourth (Labeler LLM) parallel to Proposer; both go through the per-project provider adapter, never the Claude SDK.
+
+**Decisions affirmed:**
+- Synchronous batch (no JobRunner / SSE). Per-doc latency is acceptable; ≤10 filenames per call so chat feedback stays responsive. Agent self-batches larger sets.
+- Pending file is **opaque** to score/improve/publish — no flag, no enum widening. Banner is the only visible difference, surfaced lazily via `getPending` in `useReview.open()`.
+- `labeler_model` lives on `project.json` (per-project), not on the prompt or model axis — it's the role of "what runs pre_label", not "the active extract model".
+- No `source` field on pending JSON — `source` is reserved for reviewed (`manual` / `feedback` / future `pro` if needed); pending is its own zone.
+
+**Deferred / spun out:**
+- Per-field uncertainty highlighting (`_uncertain_fields`) — v1.5.
+- Self-consistency double-run for disagreement triage.
+- `/pro-label` or `/standby` slash command.
+- Doc-list visual stamp for pre-labeled docs (banner only in v1).
+- Pro labeler as cross-model disagree triage inside `/improve`.
 
 ## Open cross-cutting follow-ups
 
