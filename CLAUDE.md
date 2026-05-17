@@ -23,7 +23,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - **Backend**: FastAPI + `claude_agent_sdk` + 直连 provider HTTP（Anthropic / OpenAI / Gemini）+ pydantic v2 + uv 管理依赖。**无 DB**——project = filesystem folder
 - **Frontend**: Vite + React 19 + TypeScript + Zustand + react-router 6 + Tailwind v3（CSS-var token system，Anthropic palette）+ Radix + shadcn-style + Lucide
 - 错误响应统一 `{error_code, error_message_en}` envelope；前端按 `error_code` 翻译
-- 主题: light/dark/system 从 day one；**不允许** Tailwind 直接 color class，只用语义 token
+- **不允许** Tailwind 直接 color class，只用语义 token（`paper`/`ink`/`ochre`/`rose`/`moss`，见 `frontend/tailwind.config.js`）
 - 测试: `cd backend && uv run pytest -v`
 - 单一 schema 真相: `backend/app/schemas/schema_field.py` 的 `SchemaField` pydantic model
 - **任务类型无关的 UI**：本 shell 要复用到非文档提取任务（matching、classification 等）。chrome 层（按钮、空状态、popover、slash-menu copy、kind chips）用通用动词（`init / run / tune / review / publish / ingest`），不出现 `extract` / `invoice` / 文档提取专用名词；提取专用术语只允许出现在 content/help 文案和真实路径（如 `docs/`）里。API 发布层（`/v1/{pid}/extract` 路由名等已固化部分）保持现状不破坏兼容
@@ -46,7 +46,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - **AutoResearch 永不自动 promote**。output 是候选 ProjectVersion，user 必须显式 activate
 - **Counterexample 永不进 runtime prompt**。仅作 AutoResearch 回归测试集
 - **Public API 读 `versions/v{active_version_id}.json`**。`schema.json` 是 lab 编辑态，不得渗入 prod
-- **不读取/打印/提交 secrets**：不要读取或输出 `backend/.env`、provider key、JWT、API key 明文、token/password；前端示例只使用 `EMERGE_API_KEY` 等占位符。API key 明文只允许在 create-key 响应后的 one-time reveal 中短暂存在
+- **不读取/打印/提交 secrets**：不要读取或输出 `backend/.env`、provider key、JWT、API key 明文、token/password；前端示例只使用 `EMERGE_API_KEY` 等占位符。API key 明文只允许在 create-key 响应后的 one-time reveal 中短暂存在。`backend/app/chat/sdk_settings.json` + `_workspace_safety_gate` 是这条规则的 runtime 实现（见 INSIGHTS #1.5）
 - **Agent brain (SDK) 与 Extract LLM (provider adapter) 是分离代码路径**。tool 内绝不递归回 SDK
 - **`schema.json` 只通过 `write_schema` tool 修改**；autoresearch 只写 `versions/_candidate/`，user-accept 才 atomic copy 到 `schema.json`
 - **Doc vision is pulled, not pushed**。当前 review doc 通过 `surface_context.filename` 暴露为指针——字节不会自动 inline 进任何 chat turn。Agent 在（且仅在）问题需要视觉时调 `read_doc_image(slug, filename, page)`。不要给 `_load_image_blocks` 加 "auto-attach current doc" 分支——多数 review turn 是纯文字反馈，那样会无谓推高 token 成本

@@ -2229,7 +2229,7 @@ class ChatService:
         workspace: Path,
         provider: Provider,
         agent_model: str = "claude-sonnet-4-6",
-        extract_model: str = "gemini-2.0-flash",
+        extract_model: str = "gemini-2.5-flash",
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -2460,7 +2460,7 @@ from app.skills import load_skill, load_skills
 
 class ChatService:
     # __init__ now also loads the autoresearch skill content (cheap, one-time)
-    def __init__(self, *, workspace, provider, agent_model="claude-sonnet-4-6", extract_model="gemini-2.0-flash"):
+    def __init__(self, *, workspace, provider, agent_model="claude-sonnet-4-6", extract_model="gemini-2.5-flash"):
         ...
         self._extractor_skill = load_skill("emerge_extractor")
         self._autoresearch_skill = load_skill("emerge_autoresearch")

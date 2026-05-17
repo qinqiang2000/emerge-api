@@ -978,7 +978,7 @@ def test_list_prompts_legacy_project_migrates_first(client: TestClient, tmp_path
         "name": "legacy",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }))
@@ -1134,7 +1134,7 @@ def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -
     assert r.status_code == 200
     rows = r.json()
     by_label = {row["label"]: row for row in rows}
-    assert by_label["Default (gemini-2.0-flash)"]["is_active"] is True
+    assert by_label["Default (gemini-2.5-flash)"]["is_active"] is True
     assert by_label["Sonnet 4.6"]["is_active"] is False
 
 
@@ -1148,7 +1148,7 @@ def test_get_active_model_returns_full_blob(client: TestClient, tmp_path: Path) 
     blob = r.json()
     assert blob["model_id"] == "m_default"
     assert blob["provider"] == "google"
-    assert blob["provider_model_id"] == "gemini-2.0-flash"
+    assert blob["provider_model_id"] == "gemini-2.5-flash"
 
 
 def test_get_model_by_id(client: TestClient, tmp_path: Path) -> None:
@@ -1481,7 +1481,7 @@ describe('useModels', () => {
       if (url.endsWith('/models')) {
         return new Response(JSON.stringify([
           { model_id: 'm_default', label: 'Default', provider: 'google',
-            provider_model_id: 'gemini-2.0-flash', is_active: true, created_at: 'x' },
+            provider_model_id: 'gemini-2.5-flash', is_active: true, created_at: 'x' },
           { model_id: 'm_sonnet', label: 'Sonnet 4.6', provider: 'anthropic',
             provider_model_id: 'claude-sonnet-4-6', is_active: false, created_at: 'x' },
         ]), { status: 200 })
@@ -1491,7 +1491,7 @@ describe('useModels', () => {
           model_id: 'm_default',
           label: 'Default',
           provider: 'google',
-          provider_model_id: 'gemini-2.0-flash',
+          provider_model_id: 'gemini-2.5-flash',
           params: { temperature: 0 },
           created_at: 'x',
         }), { status: 200 })
@@ -1502,7 +1502,7 @@ describe('useModels', () => {
     await useModels.getState().load('p_abc')
     const state = useModels.getState()
     expect(state.list['p_abc']).toHaveLength(2)
-    expect(state.activeByProject['p_abc']?.provider_model_id).toBe('gemini-2.0-flash')
+    expect(state.activeByProject['p_abc']?.provider_model_id).toBe('gemini-2.5-flash')
   })
 })
 ```
@@ -2019,7 +2019,7 @@ it('renders Prompt card with active prompt id + field count', async () => {
 it('renders Model card with active model label + provider_model_id', async () => {
   // ... mount with mocked useModels.activeByProject ...
   expect(screen.getByText('Model')).toBeInTheDocument()
-  expect(screen.getByText('gemini-2.0-flash')).toBeInTheDocument()
+  expect(screen.getByText('gemini-2.5-flash')).toBeInTheDocument()
 })
 ```
 

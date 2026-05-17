@@ -57,6 +57,12 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
         error_code: e.error_code,
         error_message_en: e.error_message_en,
       })
+    } else if (e.type === 'permission_request') {
+      // Permission prompts render as their own item (own line in the conv).
+      // They never collapse into a tool stack — the user needs the UI to
+      // make a decision before the agent can proceed. Resolved cards stay
+      // visible as a trail so chat history reads naturally.
+      out.push({ kind: 'permission', event: e })
     }
   }
   flushTools()

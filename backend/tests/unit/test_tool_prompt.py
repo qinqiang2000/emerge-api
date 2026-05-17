@@ -331,7 +331,7 @@ async def test_delete_prompt_blocked_by_non_archived_experiment_reference(
     from app.workspace.paths import model_path
     atomic_write_json(model_path(workspace, pid, "m_default"), {
         "model_id": "m_default", "label": "Default",
-        "provider": "google", "provider_model_id": "gemini-2.0-flash",
+        "provider": "google", "provider_model_id": "gemini-2.5-flash",
         "params": {}, "created_at": _now(),
     })
 

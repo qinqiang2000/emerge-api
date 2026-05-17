@@ -15,7 +15,7 @@ def _make_service(workspace: Path) -> ChatService:
         workspace=workspace,
         provider=AsyncMock(),
         agent_model="claude-sonnet-4-6",
-        extract_model="gemini-2.0-flash",
+        extract_model="gemini-2.5-flash",
     )
 
 

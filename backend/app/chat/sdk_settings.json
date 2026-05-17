@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(/.env)",
+      "Read(/.env.*)",
+      "Read(/**/.env)",
+      "Read(/**/.env.*)",
+      "Read(/secrets/**)",
+      "Read(/**/*.pem)",
+      "Read(/**/*.key)",
+      "Read(/**/.ssh/**)",
+      "Read(/**/.aws/**)",
+      "Read(/**/.git/config)",
+      "Read(/**/.git/credentials)",
+      "Read(/**/sdk_settings.json)",
+      "Write(/**/sdk_settings.json)",
+      "Edit(/**/sdk_settings.json)",
+      "Bash(printenv*)",
+      "Bash(export*)",
+      "Bash(env)",
+      "Bash(cat */.env*)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat */.git/config)"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { getChatEvents, getChatList, rewindChat, type ChatSummary } from '../lib/api'
+import { getChatEvents, getChatList, resolvePermission, rewindChat, type ChatSummary } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import { dispatchUiAction } from '../lib/surfaceRouter'
@@ -123,6 +123,12 @@ interface State {
   newChat: (projectId: string) => void
   lastUserMessage: () => string | null
   hasRecentToolError: () => boolean
+  /** Resolve a pending SDK `can_use_tool` ask-user round-trip. Flips the
+   *  matching `permission_request` event's local `resolution` field so the
+   *  card re-renders in its resolved state, then POSTs the user's decision
+   *  to the backend. Idempotent — a second call on an already-resolved
+   *  event is a no-op. */
+  resolvePermission: (requestId: string, decision: 'approve' | 'deny', scope: 'once' | 'always') => Promise<void>
 }
 
 export const useChat = create<State>((set, get) => ({
@@ -263,6 +269,35 @@ export const useChat = create<State>((set, get) => ({
     }
     return false
   },
+  resolvePermission: async (requestId, decision, scope) => {
+    // Optimistic local flip first — the card must show "approved/denied" the
+    // instant the user clicks, regardless of network latency. The backend
+    // resolve is idempotent so a duplicate click (from a stale render) is
+    // safely swallowed.
+    let already = false
+    set(s => ({
+      events: s.events.map(e => {
+        if (e.type === 'permission_request' && e.request_id === requestId) {
+          if (e.resolution) {
+            already = true
+            return e
+          }
+          return { ...e, resolution: { decision, scope } }
+        }
+        return e
+      }),
+    }))
+    if (already) return
+    const chatId = get().chatId
+    try {
+      await resolvePermission(chatId, requestId, { decision, scope })
+    } catch (err) {
+      // Swallow — the local card is already in its resolved state. If the
+      // backend never received the decision the agent's await will eventually
+      // surface as a turn-level error, which has its own error event.
+      console.warn('resolvePermission failed', err)
+    }
+  },
   send: async (projectId, message, attachments, surfaceContext) => {
     // Capture the new pid emitted by the backend when chat_turn auto-mints a
     // project from a `p_unset` + stage_token submission. We listen for the
@@ -379,6 +414,39 @@ export const useChat = create<State>((set, get) => ({
           // surface them in FSSpine right away, without waiting for the
           // agent's first list_docs tool_result.
           void useDocs.getState().refresh(slug)
+          continue
+        }
+        if (ev.event === 'permission_request') {
+          // SDK `can_use_tool` ask-user round-trip — the agent's tool call
+          // is suspended on the backend awaiting our reply. Push the event
+          // into the conv log; PermissionCard renders the approve/deny UI
+          // and dispatches resolvePermission() when the user clicks. The
+          // resolution lands on this same event object (no separate
+          // `permission_resolved` SSE — the backend doesn't echo, just
+          // releases the future). Reload-permissive: nothing here gets
+          // written to events.jsonl (server-side filter), so a refresh
+          // mid-prompt drops the card and the agent's awaited future will
+          // resolve via `cancel_pending` at turn end.
+          const d = ev.data as {
+            request_id: string
+            tool_name: string
+            tool_input: unknown
+            reason: string
+            suggested_scope?: 'once' | 'always'
+          }
+          set(s => ({
+            events: [
+              ...s.events,
+              {
+                type: 'permission_request',
+                request_id: d.request_id,
+                tool_name: d.tool_name,
+                tool_input: d.tool_input,
+                reason: d.reason,
+                suggested_scope: d.suggested_scope ?? 'once',
+              },
+            ],
+          }))
           continue
         }
         if (ev.event === 'project_renamed') {

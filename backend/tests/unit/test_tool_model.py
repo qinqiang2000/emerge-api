@@ -34,9 +34,9 @@ def _seed_active_project(workspace: Path, pid: str) -> None:
     })
     atomic_write_json(model_path(workspace, pid, "m_default"), {
         "model_id": "m_default",
-        "label": "Default (gemini-2.0-flash)",
+        "label": "Default (gemini-2.5-flash)",
         "provider": "google",
-        "provider_model_id": "gemini-2.0-flash",
+        "provider_model_id": "gemini-2.5-flash",
         "params": {"temperature": 0.0},
         "created_at": _now(),
     })
@@ -46,7 +46,7 @@ async def test_read_model_by_id(workspace: Path) -> None:
     pid = "p_test12345678"
     _seed_active_project(workspace, pid)
     mc = await read_model(workspace, pid, "m_default")
-    assert mc.provider_model_id == "gemini-2.0-flash"
+    assert mc.provider_model_id == "gemini-2.5-flash"
     assert mc.provider == "google"
 
 
@@ -89,7 +89,7 @@ async def test_write_model_upserts(workspace: Path) -> None:
         model_id="m_default",
         label="Default (renamed)",
         provider="google",
-        provider_model_id="gemini-2.0-flash",
+        provider_model_id="gemini-2.5-flash",
         params={"temperature": 0.1},
     )
     mc = await read_model(workspace, pid, "m_default")
@@ -109,7 +109,7 @@ async def test_list_models_marks_active(workspace: Path) -> None:
     rows = await list_models(workspace, pid)
     assert len(rows) == 2
     by_label = {r["label"]: r for r in rows}
-    assert by_label["Default (gemini-2.0-flash)"]["is_active"] is True
+    assert by_label["Default (gemini-2.5-flash)"]["is_active"] is True
     assert by_label["Sonnet"]["is_active"] is False
 
 

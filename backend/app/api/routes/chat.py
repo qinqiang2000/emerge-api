@@ -9,6 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.routes._safety import safe_chat_id, safe_slug
 from app.chat.log import list_chats, read_chat_events, rewind_to_user
+from app.chat.permissions import resolve_permission
 from app.chat.service import ChatService
 from app.config import get_settings
 from app.provider import get_provider_for_model
@@ -122,6 +123,57 @@ async def lab_chat_history(slug: str, chat_id: str) -> dict[str, Any]:
     safe_chat_id(chat_id)
     workspace_root = get_settings().workspace_root
     return {"events": read_chat_events(workspace_root, slug, chat_id)}
+
+
+class PermissionDecisionBody(BaseModel):
+    """User's reply to a ``permission_request`` SSE event.
+
+    ``decision`` is ``approve`` or ``deny``. ``scope`` is ``once`` (this single
+    tool call only) or ``always`` (every subsequent call to the same
+    ``tool_name`` in this chat, in-memory only — does not survive a backend
+    restart). ``message`` is a free-form note surfaced to the agent on deny.
+    """
+
+    decision: str
+    scope: str = "once"
+    message: str | None = None
+
+
+@router.post("/lab/chats/{chat_id}/permission/{request_id}")
+async def lab_chat_permission(
+    chat_id: str,
+    request_id: str,
+    body: PermissionDecisionBody,
+) -> dict[str, Any]:
+    """Resolve a pending ``permission_request`` keyed by ``(chat_id, request_id)``.
+
+    Idempotent: a duplicate POST (e.g. the user double-clicks) returns
+    ``{ok: false, reason: 'unknown_or_resolved'}`` rather than raising — the
+    UI can ignore the loser.
+    """
+    safe_chat_id(chat_id)
+    if body.decision not in ("approve", "deny"):
+        return {
+            "ok": False,
+            "error_code": "invalid_decision",
+            "error_message_en": "decision must be 'approve' or 'deny'",
+        }
+    if body.scope not in ("once", "always"):
+        return {
+            "ok": False,
+            "error_code": "invalid_scope",
+            "error_message_en": "scope must be 'once' or 'always'",
+        }
+    resolved = await resolve_permission(
+        chat_id=chat_id,
+        request_id=request_id,
+        decision=body.decision,
+        scope=body.scope,
+        message=body.message,
+    )
+    if not resolved:
+        return {"ok": False, "reason": "unknown_or_resolved"}
+    return {"ok": True}
 
 
 @router.post("/lab/chats/{slug}/{chat_id}/rewind")

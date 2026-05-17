@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,13 +12,10 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
-    PermissionResultAllow,
-    PermissionResultDeny,
     ResultMessage,
     SystemMessage,
     TextBlock,
     ThinkingBlock,
-    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -29,6 +27,7 @@ from app.chat.log import (
     read_chat_session_id,
     write_chat_session_id,
 )
+from app.chat.permissions import cancel_pending, make_gate
 from app.chat.redactor import EventRedactor
 from app.chat.sse_context import current_sse_writer
 from app.chat.stream import sse_event
@@ -41,11 +40,6 @@ from app.workspace.paths import chat_attachment_path, doc_path, project_json_pat
 from app.workspace.pid_index import get_index
 from app.workspace.staging import StagingClaimError, claim_staged_to_chat
 
-
-# Strict allowlist: the agent may ONLY call our emerge MCP tools. See the
-# defense-in-depth block in `_build_options` for how this prefix is enforced
-# (disallowed_tools is load-bearing; can_use_tool is the backstop).
-_EMERGE_TOOL_PREFIX = "mcp__emerge_tools__"
 
 # Filename suffix → Anthropic image media type. PDFs deliberately excluded:
 # the agent reaches PDF docs via tools (`extract_one` / `extract_batch`), not
@@ -97,27 +91,22 @@ def _load_image_blocks(
         )
     return blocks
 
-# All Claude Agent SDK built-in tool names. permission_mode='default' does NOT
-# consult the can_use_tool callback for these — only an explicit disallowed_tools
-# entry actually prevents invocation. Empirically verified during M5 dogfood
-# (chat c_1c32d12a2747 had Glob calls returning workspace paths despite the
-# can_use_tool callback being installed).
-_SDK_BUILT_IN_TOOLS = [
-    "Bash", "BashOutput", "KillBash",
-    "Edit", "MultiEdit", "Read", "Write", "NotebookEdit",
-    "Grep", "Glob",
-    "WebFetch", "WebSearch",
-    "Task", "TodoWrite", "ExitPlanMode",
-    "ToolSearch",
-    # emerge loads its skills as system_prompt text, NOT via the SDK Skill
-    # mechanism — so the SDK has no "emerge-publish" / "emerge-extractor" /
-    # "emerge-autoresearch" registered. When the agent reached for the
-    # built-in `Skill` tool on /publish, the SDK returned
-    # `<tool_use_error>Unknown skill: emerge-publish</tool_use_error>` and
-    # the UI rendered a stray `▸ Skill ERR` chip. Deny it explicitly so the
-    # agent never sees `Skill` as an option in the first place.
-    "Skill",
-]
+# Narrow blacklist of tools we never want the agent to reach for. Everything
+# else (Bash / Read / Write / Edit / Glob / Grep / Task* / WebFetch / ...) is
+# gated by `_workspace_safety_gate` below — workspace-internal ops are auto-
+# allowed, sensitive paths hard-blocked, network ops ask the user. The
+# `Skill` entry is preserved because emerge ships its skills as system_prompt
+# text rather than registering them via the SDK Skill mechanism, so the
+# built-in Skill tool would error out with `Unknown skill: emerge-...`.
+_SDK_NEVER_TOOLS = ["Skill", "PowerShell"]
+
+
+# emerge-controlled SDK settings file. Checked into the repo so the agent
+# cannot mutate its own deny rules (the file itself is listed in `permissions.deny`
+# as Read/Write/Edit). The SDK CLI enforces these patterns *before* invoking
+# `can_use_tool`, which is the only reliable way to hard-block `.env` / `*.key`
+# reads under SDK 0.1.77 — see INSIGHTS #1.5.
+_SDK_SETTINGS_PATH = Path(__file__).parent / "sdk_settings.json"
 
 
 def _placeholder_project_name() -> str:
@@ -137,15 +126,32 @@ def _placeholder_project_name() -> str:
 _UNSET_SLUG = "p_unset"
 
 
+_WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
+  docs/                # 源文档（pdf / image / 其它 user-supplied files）
+  docs/.meta/          # sidecar metadata — emerge 维护，不要手改
+  docs/.meta/_render/  # PDF 渲染缓存 — 不要手改
+  prompts/             # 项目 prompt JSON（{{prompt_id}}.json）
+  models/              # 项目 model 配置 JSON（{{model_id}}.json）
+  experiments/         # autoresearch 实验输出
+  versions/            # 冻结的公共 API 版本（v{{n}}.json，从 agent 视角只读）
+  reviewed/            # 人工标注 ground truth
+  reviewed/_pending/   # pre_label 产生的待审稿
+  predictions/_draft/  # 最新提取输出
+  chats/               # chat 历史（jsonl）+ chats/<chat_id>/attachments/
+  schema.json          # 编辑态 schema — 只能用 write_schema/write_prompt 工具改
+  project.json         # 项目配置（active_prompt_id / active_model_id / ...）"""
+
+
 def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     """Render the "Active context" block that gets spliced into the system
     prompt every turn.
 
     The agent otherwise has no idea which project the user is *looking at*
     in the UI — it would have to call `list_projects` and guess. This block
-    pins the URL/page state (slug + active prompt + active model) directly
-    into the system prompt so the agent calls tools with the right `slug`
-    on the first try.
+    pins the URL/page state (slug + active prompt + active model) plus the
+    absolute filesystem paths (so Bash / Glob / Read can be invoked with
+    deterministic absolute paths on the first try) directly into the system
+    prompt.
 
     Reading `project.json` is best-effort: a freshly-minted project may not
     yet have the file flushed, and a renamed slug between turns may briefly
@@ -153,9 +159,11 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     containing just the slug — better than nothing, and the agent can still
     operate.
     """
+    workspace_root = workspace.resolve()
     if slug == _UNSET_SLUG:
         return (
             "## Active context\n\n"
+            f"WORKSPACE_ROOT=`{workspace_root}` (absolute)\n\n"
             "The user has NOT selected a project yet (empty-hero state). "
             "No project-scoped tools work until a project is created — call "
             "`create_project` first, then use its returned slug for "
@@ -176,14 +184,28 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     except (OSError, json.JSONDecodeError):
         pass
 
+    project_dir = workspace_root / slug
     lines = [
         "## Active context",
         "",
         f"The user is in project **{name}** (slug=`{slug}`), chat_id=`{chat_id}`.",
         "",
-        "Use this slug for every tool call that takes a `slug` parameter "
+        f"WORKSPACE_ROOT=`{workspace_root}`",
+        f"CURRENT_PROJECT_DIR=`{project_dir}`",
+        "",
+        "Use the slug above for every tool call that takes a `slug` parameter "
         "unless the user explicitly names a different project. Do NOT call "
         "`list_projects` to discover the current selection — it is given here.",
+        "",
+        "When you reach for Bash / Glob / Read / Write / Edit / Grep, prefer "
+        "absolute paths built from `WORKSPACE_ROOT` / `CURRENT_PROJECT_DIR` "
+        "above. Anything inside `WORKSPACE_ROOT` is auto-approved; paths "
+        "outside it (or network ops) will ask the user for confirmation.",
+        "",
+        "Directory layout (current project):",
+        "```",
+        _WORKSPACE_LAYOUT_TEMPLATE.format(project_dir=project_dir),
+        "```",
     ]
     if active_prompt_id or active_model_id or extract_model:
         detail = []
@@ -311,23 +333,6 @@ def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def _emerge_only_permission(
-    tool_name: str,
-    _input: dict[str, Any],
-    _ctx: ToolPermissionContext,
-) -> PermissionResultAllow | PermissionResultDeny:
-    """Hard allowlist gate. Only emerge MCP tools may run."""
-    if tool_name.startswith(_EMERGE_TOOL_PREFIX):
-        return PermissionResultAllow()
-    return PermissionResultDeny(
-        message=(
-            f"Tool {tool_name!r} is not available. "
-            f"emerge restricts the agent to {_EMERGE_TOOL_PREFIX}* tools only."
-        ),
-        interrupt=False,
-    )
-
-
 class ChatService:
     """Bridge from HTTP/SSE -> Claude Agent SDK -> emerge tools + skill.
 
@@ -341,7 +346,7 @@ class ChatService:
         workspace: Path,
         provider: Provider,
         agent_model: str = "claude-sonnet-4-6",
-        extract_model: str = "gemini-2.0-flash",
+        extract_model: str = "gemini-2.5-flash",
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -412,33 +417,59 @@ class ChatService:
         resume: str | None = None,
         surface_context: dict[str, Any] | None = None,
     ) -> ClaudeAgentOptions:
+        # Build the permission gate inline so it closes over both the
+        # workspace path (for the allow/deny/ask classifier) and the chat_id
+        # (for the ask-user round-trip registry). The SSE writer is looked up
+        # lazily via ContextVar — at this point the writer hasn't been set yet
+        # (that happens further down in `chat_turn`), so we hand the gate a
+        # getter rather than the writer itself.
+        gate = make_gate(
+            self.workspace,
+            chat_id=chat_id,
+            sse_writer_getter=lambda: current_sse_writer.get(),
+        )
         return ClaudeAgentOptions(
             system_prompt=self._build_system_prompt(
                 user_message, slug=slug, chat_id=chat_id, surface_context=surface_context,
             ),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
+            # Lock the SDK CLI's working directory to the workspace root so the
+            # CLI's "trusted local dir" heuristic aligns with our gate boundary.
+            # Empirically, SDK 0.1.77 under permission_mode="default" skips
+            # can_use_tool for Read of files inside the CLI's cwd — without
+            # this, the CLI inherits uvicorn's cwd (= backend/) and silently
+            # auto-allows Read of backend/.env, bypassing our hard-deny rule.
+            cwd=self.workspace.resolve(),
             # Resume the prior SDK conversation so the agent remembers earlier
             # turns. None on the first turn (or after a self-heal retry that only
             # fires when the resumed attempt failed before emitting anything);
             # see INSIGHTS #11.
             resume=resume,
-            # Do NOT inherit user/project/local Claude Code settings — that's how
-            # foreign MCP servers (chrome-devtools, excalidraw, etc.) and
-            # SessionStart hooks were leaking into the chat stream.
-            setting_sources=[],
-            # Defense in depth:
-            #   1. disallowed_tools — load-bearing. Empirically (M5 dogfood) the
-            #      can_use_tool callback below is NOT consulted for SDK built-ins
-            #      under permission_mode='default'. Explicit denial is the only
-            #      reliable knob.
-            #   2. can_use_tool — backstop for any name that isn't an emerge MCP
-            #      tool and isn't in disallowed_tools either.
-            #   3. allowed_tools — advisory for the SDK's own bookkeeping.
+            # Load ONLY emerge's controlled SDK settings file. `setting_sources=["project"]`
+            # tells the SDK to read `settings=<path>` as the project-level config —
+            # we point it at our checked-in `sdk_settings.json` with strict deny
+            # patterns (`.env` / `*.key` / `*.pem` / `~/.ssh/**` / `Bash(printenv*)`
+            # etc.). This is BEFORE-callback enforcement: deny matches here don't
+            # even reach `can_use_tool`, which is the only reliable way to hard-
+            # block `.env` reads (the SDK CLI auto-allows in-cwd files BEFORE
+            # consulting the callback under permission_mode="default" — see
+            # INSIGHTS #1.5).
+            #
+            # INSIGHTS #2's foreign-MCP isolation still holds: we never set
+            # setting_sources=["user", "local"], and the project setting we load
+            # is our own checked-in file (not user-level ~/.claude/settings.json),
+            # so third-party MCP servers and SessionStart hooks stay out.
+            settings=str(_SDK_SETTINGS_PATH),
+            setting_sources=["project"],
+            # No static allowlist — the gate classifies every tool call at
+            # runtime based on (a) emerge MCP prefix, (b) workspace path
+            # range-check, (c) network keyword sniff. Static lists couldn't
+            # express the path-dependent rules we need.
             permission_mode="default",
-            can_use_tool=_emerge_only_permission,
-            allowed_tools=[f"{_EMERGE_TOOL_PREFIX}*"],
-            disallowed_tools=_SDK_BUILT_IN_TOOLS,
+            can_use_tool=gate,
+            allowed_tools=[],
+            disallowed_tools=_SDK_NEVER_TOOLS,
             max_turns=20,
         )
 
@@ -609,54 +640,79 @@ class ChatService:
         latest_sid: str | None = None
         yielded_any = False
 
-        # Out-of-band event queue for tools that want to push SSE frames
-        # (ui_action). The tool body runs synchronously inside the SDK message
-        # loop, drops a payload into this queue, and the loop drains it on the
-        # next iteration. `current_sse_writer` is set below for the lifetime of
-        # the turn so tools can `current_sse_writer.get()` to find the writer.
-        ui_action_queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        # Per-turn unified output queue. Both the SDK message loop and
+        # out-of-band writers (`_ui_writer`, used by tools that push SSE frames
+        # like ui_action / permission_request) feed into this queue; the outer
+        # generator is the sole consumer. This means out-of-band events
+        # (e.g. a permission_request emitted from a `can_use_tool` callback
+        # while the SDK is mid-tool-execution) are forwarded immediately rather
+        # than waiting for the next SDK message boundary — that wait would
+        # deadlock because the callback itself is what's blocking the next
+        # message.
+        #
+        # The queue is rebound on each `_run` attempt so the self-heal retry
+        # (INSIGHTS #11) starts with a clean queue; `_ui_writer` reads the
+        # current queue via the mutable holder.
+        _SENTINEL: object = object()
+        queue_holder: dict[str, asyncio.Queue[tuple[str, dict[str, Any]] | object]] = {
+            "q": asyncio.Queue()
+        }
 
         async def _ui_writer(event_type: str, payload: dict[str, Any]) -> None:
-            await ui_action_queue.put((event_type, payload))
+            await queue_holder["q"].put((event_type, payload))
 
-        def _drain_queue() -> list[tuple[str, dict[str, Any]]]:
-            drained: list[tuple[str, dict[str, Any]]] = []
-            while True:
-                try:
-                    drained.append(ui_action_queue.get_nowait())
-                except asyncio.QueueEmpty:
-                    break
-            return drained
-
-        async def _run(opts: ClaudeAgentOptions) -> AsyncIterator[str]:
+        async def _run_into_queue(
+            opts: ClaudeAgentOptions,
+            out_queue: asyncio.Queue[tuple[str, dict[str, Any]] | object],
+        ) -> None:
             nonlocal latest_sid, yielded_any
             redactor = EventRedactor()
-            async with ClaudeSDKClient(options=opts) as client:
-                await client.query(_make_query_payload())
-                async for message in client.receive_response():
-                    sid = getattr(message, "session_id", None)
-                    if isinstance(message, SystemMessage):
-                        sid = message.data.get("session_id") or sid
-                    if sid:
-                        latest_sid = sid
-                    for etype, payload in _events_from_message(message):
-                        redactor.observe(etype, payload)
-                        persist_payload = redactor.scrub_for_persist(etype, payload)
-                        sse_payload = redactor.scrub_for_sse(etype, payload)
-                        await append_event(
-                            self.workspace,
-                            _current_slug(),
-                            chat_id,
-                            {"type": etype, **persist_payload},
-                        )
-                        yielded_any = True
-                        yield sse_event(etype, sse_payload)
-                    # Drain any ui_action events that landed during this
-                    # message — tool bodies run inline with the message loop,
-                    # so anything they pushed is now ready to forward.
-                    for etype, payload in _drain_queue():
-                        yielded_any = True
-                        yield sse_event(etype, payload)
+            try:
+                async with ClaudeSDKClient(options=opts) as client:
+                    await client.query(_make_query_payload())
+                    async for message in client.receive_response():
+                        sid = getattr(message, "session_id", None)
+                        if isinstance(message, SystemMessage):
+                            sid = message.data.get("session_id") or sid
+                        if sid:
+                            latest_sid = sid
+                        for etype, payload in _events_from_message(message):
+                            redactor.observe(etype, payload)
+                            persist_payload = redactor.scrub_for_persist(etype, payload)
+                            sse_payload = redactor.scrub_for_sse(etype, payload)
+                            await append_event(
+                                self.workspace,
+                                _current_slug(),
+                                chat_id,
+                                {"type": etype, **persist_payload},
+                            )
+                            yielded_any = True
+                            await out_queue.put((etype, sse_payload))
+            finally:
+                await out_queue.put(_SENTINEL)
+
+        async def _run(opts: ClaudeAgentOptions) -> AsyncIterator[str]:
+            # Fresh queue per attempt — protects the self-heal retry from
+            # consuming a stale sentinel left behind by the failed first try.
+            out_queue: asyncio.Queue[tuple[str, dict[str, Any]] | object] = (
+                asyncio.Queue()
+            )
+            queue_holder["q"] = out_queue
+            task = asyncio.create_task(_run_into_queue(opts, out_queue))
+            try:
+                while True:
+                    item = await out_queue.get()
+                    if item is _SENTINEL:
+                        break
+                    etype, payload = item  # type: ignore[misc]
+                    yield sse_event(etype, payload)
+                # Surface any exception raised inside the SDK task.
+                await task
+            except BaseException:
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
+                raise
 
         # Install the SSE writer for the lifetime of this turn so MCP tools
         # (ui_action_*) can push events. ContextVar isolates concurrent turns
@@ -709,10 +765,10 @@ class ChatService:
             yield sse_event("error", err)
         finally:
             current_sse_writer.reset(token)
-            # Flush any ui_action events that arrived in the small window
-            # between the final SDK message and the end of the loop.
-            for etype, payload in _drain_queue():
-                yield sse_event(etype, payload)
+            # Clear any permission requests that were still in flight when
+            # the turn ended (e.g. user closed the tab while the agent was
+            # waiting on an ask). Idempotent — no-op if everything resolved.
+            await cancel_pending(chat_id)
             final_slug = _current_slug()
             if latest_sid and latest_sid != prev_sid:
                 write_chat_session_id(self.workspace, final_slug, chat_id, latest_sid)

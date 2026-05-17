@@ -11,7 +11,7 @@ def test_minimal_model_config() -> None:
         model_id="m_default",
         label="Default",
         provider="google",
-        provider_model_id="gemini-2.0-flash",
+        provider_model_id="gemini-2.5-flash",
         created_at="2026-05-12T00:00:00+00:00",
     )
     assert mc.params == {}
@@ -60,7 +60,7 @@ def test_provider_literal_constraint() -> None:
         ("gpt-4o-2024-08", "openai"),
         ("o1-preview", "openai"),
         ("o3-mini", "openai"),
-        ("gemini-2.0-flash", "google"),
+        ("gemini-2.5-flash", "google"),
         ("gemini-2.5-pro", "google"),
         ("gemma-4-12b-it", "google"),
         ("totally-unknown-model", "google"),  # fallback

@@ -267,6 +267,47 @@ export async function getChatEvents(slug: string, chatId: string): Promise<unkno
   }
 }
 
+// Resolve a pending SDK `can_use_tool` ask-user round-trip. The agent's chat
+// turn is suspended on the backend awaiting this call; backend is idempotent
+// (double-click is harmless — second call returns `{ok: false, reason:
+// "unknown_or_resolved"}`). Errors are swallowed at the call site: a failed
+// resolve still flips the local card to its resolved state so the user isn't
+// stuck on a dead button — worst case the agent's await times out / the user
+// re-tries via /resume. (Step A: no retry path; out of scope.)
+export interface PermissionResolveBody {
+  decision: 'approve' | 'deny'
+  scope: 'once' | 'always'
+  message?: string
+}
+
+export interface PermissionResolveResponse {
+  ok: boolean
+  reason?: string
+}
+
+export async function resolvePermission(
+  chatId: string,
+  requestId: string,
+  body: PermissionResolveBody,
+): Promise<PermissionResolveResponse> {
+  const r = await fetch(
+    `/lab/chats/${encodeURIComponent(chatId)}/permission/${encodeURIComponent(requestId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  if (!r.ok) {
+    return { ok: false, reason: `http_${r.status}` }
+  }
+  try {
+    return await r.json() as PermissionResolveResponse
+  } catch {
+    return { ok: false, reason: 'parse_failed' }
+  }
+}
+
 // Truncate events.jsonl at a user line and clear the SDK session sidecar.
 // `targetUserIndex` is a 0-indexed ordinal among user lines; omitted = last.
 // Powers retry / edit on any user bubble. Idempotent on the server.

@@ -28,13 +28,13 @@ async def test_google_extract_happy_path() -> None:
 
         p = GoogleProvider(api_key="g-test")
         result = await p.extract(
-            model_id="gemini-2.0-flash",
+            model_id="gemini-2.5-flash",
             system_prompt="extract",
             user_content=[TextBlock(text="hi"), DocumentBlock(media_type="application/pdf", data_b64="JVBERi0=")],
             response_schema=_SCHEMA,
         )
     assert result.raw_json == payload
-    assert result.model_id == "gemini-2.0-flash"
+    assert result.model_id == "gemini-2.5-flash"
     assert result.input_tokens == 100
     assert result.output_tokens == 50
 
@@ -55,7 +55,7 @@ async def test_google_retries_on_rate_limit() -> None:
 
         p = GoogleProvider(api_key="g-test", retry_base_delay=0.0)
         result = await p.extract(
-            model_id="gemini-2.0-flash",
+            model_id="gemini-2.5-flash",
             system_prompt="x",
             user_content=[TextBlock(text="x")],
             response_schema=_SCHEMA,
@@ -73,7 +73,7 @@ async def test_google_does_not_retry_non_retryable() -> None:
         p = GoogleProvider(api_key="g-test", retry_base_delay=0.0)
         with pytest.raises(ValueError):
             await p.extract(
-                model_id="gemini-2.0-flash",
+                model_id="gemini-2.5-flash",
                 system_prompt="x",
                 user_content=[TextBlock(text="x")],
                 response_schema=_SCHEMA,

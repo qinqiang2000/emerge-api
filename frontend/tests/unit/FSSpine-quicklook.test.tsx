@@ -30,9 +30,9 @@ describe('FSSpine → QuickLook wiring', () => {
     })
     useModels.setState({
       list: { [SLUG]: [
-        { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', is_active: true, created_at: 'x' },
+        { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.5-flash', is_active: true, created_at: 'x' },
       ] },
-      activeByProject: { [SLUG]: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.0-flash', params: {}, created_at: 'x' } as any },
+      activeByProject: { [SLUG]: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.5-flash', params: {}, created_at: 'x' } as any },
       loading: {},
     })
   })

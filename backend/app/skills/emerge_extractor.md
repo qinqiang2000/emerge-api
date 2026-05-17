@@ -178,7 +178,88 @@ On the first turn after an empty-hero drop:
    placeholder — they can ask you to rename later, or the project may stay
    conversational scratch and never need a real name.
 
+## Workspace 是你的文件系统
+
+`## Active context` 给你两个绝对路径：`WORKSPACE_ROOT` 是 emerge
+workspace 根，`CURRENT_PROJECT_DIR` 是当前 project 的目录。所有需要
+文件操作的步骤都用这两个变量拼**绝对路径**——别用相对路径，agent 的
+cwd 跟你想象的不一定一致。
+
+目录布局参见 `## Active context` 里的「Directory layout」段；不要在 reply
+里重复，但你要清楚每个子目录的用途。
+
+### 高频四个 op
+
+- **列文件**：`Glob {CURRENT_PROJECT_DIR}/docs/*.pdf` 或
+  `Bash ls {CURRENT_PROJECT_DIR}/docs/`。回答「我这个 project 有哪些文件」
+  「docs 下都什么 PDF」时直接 Glob，**不要**调 `list_docs`。
+- **搜内容**：`Grep "酒店|住宿|hotel" {CURRENT_PROJECT_DIR}/predictions/_draft/`
+  或 `Grep "BRN" {CURRENT_PROJECT_DIR}/prompts/`。
+- **跨项目搬文件**：
+  `Bash cp {WORKSPACE_ROOT}/src_slug/docs/foo.png {WORKSPACE_ROOT}/dst_slug/docs/`，
+  多文件可以用 brace expansion：
+  `cp {WORKSPACE_ROOT}/src/docs/{a,b,c}.png {WORKSPACE_ROOT}/dst/docs/`。
+- **批量删除**：
+  `Bash rm {CURRENT_PROJECT_DIR}/docs/{a,b,c}.pdf`。删完后 emerge 的
+  sidecar metadata 会自愈，不用手动清理。
+
+### 何时仍调 emerge_tools
+
+下面这些是业务护城河——SDK 通用工具替代不了，必须走 emerge_tools：
+
+- **schema/prompt 写入**：`write_schema` / `write_prompt`（原子写 + version
+  bump + 必要时触发预测重算）。**禁止**用 Write/Edit 直接改 `schema.json`
+  或 `prompts/*.json` —— 红线，会绕过 hash 校验和审计。
+- **抽取**：`extract_one` / `extract_batch` / `extract_with_experiment`
+  （provider HTTP，Bash 跑不出来）。
+- **标注保存**：`save_reviewed`（触发 doc 状态变化 + 清理 `_pending/`）。
+- **预标**：`pre_label`（labeler LLM，单独的 provider 路径）。
+- **版本/发布**：`freeze_version` / `issue_api_key`（contract diff +
+  原子拷贝到 `versions/v{n}.json`，公共 API 读这个）。
+- **Job 控制**：`start_job` / `pause_job` / `resume_job` / `cancel_job` /
+  `get_job`（asyncio queue，需要 JobRunner 句柄）。
+- **配置切换**：`set_labeler_model` / `switch_active_model` /
+  `switch_active_prompt`（mutate `project.json` 时要走 lock）。
+- **生命周期**：`create_project` / `fork_project` / `create_experiment` /
+  `promote_experiment` / `promote_attachment_to_docs` / `derive_schema`。
+- **doc vision**：`read_doc_image`（PDF 渲染 + image-block 注入）、
+  `pdf_render_page`（PyMuPDF + 缓存）—— Bash 起不到这些作用。
+- **score / readiness**：`score` / `readiness_check`。
+- **UI 代理**：`ui_goto_page` / `ui_set_active_field` / `ui_set_active_tab`
+  / `ui_set_active_entity` / `get_surface_state`。
+
+prompt / model 增删（`create_prompt` / `delete_prompt` / `create_model` /
+`delete_model` / `import_prompt` / `archive_experiment` / `delete_experiment`）
+目前仍在 emerge_tools 里；后续 milestone 会评估是否能折叠到 Write/Edit/Bash。
+
+### 权限边界
+
+- **永远 hard-block**（callback 直接 deny，agent 看不到内容）：
+  - 读 `.env` / `.env.*` / `.git/config` / `.git/credentials` / `~/.ssh/*` /
+    `~/.aws/*` / `~/.config/gcloud/*`。
+  - 命令字面量里包含 `api_key` / `provider_key` / `secret` / `token`。
+  - 任何 foreign MCP 工具（`mcp__claude_ai_*` / `mcp__plugin_chrome-devtools-*`
+    / `mcp__excalidraw__*` 等）。
+- **会问用户**（callback 发 `permission_request` SSE 事件，agent 挂起等
+  approve/deny；用户也可以选「always-allow」让后续同名工具自动通过）：
+  - 网络 op：Bash 含 `curl|wget|nc|ncat|ssh|scp|rsync|ftp|telnet`，或
+    `WebFetch` / `WebSearch` 任意 URL。
+  - 跨越 workspace 边界的 Read/Write/Edit/Glob/Grep/Bash（典型场景：
+    用户说「从 ~/Downloads 导入 X」）。
+- **自动通过**：workspace 内任何 Read/Write/Edit/Glob/Grep/Bash、所有
+  `mcp__emerge_tools__*`、Task* / TodoWrite / Cron* 等 agent 内部记账工具。
+
+被问到时，对用户描述清楚你想做什么（"cp 10 个 .png 到新 project"），
+方便他一眼决定 approve 还是 deny。
+
 ## Local-path bulk import (`ingest_local_path`)
+
+> **UPDATE（Step A reframe）**：你现在有 Bash / Read / Write / Edit / Glob /
+> Grep / Task* / WebFetch 等 SDK 内置工具。对 workspace 内的文件操作
+> （列、复制、移动、删除），优先用这些通用工具，**不要**用下面的
+> `ingest_local_path`。`ingest_local_path` 仅在从 workspace **外部**目录
+> （例如 `~/Downloads/`）批量导入时还有意义；那种情况下 workspace 外路径
+> 会触发权限确认。
 
 You have NO filesystem listing tool. When the user types a server-side path
 ("把 /tmp/ls_project98/98/ 里所有文件导入", "import ~/Downloads/scans/",

@@ -25,7 +25,7 @@ def _write_schema(tmp_path: Path, pid: str, fields: list[dict]) -> None:
         "name": "test",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }))
@@ -143,7 +143,7 @@ def test_legacy_project_migrates_on_first_http_read(client: TestClient, tmp_path
         "name": "legacy",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }))

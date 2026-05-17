@@ -333,7 +333,7 @@ def test_minimal_model_config() -> None:
         model_id="m_default",
         label="Default",
         provider="google",
-        provider_model_id="gemini-2.0-flash",
+        provider_model_id="gemini-2.5-flash",
         created_at="2026-05-12T00:00:00+00:00",
     )
     assert mc.params == {}
@@ -370,7 +370,7 @@ def test_provider_literal_constraint() -> None:
         ("gpt-4o-2024-08", "openai"),
         ("o1-preview", "openai"),
         ("o3-mini", "openai"),
-        ("gemini-2.0-flash", "google"),
+        ("gemini-2.5-flash", "google"),
         ("gemini-2.5-pro", "google"),
         ("gemma-4-12b-it", "google"),
         ("totally-unknown-model", "google"),  # fallback
@@ -787,9 +787,9 @@ def _seed_active_project(workspace: Path, pid: str) -> None:
     })
     atomic_write_json(model_path(workspace, pid, "m_default"), {
         "model_id": "m_default",
-        "label": "Default (gemini-2.0-flash)",
+        "label": "Default (gemini-2.5-flash)",
         "provider": "google",
-        "provider_model_id": "gemini-2.0-flash",
+        "provider_model_id": "gemini-2.5-flash",
         "params": {"temperature": 0.0},
         "created_at": _now(),
     })
@@ -799,7 +799,7 @@ async def test_read_model_by_id(workspace: Path) -> None:
     pid = "p_test12345678"
     _seed_active_project(workspace, pid)
     mc = await read_model(workspace, pid, "m_default")
-    assert mc.provider_model_id == "gemini-2.0-flash"
+    assert mc.provider_model_id == "gemini-2.5-flash"
     assert mc.provider == "google"
 
 
@@ -842,7 +842,7 @@ async def test_write_model_upserts(workspace: Path) -> None:
         model_id="m_default",
         label="Default (renamed)",
         provider="google",
-        provider_model_id="gemini-2.0-flash",
+        provider_model_id="gemini-2.5-flash",
         params={"temperature": 0.1},
     )
     mc = await read_model(workspace, pid, "m_default")
@@ -862,7 +862,7 @@ async def test_list_models_marks_active(workspace: Path) -> None:
     rows = await list_models(workspace, pid)
     assert len(rows) == 2
     by_label = {r["label"]: r for r in rows}
-    assert by_label["Default (gemini-2.0-flash)"]["is_active"] is True
+    assert by_label["Default (gemini-2.5-flash)"]["is_active"] is True
     assert by_label["Sonnet"]["is_active"] is False
 ```
 
@@ -1050,7 +1050,7 @@ def _build_legacy_project(workspace: Path, pid: str = "p_legacy00abcd") -> str:
         "name": "Legacy invoice",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }), encoding="utf-8")
@@ -1087,7 +1087,7 @@ async def test_migrate_builds_default_model(workspace: Path) -> None:
     mc = json.loads(mp.read_text())
     assert mc["model_id"] == "m_default"
     assert mc["provider"] == "google"
-    assert mc["provider_model_id"] == "gemini-2.0-flash"
+    assert mc["provider_model_id"] == "gemini-2.5-flash"
     assert mc["params"] == {"temperature": 0.0}
 
 
@@ -1099,7 +1099,7 @@ async def test_migrate_updates_project_json_active_pointers(workspace: Path) -> 
     assert blob["active_prompt_id"] == "pr_baseline"
     assert blob["active_model_id"] == "m_default"
     # legacy fields preserved for transition-period fallback
-    assert blob["extract_model"] == "gemini-2.0-flash"
+    assert blob["extract_model"] == "gemini-2.5-flash"
     assert blob["extract_params"] == {"temperature": 0.0}
 
 
@@ -1872,7 +1872,7 @@ def test_legacy_project_migrates_on_first_http_read(client: TestClient, tmp_path
         "name": "legacy",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }))
@@ -2209,7 +2209,7 @@ def _build_legacy_project(workspace: Path, pid: str) -> None:
         "name": "legacy invoice",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }), encoding="utf-8")

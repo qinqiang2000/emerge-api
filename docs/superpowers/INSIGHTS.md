@@ -33,6 +33,21 @@ release. Drop `can_use_tool` and the agent gets full Bash/Edit/Write again.
 
 ---
 
+## 1.5. SDK CLI auto-allows cwd-local Reads before `can_use_tool` fires
+
+**Where:** `backend/app/chat/service.py`, `backend/app/chat/sdk_settings.json`
+
+**The trap:** Under SDK 0.1.77 + `permission_mode="default"`, the CLI subprocess pre-decides Read of any file under its cwd as "safe" and skips `can_use_tool`. M10 dogfood (2026-05-17) confirmed: agent Read `backend/.env` and printed real `CLAUDE_CODE_OAUTH_TOKEN` + `GOOGLE_API_KEY` into chat transcript despite our `_workspace_safety_gate` returning `PermissionResultDeny`.
+
+**The fix that actually works (three-tier defense):**
+1. **Hard deny via SDK settings file** (`sdk_settings.json`) — `Read(/**/.env)`, `Read(/**/*.key)`, `Bash(printenv*)` etc. The SDK CLI enforces these *before* callback. Pass via `settings=<path>` + `setting_sources=["project"]`. Use our checked-in file (not user-level), so INSIGHTS #2's foreign-MCP isolation still holds. The settings file itself is in the deny list (`Read/Write/Edit(/**/sdk_settings.json)`) so the agent can't lift its own restrictions.
+2. **Dynamic ask via `can_use_tool`** — for cross-workspace reads, network ops, etc. The callback fires only for tools/paths the deny list didn't catch.
+3. **`cwd=self.workspace.resolve()`** — aligns the SDK CLI's "trusted local dir" with our gate boundary. Belt-and-suspenders: even without the settings file, paths outside workspace force callback consultation.
+
+**Don't change** unless you've reproduced a fresh `.env` Read in a new chat and confirmed it's still denied. The callback alone is NOT sufficient.
+
+---
+
 ## 2. `setting_sources=[]` prevents inheritance of user-level hooks/MCPs
 
 **Where:** `backend/app/chat/service.py`
@@ -43,9 +58,19 @@ excalidraw, etc.) and `SessionStart` hooks. Symptoms in M1 dogfood: chat
 flooded with `hook_started`/`hook_response`/`init` SystemMessages dumping
 the user's `superpowers:using-superpowers` skill content as raw JSON.
 
-**The fix:** `setting_sources=[]` in `ClaudeAgentOptions`. This means
-**none** of `user`/`project`/`local` settings are read — only what we
-pass explicitly via `mcp_servers={"emerge_tools": ...}` and `system_prompt=...`.
+**The fix:** keep `user` and `local` out of `setting_sources` so the host's
+`~/.claude/settings.json` and `.claude/settings.local.json` never feed in.
+
+After INSIGHTS #1.5 we switched to `setting_sources=["project"]` (was `[]`)
+to load our checked-in `backend/app/chat/sdk_settings.json` via the explicit
+`settings=<path>` option. That file lives inside our repo, NOT in the user's
+home or any auto-discovered project root, so the foreign-MCP / SessionStart
+hook isolation this insight describes is preserved.
+
+**Don't add** `"user"` or `"local"` to `setting_sources` — those are how
+chrome-devtools / excalidraw MCPs and `SessionStart` hooks would re-enter
+the chat stream. The only acceptable widening is loading another
+emerge-controlled file via `settings=...`.
 
 ---
 

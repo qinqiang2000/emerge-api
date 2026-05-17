@@ -12,7 +12,9 @@ import { useProjects } from '../../stores/projects'
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
+import PermissionCard from './PermissionCard'
 import SaveReviewedAdapter from './SaveReviewedAdapter'
+import TaskChecklist from './TaskChecklist'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import ToolStack from './ToolStack'
@@ -259,8 +261,18 @@ export default function MessageList({ events, busy }: Props) {
       userCount++
     }
   }
+  // Detect a pending permission prompt — when present, the agent is blocked
+  // awaiting the user's reply, so the "agent is thinking…" indicator below
+  // should swap to a clearer "paused" message rather than spinning. We
+  // intentionally don't rely on `busy` alone because the SSE stream is still
+  // technically open while waiting.
+  const pendingPermission = events.some(
+    e => e.type === 'permission_request' && !e.resolution,
+  )
+
   return (
     <div data-testid="message-list">
+      <TaskChecklist />
       {items.map((item, i) => {
         if (item.kind === 'user') {
           return (
@@ -298,6 +310,13 @@ export default function MessageList({ events, busy }: Props) {
             </div>
           )
         }
+        if (item.kind === 'permission') {
+          return (
+            <div key={i} className="pl-2">
+              <PermissionCard event={item.event} />
+            </div>
+          )
+        }
         return (
           <div
             key={i}
@@ -309,6 +328,21 @@ export default function MessageList({ events, busy }: Props) {
         )
       })}
       {busy && (() => {
+        if (pendingPermission) {
+          // Suppress the spinning indicator while the agent is paused
+          // waiting on the user — the permission card already conveys
+          // "you're blocking me, decide". Show a clearer line instead.
+          return (
+            <div
+              className="text-ochre-2 italic flex items-center gap-2 px-1 mt-4 font-mono text-xs"
+              aria-live="polite"
+              data-testid="permission-pause-indicator"
+            >
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-ochre"></span>
+              waiting for your approval…
+            </div>
+          )
+        }
         const latest = [...events].reverse().find(e => e.type === 'tool_call') as
           | ToolCallEvent | undefined
         const running = latest

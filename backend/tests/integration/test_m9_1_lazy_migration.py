@@ -21,7 +21,7 @@ def _build_legacy_project(workspace: Path, pid: str) -> None:
         "name": "legacy invoice",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }), encoding="utf-8")

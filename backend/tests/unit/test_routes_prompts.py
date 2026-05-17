@@ -137,7 +137,7 @@ def test_list_prompts_legacy_project_migrates_first(client: TestClient, tmp_path
         "name": "legacy",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }))

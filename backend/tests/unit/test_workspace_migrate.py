@@ -29,7 +29,7 @@ def _build_legacy_project(workspace: Path, pid: str = "p_legacy00abcd") -> str:
         "name": "Legacy invoice",
         "project_type": "extraction",
         "created_at": "2026-05-01T00:00:00+00:00",
-        "extract_model": "gemini-2.0-flash",
+        "extract_model": "gemini-2.5-flash",
         "extract_params": {"temperature": 0.0},
         "active_version_id": None,
     }), encoding="utf-8")
@@ -66,7 +66,7 @@ async def test_migrate_builds_default_model(workspace: Path) -> None:
     mc = json.loads(mp.read_text())
     assert mc["model_id"] == "m_default"
     assert mc["provider"] == "google"
-    assert mc["provider_model_id"] == "gemini-2.0-flash"
+    assert mc["provider_model_id"] == "gemini-2.5-flash"
     assert mc["params"] == {"temperature": 0.0}
 
 
@@ -78,7 +78,7 @@ async def test_migrate_updates_project_json_active_pointers(workspace: Path) -> 
     assert blob["active_prompt_id"] == "pr_baseline"
     assert blob["active_model_id"] == "m_default"
     # legacy fields preserved for transition-period fallback
-    assert blob["extract_model"] == "gemini-2.0-flash"
+    assert blob["extract_model"] == "gemini-2.5-flash"
     assert blob["extract_params"] == {"temperature": 0.0}
 
 
