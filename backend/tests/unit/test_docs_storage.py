@@ -75,6 +75,43 @@ async def test_list_docs_skips_dotfiles_and_sidecar_dir(workspace: Path) -> None
     assert {it["filename"] for it in items} == {"real.pdf"}
 
 
+async def test_list_docs_rebuilds_missing_sidecar(workspace: Path) -> None:
+    """Agent `Bash cp` drops a real doc into `docs/` without going through
+    `upload_doc`. `list_docs` should rebuild the sidecar lazily so the doc
+    appears in the listing immediately."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    docs_d = workspace / pid / "docs"
+    docs_d.mkdir(parents=True, exist_ok=True)
+    # Simulate `cp other_project/docs/orphan.pdf docs/` — bytes only, no sidecar.
+    (docs_d / "orphan.pdf").write_bytes(SAMPLE_PDF)
+    assert not (docs_d / ".meta" / "orphan.pdf.json").exists()
+
+    items = await list_docs(workspace, pid)
+
+    assert {it["filename"] for it in items} == {"orphan.pdf"}
+    rebuilt = next(it for it in items if it["filename"] == "orphan.pdf")
+    assert rebuilt["ext"] == "pdf"
+    assert rebuilt["sha256"]
+    assert "page_count" in rebuilt
+    assert rebuilt.get("rebuilt") is True
+    # Sidecar persisted on disk so subsequent calls don't pay the lock again.
+    assert (docs_d / ".meta" / "orphan.pdf.json").exists()
+
+
+async def test_list_docs_skips_garbage_without_sidecar(workspace: Path) -> None:
+    """A file with no magic match (random bytes) gets neither a sidecar nor
+    a listing entry — protects the listing from junk that landed in `docs/`."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    docs_d = workspace / pid / "docs"
+    docs_d.mkdir(parents=True, exist_ok=True)
+    (docs_d / "junk.pdf").write_bytes(b"this is not a pdf")
+
+    items = await list_docs(workspace, pid)
+
+    assert items == []
+    assert not (docs_d / ".meta" / "junk.pdf.json").exists()
+
+
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf"
 
 

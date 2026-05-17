@@ -152,26 +152,75 @@ def _count_pages(data: bytes, ext: str) -> int:
         return 1
 
 
+async def _repair_doc_sidecar(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+) -> dict[str, Any] | None:
+    """Rebuild a sidecar for a doc that lives in `docs/<filename>` without a
+    matching `.meta/<filename>.json`. Sniffs the bytes for ext; returns the
+    new sidecar payload, or None if the bytes don't match pdf/png/jpg (some
+    non-doc file got dropped into `docs/` — leave alone, caller skips it).
+
+    Caller must already hold `project_lock`. `rebuilt: True` flags the
+    sidecar so audit can tell rebuilt from genuine upload."""
+    try:
+        data = doc_path(workspace, project_id, filename).read_bytes()
+    except OSError:
+        return None
+    sniff = _sniff_ext(data)
+    if sniff is None:
+        return None
+    meta = {
+        "filename": filename,
+        "original_name": filename,
+        "ext": sniff,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "page_count": _count_pages(data, sniff),
+        "uploaded_at": _now_iso(),
+        "rebuilt": True,
+    }
+    atomic_write_json(doc_meta_path(workspace, project_id, filename), meta)
+    return meta
+
+
 async def list_docs(workspace: Path, project_id: str) -> list[dict[str, Any]]:
     """List all docs in a project, newest-name-last. Reads each sidecar JSON.
 
-    Files without sidecars are skipped silently — that state shouldn't happen
-    under normal upload, but a half-written `docs/foo.pdf` (e.g. mid-fork)
-    would otherwise crash the listing. Hidden entries (anything starting with
-    `.` — that's our `.meta/` dir too) and subdirectories are skipped."""
+    Sidecar-missing files are rebuilt lazily — the agent can `Bash cp` files
+    into a project's `docs/` and have them appear immediately, without going
+    through `upload_doc`. Rebuild kicks in only when at least one orphan is
+    seen, so the common all-sidecars-present path doesn't pay for the
+    project lock. Hidden entries (anything starting with `.` — that's our
+    `.meta/` dir too) and subdirectories are skipped."""
     out: list[dict[str, Any]] = []
     d = docs_dir(workspace, project_id)
     if not d.exists():
         return out
     meta_d = docs_meta_dir(workspace, project_id)
+
+    entries: list[Path] = []
     for child in sorted(d.iterdir()):
         if not child.is_file():
             continue
         if child.name.startswith("."):
             continue
+        entries.append(child)
+
+    needs_repair = [c for c in entries if not (meta_d / f"{c.name}.json").exists()]
+    if needs_repair:
+        meta_d.mkdir(parents=True, exist_ok=True)
+        async with project_lock(workspace, project_id):
+            for child in needs_repair:
+                meta_p = meta_d / f"{child.name}.json"
+                if meta_p.exists():
+                    continue  # raced with another caller — sidecar now exists
+                await _repair_doc_sidecar(workspace, project_id, child.name)
+
+    for child in entries:
         meta_p = meta_d / f"{child.name}.json"
         if not meta_p.exists():
-            continue
+            continue  # repair declined (bytes don't sniff to pdf/png/jpg)
         try:
             blob = json.loads(meta_p.read_text())
         except (OSError, json.JSONDecodeError):
