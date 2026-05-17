@@ -153,6 +153,21 @@ def test_fork_and_import_in_emerge_tool_names() -> None:
     assert "import_prompt" in _EMERGE_TOOL_NAMES
 
 
+async def test_pre_label_tools_are_registered(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """Pro Labeler tools (M10): pre_label, get_pending, set_labeler_model."""
+    from unittest.mock import MagicMock
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    names = await _extract_tool_names(server)
+    assert {"pre_label", "get_pending", "set_labeler_model"}.issubset(names), names
+    canonical = _emerge_tool_names()
+    for n in ("pre_label", "get_pending", "set_labeler_model"):
+        assert n in canonical, f"missing {n!r} in _EMERGE_TOOL_NAMES"
+
+
 async def test_read_doc_image_registered(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:

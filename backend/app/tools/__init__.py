@@ -12,6 +12,7 @@ from app.schemas.schema_field import SchemaField
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
+from app.tools import pre_label as pre_label_mod
 from app.tools import predictions as predictions_mod
 from app.tools import promote as promote_mod
 from app.tools import publish as publish_mod
@@ -135,6 +136,65 @@ def build_emerge_mcp(
             workspace, args["slug"], args["chat_id"], args["filename"],
         )
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "pre_label",
+        "Pro-labeler batch draft. Calls the project's `labeler_model` (a "
+        "stronger LLM, e.g. `gemini-pro-latest`) on each filename and writes "
+        "a draft to `reviewed/_pending/{filename}.json` for the human boss "
+        "to verify in Review mode. Skips docs that already have `reviewed/`. "
+        "Overwrites existing pending (re-run with a different model OK). "
+        "Pass empty filenames=[] (or omit) to label every unreviewed doc. "
+        "Cap each call at ≤10 filenames — batch larger sets across multiple "
+        "calls so chat feedback stays responsive. Returns "
+        "{processed, skipped, errors, labeler_model}. This is NOT a "
+        "substitute for extract — output goes to reviewed/_pending/, never "
+        "predictions/_draft/ or reviewed/.",
+        {"slug": str, "filenames": list, "labeler_model": str},
+    )
+    async def t_pre_label(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            out = await pre_label_mod.pre_label(
+                workspace, args["slug"],
+                filenames=args.get("filenames") or None,
+                labeler_model=args.get("labeler_model") or None,
+            )
+        except pre_label_mod.LabelerNotConfiguredError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "labeler_model_not_configured",
+                    "error_message_en": str(e),
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "get_pending",
+        "Get the Pro-labeler pending draft for one doc or null if none "
+        "exists. Distinct from get_reviewed (human-verified ground truth) — "
+        "pending is awaiting human boss review.",
+        {"slug": str, "filename": str},
+    )
+    async def t_get_pending(args: dict[str, Any]) -> dict[str, Any]:
+        payload = await pre_label_mod.get_pending(
+            workspace, args["slug"], args["filename"],
+        )
+        text = _json.dumps(payload) if isinstance(payload, dict) else "null"
+        return {"content": [{"type": "text", "text": text}]}
+
+    @tool(
+        "set_labeler_model",
+        "Update project.json.labeler_model — the model pre_label uses by "
+        "default when no override is passed. Use when the user says \"换 pro "
+        "模型\" / \"用 X 当 pro\". No risk gate; the change is recoverable.",
+        {"slug": str, "model_id": str},
+    )
+    async def t_set_labeler_model(args: dict[str, Any]) -> dict[str, Any]:
+        await pre_label_mod.set_labeler_model(
+            workspace, args["slug"], args["model_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool("list_docs", "List documents in a project.", {"slug": str})
     async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
@@ -837,6 +897,9 @@ def build_emerge_mcp(
             t_upload_doc,
             t_ingest_local_path,
             t_promote_attachment_to_docs,
+            t_pre_label,
+            t_get_pending,
+            t_set_labeler_model,
             t_list_docs,
             t_pdf_render_page,
             t_read_doc_image,
@@ -890,7 +953,9 @@ def build_emerge_mcp(
 _EMERGE_TOOL_NAMES = (
     "create_project", "rename_project", "list_projects", "upload_doc",
     "ingest_local_path",
-    "promote_attachment_to_docs", "list_docs", "pdf_render_page", "read_doc_image",
+    "promote_attachment_to_docs",
+    "pre_label", "get_pending", "set_labeler_model",
+    "list_docs", "pdf_render_page", "read_doc_image",
     "derive_schema", "read_schema", "write_schema",
     "write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt",
     "write_model", "create_model", "switch_active_model", "list_models", "delete_model",
