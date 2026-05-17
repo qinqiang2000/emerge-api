@@ -15,14 +15,7 @@ import { useMemo } from 'react'
 import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
 import { useReview } from '../../stores/review'
-
-interface SchemaField {
-  name: string
-  type: string
-  description?: string
-  enum?: string[] | null
-  children?: SchemaField[] | null
-}
+import type { SchemaField } from '../../stores/schema'
 
 interface Props {
   schema: SchemaField[]
@@ -77,15 +70,22 @@ export default function FieldEditor({
 
   // T11.1: Synthetic single-section — one section labelled "fields" containing all SchemaFields
   const sections = useMemo(() => {
-    const fields: SectionField[] = schema.map((f) => ({
-      name: f.name,
-      type: f.type,
-      description: f.description,
-      value: currentEntity[f.name] ?? null,
-      note: notes[f.name],
-      evidencePage: evidenceForEntity?.[f.name] ?? null,
-      children: f.children ?? null,
-    }))
+    const fields: SectionField[] = schema.flatMap((f) => {
+      // Top-level fields always have a name (validated server-side).
+      if (!f.name) return []
+      // New shape: array<object> stores row schema at items.properties.
+      // Legacy shape: row schema lives at children. Normalize for Section.
+      const rowSchema = f.children ?? (f.type === 'array' && f.items?.type === 'object' ? f.items.properties ?? null : null)
+      return [{
+        name: f.name,
+        type: f.type,
+        description: f.description,
+        value: currentEntity[f.name] ?? null,
+        note: notes[f.name],
+        evidencePage: evidenceForEntity?.[f.name] ?? null,
+        children: rowSchema,
+      }]
+    })
     // If/when backend grows section support, read from schema; for now, one section.
     return [{ id: 'fields', label: 'fields', fields }]
   }, [schema, currentEntity, notes, evidenceForEntity])

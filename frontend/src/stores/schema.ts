@@ -1,11 +1,20 @@
 import { create } from 'zustand'
 
+export type FieldTypeName = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
+export type StringFormatName = 'date' | 'date-time' | 'time'
+
 export interface SchemaField {
-  name: string
-  type: string
+  /** Named at top level and inside object.properties; null only for array.items. */
+  name: string | null
+  type: FieldTypeName | string
   description: string
   required?: boolean
+  format?: StringFormatName | null
   enum?: string[] | null
+  properties?: SchemaField[] | null
+  items?: SchemaField | null
+  /** Legacy ARRAY_OBJECT shape — kept for type compatibility on read paths
+   *  that haven't been migrated yet. Writes use properties/items. */
   children?: SchemaField[] | null
 }
 
@@ -14,9 +23,21 @@ export interface SaveError {
   error_message_en?: string
 }
 
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+const SAVED_HOLD_MS = 1500
+
 interface State {
   byProject: Record<string, SchemaField[]>
   loading: Record<string, boolean>
+  /** Transient per-project save indicator. `saveActive` ticks this:
+   *  idle → saving → saved (held 1500ms) → idle, or → error on failure.
+   *  Surfaced in QuickLookHeader so the pill stays visible while the user
+   *  scrolls the field list (the in-list label scrolls out of view). */
+  saveStatus: Record<string, SaveStatus>
+  /** Companion to `saveStatus === 'error'` — preserves the SaveError envelope
+   *  so the in-list ErrorBanner can still render the error_code + message. */
+  saveError: Record<string, SaveError | null>
   load: (projectId: string) => Promise<SchemaField[]>
   /** Direct human edit of the active prompt. Returns null on success
    *  or a SaveError envelope. On success, byProject is updated so the
@@ -26,10 +47,20 @@ interface State {
   reset: () => void
 }
 
+// Per-project saved→idle timers. Kept outside the store so callers can't
+// accidentally serialize a number into JSON.
+const savedTimers: Record<string, number> = {}
+
 export const useSchema = create<State>((set, get) => ({
   byProject: {},
   loading: {},
-  reset: () => set({ byProject: {}, loading: {} }),
+  saveStatus: {},
+  saveError: {},
+  reset: () => {
+    Object.values(savedTimers).forEach((id) => window.clearTimeout(id))
+    Object.keys(savedTimers).forEach((k) => delete savedTimers[k])
+    set({ byProject: {}, loading: {}, saveStatus: {}, saveError: {} })
+  },
   invalidate: (projectId) =>
     set((s) => {
       const next = { ...s.byProject }
@@ -66,6 +97,34 @@ export const useSchema = create<State>((set, get) => ({
   },
 
   saveActive: async (projectId, fields, globalNotes) => {
+    // Cancel any pending saved→idle tick from a previous save — the new save
+    // takes precedence and will schedule its own tick on success.
+    const pending = savedTimers[projectId]
+    if (pending !== undefined) {
+      window.clearTimeout(pending)
+      delete savedTimers[projectId]
+    }
+    set((s) => ({
+      saveStatus: { ...s.saveStatus, [projectId]: 'saving' },
+      saveError: { ...s.saveError, [projectId]: null },
+    }))
+    const finish = (status: SaveStatus, err: SaveError | null) => {
+      set((s) => ({
+        saveStatus: { ...s.saveStatus, [projectId]: status },
+        saveError: { ...s.saveError, [projectId]: err },
+      }))
+      if (status === 'saved') {
+        savedTimers[projectId] = window.setTimeout(() => {
+          delete savedTimers[projectId]
+          set((s) => {
+            // Only flip back to idle if we're still in 'saved' — a fresh save
+            // may have moved us back to 'saving' / 'error' in the meantime.
+            if (s.saveStatus[projectId] !== 'saved') return s
+            return { saveStatus: { ...s.saveStatus, [projectId]: 'idle' } }
+          })
+        }, SAVED_HOLD_MS)
+      }
+    }
     try {
       const r = await fetch(`/lab/projects/${encodeURIComponent(projectId)}/prompts/active`, {
         method: 'PUT',
@@ -78,14 +137,18 @@ export const useSchema = create<State>((set, get) => ({
           const j = await r.json()
           detail = j?.detail ?? detail
         } catch { /* not json */ }
+        finish('error', detail)
         return detail
       }
       const blob = await r.json() as { schema: SchemaField[] }
       const next = blob.schema ?? fields
       set((s) => ({ byProject: { ...s.byProject, [projectId]: next } }))
+      finish('saved', null)
       return null
     } catch (e) {
-      return { error_code: 'network_error', error_message_en: (e as Error).message }
+      const err: SaveError = { error_code: 'network_error', error_message_en: (e as Error).message }
+      finish('error', err)
+      return err
     }
   },
 }))

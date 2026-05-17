@@ -3,10 +3,20 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useSchema, type SchemaField, type SaveError } from '../../stores/schema'
-import { Reminder } from '../Reminder'
 
-const TYPES = ['string', 'number', 'boolean', 'date', 'array<object>'] as const
+// `date / date-time / time` are virtual: selecting one patches the field to
+// {type:'string', format:'…'}. Internally we keep type=='string' and lift the
+// format up in the dropdown.
+const TYPES = ['string', 'integer', 'number', 'boolean', 'date', 'date-time', 'time', 'object', 'array'] as const
 type TypeName = (typeof TYPES)[number]
+
+// Subset of TYPES used as the array.items type sub-selector. Nested
+// `array<array>` is allowed by the backend but the editor doesn't expose it —
+// any user who genuinely needs that can drop to raw JSON. Object/array
+// nesting via properties (e.g. `line_items[].address.country`) is fully
+// supported through the recursive ChildrenEditor.
+const ITEMS_TYPES = ['string', 'integer', 'number', 'boolean', 'object'] as const
+type ItemsTypeName = (typeof ITEMS_TYPES)[number]
 
 const SNAKE_RE = /^[a-z][a-z0-9_]*$/
 
@@ -22,20 +32,75 @@ function csvJoin(arr?: string[] | null): string {
   return (arr ?? []).join(', ')
 }
 
-function emptyField(name = 'new_field'): SchemaField {
+function emptyField(name: string | null = 'new_field'): SchemaField {
   return {
     name,
     type: 'string',
     description: '',
     required: false,
+    format: null,
     enum: null,
-    children: null,
+    properties: null,
+    items: null,
   }
 }
 
-type Status = 'idle' | 'saving' | 'saved' | 'error'
+function emptyObjectChild(name: string): SchemaField {
+  return emptyField(name)
+}
 
-const SAVED_HOLD_MS = 1500
+function emptyArrayItems(innerType: ItemsTypeName): SchemaField {
+  const base: SchemaField = { name: null, type: innerType, description: '', required: false, format: null, enum: null, properties: null, items: null }
+  if (innerType === 'object') {
+    base.properties = [emptyObjectChild('sub_field')]
+  }
+  return base
+}
+
+// Translate a virtual UI type into a SchemaField patch.
+function patchForType(prev: SchemaField, t: TypeName): Partial<SchemaField> {
+  // Virtual string+format entries
+  if (t === 'date' || t === 'date-time' || t === 'time') {
+    return { type: 'string', format: t, properties: null, items: null }
+  }
+  if (t === 'object') {
+    const existing = prev.properties
+    return {
+      type: 'object',
+      format: null,
+      enum: null,
+      properties: existing && existing.length > 0 ? existing : [emptyObjectChild('sub_field')],
+      items: null,
+    }
+  }
+  if (t === 'array') {
+    const existing = prev.items
+    return {
+      type: 'array',
+      format: null,
+      enum: null,
+      properties: null,
+      items: existing ?? emptyArrayItems('string'),
+    }
+  }
+  // Plain scalar — wipe nested + format/enum-irrelevant carry
+  return {
+    type: t,
+    format: null,
+    enum: t === 'string' ? prev.enum ?? null : null,
+    properties: null,
+    items: null,
+  }
+}
+
+// Map the SchemaField to the dropdown's virtual type value.
+function virtualType(f: SchemaField): TypeName {
+  if (f.type === 'string' && (f.format === 'date' || f.format === 'date-time' || f.format === 'time')) {
+    return f.format
+  }
+  if (TYPES.includes(f.type as TypeName)) return f.type as TypeName
+  return 'string'
+}
 
 interface Props {
   pid: string
@@ -43,66 +108,42 @@ interface Props {
 }
 
 export default function SchemaFieldEditor({ pid, fields }: Props) {
+  // Save state lives in the store now so the QuickLookHeader can render a
+  // pinned status pill that stays visible while this list scrolls. The
+  // ErrorBanner inside the list still reads error_code + message from the
+  // same source (saveError keyed by pid).
   const saveActive = useSchema(s => s.saveActive)
-  const [status, setStatus] = useState<Status>('idle')
-  const [error, setError] = useState<SaveError | null>(null)
-  const savedTimerRef = useRef<number | null>(null)
+  const status = useSchema(s => s.saveStatus[pid] ?? 'idle')
+  const error = useSchema(s => s.saveError[pid] ?? null)
 
-  useEffect(() => () => {
-    if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
-  }, [])
-
-  // The committed list mirrors the store's byProject. Local edits round-trip
-  // through `commit()` rather than living in component state — keeps store
-  // as the single source of truth, avoids drift across multiple cards.
-  const commit = async (next: SchemaField[]) => {
-    if (savedTimerRef.current !== null) {
-      window.clearTimeout(savedTimerRef.current)
-      savedTimerRef.current = null
-    }
-    setStatus('saving')
-    setError(null)
-    const err = await saveActive(pid, next)
-    if (err) {
-      setError(err)
-      setStatus('error')
-      return
-    }
-    setStatus('saved')
-    savedTimerRef.current = window.setTimeout(() => {
-      savedTimerRef.current = null
-      setStatus('idle')
-    }, SAVED_HOLD_MS)
+  const commit = (next: SchemaField[]) => {
+    // saveActive owns the saving → saved/error transitions; we don't need to
+    // await the result for UI feedback. Errors propagate via the store's
+    // saveStatus + saveError.
+    void saveActive(pid, next)
   }
 
   const handleChange = (index: number, patch: Partial<SchemaField>) => {
     const next = fields.map((f, i) => i === index ? { ...f, ...patch } : f)
-    void commit(next)
+    commit(next)
   }
 
   const handleDelete = (index: number) => {
-    void commit(fields.filter((_, i) => i !== index))
+    commit(fields.filter((_, i) => i !== index))
   }
 
   const handleAdd = () => {
     let n = 1
     let name = 'new_field'
-    const taken = new Set(fields.map(f => f.name))
+    const taken = new Set(fields.map(f => f.name).filter((s): s is string => !!s))
     while (taken.has(name)) { n += 1; name = `new_field_${n}` }
-    void commit([...fields, emptyField(name)])
+    commit([...fields, emptyField(name)])
   }
-
-  const statusPill = (
-    <>
-      {status === 'saving' && <Reminder form="inline" intent="note">saving…</Reminder>}
-      {status === 'saved'  && <Reminder form="inline" intent="tip">saved</Reminder>}
-    </>
-  )
 
   if (fields.length === 0) {
     return (
       <div>
-        <div className="ql-fields-lab">fields {statusPill}</div>
+        <div className="ql-fields-lab">fields</div>
         <div className="ql-edit-empty">
           还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + add fields。
         </div>
@@ -114,10 +155,10 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
 
   return (
     <div className="ql-edit-list">
-      <div className="ql-fields-lab">fields {statusPill}</div>
+      <div className="ql-fields-lab">fields</div>
       {fields.map((f, idx) => (
         <SchemaCardEditor
-          key={`${f.name}-${idx}`}
+          key={`${f.name ?? '_'}-${idx}`}
           field={f}
           onChange={(patch) => handleChange(idx, patch)}
           onDelete={() => handleDelete(idx)}
@@ -152,19 +193,20 @@ interface CardProps {
   field: SchemaField
   onChange: (patch: Partial<SchemaField>) => void
   onDelete: () => void
+  /** When true, this card represents an array.items element — the name editor
+   *  is hidden (JSON Schema array elements have no name). */
+  nameless?: boolean
 }
 
-function SchemaCardEditor({ field, onChange, onDelete }: CardProps) {
+function SchemaCardEditor({ field, onChange, onDelete, nameless = false }: CardProps) {
   const nameRef = useRef<HTMLSpanElement>(null)
   const descRef = useRef<HTMLSpanElement>(null)
   const enRef = useRef<HTMLSpanElement>(null)
   const [nameError, setNameError] = useState<string | null>(null)
 
-  // Keep contentEditable DOM in sync with store when value changes externally
-  // (e.g. a peer card edit triggers a store refresh).
   useEffect(() => {
     if (nameRef.current && nameRef.current !== document.activeElement) {
-      nameRef.current.textContent = field.name
+      nameRef.current.textContent = field.name ?? ''
     }
   }, [field.name])
   useEffect(() => {
@@ -178,53 +220,65 @@ function SchemaCardEditor({ field, onChange, onDelete }: CardProps) {
     }
   }, [field.enum])
 
-  const isArrayOfObj = field.type === 'array<object>'
+  const vt = virtualType(field)
+  const isObject = field.type === 'object'
+  const isArray = field.type === 'array'
+  const isString = field.type === 'string'
+  const itemsType: ItemsTypeName = (field.items?.type as ItemsTypeName) ?? 'string'
+  const arrayItemsIsObject = isArray && field.items?.type === 'object'
 
   return (
     <div className="ql-edit-card">
       <div className="ql-edit-head">
-        <span
-          ref={nameRef}
-          className={`ql-edit-name${nameError ? ' err' : ''}`}
-          contentEditable
-          suppressContentEditableWarning
-          spellCheck={false}
-          onBlur={(e) => {
-            const v = (e.currentTarget.textContent ?? '').trim()
-            if (!v) {
-              setNameError('name required')
-              e.currentTarget.textContent = field.name
-              return
-            }
-            if (!isSnake(v)) {
-              setNameError('snake_case only')
-              e.currentTarget.textContent = field.name
-              return
-            }
-            setNameError(null)
-            if (v !== field.name) onChange({ name: v })
-          }}
-        >
-          {field.name}
-        </span>
+        {!nameless && (
+          <span
+            ref={nameRef}
+            className={`ql-edit-name${nameError ? ' err' : ''}`}
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck={false}
+            onBlur={(e) => {
+              const v = (e.currentTarget.textContent ?? '').trim()
+              if (!v) {
+                setNameError('name required')
+                e.currentTarget.textContent = field.name ?? ''
+                return
+              }
+              if (!isSnake(v)) {
+                setNameError('snake_case only')
+                e.currentTarget.textContent = field.name ?? ''
+                return
+              }
+              setNameError(null)
+              if (v !== field.name) onChange({ name: v })
+            }}
+          >
+            {field.name ?? ''}
+          </span>
+        )}
         <select
           className="ql-edit-type"
-          value={TYPES.includes(field.type as TypeName) ? field.type : 'string'}
+          value={vt}
           onChange={(e) => {
             const t = e.target.value as TypeName
-            // array<object> requires non-empty children — seed a placeholder
-            // so backend pydantic validator doesn't reject the save.
-            if (t === 'array<object>' && (!field.children || field.children.length === 0)) {
-              onChange({ type: t, children: [emptyField('item')] })
-            } else if (t !== 'array<object>') {
-              onChange({ type: t, children: null })
-            } else {
-              onChange({ type: t })
-            }
+            onChange(patchForType(field, t))
           }}
         >
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
+        {isArray && (
+          <select
+            className="ql-edit-type"
+            value={itemsType}
+            onChange={(e) => {
+              const it = e.target.value as ItemsTypeName
+              onChange({ items: emptyArrayItems(it) })
+            }}
+            title="array item type"
+          >
+            {ITEMS_TYPES.map(t => <option key={t} value={t}>items: {t}</option>)}
+          </select>
+        )}
         <label className="ql-edit-req">
           <input
             type="checkbox"
@@ -237,7 +291,7 @@ function SchemaCardEditor({ field, onChange, onDelete }: CardProps) {
           type="button"
           className="ql-edit-del"
           onClick={onDelete}
-          aria-label={`delete field ${field.name}`}
+          aria-label={`delete field ${field.name ?? 'item'}`}
           title="delete field"
         >
           ✕
@@ -260,30 +314,79 @@ function SchemaCardEditor({ field, onChange, onDelete }: CardProps) {
         {field.description ?? ''}
       </span>
 
-      <div className="ql-edit-row">
-        <span className="ql-edit-row-lab">enum</span>
-        <span
-          ref={enRef}
-          className="ql-edit-row-val"
-          contentEditable
-          suppressContentEditableWarning
-          data-placeholder="comma-separated…"
-          onBlur={(e) => {
-            const arr = csvSplit(e.currentTarget.textContent ?? '')
-            const next = arr.length > 0 ? arr : null
-            if (csvJoin(next) !== csvJoin(field.enum)) onChange({ enum: next })
-          }}
-        >
-          {csvJoin(field.enum)}
-        </span>
-      </div>
+      {isString && (
+        <div className="ql-edit-row">
+          <span className="ql-edit-row-lab">enum</span>
+          <span
+            ref={enRef}
+            className="ql-edit-row-val"
+            contentEditable
+            suppressContentEditableWarning
+            data-placeholder="comma-separated…"
+            onBlur={(e) => {
+              const arr = csvSplit(e.currentTarget.textContent ?? '')
+              const next = arr.length > 0 ? arr : null
+              if (csvJoin(next) !== csvJoin(field.enum)) onChange({ enum: next })
+            }}
+          >
+            {csvJoin(field.enum)}
+          </span>
+        </div>
+      )}
 
-      {isArrayOfObj && (
+      {isObject && (
         <ChildrenEditor
-          items={field.children ?? []}
-          onChange={(next) => onChange({ children: next })}
+          items={field.properties ?? []}
+          onChange={(next) => onChange({ properties: next })}
         />
       )}
+
+      {isArray && arrayItemsIsObject && field.items && (
+        <ChildrenEditor
+          items={field.items.properties ?? []}
+          onChange={(next) => onChange({ items: { ...field.items!, properties: next } })}
+        />
+      )}
+
+      {isArray && !arrayItemsIsObject && field.items && (
+        <ArrayScalarItemEditor
+          item={field.items}
+          onChange={(patch) => onChange({ items: { ...field.items!, ...patch } })}
+        />
+      )}
+    </div>
+  )
+}
+
+function ArrayScalarItemEditor({
+  item,
+  onChange,
+}: {
+  item: SchemaField
+  onChange: (patch: Partial<SchemaField>) => void
+}) {
+  const descRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (descRef.current && descRef.current !== document.activeElement) {
+      descRef.current.textContent = item.description ?? ''
+    }
+  }, [item.description])
+  return (
+    <div className="ql-edit-children">
+      <div className="ql-edit-children-lab">items</div>
+      <span
+        ref={descRef}
+        className={`ql-edit-desc${item.description ? '' : ' empty'}`}
+        data-placeholder="describe a single array element"
+        contentEditable
+        suppressContentEditableWarning
+        onBlur={(e) => {
+          const v = e.currentTarget.textContent ?? ''
+          if (v !== (item.description ?? '')) onChange({ description: v })
+        }}
+      >
+        {item.description ?? ''}
+      </span>
     </div>
   )
 }
@@ -299,23 +402,22 @@ function ChildrenEditor({
     onChange(items.map((c, i) => i === idx ? { ...c, ...patch } : c))
   }
   const handleDelete = (idx: number) => {
-    // array<object> requires non-empty children; keep at least one stub.
     if (items.length <= 1) return
     onChange(items.filter((_, i) => i !== idx))
   }
   const handleAdd = () => {
     let n = 1
     let name = 'sub_field'
-    const taken = new Set(items.map(c => c.name))
+    const taken = new Set(items.map(c => c.name).filter((s): s is string => !!s))
     while (taken.has(name)) { n += 1; name = `sub_field_${n}` }
-    onChange([...items, emptyField(name)])
+    onChange([...items, emptyObjectChild(name)])
   }
   return (
     <div className="ql-edit-children">
-      <div className="ql-edit-children-lab">children</div>
+      <div className="ql-edit-children-lab">properties</div>
       {items.map((c, idx) => (
         <SchemaCardEditor
-          key={`${c.name}-${idx}`}
+          key={`${c.name ?? '_'}-${idx}`}
           field={c}
           onChange={(patch) => handleChildChange(idx, patch)}
           onDelete={() => handleDelete(idx)}

@@ -133,13 +133,17 @@ def test_response_schema_marks_all_fields_required_and_nullable() -> None:
         SchemaField(name="total_amount", type=FieldType.NUMBER, description="d", required=False),
         SchemaField(
             name="line_items",
-            type=FieldType.ARRAY_OBJECT,
+            type=FieldType.ARRAY,
             description="d",
             required=False,
-            children=[
-                SchemaField(name="sku", type=FieldType.STRING, description="d"),
-                SchemaField(name="qty", type=FieldType.NUMBER, description="d"),
-            ],
+            items=SchemaField(
+                type=FieldType.OBJECT,
+                description="row",
+                properties=[
+                    SchemaField(name="sku", type=FieldType.STRING, description="d"),
+                    SchemaField(name="qty", type=FieldType.NUMBER, description="d"),
+                ],
+            ),
         ),
     ]
     rs = _build_response_schema(schema)
@@ -237,3 +241,112 @@ async def test_extract_one_uses_active_model_id(
     # The provider was invoked with the active model's provider_model_id, not the legacy field
     call = stub_provider.extract.await_args
     assert call.kwargs["model_id"] == "claude-sonnet-4-6"
+
+
+def test_response_schema_integer_type() -> None:
+    from app.tools.extract import _build_response_schema
+
+    schema = [SchemaField(name="page_count", type=FieldType.INTEGER, description="d")]
+    rs = _build_response_schema(schema)
+    prop = rs["properties"]["entities"]["items"]["properties"]["page_count"]
+    assert prop["type"] == "integer"
+    assert prop["nullable"] is True
+
+
+def test_response_schema_string_format_date_time() -> None:
+    from app.tools.extract import _build_response_schema
+    from app.schemas.schema_field import StringFormat
+
+    schema = [SchemaField(
+        name="paid_at", type=FieldType.STRING,
+        description="d", format=StringFormat.DATE_TIME,
+    )]
+    prop = _build_response_schema(schema)["properties"]["entities"]["items"]["properties"]["paid_at"]
+    assert prop["type"] == "string"
+    assert prop["format"] == "date-time"
+
+
+def test_response_schema_nested_object() -> None:
+    from app.tools.extract import _build_response_schema
+
+    schema = [SchemaField(
+        name="seller", type=FieldType.OBJECT, description="d",
+        properties=[
+            SchemaField(name="name", type=FieldType.STRING, description="d"),
+            SchemaField(name="tax_id", type=FieldType.STRING, description="d"),
+        ],
+    )]
+    obj = _build_response_schema(schema)["properties"]["entities"]["items"]["properties"]["seller"]
+    assert obj["type"] == "object"
+    assert obj["nullable"] is True
+    assert set(obj["properties"].keys()) == {"name", "tax_id"}
+    assert obj["required"] == ["name", "tax_id"]
+
+
+def test_response_schema_array_of_string() -> None:
+    from app.tools.extract import _build_response_schema
+
+    schema = [SchemaField(
+        name="keywords", type=FieldType.ARRAY, description="d",
+        items=SchemaField(type=FieldType.STRING, description="kw"),
+    )]
+    prop = _build_response_schema(schema)["properties"]["entities"]["items"]["properties"]["keywords"]
+    assert prop["type"] == "array"
+    assert prop["items"]["type"] == "string"
+
+
+def test_response_schema_array_of_integer() -> None:
+    from app.tools.extract import _build_response_schema
+
+    schema = [SchemaField(
+        name="pages", type=FieldType.ARRAY, description="d",
+        items=SchemaField(type=FieldType.INTEGER, description="p"),
+    )]
+    prop = _build_response_schema(schema)["properties"]["entities"]["items"]["properties"]["pages"]
+    assert prop["items"]["type"] == "integer"
+
+
+def test_field_instructions_dot_paths_for_nested() -> None:
+    from app.tools.extract import _build_field_instructions
+
+    schema = [
+        SchemaField(
+            name="seller", type=FieldType.OBJECT, description="party",
+            properties=[
+                SchemaField(name="name", type=FieldType.STRING, description="seller name"),
+                SchemaField(name="tax_id", type=FieldType.STRING, description="tax id"),
+            ],
+        ),
+        SchemaField(
+            name="line_items", type=FieldType.ARRAY, description="rows",
+            items=SchemaField(
+                type=FieldType.OBJECT, description="row",
+                properties=[SchemaField(name="sku", type=FieldType.STRING, description="sku id")],
+            ),
+        ),
+    ]
+    text = _build_field_instructions(schema)
+    assert "`seller.name`" in text
+    assert "`seller.tax_id`" in text
+    assert "`line_items[].sku`" in text
+
+
+def test_legacy_array_object_extracts_to_new_response_schema() -> None:
+    """A SchemaField fed legacy `{type:'array<object>', children:[...]}` dict
+    must produce the same response_schema as the new shape."""
+    from app.tools.extract import _build_response_schema
+
+    legacy = SchemaField(**{
+        "name": "line_items",
+        "type": "array<object>",
+        "description": "d",
+        "children": [
+            {"name": "sku", "type": "string", "description": "d"},
+            {"name": "qty", "type": "number", "description": "d"},
+        ],
+    })
+    rs = _build_response_schema([legacy])
+    arr = rs["properties"]["entities"]["items"]["properties"]["line_items"]
+    assert arr["type"] == "array"
+    assert arr["items"]["type"] == "object"
+    assert arr["items"]["required"] == ["sku", "qty"]

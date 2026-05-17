@@ -61,24 +61,26 @@ def _field_jsonschema(f: SchemaField) -> dict[str, Any]:
     base: dict[str, Any]
     if f.type == FieldType.STRING:
         base = {"type": "string"}
+        if f.format is not None:
+            base["format"] = f.format.value
         if f.enum:
             base["enum"] = f.enum
     elif f.type == FieldType.NUMBER:
         base = {"type": "number"}
+    elif f.type == FieldType.INTEGER:
+        base = {"type": "integer"}
     elif f.type == FieldType.BOOLEAN:
         base = {"type": "boolean"}
-    elif f.type == FieldType.DATE:
-        base = {"type": "string", "format": "date"}
-    elif f.type == FieldType.ARRAY_OBJECT:
-        children = f.children or []
+    elif f.type == FieldType.OBJECT:
+        props = f.properties or []
         base = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {c.name: _field_jsonschema(c) for c in children},
-                "required": [c.name for c in children],
-            },
+            "type": "object",
+            "properties": {c.name: _field_jsonschema(c) for c in props},
+            "required": [c.name for c in props],
         }
+    elif f.type == FieldType.ARRAY:
+        assert f.items is not None
+        base = {"type": "array", "items": _field_jsonschema(f.items)}
     else:
         base = {"type": "string"}
     base["description"] = f.description
@@ -86,13 +88,41 @@ def _field_jsonschema(f: SchemaField) -> dict[str, Any]:
     return base
 
 
+def _type_label(f: SchemaField) -> str:
+    if f.type == FieldType.STRING and f.format is not None:
+        return f"string<{f.format.value}>"
+    if f.type == FieldType.ARRAY and f.items is not None:
+        inner = _type_label(f.items)
+        return f"array<{inner}>"
+    return f.type.value
+
+
+def _collect_leaves(prefix: str, f: SchemaField) -> list[tuple[str, SchemaField]]:
+    """Flatten nested object / array shapes into (dot-path, leaf-field) pairs.
+    Objects expand into `parent.child`. Arrays expand their items as
+    `parent[].…`. Scalar array items become a single leaf `parent[]`."""
+    if f.type == FieldType.OBJECT:
+        out: list[tuple[str, SchemaField]] = []
+        for c in f.properties or []:
+            out.extend(_collect_leaves(f"{prefix}.{c.name}", c))
+        return out
+    if f.type == FieldType.ARRAY:
+        assert f.items is not None
+        return _collect_leaves(f"{prefix}[]", f.items)
+    return [(prefix, f)]
+
+
 def _build_field_instructions(schema: list[SchemaField]) -> str:
     lines = ["Per-field instructions:"]
-    for i, f in enumerate(schema, start=1):
+    leaves: list[tuple[str, SchemaField]] = []
+    for f in schema:
+        assert f.name is not None
+        leaves.extend(_collect_leaves(f.name, f))
+    for i, (path, leaf) in enumerate(leaves, start=1):
         suffix = ""
-        if f.enum:
-            suffix += f" Allowed values: {', '.join(f.enum)}."
-        lines.append(f"{i}. `{f.name}` ({f.type.value}): {f.description}{suffix}")
+        if leaf.enum:
+            suffix += f" Allowed values: {', '.join(leaf.enum)}."
+        lines.append(f"{i}. `{path}` ({_type_label(leaf)}): {leaf.description}{suffix}")
     return "\n".join(lines)
 
 

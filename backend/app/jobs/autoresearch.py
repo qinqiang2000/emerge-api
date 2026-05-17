@@ -65,10 +65,11 @@ PROPOSER_RESPONSE_SCHEMA: dict[str, Any] = {
                     "name": {"type": "string"},
                     "type": {
                         "type": "string",
-                        "enum": ["string", "number", "boolean", "date", "array<object>"],
+                        "enum": ["string", "number", "integer", "boolean", "object", "array"],
                     },
                     "description": {"type": "string"},
                     "required": {"type": "boolean"},
+                    "format": {"type": "string", "enum": ["date", "date-time", "time"]},
                     "enum": {"type": "array", "items": {"type": "string"}},
                 },
             },

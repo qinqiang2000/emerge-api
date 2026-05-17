@@ -35,6 +35,7 @@
 .ql-badge { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); letter-spacing: 0.04em; text-transform: lowercase; }
 .ql-badge--active { color: var(--moss); }
 .ql-badge--frozen { color: var(--ink-3); }
+.ql-header-pill { display: inline-flex; align-items: center; }
 .ql-header-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .ql-icon-btn { background: none; border: 0; cursor: pointer; color: var(--ink-3); padding: 4px; line-height: 0; display: inline-flex; align-items: center; justify-content: center; }
 .ql-icon-btn:hover { color: var(--ink); }
@@ -71,7 +72,12 @@
 .ql-raw-copy:hover, .ql-raw-save:not(:disabled):hover { color: var(--ink); border-color: var(--ink-4); }
 .ql-raw-save:not(:disabled) { color: var(--ochre); }
 .ql-raw-save:disabled { opacity: 0.45; cursor: not-allowed; }
-.ql-raw-editor { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 4px; border: 1px solid var(--paper-3); }
+.ql-raw-editor { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 4px; border: 1px solid var(--paper-3); display: flex; flex-direction: column; }
+/* react-codemirror wraps the editor in a `.cm-theme-*` div with no height
+   styling — without filling it explicitly, .cm-editor's `height: 100%`
+   resolves against a parent that has grown to its content height, so the
+   inner scroller never gets a constrained box and the pane refuses to scroll. */
+.ql-raw-editor > .cm-theme-light, .ql-raw-editor > .cm-theme-dark { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ql-raw-editor .cm-editor { height: 100%; outline: none; }
 .ql-raw-editor .cm-editor.cm-focused { outline: none; }
 .ql-raw-editor .cm-scroller { overflow: auto; }

@@ -87,23 +87,54 @@ Output rules:
 Use the provided tool to emit the schema."""
 
 
+# Inline recursion (no $ref — Gemini's OpenAPI-3.0 dialect rejects it).
+# Depth cap: top-level field can carry properties/items whose elements are
+# scalar-only. This bounds proposer complexity; deeper nesting can be built
+# manually in the editor.
+_TYPE_ENUM = ["string", "number", "integer", "boolean", "object", "array"]
+_FORMAT_ENUM = ["date", "date-time", "time"]
+
+
+def _scalar_field_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["type", "description"],
+        "properties": {
+            "name": {"type": "string"},
+            "type": {"type": "string", "enum": _TYPE_ENUM},
+            "description": {"type": "string"},
+            "required": {"type": "boolean"},
+            "format": {"type": "string", "enum": _FORMAT_ENUM},
+            "enum": {"type": "array", "items": {"type": "string"}},
+        },
+    }
+
+
+def _nested_field_schema() -> dict[str, Any]:
+    inner = _scalar_field_schema()
+    return {
+        "type": "object",
+        "required": ["name", "type", "description"],
+        "properties": {
+            "name": {"type": "string"},
+            "type": {"type": "string", "enum": _TYPE_ENUM},
+            "description": {"type": "string"},
+            "required": {"type": "boolean"},
+            "format": {"type": "string", "enum": _FORMAT_ENUM},
+            "enum": {"type": "array", "items": {"type": "string"}},
+            "properties": {"type": "array", "items": inner},
+            "items": inner,
+        },
+    }
+
+
 _DERIVE_TOOL_SCHEMA = {
     "type": "object",
     "required": ["fields"],
     "properties": {
         "fields": {
             "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["name", "type", "description"],
-                "properties": {
-                    "name": {"type": "string"},
-                    "type": {"type": "string", "enum": ["string", "number", "boolean", "date", "array<object>"]},
-                    "description": {"type": "string"},
-                    "required": {"type": "boolean"},
-                    "enum": {"type": "array", "items": {"type": "string"}},
-                },
-            },
+            "items": _nested_field_schema(),
         }
     },
 }

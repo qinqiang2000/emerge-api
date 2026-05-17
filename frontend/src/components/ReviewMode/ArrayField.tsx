@@ -22,6 +22,7 @@ function summarize(entry: unknown, rowSchema: SchemaField[] | null): string | un
   // Prefer the first string-typed field in the schema; fall back to any string value.
   if (rowSchema) {
     for (const f of rowSchema) {
+      if (!f.name) continue
       const v = obj[f.name]
       if (typeof v === 'string' && v.length > 0) return v
     }
@@ -121,16 +122,20 @@ function RowCard({ index, entry, rowSchema, forceOpen, readOnly, onChangeEntry }
         <div className="rbody">
           {rowSchema && obj ? (
             <div className="rev-arr-sub-grid">
-              {rowSchema.map(child => (
-                <SubFieldRow
-                  key={child.name}
-                  name={child.name}
-                  type={child.type}
-                  value={obj[child.name] ?? null}
-                  readOnly={readOnly}
-                  onChange={(v) => handleSubChange(child.name, v)}
-                />
-              ))}
+              {rowSchema.map(child => {
+                if (!child.name) return null
+                const cname = child.name
+                return (
+                  <SubFieldRow
+                    key={cname}
+                    name={cname}
+                    type={child.type}
+                    value={obj[cname] ?? null}
+                    readOnly={readOnly}
+                    onChange={(v) => handleSubChange(cname, v)}
+                  />
+                )
+              })}
             </div>
           ) : (
             <RawJsonEditor value={entry.value} readOnly={readOnly} onChange={onChangeEntry} />
@@ -207,7 +212,10 @@ export default function ArrayField({
     // Seed with empty values keyed by the schema so the row renders sensibly.
     const seed: Record<string, unknown> = {}
     if (rowSchema) {
-      for (const f of rowSchema) seed[f.name] = null
+      for (const f of rowSchema) {
+        if (!f.name) continue
+        seed[f.name] = null
+      }
     }
     onChange([...arrValue, seed])
   }

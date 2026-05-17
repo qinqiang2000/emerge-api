@@ -240,6 +240,14 @@ CLI command dispatcher is not.
 
 ---
 
+## 12. `SchemaField` is a deliberate Gemini JSON-Schema subset
+
+`backend/app/schemas/schema_field.py` covers a minimum-useful Gemini OpenAPI-3.0 subset (`string / number / integer / boolean / object / array` + `string.format ∈ {date,date-time,time}` + `enum` on string). It does **not** model `minimum / maximum / minLength / maxLength / pattern / minItems / maxItems / prefixItems / additionalProperties`. These were deliberately dropped per SSU: in document extraction they add UI complexity for marginal accuracy gain. Before reintroducing any, ask: does the proposer or a user actually need it to express intent that `description` can't carry?
+
+Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgraded by a `model_validator(mode="before")` — no migration script, idempotent, transparent to disk readers. Add new legacy keys to the same normalizer rather than introducing a separate migrate step.
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code
