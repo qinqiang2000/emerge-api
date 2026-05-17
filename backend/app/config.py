@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     workspace_root: Path = Path("./workspace")
     default_extract_model: str = "gemini-2.0-flash"
     default_agent_model: str = "claude-sonnet-4-6"
+    # Pro-labeler model. None = pre_label refuses with `labeler_model_not_configured`
+    # unless the caller passes an explicit override or sets `project.json.labeler_model`.
+    default_labeler_model: str | None = None
     log_level: str = "INFO"
 
     # Colon-separated absolute paths appended to the built-in ingest allowlist.

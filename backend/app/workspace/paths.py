@@ -170,6 +170,19 @@ def reviewed_path(workspace: Path, slug: str, filename: str) -> Path:
     return reviewed_dir(workspace, slug) / f"{filename}.json"
 
 
+def pending_reviewed_dir(workspace: Path, slug: str) -> Path:
+    """Pro-labeler draft drop zone. Glob-invisible to `reviewed/*.json` —
+    `score()` / `/improve` / `/publish` / `readiness_check` never see these
+    files. Promotion to `reviewed/` happens in `save_reviewed` after the
+    boss saves their corrections (it atomically deletes the matching
+    pending file in the same `project_lock`)."""
+    return reviewed_dir(workspace, slug) / "_pending"
+
+
+def pending_reviewed_path(workspace: Path, slug: str, filename: str) -> Path:
+    return pending_reviewed_dir(workspace, slug) / f"{filename}.json"
+
+
 def metrics_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "metrics"
 
