@@ -1,7 +1,14 @@
 // frontend/src/stores/review.ts
 import { create } from 'zustand'
 
-import { getExperimentPrediction, getPrediction, getReviewed, runExperimentPrediction, saveReviewed } from '../lib/api'
+import {
+  getExperimentPrediction,
+  getPending,
+  getPrediction,
+  getReviewed,
+  runExperimentPrediction,
+  saveReviewed,
+} from '../lib/api'
 import type { ExperimentPredictionPayload, ReviewedPayload } from '../types/review'
 import { useDocs } from './docs'
 
@@ -26,6 +33,14 @@ interface State {
   /** Which entity tab the user is viewing in multi-entity docs. Lives in the
    *  store so the chat column can reach it for review_context. */
   activeEntityIdx: number
+  // ── pro-labeler state ────────────────────────────────────────────
+  /** True when the form is prefilled from `reviewed/_pending/{filename}.json`
+   *  (Pro-labeler draft) and no human-verified `reviewed/` file exists yet.
+   *  Flips false on save (`save_reviewed` deletes the matching pending file
+   *  on the backend; we mirror that locally). */
+  isPending: boolean
+  /** Model that produced the pending draft. Shown in the banner copy. */
+  labelerModel: string | null
   // ── experiment-tab state ─────────────────────────────────────────
   activeTabKey: 'active' | string  // 'active' or experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
@@ -73,6 +88,8 @@ export const useReview = create<State>((set, get) => ({
   activeEntityIdx: 0,
   activeTabKey: 'active',
   predictionsByExp: {},
+  isPending: false,
+  labelerModel: null,
   open: async (projectId, filename) => {
     set({
       activeProjectId: projectId,
@@ -86,37 +103,51 @@ export const useReview = create<State>((set, get) => ({
       notes: {},
       activeField: null,
       activeEntityIdx: 0,
+      isPending: false,
+      labelerModel: null,
       // ── tab state reset ──
       activeTabKey: 'active',
       predictionsByExp: {},
     })
     try {
-      // Fetch reviewed (user corrections) and prediction (latest extract) together.
-      // Reviewed wins per-key when present; prediction backfills fields the user
-      // never touched — including schema fields added after the doc was reviewed.
+      // Layered fetch: reviewed (human-verified) > pending (Pro-labeler draft)
+      // > prediction (Flash draft). Reviewed and prediction can run in
+      // parallel; pending is only queried when reviewed is absent, because
+      // saving reviewed makes pending obsolete (the backend cleans it inside
+      // the same project_lock).
       const [reviewed, pred] = await Promise.all([
         getReviewed(projectId, filename),
         getPrediction(projectId, filename),
       ])
+      const pending = reviewed ? null : await getPending(projectId, filename)
+
       const reviewedEnts = reviewed?.entities
+      const pendingEnts = pending?.entities
       const predEnts = pred?.entities
-      const base = reviewedEnts ?? predEnts ?? [{}]
-      const entities = base.map((rev, i) => {
+      const base = reviewedEnts ?? pendingEnts ?? predEnts ?? [{}]
+      const entities = base.map((src, i) => {
         const predEnt = (predEnts?.[i] ?? {}) as Record<string, unknown>
-        const revEnt = (rev ?? {}) as Record<string, unknown>
-        return reviewedEnts ? { ...predEnt, ...revEnt } : revEnt
+        const baseEnt = (src ?? {}) as Record<string, unknown>
+        // When reviewed or pending entities are the source of truth, layer
+        // prediction underneath so newly-added schema fields the user hasn't
+        // touched still surface a draft value.
+        return reviewedEnts || pendingEnts
+          ? { ...predEnt, ...baseEnt }
+          : baseEnt
       })
       set({
         entities,
-        evidence: reviewed?._evidence ?? pred?._evidence ?? null,
+        evidence: reviewed?._evidence ?? pending?._evidence ?? pred?._evidence ?? null,
         notes: reviewed?._notes ?? {},
+        isPending: !reviewed && !!pending,
+        labelerModel: !reviewed && pending ? pending.labeler_model ?? null : null,
         loading: false,
       })
     } catch (e: unknown) {
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0 }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -149,7 +180,10 @@ export const useReview = create<State>((set, get) => ({
       await saveReviewed(activeProjectId, activeFilename, payload)
       // refresh the doc-list status so the badge flips to "reviewed"
       void useDocs.getState().refresh(activeProjectId)
-      set({ saving: false })
+      // Backend deleted the matching pending file inside the same project_lock
+      // as the reviewed write — mirror that here so the banner disappears
+      // without waiting for a re-open of the doc.
+      set({ saving: false, isPending: false, labelerModel: null })
     } catch (e: unknown) {
       set({ err: String(e), saving: false })
     }
