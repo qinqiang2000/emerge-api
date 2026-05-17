@@ -35,10 +35,9 @@
 .ql-badge { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4); letter-spacing: 0.04em; text-transform: lowercase; }
 .ql-badge--active { color: var(--moss); }
 .ql-badge--frozen { color: var(--ink-3); }
-.ql-close { background: none; border: 0; cursor: pointer; font-size: 16px; color: var(--ink-3); padding: 4px; line-height: 1; }
-.ql-close:hover { color: var(--ink); }
-.ql-maximize { background: none; border: 0; cursor: pointer; font-size: 14px; color: var(--ink-4); padding: 4px 6px; line-height: 1; }
-.ql-maximize:hover { color: var(--ink); }
+.ql-header-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.ql-icon-btn { background: none; border: 0; cursor: pointer; color: var(--ink-3); padding: 4px; line-height: 0; display: inline-flex; align-items: center; justify-content: center; }
+.ql-icon-btn:hover { color: var(--ink); }
 
 /* Tabs */
 .ql-tabs { display: flex; gap: 4px; padding: 8px 20px 0 20px; border-bottom: 1px solid var(--paper-3); }
@@ -62,7 +61,7 @@
 .ql-field-children { margin-top: 8px; padding-left: 12px; border-left: 1px solid var(--paper-3); }
 
 /* Raw JSON tab */
-.ql-raw-wrap { display: flex; flex-direction: column; min-height: 320px; }
+.ql-raw-wrap { display: flex; flex-direction: column; height: 60vh; min-height: 320px; }
 .ql-raw-actions { position: absolute; top: 6px; right: 6px; display: flex; gap: 6px; z-index: 2; }
 .ql-raw-copy, .ql-raw-save {
   background: var(--paper); border: 1px solid var(--paper-3);
@@ -72,13 +71,12 @@
 .ql-raw-copy:hover, .ql-raw-save:not(:disabled):hover { color: var(--ink); border-color: var(--ink-4); }
 .ql-raw-save:not(:disabled) { color: var(--ochre); }
 .ql-raw-save:disabled { opacity: 0.45; cursor: not-allowed; }
-.ql-raw-editor { position: relative; flex: 1; min-height: 320px; max-height: 60vh; overflow: hidden; border-radius: 4px; border: 1px solid var(--paper-3); }
+.ql-raw-editor { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 4px; border: 1px solid var(--paper-3); }
 .ql-raw-editor .cm-editor { height: 100%; outline: none; }
 .ql-raw-editor .cm-editor.cm-focused { outline: none; }
 .ql-raw-editor .cm-scroller { overflow: auto; }
 .ql-raw-reminder { margin-bottom: 8px; }
-.ql-sheet--maximized .ql-raw-wrap { flex: 1; min-height: 0; }
-.ql-sheet--maximized .ql-raw-editor { max-height: none; }
+.ql-sheet--maximized .ql-raw-wrap { flex: 1; height: auto; min-height: 0; }
 .ql-sheet--maximized .ql-body { display: flex; flex-direction: column; }
 .ql-raw-error { color: var(--rose); font-family: var(--mono, ui-monospace, monospace); font-size: 12px; padding: 8px 0; }
 .ql-raw-retry { background: none; border: 0; color: var(--ochre); cursor: pointer; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; padding: 0; margin-left: 8px; }

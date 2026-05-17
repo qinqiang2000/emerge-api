@@ -1,3 +1,4 @@
+import { Maximize2, Minimize2, X } from 'lucide-react'
 import type { QuickLookTarget } from '../../stores/quicklook'
 
 interface Props {
@@ -34,16 +35,20 @@ export default function QuickLookHeader({ target, activeVersionId, maximized, on
       <div className="ql-header-row">
         <span className="ql-title">{title}</span>
         <span className={`ql-badge ql-badge--${badge.tone}`}>{badge.text}</span>
-        <button
-          type="button"
-          className="ql-maximize"
-          aria-label={maximized ? 'restore' : 'maximize'}
-          title={maximized ? 'restore' : 'maximize'}
-          onClick={onToggleMaximized}
-        >
-          {maximized ? '⤡' : '⤢'}
-        </button>
-        <button type="button" className="ql-close" aria-label="close" onClick={onClose}>✕</button>
+        <div className="ql-header-actions">
+          <button
+            type="button"
+            className="ql-icon-btn"
+            aria-label={maximized ? 'restore' : 'maximize'}
+            title={maximized ? 'restore' : 'maximize'}
+            onClick={onToggleMaximized}
+          >
+            {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+          <button type="button" className="ql-icon-btn" aria-label="close" onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
       </div>
     </div>
   )
