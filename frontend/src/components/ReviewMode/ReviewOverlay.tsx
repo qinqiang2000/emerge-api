@@ -11,6 +11,7 @@ import { useChat } from '../../stores/chat'
 
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
+import PreLabelNotice from './PreLabelNotice'
 import ReviewBar from './ReviewBar'
 import ReviewChatColumn, { readRevChatWidth, writeRevChatWidth } from './ReviewChatColumn'
 
@@ -52,6 +53,8 @@ export default function ReviewOverlay({
     adoptPredictionField,
     activeField: activeFieldPath,
     activeEntityIdx,
+    isPending,
+    labelerModel,
   } = useReview()
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
@@ -326,6 +329,10 @@ export default function ReviewOverlay({
         onToggleLeft={onToggleLeft}
         onToggleRight={onToggleRight}
       />
+
+      {isPending && !readOnly && (
+        <PreLabelNotice labelerModel={labelerModel} />
+      )}
 
       {err && (
         <div style={{ borderLeft: '2px solid var(--rose)', padding: '8px 16px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--rose)' }}>
