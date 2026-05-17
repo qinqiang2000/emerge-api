@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { usePrompts } from './prompts'
 
 export type FieldTypeName = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
 export type StringFormatName = 'date' | 'date-time' | 'time'
@@ -125,11 +126,18 @@ export const useSchema = create<State>((set, get) => ({
         }, SAVED_HOLD_MS)
       }
     }
+    // The PUT body overwrites both fields and notes server-side (no patch
+    // semantics). When a caller passes only `fields` (e.g. SchemaFieldEditor),
+    // we must carry forward the latest persisted notes — otherwise every
+    // field edit silently clobbers global_notes to ''. NotesEditor / RawJsonTab
+    // pass globalNotes explicitly and that wins.
+    const effectiveNotes =
+      globalNotes ?? usePrompts.getState().activeByProject[projectId]?.global_notes ?? ''
     try {
       const r = await fetch(`/lab/projects/${encodeURIComponent(projectId)}/prompts/active`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schema: fields, global_notes: globalNotes ?? '' }),
+        body: JSON.stringify({ schema: fields, global_notes: effectiveNotes }),
       })
       if (!r.ok) {
         let detail: SaveError = { error_code: `http_${r.status}` }
@@ -143,6 +151,28 @@ export const useSchema = create<State>((set, get) => ({
       const blob = await r.json() as { schema: SchemaField[] }
       const next = blob.schema ?? fields
       set((s) => ({ byProject: { ...s.byProject, [projectId]: next } }))
+      // Keep usePrompts.activeByProject in lock-step: it's the source of
+      // truth for RawJsonTab and any other consumer that derives off the
+      // full ActivePrompt blob. Without this patch, form-side schema edits
+      // (add/delete/rename/description) silently desync from raw json
+      // until the project is re-loaded. NotesEditor + RawJsonTab.onSave
+      // historically patched manually; centralising it here covers
+      // SchemaFieldEditor too (and any future caller). Opportunistic: we
+      // only touch entries already cached.
+      usePrompts.setState((s) => {
+        const cur = s.activeByProject[projectId]
+        if (!cur) return s
+        return {
+          activeByProject: {
+            ...s.activeByProject,
+            [projectId]: {
+              ...cur,
+              schema: next,
+              global_notes: effectiveNotes,
+            },
+          },
+        }
+      })
       finish('saved', null)
       return null
     } catch (e) {

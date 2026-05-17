@@ -115,6 +115,10 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
   const saveActive = useSchema(s => s.saveActive)
   const status = useSchema(s => s.saveStatus[pid] ?? 'idle')
   const error = useSchema(s => s.saveError[pid] ?? null)
+  // Track the most-recently inserted card by index so its initial mount can
+  // surface the enum row by default — that's the "configuring from scratch"
+  // moment. Existing cards without enum keep no enum UI at all.
+  const [freshIdx, setFreshIdx] = useState<number | null>(null)
 
   const commit = (next: SchemaField[]) => {
     // saveActive owns the saving → saved/error transitions; we don't need to
@@ -129,15 +133,31 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
   }
 
   const handleDelete = (index: number) => {
+    if (freshIdx !== null) {
+      if (freshIdx === index) setFreshIdx(null)
+      else if (freshIdx > index) setFreshIdx(freshIdx - 1)
+    }
     commit(fields.filter((_, i) => i !== index))
   }
 
-  const handleAdd = () => {
+  const pickFreshName = () => {
     let n = 1
     let name = 'new_field'
     const taken = new Set(fields.map(f => f.name).filter((s): s is string => !!s))
     while (taken.has(name)) { n += 1; name = `new_field_${n}` }
-    commit([...fields, emptyField(name)])
+    return name
+  }
+
+  const handleAdd = () => {
+    setFreshIdx(fields.length)
+    commit([...fields, emptyField(pickFreshName())])
+  }
+
+  const handleInsertAt = (idx: number) => {
+    setFreshIdx(idx)
+    const name = pickFreshName()
+    const next = [...fields.slice(0, idx), emptyField(name), ...fields.slice(idx)]
+    commit(next)
   }
 
   if (fields.length === 0) {
@@ -145,9 +165,9 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
       <div>
         <div className="ql-fields-lab">fields</div>
         <div className="ql-edit-empty">
-          还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + add fields。
+          还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + 添加。
         </div>
-        <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} label="+ add fields" />
+        <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} />
         {status === 'error' && error && <ErrorBanner err={error} />}
       </div>
     )
@@ -162,6 +182,8 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
           field={f}
           onChange={(patch) => handleChange(idx, patch)}
           onDelete={() => handleDelete(idx)}
+          onInsertAfter={() => handleInsertAt(idx + 1)}
+          isFresh={idx === freshIdx}
         />
       ))}
       <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} />
@@ -170,12 +192,17 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
   )
 }
 
-function FooterAdd({ onAdd, disabled, label }: { onAdd: () => void; disabled?: boolean; label?: string }) {
+function FooterAdd({ onAdd, disabled }: { onAdd: () => void; disabled?: boolean }) {
   return (
     <div className="ql-edit-foot">
-      <button type="button" className="ql-edit-add" onClick={onAdd} disabled={disabled}>
-        {label ?? '+ field'}
-      </button>
+      <button
+        type="button"
+        className="ql-edit-add"
+        onClick={onAdd}
+        disabled={disabled}
+        aria-label="add field"
+        title="add field"
+      >+</button>
     </div>
   )
 }
@@ -196,13 +223,29 @@ interface CardProps {
   /** When true, this card represents an array.items element — the name editor
    *  is hidden (JSON Schema array elements have no name). */
   nameless?: boolean
+  /** Render a hover-visible `+` on the card's bottom edge that inserts a new
+   *  sibling field below this one. Only wired on top-level cards. */
+  onInsertAfter?: () => void
+  /** True only for the card that was just inserted via the parent's `+`.
+   *  Surfaces the enum row by default at mount so the new field can be
+   *  configured end-to-end in one place. Existing cards default to hiding
+   *  enum (and never auto-expose it) since most fields don't use enum. */
+  isFresh?: boolean
 }
 
-function SchemaCardEditor({ field, onChange, onDelete, nameless = false }: CardProps) {
+function SchemaCardEditor({ field, onChange, onDelete, nameless = false, onInsertAfter, isFresh = false }: CardProps) {
   const nameRef = useRef<HTMLSpanElement>(null)
   const descRef = useRef<HTMLSpanElement>(null)
   const enRef = useRef<HTMLSpanElement>(null)
   const [nameError, setNameError] = useState<string | null>(null)
+  const hasEnum = (field.enum?.length ?? 0) > 0
+  // Initialized once at mount: open if the field already carries enum values
+  // (load from storage / tool-edit) or this card is the just-inserted one.
+  // Stays open after that — never auto-collapses mid-session even if the user
+  // clears the enum; the explicit `×` is how they dismiss it.
+  const [enumOpen, setEnumOpen] = useState(() => hasEnum || isFresh)
+  // Tool-driven prompt edits may add enum to an existing card; widen on that.
+  useEffect(() => { if (hasEnum) setEnumOpen(true) }, [hasEnum])
 
   useEffect(() => {
     if (nameRef.current && nameRef.current !== document.activeElement) {
@@ -306,15 +349,18 @@ function SchemaCardEditor({ field, onChange, onDelete, nameless = false }: CardP
         data-placeholder="describe what this field captures — this is the prompt"
         contentEditable
         suppressContentEditableWarning
+        // innerText (not textContent): Enter inside contentEditable inserts
+        // <br>/<div>; textContent skips those entirely, so multi-line input
+        // round-trips to the server as a single squashed line.
         onBlur={(e) => {
-          const v = e.currentTarget.textContent ?? ''
+          const v = e.currentTarget.innerText ?? ''
           if (v !== (field.description ?? '')) onChange({ description: v })
         }}
       >
         {field.description ?? ''}
       </span>
 
-      {isString && (
+      {isString && enumOpen && (
         <div className="ql-edit-row">
           <span className="ql-edit-row-lab">enum</span>
           <span
@@ -331,6 +377,16 @@ function SchemaCardEditor({ field, onChange, onDelete, nameless = false }: CardP
           >
             {csvJoin(field.enum)}
           </span>
+          <button
+            type="button"
+            className="ql-edit-row-clear"
+            onClick={() => {
+              if (hasEnum) onChange({ enum: null })
+              setEnumOpen(false)
+            }}
+            aria-label="remove enum"
+            title="remove enum"
+          >×</button>
         </div>
       )}
 
@@ -353,6 +409,16 @@ function SchemaCardEditor({ field, onChange, onDelete, nameless = false }: CardP
           item={field.items}
           onChange={(patch) => onChange({ items: { ...field.items!, ...patch } })}
         />
+      )}
+
+      {onInsertAfter && (
+        <button
+          type="button"
+          className="ql-edit-insert"
+          onClick={onInsertAfter}
+          aria-label="insert field below"
+          title="insert field below"
+        >+</button>
       )}
     </div>
   )
@@ -381,7 +447,7 @@ function ArrayScalarItemEditor({
         contentEditable
         suppressContentEditableWarning
         onBlur={(e) => {
-          const v = e.currentTarget.textContent ?? ''
+          const v = e.currentTarget.innerText ?? ''
           if (v !== (item.description ?? '')) onChange({ description: v })
         }}
       >

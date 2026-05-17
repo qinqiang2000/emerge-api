@@ -23,6 +23,7 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
   const [local, setLocal] = useState(value)
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<SaveError | null>(null)
+  const [collapsed, setCollapsed] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const savedTimerRef = useRef<number | null>(null)
 
@@ -40,13 +41,29 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
     if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
   }, [])
 
+  const lineCount = local.length === 0 ? 0 : local.split('\n').length
+  const summary = local.length === 0 ? 'empty' : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
+
   if (readOnly) {
     return (
       <div className="ql-notes">
-        <div className="ql-notes-lab">notes</div>
-        {local.length > 0
-          ? <pre className="ql-notes-ro">{local}</pre>
-          : <div className="ql-notes-ro ql-notes-ro--empty">{'(no notes)'}</div>}
+        <div className="ql-notes-lab">
+          <button
+            type="button"
+            className="ql-notes-toggle"
+            onClick={() => setCollapsed(v => !v)}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'expand' : 'collapse'}
+          >
+            {collapsed ? '▸' : '▾'} notes
+          </button>
+          {collapsed && <span className="ql-notes-count">· {summary}</span>}
+        </div>
+        {!collapsed && (
+          local.length > 0
+            ? <pre className="ql-notes-ro">{local}</pre>
+            : <div className="ql-notes-ro ql-notes-ro--empty">{'(no notes)'}</div>
+        )}
       </div>
     )
   }
@@ -89,7 +106,16 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
   return (
     <div className="ql-notes">
       <div className="ql-notes-lab">
-        notes
+        <button
+          type="button"
+          className="ql-notes-toggle"
+          onClick={() => setCollapsed(v => !v)}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'expand' : 'collapse'}
+        >
+          {collapsed ? '▸' : '▾'} notes
+        </button>
+        {collapsed && <span className="ql-notes-count">· {summary}</span>}
         {status === 'saving' && (
           <Reminder form="inline" intent="note">saving…</Reminder>
         )}
@@ -97,15 +123,17 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
           <Reminder form="inline" intent="tip">saved</Reminder>
         )}
       </div>
-      <textarea
-        ref={taRef}
-        className="ql-notes-ta"
-        value={local}
-        placeholder={PLACEHOLDER}
-        spellCheck={false}
-        onChange={(e) => setLocal(e.target.value)}
-        onBlur={() => { void commit() }}
-      />
+      {!collapsed && (
+        <textarea
+          ref={taRef}
+          className="ql-notes-ta"
+          value={local}
+          placeholder={PLACEHOLDER}
+          spellCheck={false}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={() => { void commit() }}
+        />
+      )}
       {status === 'error' && error && (
         <div className="ql-edit-err" role="alert">
           <span className="ql-edit-err-code">{error.error_code}</span>
