@@ -8,28 +8,27 @@ from app.tools import _emerge_tool_names
 
 
 async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: AsyncMock) -> None:
+    """Step B trimmed the filesystem-wrapper tools (`list_*`, `get_*`, `read_*`,
+    `upload_doc`, `delete_*`, `ingest_local_path`, `rename_project`,
+    `import_prompt`, `create_prompt|model`, `write_prompt|model`,
+    `archive_experiment`) — SDK built-in Bash/Glob/Grep/Read/Write/Edit covers
+    them under `_workspace_safety_gate`. What stays registered is the
+    business moat: provider-bound extract/label, schema atomicity, doc
+    vision, lifecycle ops, UI bridge."""
     from app.jobs.runner import JobRunner
     runner = JobRunner(workspace=workspace, provider=stub_provider, model_id="stub")
     server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=runner)
     names = await _extract_tool_names(server)
     expected = {
         "create_project",
-        "rename_project",
-        "upload_doc",
-        "ingest_local_path",
-        "list_docs",
-        "list_projects",
         "derive_schema",
-        "read_schema",
         "write_schema",
         "extract_one",
         "extract_batch",
         "pdf_render_page",
+        "read_doc_image",
         # M2A additions
         "save_reviewed",
-        "list_reviewed",
-        "get_reviewed",
-        "get_prediction",
         "score",
         # M2C additions
         "start_job",
@@ -39,6 +38,18 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "cancel_job",
     }
     assert expected.issubset(names), (expected - names, names)
+
+    # Step B negative assertion — cut tools must NOT be registered. Catches
+    # regressions where someone re-adds a wrapper tool by reflex.
+    cut = {
+        "rename_project", "list_projects", "upload_doc", "ingest_local_path",
+        "list_docs", "delete_doc", "read_schema", "get_pending",
+        "create_prompt", "write_prompt", "list_prompts", "delete_prompt",
+        "create_model", "write_model", "list_models", "delete_model",
+        "archive_experiment", "list_experiments", "delete_experiment",
+        "import_prompt", "list_reviewed", "get_reviewed", "get_prediction",
+    }
+    assert cut.isdisjoint(names), cut & names
 
 
 def test_publish_tools_are_registered(workspace: Path, stub_provider: AsyncMock) -> None:
@@ -71,52 +82,49 @@ async def _extract_tool_names(server) -> set[str]:
 async def test_prompt_axis_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:
+    """Step B kept only `switch_active_prompt` on the prompt axis — flipping
+    active is a project.json mutation that needs lock-protected atomicity,
+    so SDK Write/Edit can't replace it. CRUD of prompts/*.json files (create
+    / write / list / delete) is now Write/Edit/Glob/Bash territory."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert {
-        "write_prompt",
-        "create_prompt",
-        "switch_active_prompt",
-        "list_prompts",
-        "delete_prompt",
-    }.issubset(names), names
+    assert "switch_active_prompt" in names
 
 
 def test_prompt_axis_tools_in_emerge_tool_names() -> None:
     names = _emerge_tool_names()
-    for n in ("write_prompt", "create_prompt", "switch_active_prompt", "list_prompts", "delete_prompt"):
-        assert n in names, f"missing {n!r} in _EMERGE_TOOL_NAMES"
+    assert "switch_active_prompt" in names
 
 
 async def test_model_axis_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:
+    """Mirror of the prompt-axis story: only `switch_active_model` survives;
+    CRUD of models/*.json is Write/Edit/Glob/Bash."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert {
-        "write_model",
-        "create_model",
-        "switch_active_model",
-        "list_models",
-        "delete_model",
-    }.issubset(names), names
+    assert "switch_active_model" in names
 
 
 def test_model_axis_tools_in_emerge_tool_names() -> None:
     names = _emerge_tool_names()
-    for n in ("write_model", "create_model", "switch_active_model", "list_models", "delete_model"):
-        assert n in names, f"missing {n!r} in _EMERGE_TOOL_NAMES"
+    assert "switch_active_model" in names
 
 
 async def test_experiment_axis_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:
+    """Step B cut `archive_experiment`, `list_experiments`, `delete_experiment`
+    (Bash mv to a graveyard dir / `Glob experiments/*/meta.json` / `Bash rm -r`
+    cover them). The four kept tools each have business semantics SDK
+    built-ins can't reproduce: upsert-by-axes pair, provider HTTP, eval loop
+    + score persistence, atomic active flip + draft re-seed."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
@@ -127,9 +135,6 @@ async def test_experiment_axis_tools_are_registered(
         "extract_with_experiment",
         "run_experiment_eval",
         "promote_experiment",
-        "archive_experiment",
-        "list_experiments",
-        "delete_experiment",
     }.issubset(names), names
 
 
@@ -140,31 +145,33 @@ def test_experiment_axis_tools_in_emerge_tool_names() -> None:
         "extract_with_experiment",
         "run_experiment_eval",
         "promote_experiment",
-        "archive_experiment",
-        "list_experiments",
-        "delete_experiment",
     ):
         assert n in names, f"missing {n!r} in _EMERGE_TOOL_NAMES"
 
 
-def test_fork_and_import_in_emerge_tool_names() -> None:
+def test_fork_in_emerge_tool_names() -> None:
+    """`fork_project` survives Step B (project skeleton init + hardlink
+    semantics aren't safely reproducible from Bash cp). `import_prompt` was
+    cut in favor of `Bash cp src/prompts/X.json dst/prompts/`."""
     from app.tools import _EMERGE_TOOL_NAMES
     assert "fork_project" in _EMERGE_TOOL_NAMES
-    assert "import_prompt" in _EMERGE_TOOL_NAMES
+    assert "import_prompt" not in _EMERGE_TOOL_NAMES
 
 
 async def test_pre_label_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
-    """Pro Labeler tools (M10): pre_label, get_pending, set_labeler_model."""
+    """Pro Labeler kept `pre_label` + `set_labeler_model` (provider HTTP +
+    project.json mutation). `get_pending` was cut — `Read reviewed/_pending/<f>.json`
+    via SDK Read covers it."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert {"pre_label", "get_pending", "set_labeler_model"}.issubset(names), names
+    assert {"pre_label", "set_labeler_model"}.issubset(names), names
     canonical = _emerge_tool_names()
-    for n in ("pre_label", "get_pending", "set_labeler_model"):
+    for n in ("pre_label", "set_labeler_model"):
         assert n in canonical, f"missing {n!r} in _EMERGE_TOOL_NAMES"
 
 
