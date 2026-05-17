@@ -248,6 +248,18 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 ---
 
+## 13. `reviewed/_pending/` is opaque because `Path.glob("*.json")` is non-recursive
+
+**Where:** `backend/app/tools/score.py` `_load_reviewed`, `backend/app/tools/reviewed.py` `list_reviewed`.
+
+**The trap:** The Pro Labeler (M10) writes drafts to `reviewed/_pending/{filename}.json`. The hard rule is that `score()`, `/improve`, `/publish`, and `readiness_check` must NEVER see these drafts as ground truth — only `reviewed/{filename}.json` (human-verified) counts. The mechanism that enforces this is **not** an explicit filter — it's that every prod path uses `rd.glob("*.json")` (non-recursive), which matches only files directly under `reviewed/`. The `_pending/` subdir is naturally invisible.
+
+**Don't change** any of those globs to `**/*.json` or `rglob`. That would silently let pending drafts contaminate eval / readiness / improve. If you ever need recursive iteration, explicitly exclude `_pending/` and add a regression test asserting `n_reviewed = 0` after a `pre_label` run with no save.
+
+**Note:** This same property is what M9.5 relied on for `chats/<chat_id>/attachments/` — workspace structure leans on non-recursive glob as a defense-in-depth filter, so think hard before promoting any of these to recursive.
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code

@@ -30,7 +30,7 @@
 | **M9.4** — cross-project fork + import_prompt (clone-at-time, hard rule "no live link"; whitelist-driven fork copies project.json + prompts/ + models/; import mints fresh prompt_id with `{src_pid}/{src_prompt_id}` lineage) | `2026-05-14-m9-4-fork-and-import.md` | ✅ shipped (pending T8 live dogfood) | `1732f2e..4fe82f2` (8 task commits + 1 polish) |
 | **M9.5** — paste-attachments ≠ docs samples (chat-scoped attachments + `promote_attachment_to_docs` tool; "显式告知才进入样本集") | `2026-05-14-paste-attachments-vs-docs.md` | 🚧 in progress | — |
 | **2026-05-16** — progressive doc vision (pull-mode `read_doc_image` tool + Hard rule: doc vision is pulled, not pushed) | `2026-05-16-progressive-doc-vision.md` | ✅ shipped + dogfooded | `5051aaf` (1 commit; T5 live verify on 默沙东_小票/009b14cc.jpg — positive: agent called `read_doc_image` and described the hand-occluded restaurant receipt with visible-only details; reverse: schema question called only `read_schema`, no vision over-fire) |
-| **M10** — Pro Labeler (pre_label → reviewed/_pending/ → boss verify → save_reviewed cleans pending) | `2026-05-17-pro-labeler.md` | 🚧 in progress | — |
+| **M10** — Pro Labeler (pre_label → reviewed/_pending/ → boss verify → save_reviewed cleans pending) | `2026-05-17-pro-labeler.md` | ✅ shipped (pending live smoke, env unset) | `3764c8c..385aa5c` (13 commits — 1 plan + 12 task commits; backend 754/2 skipped/1 xfail, all M10-related tests green; frontend tsc clean; 2 pre-existing PromptTab/SchemaFieldEditor failures are unchanged on `main^` and unrelated to M10) |
 
 ## What each milestone delivers
 
