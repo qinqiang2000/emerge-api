@@ -12,6 +12,8 @@
     "e2e": "NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1 playwright test"
   },
   "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lint": "^6.9.6",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -20,6 +22,7 @@
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-dropdown-menu": "^2.1.2",
     "@radix-ui/react-tooltip": "^1.1.4",
+    "@uiw/react-codemirror": "^4.25.9",
     "lucide-react": "^0.456.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

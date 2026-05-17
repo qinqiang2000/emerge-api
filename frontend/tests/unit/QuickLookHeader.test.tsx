@@ -5,13 +5,13 @@ import QuickLookHeader from '../../src/components/QuickLook/QuickLookHeader'
 
 describe('QuickLookHeader', () => {
   it('renders prompts/active title with active badge when activeVersionId is set', () => {
-    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId="v6" derivedFrom={null} onClose={() => {}} />)
+    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId="v6" maximized={false} onToggleMaximized={() => {}} onClose={() => {}} />)
     expect(screen.getByText('prompts/active')).toBeInTheDocument()
     expect(screen.getByText(/v6 · active/)).toBeInTheDocument()
   })
 
   it('renders v0 · draft when no active version', () => {
-    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId={null} derivedFrom={null} onClose={() => {}} />)
+    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId={null} maximized={false} onToggleMaximized={() => {}} onClose={() => {}} />)
     expect(screen.getByText(/v0 · draft/)).toBeInTheDocument()
   })
 
@@ -20,7 +20,8 @@ describe('QuickLookHeader', () => {
       <QuickLookHeader
         target={{ kind: 'version', pid: 'p_test', versionId: 'v6' }}
         activeVersionId="v6"
-        derivedFrom={null}
+        maximized={false}
+        onToggleMaximized={() => {}}
         onClose={() => {}}
       />,
     )
@@ -30,44 +31,15 @@ describe('QuickLookHeader', () => {
 
   it('close button invokes onClose', async () => {
     const onClose = vi.fn()
-    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId={null} derivedFrom={null} onClose={onClose} />)
+    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId={null} maximized={false} onToggleMaximized={() => {}} onClose={onClose} />)
     await userEvent.click(screen.getByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('renders real derived_from when provided', () => {
-    render(
-      <QuickLookHeader
-        target={{ kind: 'prompt', pid: 'p_abc' }}
-        activeVersionId={null}
-        derivedFrom="pr_baseline"
-        onClose={() => {}}
-      />,
-    )
-    expect(screen.getByText('derived from: pr_baseline')).toBeInTheDocument()
-  })
-
-  it('renders cross-project derived_from string', () => {
-    render(
-      <QuickLookHeader
-        target={{ kind: 'prompt', pid: 'p_abc' }}
-        activeVersionId={null}
-        derivedFrom="p_us_invoice/pr_baseline"
-        onClose={() => {}}
-      />,
-    )
-    expect(screen.getByText('derived from: p_us_invoice/pr_baseline')).toBeInTheDocument()
-  })
-
-  it('falls back to em dash when derivedFrom is null', () => {
-    render(
-      <QuickLookHeader
-        target={{ kind: 'prompt', pid: 'p_abc' }}
-        activeVersionId={null}
-        derivedFrom={null}
-        onClose={() => {}}
-      />,
-    )
-    expect(screen.getByText('derived from: —')).toBeInTheDocument()
+  it('maximize button invokes onToggleMaximized', async () => {
+    const onToggle = vi.fn()
+    render(<QuickLookHeader target={{ kind: 'prompt', pid: 'p_test' }} activeVersionId={null} maximized={false} onToggleMaximized={onToggle} onClose={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: /maximize/i }))
+    expect(onToggle).toHaveBeenCalled()
   })
 })

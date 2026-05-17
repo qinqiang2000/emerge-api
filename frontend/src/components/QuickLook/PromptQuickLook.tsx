@@ -13,6 +13,9 @@ type Tab = 'prompt' | 'raw'
 export default function PromptQuickLook() {
   const target = useQuickLook(s => s.target)
   const close = useQuickLook(s => s.close)
+  const rawDirty = useQuickLook(s => s.rawDirty)
+  const maximized = useQuickLook(s => s.maximized)
+  const toggleMaximized = useQuickLook(s => s.toggleMaximized)
   const projects = useProjects(s => s.projects)
   const [tab, setTab] = useState<Tab>('prompt')
 
@@ -42,8 +45,6 @@ export default function PromptQuickLook() {
     return unsub
   }, [])
 
-  const activePrompt = usePrompts(s => target ? s.activeByProject[target.pid] : undefined)
-  const promptList = usePrompts(s => target ? s.list[target.pid] : undefined)
   const loadPrompts = usePrompts(s => s.load)
   useEffect(() => {
     if (target && target.kind === 'prompt') void loadPrompts(target.pid)
@@ -53,14 +54,6 @@ export default function PromptQuickLook() {
 
   // QuickLook `target.pid` holds a slug (post-transparency rename). Match by slug.
   const activeVersionId = projects.find(p => p.slug === target.pid)?.active_version_id ?? null
-  let derivedFrom: string | null = null
-  if (target.kind === 'prompt') {
-    if (target.promptId) {
-      derivedFrom = promptList?.find(p => p.prompt_id === target.promptId)?.derived_from ?? null
-    } else {
-      derivedFrom = activePrompt?.derived_from ?? null
-    }
-  }
 
   return createPortal(
     <div
@@ -68,8 +61,18 @@ export default function PromptQuickLook() {
       data-testid="ql-scrim"
       onClick={e => { if (e.target === e.currentTarget) close() }}
     >
-      <div className="ql-sheet" role="dialog" aria-modal="true">
-        <QuickLookHeader target={target} activeVersionId={activeVersionId} derivedFrom={derivedFrom} onClose={close} />
+      <div
+        className={`ql-sheet${maximized ? ' ql-sheet--maximized' : ''}`}
+        role="dialog"
+        aria-modal="true"
+      >
+        <QuickLookHeader
+          target={target}
+          activeVersionId={activeVersionId}
+          maximized={maximized}
+          onToggleMaximized={toggleMaximized}
+          onClose={close}
+        />
 
         <div className="ql-tabs">
           <button
@@ -84,7 +87,7 @@ export default function PromptQuickLook() {
             className={`ql-tab${tab === 'raw' ? ' ql-tab--active' : ''}`}
             onClick={() => setTab('raw')}
           >
-            raw json
+            raw json{rawDirty && <span className="ql-tab-dirty" aria-label="unsaved"> •</span>}
           </button>
         </div>
 

@@ -37,18 +37,27 @@ describe('useQuickLook store', () => {
     expect(useQuickLook.getState().rawJson.value).toBeNull()
   })
 
-  it('loadRaw fetches prompts/active and pretty-prints blob on success', async () => {
+  it('loadRaw fetches /prompts/{promptId} for variant prompt targets', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(JSON.stringify({ prompt_id: 'pr_baseline', schema: [{ name: 'x' }], global_notes: 'gn' }), {
+      new Response(JSON.stringify({ prompt_id: 'pr_alt', schema: [{ name: 'x' }], global_notes: 'gn' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     )
-    useQuickLook.getState().openPrompt('p_test')
+    useQuickLook.getState().openPrompt('p_test', 'pr_alt')
     await useQuickLook.getState().loadRaw()
-    expect(fetchSpy).toHaveBeenCalledWith('/lab/projects/p_test/prompts/active')
+    expect(fetchSpy).toHaveBeenCalledWith('/lab/projects/p_test/prompts/pr_alt')
     expect(useQuickLook.getState().rawJson.value).toContain('"global_notes": "gn"')
     expect(useQuickLook.getState().rawJson.error).toBeNull()
+    fetchSpy.mockRestore()
+  })
+
+  it('loadRaw skips the network for the active prompt (derived from usePrompts in the tab)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    useQuickLook.getState().openPrompt('p_test')
+    await useQuickLook.getState().loadRaw()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(useQuickLook.getState().rawJson).toEqual({ value: null, loading: false, error: null })
     fetchSpy.mockRestore()
   })
 
@@ -69,7 +78,7 @@ describe('useQuickLook store', () => {
         headers: { 'content-type': 'application/json' },
       }),
     )
-    useQuickLook.getState().openPrompt('p_test')
+    useQuickLook.getState().openPrompt('p_test', 'pr_alt')
     await useQuickLook.getState().loadRaw()
     expect(useQuickLook.getState().rawJson.error).toBe('prompt_not_found')
     expect(useQuickLook.getState().rawJson.value).toBeNull()
@@ -77,19 +86,19 @@ describe('useQuickLook store', () => {
   })
 
   it('loadRaw error branch does not overwrite the new target if the user switched mid-fetch', async () => {
-    // Slow 404 against prompt A; user switches to prompt B before fetch resolves.
+    // Slow 404 against variant A; user switches to variant B before fetch resolves.
     // The A error must not flash into B's rawJson slot.
     let resolveFetch: (resp: Response) => void = () => {}
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
       () => new Promise<Response>(res => { resolveFetch = res }),
     )
-    useQuickLook.getState().openPrompt('p_a')
+    useQuickLook.getState().openPrompt('p_a', 'pr_a')
     const inflight = useQuickLook.getState().loadRaw()
-    useQuickLook.getState().openPrompt('p_b')  // switch target while fetch is in flight
+    useQuickLook.getState().openPrompt('p_b', 'pr_b')  // switch target while fetch is in flight
     resolveFetch(new Response('{"detail":{"error_code":"prompt_not_found"}}', { status: 404 }))
     await inflight
     // Target is p_b; rawJson stays clean (no leaked error from p_a's fetch).
-    expect(useQuickLook.getState().target).toEqual({ kind: 'prompt', pid: 'p_b', promptId: undefined })
+    expect(useQuickLook.getState().target).toEqual({ kind: 'prompt', pid: 'p_b', promptId: 'pr_b' })
     expect(useQuickLook.getState().rawJson).toEqual({ value: null, loading: false, error: null })
     fetchSpy.mockRestore()
   })
@@ -99,12 +108,12 @@ describe('useQuickLook store', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
       () => new Promise<Response>((_, rej) => { rejectFetch = rej }),
     )
-    useQuickLook.getState().openPrompt('p_a')
+    useQuickLook.getState().openPrompt('p_a', 'pr_a')
     const inflight = useQuickLook.getState().loadRaw()
-    useQuickLook.getState().openPrompt('p_b')
+    useQuickLook.getState().openPrompt('p_b', 'pr_b')
     rejectFetch(new TypeError('Failed to fetch'))
     await inflight
-    expect(useQuickLook.getState().target).toEqual({ kind: 'prompt', pid: 'p_b', promptId: undefined })
+    expect(useQuickLook.getState().target).toEqual({ kind: 'prompt', pid: 'p_b', promptId: 'pr_b' })
     expect(useQuickLook.getState().rawJson).toEqual({ value: null, loading: false, error: null })
     fetchSpy.mockRestore()
   })

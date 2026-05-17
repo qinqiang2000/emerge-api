@@ -3,11 +3,12 @@ import type { QuickLookTarget } from '../../stores/quicklook'
 interface Props {
   target: QuickLookTarget
   activeVersionId: string | null
-  derivedFrom: string | null
+  maximized: boolean
+  onToggleMaximized: () => void
   onClose: () => void
 }
 
-export default function QuickLookHeader({ target, activeVersionId, derivedFrom, onClose }: Props) {
+export default function QuickLookHeader({ target, activeVersionId, maximized, onToggleMaximized, onClose }: Props) {
   let title: string
   if (target.kind === 'version') {
     title = `versions/${target.versionId}`
@@ -33,9 +34,17 @@ export default function QuickLookHeader({ target, activeVersionId, derivedFrom, 
       <div className="ql-header-row">
         <span className="ql-title">{title}</span>
         <span className={`ql-badge ql-badge--${badge.tone}`}>{badge.text}</span>
+        <button
+          type="button"
+          className="ql-maximize"
+          aria-label={maximized ? 'restore' : 'maximize'}
+          title={maximized ? 'restore' : 'maximize'}
+          onClick={onToggleMaximized}
+        >
+          {maximized ? '⤡' : '⤢'}
+        </button>
         <button type="button" className="ql-close" aria-label="close" onClick={onClose}>✕</button>
       </div>
-      <div className="ql-lineage">derived from: {derivedFrom ?? '—'}</div>
     </div>
   )
 }

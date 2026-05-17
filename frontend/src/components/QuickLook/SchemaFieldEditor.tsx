@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useSchema, type SchemaField, type SaveError } from '../../stores/schema'
+import { Reminder } from '../Reminder'
 
 const TYPES = ['string', 'number', 'boolean', 'date', 'array<object>'] as const
 type TypeName = (typeof TYPES)[number]
@@ -32,6 +33,10 @@ function emptyField(name = 'new_field'): SchemaField {
   }
 }
 
+type Status = 'idle' | 'saving' | 'saved' | 'error'
+
+const SAVED_HOLD_MS = 1500
+
 interface Props {
   pid: string
   fields: SchemaField[]
@@ -39,18 +44,35 @@ interface Props {
 
 export default function SchemaFieldEditor({ pid, fields }: Props) {
   const saveActive = useSchema(s => s.saveActive)
+  const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<SaveError | null>(null)
-  const [pending, setPending] = useState(false)
+  const savedTimerRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
+  }, [])
 
   // The committed list mirrors the store's byProject. Local edits round-trip
   // through `commit()` rather than living in component state — keeps store
   // as the single source of truth, avoids drift across multiple cards.
   const commit = async (next: SchemaField[]) => {
-    setPending(true)
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = null
+    }
+    setStatus('saving')
     setError(null)
     const err = await saveActive(pid, next)
-    setPending(false)
-    if (err) setError(err)
+    if (err) {
+      setError(err)
+      setStatus('error')
+      return
+    }
+    setStatus('saved')
+    savedTimerRef.current = window.setTimeout(() => {
+      savedTimerRef.current = null
+      setStatus('idle')
+    }, SAVED_HOLD_MS)
   }
 
   const handleChange = (index: number, patch: Partial<SchemaField>) => {
@@ -70,20 +92,29 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
     void commit([...fields, emptyField(name)])
   }
 
+  const statusPill = (
+    <>
+      {status === 'saving' && <Reminder form="inline" intent="note">saving…</Reminder>}
+      {status === 'saved'  && <Reminder form="inline" intent="tip">saved</Reminder>}
+    </>
+  )
+
   if (fields.length === 0) {
     return (
       <div>
+        <div className="ql-fields-lab">fields {statusPill}</div>
         <div className="ql-edit-empty">
           还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + add fields。
         </div>
-        <FooterAdd onAdd={handleAdd} label="+ add fields" />
-        {error && <ErrorBanner err={error} />}
+        <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} label="+ add fields" />
+        {status === 'error' && error && <ErrorBanner err={error} />}
       </div>
     )
   }
 
   return (
     <div className="ql-edit-list">
+      <div className="ql-fields-lab">fields {statusPill}</div>
       {fields.map((f, idx) => (
         <SchemaCardEditor
           key={`${f.name}-${idx}`}
@@ -92,19 +123,18 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
           onDelete={() => handleDelete(idx)}
         />
       ))}
-      <FooterAdd onAdd={handleAdd} pending={pending} />
-      {error && <ErrorBanner err={error} />}
+      <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} />
+      {status === 'error' && error && <ErrorBanner err={error} />}
     </div>
   )
 }
 
-function FooterAdd({ onAdd, pending, label }: { onAdd: () => void; pending?: boolean; label?: string }) {
+function FooterAdd({ onAdd, disabled, label }: { onAdd: () => void; disabled?: boolean; label?: string }) {
   return (
     <div className="ql-edit-foot">
-      <button type="button" className="ql-edit-add" onClick={onAdd} disabled={pending}>
+      <button type="button" className="ql-edit-add" onClick={onAdd} disabled={disabled}>
         {label ?? '+ field'}
       </button>
-      {pending && <span className="ql-edit-pending">saving…</span>}
     </div>
   )
 }
