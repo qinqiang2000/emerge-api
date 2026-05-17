@@ -103,7 +103,7 @@ async def _migrate_to_m91(workspace: Path, project_id: str, pdir: Path) -> None:
             created_at=project.get("created_at") or now,
             updated_at=now,
         )
-        atomic_write_json(prompt_path(workspace, project_id, "pr_baseline"), pv.model_dump(mode="json"))
+        atomic_write_json(prompt_path(workspace, project_id, "pr_baseline"), pv.model_dump(mode="json", exclude_none=True))
 
         # Build m_default
         settings = get_settings()

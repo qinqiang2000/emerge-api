@@ -193,7 +193,7 @@ async def get_project_schema_raw(slug: str) -> PlainTextResponse:
         )
     await migrate_project_if_needed(settings.workspace_root, slug)
     fields = await read_schema(settings.workspace_root, slug)
-    parsed = [f.model_dump(mode="json") for f in fields]
+    parsed = [f.model_dump(mode="json", exclude_none=True) for f in fields]
     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
     return PlainTextResponse(pretty, media_type="text/plain; charset=utf-8")
 

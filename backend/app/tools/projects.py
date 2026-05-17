@@ -177,7 +177,7 @@ async def create_project(
             created_at=now,
             updated_at=now,
         )
-        atomic_write_json(prompt_path(workspace, slug, "pr_baseline"), pv.model_dump(mode="json"))
+        atomic_write_json(prompt_path(workspace, slug, "pr_baseline"), pv.model_dump(mode="json", exclude_none=True))
 
         mc = ModelConfig(
             model_id="m_default",

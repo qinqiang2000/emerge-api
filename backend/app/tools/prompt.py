@@ -94,7 +94,7 @@ async def write_prompt(
             created_at=existing.created_at,
             updated_at=_now_iso(),
         )
-        atomic_write_json(pp, updated.model_dump(mode="json"))
+        atomic_write_json(pp, updated.model_dump(mode="json", exclude_none=True))
     return resolved
 
 
@@ -182,7 +182,7 @@ async def create_prompt(
             updated_at=now,
         )
         prompts_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
-        atomic_write_json(prompt_path(workspace, project_id, new_id), pv.model_dump(mode="json"))
+        atomic_write_json(prompt_path(workspace, project_id, new_id), pv.model_dump(mode="json", exclude_none=True))
     return new_id
 
 
@@ -280,6 +280,6 @@ async def import_prompt(
         prompts_dir(workspace, into_slug).mkdir(parents=True, exist_ok=True)
         atomic_write_json(
             prompt_path(workspace, into_slug, new_id),
-            pv.model_dump(mode="json"),
+            pv.model_dump(mode="json", exclude_none=True),
         )
     return new_id

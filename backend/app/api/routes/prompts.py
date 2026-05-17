@@ -48,7 +48,7 @@ async def get_project_active_prompt(slug: str) -> dict:
     workspace = _project_or_404(slug)
     await migrate_project_if_needed(workspace, slug)
     pv = await read_active_prompt(workspace, slug)
-    return pv.model_dump(mode="json")
+    return pv.model_dump(mode="json", exclude_none=True)
 
 
 class _PutActivePromptBody(BaseModel):
@@ -97,7 +97,7 @@ async def put_project_active_prompt(slug: str, body: _PutActivePromptBody) -> di
             detail={"error_code": "prompt_clear_refused", "error_message_en": str(exc)},
         )
     pv = await read_active_prompt(workspace, slug)
-    return pv.model_dump(mode="json")
+    return pv.model_dump(mode="json", exclude_none=True)
 
 
 @router.get("/lab/projects/{slug}/prompts/{prompt_id}")
@@ -111,7 +111,7 @@ async def get_project_prompt_by_id(slug: str, prompt_id: str) -> dict:
             status_code=404,
             detail={"error_code": "prompt_not_found"},
         )
-    return pv.model_dump(mode="json")
+    return pv.model_dump(mode="json", exclude_none=True)
 
 
 class _ImportPromptBody(BaseModel):

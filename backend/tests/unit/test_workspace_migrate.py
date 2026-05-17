@@ -53,7 +53,7 @@ async def test_migrate_builds_prompts_and_models(workspace: Path) -> None:
     assert len(pv["schema"]) == 2
     assert pv["schema"][0]["name"] == "invoice_no"
     assert pv["global_notes"] == "This is a US invoice.\nUSD only."
-    assert pv["derived_from"] is None
+    assert pv.get("derived_from") is None
     assert "created_at" in pv and "updated_at" in pv
 
 
