@@ -533,7 +533,14 @@ function handleToolResult(
       t === 'mcp__emerge_tools__upload_doc' ||
       t === 'mcp__emerge_tools__save_reviewed' ||
       t === 'mcp__emerge_tools__extract_batch' ||
-      t === 'mcp__emerge_tools__extract_one'
+      t === 'mcp__emerge_tools__extract_one' ||
+      // pre_label writes reviewed/_pending/ drafts. Doc-list badges don't
+      // change (pending status is independent of has_prediction/has_reviewed),
+      // but if a review tab is open on a freshly pre-labeled doc the banner
+      // needs the pending payload — re-fetching docs is the simplest cache
+      // bump that propagates to the FSSpine list. The banner itself loads
+      // lazily on useReview.open().
+      t === 'mcp__emerge_tools__pre_label'
     ) {
       void useDocs.getState().refresh(projectId)
     }
