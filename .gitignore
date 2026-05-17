@@ -51,3 +51,6 @@ frontend/tests/dogfood-out/
 .dev.pid
 .dev-logs/
 .dogfood/
+
+# Ad-hoc scratch (screenshots, debug dumps)
+.tmp/
