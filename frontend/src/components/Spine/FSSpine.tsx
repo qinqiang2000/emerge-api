@@ -13,7 +13,7 @@ import { useExperiments } from '../../stores/experiments'
 import PanelToggle from '../Shell/PanelToggle'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
-type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; onClick?: () => void }
+type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; selected?: boolean; onClick?: () => void }
 type GhostNode = { kind: 'ghost'; name: string }
 type MoreNode  = { kind: 'more'; remaining: number; onClick: () => void }
 type LeafNode  = FileNode | GhostNode | MoreNode
@@ -39,6 +39,7 @@ function buildTree(
   openDoc: (slug: string, filename: string) => void,
   docsVisible: number,
   onLoadMoreDocs: () => void,
+  selectedDocFilename: string | null,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -54,6 +55,7 @@ function buildTree(
       kind: 'file',
       name: doc.filename,
       stamp,
+      selected: doc.filename === selectedDocFilename,
       onClick: () => openDoc(slug, doc.filename),
     })
   }
@@ -100,6 +102,16 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const openVersion = useQuickLook(s => s.openVersion)
   const openPrompt = useQuickLook(s => s.openPrompt)
   const openReview = useReview(s => s.open)
+  // Selection marker for the docs/ list: only when review mode is open on
+  // this project. The doc id is the on-disk filename — same handle the
+  // ReviewBar prev/next arrows drive — so → / ← in review keep the spine
+  // row in sync.
+  const reviewActiveFilename = useReview(s => s.activeFilename)
+  const reviewActiveProjectId = useReview(s => s.activeProjectId)
+  const selectedDocFilename =
+    reviewActiveProjectId && reviewActiveProjectId === selectedSlug
+      ? reviewActiveFilename
+      : null
 
   // Only docs/ open by default; prompts/ and models/ closed by default.
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({ 'docs/': true })
@@ -201,10 +213,51 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           (slug, filename) => { void openReview(slug, filename) },
           docsVisible,
           loadMoreDocs,
+          selectedDocFilename,
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview, docsVisible, loadMoreDocs],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview, docsVisible, loadMoreDocs, selectedDocFilename],
   )
+
+  // When review ← / → steps past the visible page boundary, bump
+  // docsVisible so the row that should look "selected" is actually rendered.
+  // Without this the highlight silently goes nowhere when the active doc is
+  // past the initial DOCS_INITIAL slice.
+  useEffect(() => {
+    if (!selectedDocFilename) return
+    const idx = activeDocs.findIndex(d => d.filename === selectedDocFilename)
+    if (idx >= 0 && idx >= docsVisible) {
+      setDocsVisible(idx + 1)
+    }
+  }, [selectedDocFilename, activeDocs, docsVisible])
+
+  // Scroll the selected doc row into view when it changes (e.g. ← / → in
+  // review). Lives inside the spine's scroll container so other scroll
+  // positions aren't disturbed.
+  const selectedRowRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!selectedDocFilename) return
+    // Drop the browser focus ring from whichever row the user last clicked.
+    // Without this, click-focus outlines stick on the previously-active row
+    // while .selected has already moved on via ← / → navigation.
+    const focused = document.activeElement as HTMLElement | null
+    if (
+      focused
+      && focused !== selectedRowRef.current
+      && focused.classList.contains('branch')
+      && focused.classList.contains('file')
+    ) {
+      focused.blur()
+    }
+    const el = selectedRowRef.current
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedDocFilename])
+
+  // Ensure docs/ is expanded when a doc gets selected via review nav.
+  useEffect(() => {
+    if (selectedDocFilename) setOpenDirs(s => (s['docs/'] ? s : { ...s, 'docs/': true }))
+  }, [selectedDocFilename])
 
   // Auto-load more docs once user has clicked "more" at least once and
   // the button is scrolled into view. Re-arms whenever the button remounts
@@ -322,17 +375,20 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                     const clickHandler = isVersion
                       ? () => openVersion(selectedSlug!, n.name)
                       : n.onClick
+                    const isSelected = !!n.selected
                     return (
                       <div
                         key={j}
-                        className="branch file"
+                        ref={isSelected ? selectedRowRef : undefined}
+                        className={'branch file' + (isSelected ? ' selected' : '')}
                         onClick={clickHandler}
                         role={clickHandler ? 'button' : undefined}
                         tabIndex={clickHandler ? 0 : undefined}
                         onKeyDown={clickHandler ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
                         style={clickHandler ? { cursor: 'pointer' } : undefined}
+                        aria-current={isSelected ? 'true' : undefined}
                       >
-                        <span style={{ color: 'var(--ink-5)' }}>{n.active ? '⭐' : '·'}</span>
+                        <span style={{ color: isSelected ? 'var(--ochre)' : 'var(--ink-5)' }}>{n.active ? '⭐' : '·'}</span>
                         <span>{n.name}</span>
                         {n.stamp && <span className="stamp">{n.stamp}</span>}
                       </div>

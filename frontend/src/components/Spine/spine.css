@@ -19,6 +19,9 @@
 .fs .branch.dir{color:var(--ink-2);font-weight:500;padding-left:18px;cursor:default}
 .fs .branch.dir .arrow{color:var(--ink-5);width:10px;display:inline-block}
 .fs .branch.file:hover{color:var(--ink);background:var(--paper-2)}
+.fs .branch.file:focus{outline:none}
+.fs .branch.file:focus-visible{outline:none;box-shadow:inset 2px 0 0 var(--ochre)}
+.fs .branch.file.selected{color:var(--ink);background:var(--paper-2);box-shadow:inset 2px 0 0 var(--ochre)}
 .fs .branch.more{color:var(--ink-4);font-style:italic;cursor:pointer}
 .fs .branch.more:hover{color:var(--ink-2);background:var(--paper-2)}
 .fs .branch .stamp{margin-left:auto;font-size:10.5px;color:var(--ink-5);font-variant-numeric:tabular-nums;font-weight:400;flex-shrink:0;padding-left:6px}
