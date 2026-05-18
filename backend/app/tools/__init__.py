@@ -183,8 +183,10 @@ def build_emerge_mcp(
 
     @tool(
         "write_schema",
-        "Write a new schema. Set allow_structural=true to add/remove/rename/retype fields.",
-        {"slug": str, "schema": list, "reason": str, "allow_structural": bool},
+        "Write a new schema and/or update global_notes. Set allow_structural=true to "
+        "add/remove/rename/retype fields. Pass global_notes to update it atomically in "
+        "the same write; omit to preserve the current value.",
+        {"slug": str, "schema": list, "reason": str, "allow_structural": bool, "global_notes": str},
     )
     async def t_write_schema(args: dict[str, Any]) -> dict[str, Any]:
         fields = [SchemaField(**f) for f in args["schema"]]
@@ -194,6 +196,7 @@ def build_emerge_mcp(
             fields,
             reason=args["reason"],
             allow_structural=args.get("allow_structural", False),
+            global_notes=args.get("global_notes"),
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 

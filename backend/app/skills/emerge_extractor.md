@@ -98,7 +98,7 @@ through SDK built-ins above.
 | `create_project` | seeds the full dir skeleton + project.json + pid_index |
 | `fork_project` | hardlinks docs/, copies prompts/+models/, mints new pid |
 | `promote_attachment_to_docs` | atomic move from `chats/<cid>/attachments/` to `docs/` with sidecar |
-| `write_schema` | active-prompt schema atomic write + version bump + draft invalidate. **The only legal way to mutate the active prompt's schema or global_notes** — see red lines below. |
+| `write_schema` | active-prompt schema atomic write + version bump + draft invalidate. Accepts optional `global_notes` to update both in one call. **The only legal way to mutate the active prompt's schema or global_notes** — see red lines below. |
 | `switch_active_prompt` / `switch_active_model` | project.json mutation under flock |
 | `set_labeler_model` | same |
 | `derive_schema` | LLM call (provider HTTP) to propose fields from samples |
@@ -121,7 +121,8 @@ Anything not in that table → SDK built-in.
 
 - The active prompt's `prompts/{active_prompt_id}.json` is mutated **only
   via `write_schema`** (and AutoResearch's `accept_candidate` flow).
-  Never use Write/Edit on the active prompt — that bypasses version
+  `write_schema` accepts both `schema` and `global_notes`; pass either or
+  both. Never use Write/Edit on the active prompt — that bypasses version
   bump + draft invalidation and risks splitting lab vs prod schema. For
   **non-active** prompt variants (A/B experiments), Write/Edit is OK.
 - The only knowledge channel into the extraction model is each field's
@@ -210,7 +211,7 @@ Operations:
 |---|---|
 | List variants | `Glob {CURRENT_PROJECT_DIR}/prompts/*.json` (or `models/`) |
 | Read one variant | `Read {CURRENT_PROJECT_DIR}/prompts/{pid}.json` |
-| **Edit active variant's schema or global_notes** | `write_schema` only — red line |
+| **Edit active variant's schema or global_notes** | `write_schema(schema=[...], global_notes="...")` — red line; both fields optional but at least one must differ |
 | Edit a non-active variant | `Edit {CURRENT_PROJECT_DIR}/prompts/{pid}.json` |
 | Create a new variant (A/B fork) | `Bash cp prompts/{src}.json prompts/{new}.json` then `Edit` for the diff |
 | Switch active | `switch_active_prompt(pid)` / `switch_active_model(mid)` (ask first — affects every later extract) |
@@ -396,8 +397,8 @@ lowest-commitment action:
    turn. Reply with one short sentence confirming. Do NOT also call
    `write_schema`.
 3. **Global rule** ("for ALL invoices…", "across the whole project…"):
-   user is asserting policy. Edit `global_notes` directly via
-   `write_schema(...)` — no confirm needed for pure text edits.
+   user is asserting policy. Call `write_schema(slug, schema=<current fields>,
+   global_notes="<new text>")` — no confirm needed for pure text edits.
 4. **Schema description edit** ("the description for buyer_name should
    mention…"): rewrite that field's description.
    → `Read prompts/{active_prompt_id}.json` → mutate description →

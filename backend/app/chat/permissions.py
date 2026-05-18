@@ -239,6 +239,11 @@ def classify(
                     f"Path '{raw}' targets a sensitive location.",
                 )
             if not _within(resolved, workspace_root):
+                if _within(resolved, workspace_root.parent):
+                    return GateDecision(
+                        "deny",
+                        f"Command touches application source code outside the workspace ({raw}).",
+                    )
                 return GateDecision(
                     "ask",
                     f"Command touches a path outside the workspace ({raw}).",
@@ -284,8 +289,16 @@ def classify(
                 f"Path '{path_str}' contains a secret-looking literal.",
             )
         if not _within(resolved, workspace_root):
-            # Reads of out-of-workspace paths ask the user; writes are stricter
-            # (still ask — we let the user opt in to e.g. ``~/Downloads``).
+            # Deny reads of application source code (inside the project root
+            # but outside the workspace). Tool descriptions are the agent's
+            # contract; it should never need to read the implementation.
+            if _within(resolved, workspace_root.parent):
+                return GateDecision(
+                    "deny",
+                    f"{name} targets application source code outside the workspace.",
+                )
+            # Reads of other out-of-workspace paths (e.g. ~/Downloads, Desktop)
+            # ask the user; we let them opt in.
             return GateDecision(
                 "ask",
                 f"{name} touches a path outside the workspace ({path_str}).",

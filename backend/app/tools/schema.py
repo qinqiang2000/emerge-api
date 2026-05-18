@@ -49,6 +49,7 @@ async def write_schema(
     *,
     reason: str,
     allow_structural: bool = False,
+    global_notes: str | None = None,
 ) -> None:
     """Thin wrapper over write_prompt — kept for one milestone for chat-tool backward compat.
 
@@ -57,6 +58,8 @@ async def write_schema(
     flow keep their safety net. New code should call write_prompt directly.
 
     The `reason` parameter is currently ignored (kept for signature compat).
+    Pass `global_notes` to update it in the same atomic write; omit to preserve
+    the current value.
     """
     from app.tools.prompt import read_active_prompt, write_prompt
     from app.workspace.migrate import migrate_project_if_needed
@@ -71,7 +74,7 @@ async def write_schema(
         workspace, project_id,
         prompt_id=None,
         schema=schema,
-        global_notes=old_pv.global_notes,
+        global_notes=global_notes if global_notes is not None else old_pv.global_notes,
     )
 
 

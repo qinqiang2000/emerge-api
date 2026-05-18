@@ -92,10 +92,18 @@ def test_bash_dotenv_target_denies(workspace: Path) -> None:
     assert decision.behavior == "deny"
 
 
-def test_bash_out_of_workspace_asks(workspace: Path, tmp_path: Path) -> None:
+def test_bash_source_code_denies(workspace: Path) -> None:
+    # Path inside workspace.parent (= project root) but outside workspace → deny.
+    src = workspace.parent / "app" / "tools" / "schema.py"
+    decision = classify("Bash", {"command": f"cat {src}"}, workspace_root=workspace)
+    assert decision.behavior == "deny"
+
+
+def test_bash_out_of_workspace_asks(workspace: Path) -> None:
+    # Path completely outside the project root → ask.
     decision = classify(
         "Bash",
-        {"command": f"ls {tmp_path}/somewhere_else"},
+        {"command": "ls /var/log/system.log"},
         workspace_root=workspace,
     )
     assert decision.behavior == "ask"
@@ -131,10 +139,18 @@ def test_read_env_denies(workspace: Path) -> None:
     assert decision.behavior == "deny"
 
 
-def test_read_outside_workspace_asks(tmp_path: Path, workspace: Path) -> None:
+def test_read_source_code_denies(workspace: Path) -> None:
+    # Source code path (inside project root, outside workspace) → deny.
+    src = workspace.parent / "app" / "chat" / "service.py"
+    decision = classify("Read", {"file_path": str(src)}, workspace_root=workspace)
+    assert decision.behavior == "deny"
+
+
+def test_read_outside_workspace_asks(workspace: Path) -> None:
+    # Path completely outside the project root → ask.
     decision = classify(
         "Read",
-        {"file_path": str(tmp_path / "other.txt")},
+        {"file_path": "/Users/somebody/Desktop/invoice.yaml"},
         workspace_root=workspace,
     )
     assert decision.behavior == "ask"
@@ -161,10 +177,18 @@ def test_glob_no_path_allows(workspace: Path) -> None:
     assert decision.behavior == "allow"
 
 
-def test_grep_outside_workspace_asks(workspace: Path, tmp_path: Path) -> None:
+def test_grep_source_code_denies(workspace: Path) -> None:
+    # Grep inside project root (but outside workspace) → deny.
+    src = workspace.parent / "app" / "tools"
+    decision = classify("Grep", {"pattern": "global_notes", "path": str(src)}, workspace_root=workspace)
+    assert decision.behavior == "deny"
+
+
+def test_grep_outside_workspace_asks(workspace: Path) -> None:
+    # Grep completely outside project root → ask.
     decision = classify(
         "Grep",
-        {"pattern": "TODO", "path": str(tmp_path / "elsewhere")},
+        {"pattern": "TODO", "path": "/Users/somebody/Downloads/elsewhere"},
         workspace_root=workspace,
     )
     assert decision.behavior == "ask"
