@@ -31,7 +31,8 @@ from app.tools.extract import (
     _build_field_instructions,
     _build_response_schema,
 )
-from app.tools.schema import _doc_to_block, read_schema
+from app.tools.prompt import read_active_prompt
+from app.tools.schema import _doc_to_block
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.migrate import migrate_project_if_needed
@@ -90,7 +91,8 @@ async def pre_label(
     # `labeler_model_not_configured` error (HTTP 400 in the route) rather than
     # a vague "empty schema" — labeler config is the more fundamental signal.
     mid = await _resolve_labeler_model(workspace, slug, labeler_model)
-    schema = await read_schema(workspace, slug)
+    pv = await read_active_prompt(workspace, slug)
+    schema = pv.schema
     if not schema:
         raise ValueError("project has empty schema; nothing to pre-label")
 
@@ -109,16 +111,17 @@ async def pre_label(
 
     response_schema = _build_response_schema(schema)
     field_instructions = _build_field_instructions(schema)
+    global_notes = pv.global_notes
 
     for fn in filenames:
         if reviewed_path(workspace, slug, fn).exists():
             skipped.append({"filename": fn, "reason": "already_reviewed"})
             continue
         try:
-            user_blocks: list[ContentBlock] = [
-                TextBlock(text=field_instructions),
-                await _doc_to_block(workspace, slug, fn),
-            ]
+            doc_block = await _doc_to_block(workspace, slug, fn)
+            user_blocks: list[ContentBlock] = (
+                [TextBlock(text=global_notes)] if global_notes else []
+            ) + [TextBlock(text=field_instructions), doc_block]
             result = await provider.extract(
                 model_id=mid,
                 system_prompt=_EXTRACT_SYSTEM,

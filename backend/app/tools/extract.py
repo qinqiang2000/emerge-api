@@ -16,6 +16,8 @@ from app.workspace.paths import (
 )
 
 
+
+
 _EXTRACT_SYSTEM = """You extract structured data from a document.
 
 Output rules:
@@ -135,11 +137,13 @@ async def extract_one(
     model_id: str | None = None,
 ) -> dict[str, Any]:
     from app.tools.model import read_active_model
-    from app.tools.schema import read_schema
+    from app.tools.prompt import read_active_prompt
     from app.workspace.migrate import migrate_project_if_needed
 
     await migrate_project_if_needed(workspace, project_id)
-    schema = await read_schema(workspace, project_id)
+    pv = await read_active_prompt(workspace, project_id)
+    schema = pv.schema
+    global_notes = pv.global_notes
     if not schema:
         raise ValueError("project has empty schema; nothing to extract")
     if model_id is None:
@@ -156,10 +160,10 @@ async def extract_one(
 
         provider = get_provider_for_model(mid)
 
-    user_blocks: list[ContentBlock] = [
-        TextBlock(text=_build_field_instructions(schema)),
-        await _doc_to_block(workspace, project_id, filename),
-    ]
+    doc_block = await _doc_to_block(workspace, project_id, filename)
+    user_blocks: list[ContentBlock] = (
+        [TextBlock(text=global_notes)] if global_notes else []
+    ) + [TextBlock(text=_build_field_instructions(schema)), doc_block]
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
         model_id=mid,
@@ -189,6 +193,7 @@ async def extract_one_with_schema(
     provider: Provider,
     model_id: str,
     params: dict[str, Any] | None = None,
+    global_notes: str = "",
 ) -> dict[str, Any]:
     """Like extract_one but uses an in-memory schema (does NOT read schema.json
     or write predictions/_draft/). Used by the autoresearch loop to grade
@@ -196,10 +201,10 @@ async def extract_one_with_schema(
     if not schema:
         raise ValueError("schema must be non-empty")
 
-    user_blocks: list[ContentBlock] = [
-        TextBlock(text=_build_field_instructions(schema)),
-        await _doc_to_block(workspace, project_id, filename),
-    ]
+    doc_block = await _doc_to_block(workspace, project_id, filename)
+    user_blocks: list[ContentBlock] = (
+        [TextBlock(text=global_notes)] if global_notes else []
+    ) + [TextBlock(text=_build_field_instructions(schema)), doc_block]
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
         model_id=model_id,
@@ -220,6 +225,7 @@ async def extract_bytes_with_schema(
     provider: Provider,
     model_id: str,
     params: dict[str, Any] | None = None,
+    global_notes: str = "",
 ) -> dict[str, Any]:
     """Extract from raw multipart bytes without writing the upload to workspace."""
     if not schema:
@@ -228,10 +234,9 @@ async def extract_bytes_with_schema(
 
     ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
     block = _bytes_to_block(content, ext)
-    user_blocks: list[ContentBlock] = [
-        TextBlock(text=_build_field_instructions(schema)),
-        block,
-    ]
+    user_blocks: list[ContentBlock] = (
+        [TextBlock(text=global_notes)] if global_notes else []
+    ) + [TextBlock(text=_build_field_instructions(schema)), block]
     result = await provider.extract(
         model_id=model_id,
         system_prompt=_EXTRACT_SYSTEM,

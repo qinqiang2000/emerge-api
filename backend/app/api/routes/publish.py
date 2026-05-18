@@ -131,6 +131,7 @@ async def v1_extract(
             provider=provider,
             model_id=model_id,
             params=blob.get("params") or {"temperature": 0.0},
+            global_notes=blob.get("global_notes") or "",
         )
     except Exception as exc:
         _log.warning(
