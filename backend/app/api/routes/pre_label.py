@@ -1,7 +1,8 @@
 """HTTP routes for the Pro Labeler.
 
-Mirrors the MCP tool surface (`pre_label`, `set_labeler_model`) so a CLI agent
-or non-Claude client can drive the same pre-label flow over plain HTTP.
+Mirrors the MCP tool surface (`pre_label`, `set_labeler_model`,
+`get_labeler_config`) so a CLI agent or non-Claude client can drive the same
+pre-label flow over plain HTTP.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.pre_label import (
     LabelerNotConfiguredError,
+    get_labeler_config,
     pre_label,
     set_labeler_model,
 )
@@ -74,3 +76,12 @@ async def post_labeler_model(slug: str, body: _LabelerModelBody) -> dict:
     workspace = _project_or_404(slug)
     await set_labeler_model(workspace, slug, body.model_id)
     return {"ok": True}
+
+
+@router.get("/lab/projects/{slug}/labeler_config")
+async def get_labeler_config_route(slug: str) -> dict:
+    """Report `{override, env_default, resolved, source}` so a CLI agent (or
+    a curl-based debug session) can see what `pre_label` will actually call
+    without parsing `project.json` and missing the env fallback."""
+    workspace = _project_or_404(slug)
+    return await get_labeler_config(workspace, slug)

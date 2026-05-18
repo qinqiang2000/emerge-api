@@ -201,7 +201,14 @@ async def create_project(
             "autoresearch_proposer_model": None,
             "extract_model": settings.default_extract_model,
             "extract_params": {"temperature": 0.0},
-            "labeler_model": settings.default_labeler_model,
+            # `labeler_model` is intentionally null at init: leave it empty
+            # and let `_resolve_labeler_model` fall through to
+            # `EMERGE_DEFAULT_LABELER_MODEL` at call-time. Only `set_labeler_model`
+            # (an explicit user override) ever writes a non-null value here.
+            # Why: freezing the env value at create-time made `.env` updates
+            # invisible to existing projects, and the agent saw a null field
+            # as "labeler 还没配" even when the env had a perfectly good default.
+            "labeler_model": None,
             "published_ids": [],
         }
         atomic_write_json(project_json_path(workspace, slug), blob)

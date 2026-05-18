@@ -12,6 +12,7 @@ from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.docs import upload_doc
 from app.tools.pre_label import (
     LabelerNotConfiguredError,
+    get_labeler_config,
     pre_label,
     set_labeler_model,
 )
@@ -215,6 +216,63 @@ async def test_set_labeler_model_persists_to_project_json(workspace: Path) -> No
     await set_labeler_model(workspace, slug, "claude-opus-4-1")
     blob = json.loads(project_json_path(workspace, slug).read_text())
     assert blob["labeler_model"] == "claude-opus-4-1"
+
+
+async def test_init_project_leaves_labeler_model_null(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_project must not freeze the env default into project.json.
+
+    Without this guarantee, projects created before the user edits `.env`
+    stay stuck on the old labeler model — and the agent sees a non-null
+    `labeler_model` that may not match the live env intent. The fix is to
+    leave the field null at init; `_resolve_labeler_model` falls through
+    to env at call time.
+    """
+    monkeypatch.setenv("EMERGE_DEFAULT_LABELER_MODEL", "would-be-frozen-here")
+    slug = (await create_project(workspace, name="fresh"))["slug"]
+    blob = json.loads(project_json_path(workspace, slug).read_text())
+    assert blob["labeler_model"] is None
+
+
+async def test_get_labeler_config_source_override(workspace: Path) -> None:
+    slug, _ = await _seed(workspace, n_docs=0)
+    await set_labeler_model(workspace, slug, "claude-opus-4-1")
+    cfg = await get_labeler_config(workspace, slug)
+    assert cfg == {
+        "override": "claude-opus-4-1",
+        "env_default": cfg["env_default"],  # whatever pytest's env says
+        "resolved": "claude-opus-4-1",
+        "source": "override",
+    }
+
+
+async def test_get_labeler_config_source_env_default(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMERGE_DEFAULT_LABELER_MODEL", "gemini-pro-latest")
+    slug, _ = await _seed(workspace, n_docs=0)
+    cfg = await get_labeler_config(workspace, slug)
+    assert cfg == {
+        "override": None,
+        "env_default": "gemini-pro-latest",
+        "resolved": "gemini-pro-latest",
+        "source": "env_default",
+    }
+
+
+async def test_get_labeler_config_source_unconfigured(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMERGE_DEFAULT_LABELER_MODEL", raising=False)
+    slug, _ = await _seed(workspace, n_docs=0)
+    cfg = await get_labeler_config(workspace, slug)
+    assert cfg == {
+        "override": None,
+        "env_default": None,
+        "resolved": None,
+        "source": "unconfigured",
+    }
 
 
 async def test_pre_label_collects_per_doc_errors(

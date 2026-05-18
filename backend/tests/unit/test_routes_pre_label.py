@@ -42,6 +42,52 @@ def test_pre_label_route_returns_400_when_unconfigured(
     assert detail["error_code"] == "labeler_model_not_configured"
 
 
+def test_labeler_config_route_reports_unconfigured(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    slug = _create_project(tmp_path)
+    r = client.get(f"/lab/projects/{slug}/labeler_config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {
+        "override": None,
+        "env_default": None,
+        "resolved": None,
+        "source": "unconfigured",
+    }
+
+
+def test_labeler_config_route_reports_env_default(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMERGE_DEFAULT_LABELER_MODEL", "gemini-pro-latest")
+    slug = _create_project(tmp_path)
+    r = client.get(f"/lab/projects/{slug}/labeler_config")
+    assert r.status_code == 200
+    assert r.json() == {
+        "override": None,
+        "env_default": "gemini-pro-latest",
+        "resolved": "gemini-pro-latest",
+        "source": "env_default",
+    }
+
+
+def test_labeler_config_route_reports_override(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    slug = _create_project(tmp_path)
+    client.post(
+        f"/lab/projects/{slug}/labeler_model",
+        json={"model_id": "claude-opus-4-1"},
+    )
+    r = client.get(f"/lab/projects/{slug}/labeler_config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["override"] == "claude-opus-4-1"
+    assert body["resolved"] == "claude-opus-4-1"
+    assert body["source"] == "override"
+
+
 def test_pre_label_route_404_on_unknown_project(client: TestClient) -> None:
     r = client.post("/lab/projects/p_doesnotexist1/pre_label", json={})
     assert r.status_code == 404

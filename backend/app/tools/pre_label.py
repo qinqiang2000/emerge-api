@@ -49,20 +49,67 @@ class LabelerNotConfiguredError(ValueError):
     `EMERGE_DEFAULT_LABELER_MODEL` env default is set."""
 
 
+def _read_project_labeler_override(workspace: Path, slug: str) -> str | None:
+    """Return `project.json.labeler_model` if explicitly set, else None.
+
+    Missing file / unparseable JSON / missing key / null value all collapse
+    to None (= "no override; use env default").
+    """
+    pj = project_json_path(workspace, slug)
+    if not pj.exists():
+        return None
+    try:
+        blob = json.loads(pj.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return blob.get("labeler_model") or None
+
+
+async def get_labeler_config(workspace: Path, slug: str) -> dict[str, Any]:
+    """Project-level labeler config snapshot — what `pre_label` will resolve to.
+
+    Exists so the agent can answer "what labeler will run?" without `Read`ing
+    `project.json` and missing the env fallback. Returns:
+
+        override:    project.json.labeler_model (None if unset)
+        env_default: EMERGE_DEFAULT_LABELER_MODEL (None if unset)
+        resolved:    what pre_label will actually call (None = unconfigured)
+        source:      "override" | "env_default" | "unconfigured"
+
+    See [[feedback_ai_native_api_symmetry]] — every lab decision the UI exposes
+    must also be inspectable through tools.
+    """
+    override = _read_project_labeler_override(workspace, slug)
+    env_default = get_settings().default_labeler_model or None
+    if override:
+        resolved, source = override, "override"
+    elif env_default:
+        resolved, source = env_default, "env_default"
+    else:
+        resolved, source = None, "unconfigured"
+    return {
+        "override": override,
+        "env_default": env_default,
+        "resolved": resolved,
+        "source": source,
+    }
+
+
 async def _resolve_labeler_model(
     workspace: Path, slug: str, override: str | None,
 ) -> str:
-    """Priority: call-arg > project.json.labeler_model > settings default."""
+    """Priority: call-arg > project.json.labeler_model > settings default.
+
+    `project.json.labeler_model` is normally null — `init_project` no longer
+    freezes the env default into it; only `set_labeler_model` writes here when
+    the user explicitly overrides. Updating `.env` then "just works" for
+    every project that hasn't been explicitly overridden.
+    """
     if override:
         return override
-    pj = project_json_path(workspace, slug)
-    if pj.exists():
-        try:
-            blob = json.loads(pj.read_text())
-        except (OSError, json.JSONDecodeError):
-            blob = {}
-        if blob.get("labeler_model"):
-            return blob["labeler_model"]
+    project_override = _read_project_labeler_override(workspace, slug)
+    if project_override:
+        return project_override
     settings = get_settings()
     if settings.default_labeler_model:
         return settings.default_labeler_model

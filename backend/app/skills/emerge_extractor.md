@@ -101,6 +101,7 @@ through SDK built-ins above.
 | `write_schema` | active-prompt schema atomic write + version bump + draft invalidate. Accepts optional `global_notes` to update both in one call. **The only legal way to mutate the active prompt's schema or global_notes** — see red lines below. |
 | `switch_active_prompt` / `switch_active_model` | project.json mutation under flock |
 | `set_labeler_model` | same |
+| `get_labeler_config` | reads project.json + env to report `{override, env_default, resolved, source}` for the labeler — use this instead of `Read project.json` whenever you need to know what `pre_label` will run |
 | `derive_schema` | LLM call (provider HTTP) to propose fields from samples |
 | `extract_one` / `extract_batch` | provider HTTP — Bash can't dispatch to Anthropic/OpenAI/Gemini |
 | `extract_with_experiment` | same, per-experiment writes |
@@ -267,9 +268,15 @@ Hard rules:
 - `pre_label` is **NOT** a substitute for `extract`. Output goes to
   `reviewed/_pending/`, never `predictions/_draft/`, never `reviewed/`.
 - Only `save_reviewed` (boss clicking Save) moves data into ground truth.
-- If `pre_label` returns
-  `{ok: false, error: {error_code: "labeler_model_not_configured"}}`,
-  ask the user to pass a model explicitly or call `set_labeler_model`.
+- **Don't pre-check `project.json.labeler_model` with `Read`** — it's
+  normally null (no project-specific override) and the labeler will
+  still resolve via `EMERGE_DEFAULT_LABELER_MODEL`. If you need to
+  report what labeler will run, call `get_labeler_config(slug)` instead;
+  if you need to verify "is it configured at all", trust `pre_label`'s
+  error path. Only fall back to `set_labeler_model` when:
+  (a) the user explicitly asks to lock a project to a model, or
+  (b) `pre_label` returned `labeler_model_not_configured` and the user
+  picked a model after you asked.
 
 ## Risk gates (always confirm with user before invoking)
 

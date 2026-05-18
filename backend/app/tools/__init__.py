@@ -92,7 +92,15 @@ def build_emerge_mcp(
         "{processed, skipped, errors, labeler_model}. This is NOT a "
         "substitute for extract — output goes to reviewed/_pending/, never "
         "predictions/_draft/ or reviewed/.",
-        {"slug": str, "filenames": list, "labeler_model": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filenames": {"type": "array", "items": {"type": "string"}},
+                "labeler_model": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_pre_label(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -113,9 +121,14 @@ def build_emerge_mcp(
 
     @tool(
         "set_labeler_model",
-        "Update project.json.labeler_model — the model pre_label uses by "
-        "default when no override is passed. Use when the user says \"换 pro "
-        "模型\" / \"用 X 当 pro\". No risk gate; the change is recoverable.",
+        "Set a project-specific labeler override (writes "
+        "project.json.labeler_model). Use ONLY when the user explicitly "
+        "names a model for this project (\"换 pro 模型\" / \"this project "
+        "should use X as labeler\"). DO NOT call this just because "
+        "project.json.labeler_model is null — that's the normal state and "
+        "means pre_label falls through to EMERGE_DEFAULT_LABELER_MODEL. To "
+        "check what pre_label would actually run, call `get_labeler_config` "
+        "first. No risk gate; the override is recoverable.",
         {"slug": str, "model_id": str},
     )
     async def t_set_labeler_model(args: dict[str, Any]) -> dict[str, Any]:
@@ -123,6 +136,27 @@ def build_emerge_mcp(
             workspace, args["slug"], args["model_id"],
         )
         return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "get_labeler_config",
+        "Inspect the labeler-model resolution for this project. Returns "
+        "{override, env_default, resolved, source}: `override` is "
+        "project.json.labeler_model (usually null = no project-specific "
+        "override), `env_default` is EMERGE_DEFAULT_LABELER_MODEL, `resolved` "
+        "is what pre_label will actually call, and `source` is "
+        "'override'|'env_default'|'unconfigured'. Call this whenever you "
+        "would otherwise inspect project.json directly to decide if the "
+        "labeler is configured — Reading project.json misses the env "
+        "fallback and leads to false \"还没配\" claims.",
+        {"slug": str},
+    )
+    async def t_get_labeler_config(args: dict[str, Any]) -> dict[str, Any]:
+        out = await pre_label_mod.get_labeler_config(workspace, args["slug"])
+        return {
+            "content": [
+                {"type": "text", "text": _json.dumps(out, ensure_ascii=False)}
+            ]
+        }
 
     @tool(
         "pdf_render_page",
@@ -145,7 +179,15 @@ def build_emerge_mcp(
         "in review mode. Do NOT call extract just to 'see' a doc — that uses an "
         "LLM call to produce structured JSON; this tool gives you direct vision. "
         "If you need multiple pages of a long PDF, call this tool once per page.",
-        {"slug": str, "filename": str, "page": int},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "page": {"type": "integer"},
+            },
+            "required": ["slug", "filename"],
+        },
     )
     async def t_read_doc_image(args: dict[str, Any]) -> dict[str, Any]:
         out = await docs_mod.read_doc_image(
@@ -186,7 +228,17 @@ def build_emerge_mcp(
         "Write a new schema and/or update global_notes. Set allow_structural=true to "
         "add/remove/rename/retype fields. Pass global_notes to update it atomically in "
         "the same write; omit to preserve the current value.",
-        {"slug": str, "schema": list, "reason": str, "allow_structural": bool, "global_notes": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "schema": {"type": "array"},
+                "reason": {"type": "string"},
+                "allow_structural": {"type": "boolean"},
+                "global_notes": {"type": "string"},
+            },
+            "required": ["slug", "schema", "reason"],
+        },
     )
     async def t_write_schema(args: dict[str, Any]) -> dict[str, Any]:
         fields = [SchemaField(**f) for f in args["schema"]]
@@ -230,7 +282,15 @@ def build_emerge_mcp(
         "exists for this exact pair, returns its existing experiment_id; else "
         "mints a new one. Both axes default to the project's active. Label is "
         "derived from prompt + model labels (not user-provided).",
-        {"slug": str, "prompt_id": str, "model_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "prompt_id": {"type": "string"},
+                "model_id": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_create_experiment(args: dict[str, Any]) -> dict[str, Any]:
         eid = await experiment_mod.create_experiment(
@@ -306,7 +366,15 @@ def build_emerge_mcp(
         "prompts/ + models/ into a fresh project (new slug + pid). Skips chats, "
         "reviewed, predictions/_draft, experiments, versions, metrics. Set "
         "include_docs=true to also hardlink docs/ files. Returns {project_id, slug}.",
-        {"src_slug": str, "name": str, "include_docs": bool},
+        {
+            "type": "object",
+            "properties": {
+                "src_slug": {"type": "string"},
+                "name": {"type": "string"},
+                "include_docs": {"type": "boolean"},
+            },
+            "required": ["src_slug", "name"],
+        },
     )
     async def t_fork_project(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.fork import fork_project as fork_project_impl
@@ -351,12 +419,16 @@ def build_emerge_mcp(
         "the existing on-disk map). Pass an explicit empty `{}` only when the "
         "intent is genuinely to clear the map.",
         {
-            "slug": str,
-            "filename": str,
-            "entities": list,
-            "source": str,  # "manual" | "feedback" — OMIT to default to "manual"
-            "notes": dict,  # optional; pass {} if none
-            "notes_consumed": dict,  # optional; OMIT to preserve existing
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "entities": {"type": "array"},
+                "source": {"type": "string"},
+                "notes": {"type": "object"},
+                "notes_consumed": {"type": "object"},
+            },
+            "required": ["slug", "filename", "entities"],
         },
     )
     async def t_save_reviewed(args: dict[str, Any]) -> dict[str, Any]:
@@ -458,7 +530,13 @@ def build_emerge_mcp(
         "project-scoped) — one key calls any published_id the user wants. "
         "Pass `user_id` to scope; defaults to the single-user placeholder "
         "\"default\". Plaintext appears exactly once in this tool result.",
-        {"user_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "string"},
+            },
+            "required": [],
+        },
     )
     async def t_issue_api_key(args: dict[str, Any]) -> dict[str, Any]:
         user_id = args.get("user_id") or "default"
@@ -468,7 +546,15 @@ def build_emerge_mcp(
     @tool(
         "start_job",
         "Kick off a background job. v1 supports skill='autoresearch'. Returns a job_id; subscribe to /lab/jobs/{job_id}/events for progress.",
-        {"skill": str, "slug": str, "params": dict},
+        {
+            "type": "object",
+            "properties": {
+                "skill": {"type": "string"},
+                "slug": {"type": "string"},
+                "params": {"type": "object"},
+            },
+            "required": ["skill", "slug"],
+        },
     )
     async def t_start_job(args: dict[str, Any]) -> dict[str, Any]:
         # `start_job_impl` keeps the legacy `project_id` kwarg name; the value
@@ -510,7 +596,15 @@ def build_emerge_mcp(
         "the status of this doc' / 'pending 是什么意思' / 'which experiments "
         "have run on this' — it replies from disk truth so you don't have "
         "to invent.",
-        {"surface": str, "slug": str, "filename": str},
+        {
+            "type": "object",
+            "properties": {
+                "surface": {"type": "string"},
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["surface", "slug"],
+        },
     )
     async def t_get_surface_state(args: dict[str, Any]) -> dict[str, Any]:
         out = await surface_state_mod.get_surface_state(
@@ -602,6 +696,7 @@ def build_emerge_mcp(
             t_promote_attachment_to_docs,
             t_pre_label,
             t_set_labeler_model,
+            t_get_labeler_config,
             t_pdf_render_page,
             t_read_doc_image,
             t_derive_schema,
@@ -639,7 +734,7 @@ def build_emerge_mcp(
 _EMERGE_TOOL_NAMES = (
     "create_project",
     "promote_attachment_to_docs",
-    "pre_label", "set_labeler_model",
+    "pre_label", "set_labeler_model", "get_labeler_config",
     "pdf_render_page", "read_doc_image",
     "derive_schema", "write_schema",
     "switch_active_prompt", "switch_active_model",

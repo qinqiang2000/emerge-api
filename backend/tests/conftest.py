@@ -18,10 +18,19 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def env_isolation(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
-    """Point EMERGE_WORKSPACE_ROOT at the per-test workspace and stub auth."""
+    """Point EMERGE_WORKSPACE_ROOT at the per-test workspace, stub auth, and
+    isolate Settings from the dev `.env` file.
+
+    Pydantic-settings's `env_file=".env"` (see `app/config.py`) resolves
+    against cwd at every `Settings()` construction. When tests run from
+    `backend/`, the developer's `.env` bleeds into every test that uses
+    `get_settings()` — `monkeypatch.delenv` only touches the process env,
+    not the file. Chdir to the per-test workspace so no `.env` is in scope.
+    """
     monkeypatch.setenv("EMERGE_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setenv("GOOGLE_API_KEY", "google-test-not-used")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-not-used")
+    monkeypatch.chdir(workspace)
 
 
 @pytest.fixture
