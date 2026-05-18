@@ -308,6 +308,42 @@ export async function resolvePermission(
   }
 }
 
+export interface AskUserAnswerEntry {
+  question_index: number
+  selected: { option_index: number; label: string }[]
+}
+
+export interface AskUserResolveBody {
+  answers: AskUserAnswerEntry[]
+  /** When true, the user is redirecting via the composer instead of picking
+   *  an option. Backend resolves the agent's await as ``ask_user_cancelled``;
+   *  the ``answers`` array can be empty. */
+  cancelled?: boolean
+}
+
+export async function resolveAskUser(
+  chatId: string,
+  requestId: string,
+  body: AskUserResolveBody,
+): Promise<PermissionResolveResponse> {
+  const r = await fetch(
+    `/lab/chats/${encodeURIComponent(chatId)}/ask_user/${encodeURIComponent(requestId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  if (!r.ok) {
+    return { ok: false, reason: `http_${r.status}` }
+  }
+  try {
+    return await r.json() as PermissionResolveResponse
+  } catch {
+    return { ok: false, reason: 'parse_failed' }
+  }
+}
+
 // Truncate events.jsonl at a user line and clear the SDK session sidecar.
 // `targetUserIndex` is a 0-indexed ordinal among user lines; omitted = last.
 // Powers retry / edit on any user bubble. Idempotent on the server.

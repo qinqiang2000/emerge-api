@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.routes._safety import safe_chat_id, safe_slug
+from app.chat.ask_user import resolve_user_answer
 from app.chat.log import list_chats, read_chat_events, rewind_to_user
 from app.chat.permissions import resolve_permission
 from app.chat.service import ChatService
@@ -170,6 +171,56 @@ async def lab_chat_permission(
         decision=body.decision,
         scope=body.scope,
         message=body.message,
+    )
+    if not resolved:
+        return {"ok": False, "reason": "unknown_or_resolved"}
+    return {"ok": True}
+
+
+class AskUserAnswerEntry(BaseModel):
+    """One question's worth of answer: which option(s) the user picked.
+
+    ``question_index`` matches the position in the original ``questions[]``
+    array. ``selected`` carries both index AND label — duplicating is cheap
+    and lets the agent read whichever it prefers without needing the original
+    payload in scope.
+    """
+
+    question_index: int
+    selected: list[dict[str, Any]]
+
+
+class AskUserAnswerBody(BaseModel):
+    """User's reply to an ``ask_user_request`` SSE event.
+
+    ``cancelled=true`` signals the user typed a new message in the composer
+    instead of picking an option — resolves the agent's await with an
+    ``ask_user_cancelled`` envelope so the next turn picks up plain
+    conversation. When ``cancelled`` the ``answers`` field is ignored
+    (caller can send an empty list).
+    """
+
+    answers: list[AskUserAnswerEntry] = []
+    cancelled: bool = False
+
+
+@router.post("/lab/chats/{chat_id}/ask_user/{request_id}")
+async def lab_chat_ask_user(
+    chat_id: str,
+    request_id: str,
+    body: AskUserAnswerBody,
+) -> dict[str, Any]:
+    """Resolve a pending ``ask_user_request`` keyed by ``(chat_id, request_id)``.
+
+    Idempotent — a duplicate POST (double-click) returns ``ok=false`` with
+    ``reason='unknown_or_resolved'`` instead of raising.
+    """
+    safe_chat_id(chat_id)
+    resolved = await resolve_user_answer(
+        chat_id=chat_id,
+        request_id=request_id,
+        answers=[a.model_dump() for a in body.answers],
+        cancelled=body.cancelled,
     )
     if not resolved:
         return {"ok": False, "reason": "unknown_or_resolved"}

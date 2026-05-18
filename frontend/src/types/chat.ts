@@ -31,6 +31,44 @@ export interface PermissionRequestEvent {
   }
 }
 
+/** One option inside an ask_user question — mirrors the Claude Code
+ *  AskUserQuestion contract. ``description`` is optional fine-print under the
+ *  ``label``; both render as the button text. */
+export interface AskUserOption {
+  label: string
+  description?: string
+}
+
+/** One question inside an ask_user request. ``header`` is the ≤12-char chip
+ *  shown before the question text (think "Write schema"); ``multiSelect``
+ *  enables checkboxes + a Submit button instead of one-click resolution. */
+export interface AskUserQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: AskUserOption[]
+}
+
+/** Round-trip event for the ``ask_user`` MCP tool. The tool body blocks until
+ *  ``resolveAskUser`` POSTs the user's selections; until then the chat turn
+ *  is paused awaiting input. Pending-only like ``permission_request`` —
+ *  nothing about this is persisted to the JSONL transcript, so a page reload
+ *  drops both the prompt and the unresolved resolution. */
+export interface AskUserRequestEvent {
+  type: 'ask_user_request'
+  request_id: string
+  questions: AskUserQuestion[]
+  /** undefined → still awaiting user; otherwise the user's answer. ``selected``
+   *  carries both index and label so renderers don't need the original
+   *  ``questions[]`` to display the trail. ``cancelled=true`` means the user
+   *  redirected via composer (typed a new message instead of picking) — the
+   *  ``answers`` array will be empty in that case. */
+  resolution?: {
+    answers: { question_index: number; selected: { option_index: number; label: string }[] }[]
+    cancelled?: boolean
+  }
+}
+
 export type ChatEvent =
   | { type: 'user'; text: string; attachments?: ChatAttachment[] }
   | { type: 'agent_text'; text: string }
@@ -38,6 +76,7 @@ export type ChatEvent =
   | { type: 'error'; error_code: string; error_message_en: string }
   | { type: 'turn_end' }
   | PermissionRequestEvent
+  | AskUserRequestEvent
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
 
@@ -48,6 +87,7 @@ export type RenderItem =
   | { kind: 'hoisted_tool'; call: ToolCallEvent }
   | { kind: 'error'; error_code: string; error_message_en: string }
   | { kind: 'permission'; event: PermissionRequestEvent }
+  | { kind: 'ask_user'; event: AskUserRequestEvent }
 
 // ── Task / TodoWrite checklist ────────────────────────────────────────────
 // SDK built-in task tools (`TodoWrite` — single-tool input `{todos: [...]}`,

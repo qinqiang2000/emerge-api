@@ -27,9 +27,10 @@ from app.chat.log import (
     read_chat_session_id,
     write_chat_session_id,
 )
+from app.chat.ask_user import cancel_pending_ask_user
 from app.chat.permissions import cancel_pending, make_gate
 from app.chat.redactor import EventRedactor
-from app.chat.sse_context import current_sse_writer
+from app.chat.sse_context import current_chat_id, current_sse_writer
 from app.chat.stream import sse_event
 from app.jobs import get_runner
 from app.provider.base import Provider
@@ -718,7 +719,10 @@ class ChatService:
         # (ui_action_*) can push events. ContextVar isolates concurrent turns
         # — each request has its own writer; tools outside a chat turn (e.g.
         # the public `/v1/extract` fast-path) see `None` and refuse cleanly.
+        # ``current_chat_id`` rides alongside so ``ask_user`` can scope its
+        # pending-future registry without taking chat_id as an MCP tool param.
         token = current_sse_writer.set(_ui_writer)
+        chat_id_token = current_chat_id.set(chat_id)
         try:
             options = self._build_options(
                 user_message,
@@ -765,10 +769,14 @@ class ChatService:
             yield sse_event("error", err)
         finally:
             current_sse_writer.reset(token)
+            current_chat_id.reset(chat_id_token)
             # Clear any permission requests that were still in flight when
             # the turn ended (e.g. user closed the tab while the agent was
             # waiting on an ask). Idempotent — no-op if everything resolved.
             await cancel_pending(chat_id)
+            # Same for ask_user — stranded futures resolve to a cancelled
+            # envelope so the tool body unblocks instead of hanging forever.
+            await cancel_pending_ask_user(chat_id)
             final_slug = _current_slug()
             if latest_sid and latest_sid != prev_sid:
                 write_chat_session_id(self.workspace, final_slug, chat_id, latest_sid)

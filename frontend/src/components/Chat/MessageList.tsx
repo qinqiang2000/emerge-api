@@ -12,6 +12,7 @@ import { useProjects } from '../../stores/projects'
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
 import JobProgressCard from './JobProgressCard'
+import AskUserCard from './AskUserCard'
 import PermissionCard from './PermissionCard'
 import SaveReviewedAdapter from './SaveReviewedAdapter'
 import TaskChecklist from './TaskChecklist'
@@ -265,9 +266,12 @@ export default function MessageList({ events, busy }: Props) {
   // awaiting the user's reply, so the "agent is thinking…" indicator below
   // should swap to a clearer "paused" message rather than spinning. We
   // intentionally don't rely on `busy` alone because the SSE stream is still
-  // technically open while waiting.
+  // technically open while waiting. ``ask_user_request`` blocks the agent in
+  // the same way — same paused-indicator semantics apply.
   const pendingPermission = events.some(
-    e => e.type === 'permission_request' && !e.resolution,
+    e =>
+      (e.type === 'permission_request' && !e.resolution) ||
+      (e.type === 'ask_user_request' && !e.resolution),
   )
 
   return (
@@ -314,6 +318,13 @@ export default function MessageList({ events, busy }: Props) {
           return (
             <div key={i} className="pl-2">
               <PermissionCard event={item.event} />
+            </div>
+          )
+        }
+        if (item.kind === 'ask_user') {
+          return (
+            <div key={i} className="pl-2">
+              <AskUserCard event={item.event} />
             </div>
           )
         }

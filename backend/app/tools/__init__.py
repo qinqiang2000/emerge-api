@@ -9,6 +9,7 @@ from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 from app.provider.base import Provider
 from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import SchemaField
+from app.tools import ask_user as ask_user_mod
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
@@ -560,6 +561,25 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
+        "ask_user",
+        "Ask the user a structured multiple-choice question and wait for "
+        "their answer. Use this whenever you need an explicit confirmation or "
+        "choice the chat can't safely infer — e.g. \"write schema with mapping "
+        "A or B?\", \"promote experiment exp_xxx? (irreversible)\". Schema: "
+        "questions = [{question: str, header: <=12 char chip, options: 2-4 of "
+        "{label, description}, multiSelect: bool (default false)}]. Up to 4 "
+        "questions per call. Returns {ok, answers: [{question_index, "
+        "selected: [{option_index, label}]}]}. The frontend renders option "
+        "buttons (and 1/2/3 keyboard shortcuts) so the user picks without "
+        "having to type. DO NOT call the SDK built-in `AskUserQuestion` — it "
+        "is not wired in emerge; use this tool.",
+        {"questions": list},
+    )
+    async def t_ask_user(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ask_user_mod.ask_user(args.get("questions") or [])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
         "ui_set_active_entity",
         "Switch the entity tab in a multi-entity doc. `idx` is 0-indexed. "
         "Pure navigation; no disk side-effect.",
@@ -608,6 +628,7 @@ def build_emerge_mcp(
             t_ui_set_active_field,
             t_ui_set_active_tab,
             t_ui_set_active_entity,
+            t_ask_user,
         ],
     )
 
@@ -629,6 +650,7 @@ _EMERGE_TOOL_NAMES = (
     "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
     "get_surface_state",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
+    "ask_user",
 )
 
 

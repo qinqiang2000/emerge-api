@@ -63,6 +63,11 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
       // make a decision before the agent can proceed. Resolved cards stay
       // visible as a trail so chat history reads naturally.
       out.push({ kind: 'permission', event: e })
+    } else if (e.type === 'ask_user_request') {
+      // Structured agent question (ask_user MCP tool). Same standalone-line
+      // treatment as permission_request — the agent is paused awaiting a
+      // user pick; resolved cards stay as a "you answered X" trail.
+      out.push({ kind: 'ask_user', event: e })
     }
   }
   flushTools()

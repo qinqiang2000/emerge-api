@@ -21,3 +21,11 @@ SSEWriter = Callable[[str, dict[str, Any]], Awaitable[None]]
 current_sse_writer: ContextVar[SSEWriter | None] = ContextVar(
     "current_sse_writer", default=None,
 )
+
+# ``current_chat_id`` rides alongside the writer so tools that need a per-chat
+# registry key (e.g. ``ask_user`` blocking on a user-reply future) can identify
+# themselves without taking ``chat_id`` as an MCP tool param — the agent
+# shouldn't need to know the chat id; it's session-bound by construction.
+current_chat_id: ContextVar[str | None] = ContextVar(
+    "current_chat_id", default=None,
+)

@@ -61,6 +61,15 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   const chatId = useChat(s => s.chatId)
   const chatsByProject = useChat(s => s.chatsByProject)
   const chats = selectedSlug ? (chatsByProject[selectedSlug] ?? []) : []
+  // Composer carve-out: a pending ask_user card means the agent is awaiting
+  // structured input, but the user must still be able to redirect via free
+  // text. The store's send() detects the pending card and converts the new
+  // message into an implicit cancel of the question before opening the next
+  // turn. Permission cards keep the strict block — there's no "type your own
+  // permission" semantic.
+  const pendingAskUser = events.some(
+    e => e.type === 'ask_user_request' && !e.resolution,
+  )
 
   // Reload-restore: when a real project becomes selected, bind to its persisted
   // chatId and hydrate the chat log. enterProject is a no-op for 'p_unset' and
@@ -208,7 +217,7 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
         />
       )}
       <Composer
-        disabled={busy}
+        disabled={busy && !pendingAskUser}
         pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
         focusOnMount={!compact}
         projectId={selectedSlug ?? undefined}

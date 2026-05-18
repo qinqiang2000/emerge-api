@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { getChatEvents, getChatList, resolvePermission, rewindChat, type ChatSummary } from '../lib/api'
+import { getChatEvents, getChatList, resolveAskUser, resolvePermission, rewindChat, type AskUserAnswerEntry, type ChatSummary } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { streamSSE } from '../lib/sse'
 import { dispatchUiAction } from '../lib/surfaceRouter'
@@ -129,6 +129,16 @@ interface State {
    *  to the backend. Idempotent — a second call on an already-resolved
    *  event is a no-op. */
   resolvePermission: (requestId: string, decision: 'approve' | 'deny', scope: 'once' | 'always') => Promise<void>
+  /** Submit the user's answer to an in-flight `ask_user_request`. Optimistic
+   *  local flip of the event's `resolution` field so the AskUserCard
+   *  immediately renders its "answered" trail, then POSTs to the backend
+   *  resolver. Idempotent on a second click for an already-answered card. */
+  resolveAskUser: (requestId: string, answers: AskUserAnswerEntry[]) => Promise<void>
+  /** Mark any pending ask_user as user-redirected (cancelled). Fired
+   *  internally by `send()` when the user types a new message while a card
+   *  is pending — agent receives `ask_user_cancelled` and falls back to
+   *  plain conversation. Resolves silently if there is no pending card. */
+  cancelAskUser: (requestId: string, reason?: string) => Promise<void>
 }
 
 export const useChat = create<State>((set, get) => ({
@@ -269,6 +279,54 @@ export const useChat = create<State>((set, get) => ({
     }
     return false
   },
+  cancelAskUser: async (requestId, _reason) => {
+    let already = false
+    set(s => ({
+      events: s.events.map(e => {
+        if (e.type === 'ask_user_request' && e.request_id === requestId) {
+          if (e.resolution) {
+            already = true
+            return e
+          }
+          return { ...e, resolution: { answers: [], cancelled: true } }
+        }
+        return e
+      }),
+    }))
+    if (already) return
+    const chatId = get().chatId
+    try {
+      await resolveAskUser(chatId, requestId, { answers: [], cancelled: true })
+    } catch (err) {
+      console.warn('cancelAskUser failed', err)
+    }
+  },
+  resolveAskUser: async (requestId, answers) => {
+    let already = false
+    set(s => ({
+      events: s.events.map(e => {
+        if (e.type === 'ask_user_request' && e.request_id === requestId) {
+          if (e.resolution) {
+            already = true
+            return e
+          }
+          return { ...e, resolution: { answers } }
+        }
+        return e
+      }),
+    }))
+    if (already) return
+    const chatId = get().chatId
+    try {
+      await resolveAskUser(chatId, requestId, { answers })
+    } catch (err) {
+      // Same fail-open posture as resolvePermission — local card is already
+      // in its answered state; if the backend never receives it, the agent's
+      // await resolves via cancel_pending_ask_user at turn end with an
+      // ask_user_cancelled envelope.
+      console.warn('resolveAskUser failed', err)
+    }
+  },
   resolvePermission: async (requestId, decision, scope) => {
     // Optimistic local flip first — the card must show "approved/denied" the
     // instant the user clicks, regardless of network latency. The backend
@@ -307,6 +365,26 @@ export const useChat = create<State>((set, get) => ({
     // semantics — the user/agent_text/tool events already pushed are this
     // project's first chat).
     let mintedPid: string | null = null
+
+    // Mid-prompt redirect: if an ask_user card is still waiting on a pick and
+    // the user typed into the composer instead, treat the new message as a
+    // redirect. POST cancel so the agent's tool await resolves to
+    // ``ask_user_cancelled``; abort the in-flight SSE so the new turn can
+    // open cleanly without two concurrent chat_turn on the same chat. We
+    // intentionally do NOT set ``interrupted=true`` — that path rewinds the
+    // last user message, which would drop the original question and the
+    // agent's ask_user trail. Keeping them visible reads as "I asked, agent
+    // proposed options, I went a different direction" — same shape as the
+    // chat-history view that comes back on reload.
+    const pendingAsk = get().events.find(
+      e => e.type === 'ask_user_request' && !e.resolution,
+    )
+    if (pendingAsk && pendingAsk.type === 'ask_user_request') {
+      await get().cancelAskUser(pendingAsk.request_id, 'User redirected via composer.')
+      const a = get().abort
+      if (a) a.abort()
+      set({ busy: false, abort: null, interrupted: false })
+    }
 
     // First message into a freshly-selected real project: bind loadedProjectId and
     // persist the current chatId under that project key, so a later enterProject for
@@ -414,6 +492,30 @@ export const useChat = create<State>((set, get) => ({
           // surface them in FSSpine right away, without waiting for the
           // agent's first list_docs tool_result.
           void useDocs.getState().refresh(slug)
+          continue
+        }
+        if (ev.event === 'ask_user_request') {
+          // ``ask_user`` MCP tool blocks on a per-(chat_id, request_id) future
+          // server-side. Push the event into the conv log so AskUserCard can
+          // render the structured Q&A; resolveAskUser() resolves the future
+          // when the user clicks an option. Like permission_request, nothing
+          // here is persisted server-side — a reload during the prompt drops
+          // the card and cancel_pending_ask_user releases the agent's await
+          // with an ask_user_cancelled envelope.
+          const d = ev.data as {
+            request_id: string
+            questions: import('../types/chat').AskUserQuestion[]
+          }
+          set(s => ({
+            events: [
+              ...s.events,
+              {
+                type: 'ask_user_request',
+                request_id: d.request_id,
+                questions: d.questions,
+              },
+            ],
+          }))
           continue
         }
         if (ev.event === 'permission_request') {

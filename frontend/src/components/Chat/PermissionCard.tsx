@@ -7,12 +7,59 @@ interface Props {
   event: PermissionRequestEvent
 }
 
+/** Structured shape we render for AskUserQuestion. Mirrors the Claude Code
+ *  AskUserQuestion contract: 1-4 questions, each with header (≤12 char chip),
+ *  question text, 2-4 options of {label, description}. */
+interface AskUserQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: { label: string; description?: string }[]
+}
+
+/** Try to parse AskUserQuestion input. Returns null if shape doesn't match,
+ *  so the caller can fall back to the generic JSON dump. */
+function parseAskUserQuestion(input: unknown): AskUserQuestion[] | null {
+  if (!input || typeof input !== 'object') return null
+  const qs = (input as Record<string, unknown>).questions
+  if (!Array.isArray(qs) || qs.length === 0) return null
+  const out: AskUserQuestion[] = []
+  for (const q of qs) {
+    if (!q || typeof q !== 'object') return null
+    const r = q as Record<string, unknown>
+    const question = typeof r.question === 'string' ? r.question : null
+    const options = Array.isArray(r.options) ? r.options : null
+    if (!question || !options) return null
+    const opts: AskUserQuestion['options'] = []
+    for (const o of options) {
+      if (!o || typeof o !== 'object') return null
+      const label = typeof (o as Record<string, unknown>).label === 'string'
+        ? (o as Record<string, string>).label : null
+      if (!label) return null
+      const desc = typeof (o as Record<string, unknown>).description === 'string'
+        ? (o as Record<string, string>).description : undefined
+      opts.push({ label, description: desc })
+    }
+    out.push({
+      question,
+      header: typeof r.header === 'string' ? r.header : undefined,
+      multiSelect: typeof r.multiSelect === 'boolean' ? r.multiSelect : undefined,
+      options: opts,
+    })
+  }
+  return out
+}
+
 /** Pull out the one or two input fields that meaningfully identify *what* the
  *  agent is about to do, so the user sees `Bash · curl https://…` rather than
  *  a JSON blob. We surface a single key per tool family; for unknown tools we
- *  fall through to a JSON.stringify trimmed to ~140 chars. */
+ *  fall through to a JSON.stringify trimmed to ~140 chars.
+ *
+ *  Returns `null` for AskUserQuestion — that one gets a dedicated structured
+ *  renderer below, since a flat string can't show options + descriptions. */
 function summarizeInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null
+  if (toolName === 'AskUserQuestion') return null
   const o = input as Record<string, unknown>
   // Bash family — the command is the whole point.
   if (toolName === 'Bash' || toolName === 'BashOutput' || toolName === 'KillBash') {
@@ -54,6 +101,9 @@ export default function PermissionCard({ event }: Props) {
   const resolvePermission = useChat(s => s.resolvePermission)
   const resolved = event.resolution
   const summary = summarizeInput(event.tool_name, event.tool_input)
+  const askQuestions = event.tool_name === 'AskUserQuestion'
+    ? parseAskUserQuestion(event.tool_input)
+    : null
 
   const onApprove = () => { void resolvePermission(event.request_id, 'approve', 'once') }
   const onAlways  = () => { void resolvePermission(event.request_id, 'approve', 'always') }
@@ -106,6 +156,45 @@ export default function PermissionCard({ event }: Props) {
           {event.tool_name}
         </span>
       </div>
+
+      {askQuestions && (
+        <div
+          className="flex flex-col gap-3 bg-paper rounded px-3 py-2.5"
+          data-testid="permission-card-ask-question"
+        >
+          {askQuestions.map((q, i) => (
+            <div key={i} className="flex flex-col gap-2">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                {q.header && (
+                  <span className="font-mono text-[10.5px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-ochre-soft text-ochre-2 border border-ochre-edge">
+                    {q.header}
+                  </span>
+                )}
+                <span className="font-sans text-[13.5px] text-ink leading-snug">
+                  {q.question}
+                </span>
+                {q.multiSelect && (
+                  <span className="font-mono text-[10.5px] text-ink-4">(multi-select)</span>
+                )}
+              </div>
+              <ul className="flex flex-col gap-1.5 pl-1">
+                {q.options.map((opt, j) => (
+                  <li key={j} className="flex flex-col gap-0.5 border-l-2 border-rule-soft pl-2">
+                    <span className="font-sans text-[13px] text-ink-2">
+                      <span className="text-ink-4 mr-1.5">{j + 1}.</span>{opt.label}
+                    </span>
+                    {opt.description && (
+                      <span className="font-sans text-[12px] text-ink-3 leading-snug">
+                        {opt.description}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
 
       {summary && (
         <div

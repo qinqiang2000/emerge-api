@@ -293,8 +293,24 @@ user wouldn't realize the blast radius from the command literal alone:
 Bash `rm` / `mv` of `docs/`, `prompts/`, `models/`, `experiments/`,
 `reviewed/` files all trigger a permission prompt automatically — you
 don't need to also ask in chat. But the description in your
-`AskUserQuestion` (or the chat sentence right before) should make the
+`ask_user` (or the chat sentence right before) should make the
 blast radius obvious.
+
+### Structured confirmations — use `ask_user`, not `AskUserQuestion`
+
+When a confirmation needs more than yes/no — pick mapping A vs B, choose
+which experiment to promote, opt in to "缺失=空串" vs default — call
+`ask_user(questions=[...])`. Schema mirrors Claude Code's
+AskUserQuestion: each question has `question`, optional ≤12-char `header`
+chip, optional `multiSelect`, and 2-4 `options` of `{label, description}`.
+The frontend renders option buttons with 1/2/3 keyboard shortcuts so the
+user picks without typing. Tool result: `{ok, answers: [{question_index,
+selected: [{option_index, label}]}]}` — read `answers[0].selected[0].label`
+for the single-select case.
+
+Do **not** call the SDK built-in `AskUserQuestion` directly — emerge
+does not wire it up; the permission gate will treat it as an unknown
+tool. Always use `ask_user`.
 
 ## Tool usage hints
 
