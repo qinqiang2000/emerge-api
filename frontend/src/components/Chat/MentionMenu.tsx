@@ -41,6 +41,10 @@ interface Props {
    *  affordances — breadcrumb + dir empty hint — are hidden; only the
    *  projects section is shown. */
   hasProject?: boolean
+  /** When true, render entries by their full `path` instead of just `name`
+   *  (used when the root recursive picker surfaces nested matches — without
+   *  the path, `02bb2dfd.png` gives no hint that it lives under `docs/`). */
+  flat?: boolean
   emptyHint?: string
   /** Item-shaped pick. Lets the caller branch on project vs entry without
    *  re-doing the section split. */
@@ -55,6 +59,7 @@ export default function MentionMenu({
   dir,
   loading,
   hasProject = true,
+  flat = false,
   emptyHint,
   onPick,
   onHover,
@@ -117,7 +122,7 @@ export default function MentionMenu({
                     {e.kind === 'dir' ? <Folder size={13} /> : <FileText size={13} />}
                   </span>
                   <span className="name">
-                    {e.name}
+                    {flat ? e.path : e.name}
                     {e.kind === 'dir' ? '/' : ''}
                   </span>
                   <span className="hint">{flatIdx === activeIdx ? '↵' : ''}</span>

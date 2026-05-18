@@ -439,9 +439,16 @@ export interface TreeEntry {
 /** Browse the project workspace as a filtered file tree. `dir` is a
  *  project-relative POSIX path; `""` is the project root. Filters hide the
  *  internal-only stuff (chats, prompts, models, predictions, jobs, metrics,
- *  experiments, project.json, dotfiles, versions/_candidate). */
-export async function listProjectTree(slug: string, dir: string = ''): Promise<TreeEntry[]> {
-  const q = dir ? `?dir=${encodeURIComponent(dir)}` : ''
+ *  experiments, project.json, dotfiles, versions/_candidate).
+ *
+ *  When `recursive` is true, returns a flat list of every visible descendant
+ *  under `dir` sorted by path (used by the `@` mention picker for Claude
+ *  Code-style fuzzy matching across the whole project). */
+export async function listProjectTree(slug: string, dir: string = '', recursive: boolean = false): Promise<TreeEntry[]> {
+  const params: string[] = []
+  if (dir) params.push(`dir=${encodeURIComponent(dir)}`)
+  if (recursive) params.push('recursive=true')
+  const q = params.length ? '?' + params.join('&') : ''
   const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/tree${q}`)
   if (!r.ok) throw new Error(`listProjectTree ${r.status}`)
   return r.json()

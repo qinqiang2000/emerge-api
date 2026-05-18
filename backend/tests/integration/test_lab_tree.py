@@ -117,6 +117,51 @@ def test_tree_rejects_parent_traversal() -> None:
         assert r.status_code == 400, f"expected 400 for dir={bad!r}, got {r.status_code}"
 
 
+async def test_tree_recursive_walks_descendants(workspace: Path) -> None:
+    """`recursive=true` flattens every visible descendant — backs the
+    composer `@`-mention root view, which does Claude Code-style fuzzy
+    matching across the whole project."""
+    from app.tools.docs import upload_doc
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    m1 = await upload_doc(workspace, pid, pdf, "02bb2dfd.png")
+    m2 = await upload_doc(workspace, pid, pdf, "0332624d.jpg")
+
+    # Seed an internal-only dir + a versions candidate to confirm the
+    # allow-list is applied at every level, not just root.
+    root = workspace / pid
+    (root / "chats").mkdir(exist_ok=True)
+    (root / "chats" / "noise.json").write_text("{}")
+    (root / "versions").mkdir(exist_ok=True)
+    (root / "versions" / "v1.json").write_text("{}")
+    (root / "versions" / "_candidate").mkdir(exist_ok=True)
+    (root / "versions" / "_candidate" / "leak.json").write_text("{}")
+
+    client = TestClient(app)
+    r = client.get(f"/lab/projects/{pid}/tree", params={"recursive": "true"})
+    assert r.status_code == 200
+    items = r.json()
+    paths = {it["path"] for it in items}
+
+    # Nested files surface with their full path so the picker can fuzzy-match.
+    assert f"docs/{m1['filename']}" in paths
+    assert f"docs/{m2['filename']}" in paths
+    # Top-level dirs included so the empty-query view (top-level only) still works.
+    assert "docs" in paths
+    assert "versions" in paths
+    # Allow-list still applied recursively.
+    assert "chats" not in paths
+    assert "chats/noise.json" not in paths
+    assert "versions/_candidate" not in paths
+    assert "versions/_candidate/leak.json" not in paths
+    # But published version files inside versions/ are visible.
+    assert "versions/v1.json" in paths
+    # Output is sorted by path (case-insensitive).
+    sorted_paths = sorted([it["path"] for it in items], key=str.lower)
+    assert [it["path"] for it in items] == sorted_paths
+
+
 async def test_tree_unknown_dir_404(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     client = TestClient(app)

@@ -168,10 +168,23 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const showMention =
     mentionToken !== null && mentionToken.tokenStart !== dismissedAt
 
-  // Filter the fetched dir entries by the trailing query segment, case-insensitive.
+  // Filter the fetched entries by the trailing query segment, case-insensitive.
+  //
+  // Root mode (`dir === ''`) is fetched recursively (flat list of every visible
+  // descendant) to mirror Claude Code CLI's `@` behavior — typing `@02` should
+  // find `docs/02bb2dfd.png` even though it lives a level down. So:
+  //  - empty query → show only top-level entries (so the menu still acts as a
+  //    folder picker before the user starts typing)
+  //  - non-empty query → substring match against the full path (case-insensitive)
+  // Single-dir mode (`dir !== ''`) keeps the original prefix-on-name behavior
+  // since the user has already committed to a specific folder.
   const mentionMatches = useMemo<TreeEntry[]>(() => {
     if (!mentionToken) return []
     const q = mentionToken.query.toLowerCase()
+    if (mentionToken.dir === '') {
+      if (!q) return mentionEntries.filter(e => !e.path.includes('/'))
+      return mentionEntries.filter(e => e.path.toLowerCase().includes(q))
+    }
     if (!q) return mentionEntries
     return mentionEntries.filter(e => e.name.toLowerCase().startsWith(q))
   }, [mentionToken, mentionEntries])
@@ -207,7 +220,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
       return
     }
     const dir = mentionToken.dir
-    const key = projectId + '|' + dir
+    // Root view fetches recursively so the picker can fuzzy-match across the
+    // whole project (Claude Code CLI parity). Sub-dir views stay single-level
+    // — once the user types `<dir>/` they're path-completing, not searching.
+    const recursive = dir === ''
+    const key = projectId + '|' + dir + (recursive ? '|r' : '')
     const cached = treeCacheRef.current.get(key)
     if (cached) {
       setMentionEntries(cached)
@@ -218,7 +235,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     let alive = true
     setMentionLoading(true)
     setMentionMissing(false)
-    listProjectTree(projectId, dir)
+    listProjectTree(projectId, dir, recursive)
       .then(entries => {
         if (!alive) return
         treeCacheRef.current.set(key, entries)
@@ -321,8 +338,19 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   }, [showSlash, text])
 
   function pickSlash(cmd: string) {
-    setText(cmd + ' ')
-    taRef.current?.focus()
+    const next = cmd + ' '
+    setText(next)
+    const nextCaret = next.length
+    // Defer focus + caret restore until after React commits — without this,
+    // browsers keep the textarea selection at its pre-update offset (e.g. 3
+    // for `/re`), leaving the cursor stranded mid-word inside `/review `.
+    queueMicrotask(() => {
+      const ta = taRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(nextCaret, nextCaret)
+      setCaret(nextCaret)
+    })
   }
 
   /** Replace the current `@…` token with the rendered handle + suffix and move
@@ -363,6 +391,13 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   }
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // Bail out while an IME composition is in progress. Without this guard,
+    // Enter/Tab fired *during* composition (e.g. pinyin commit) double-fires:
+    // our slash/mention pick runs AND the IME commits its raw text on top,
+    // producing `/review re` after typing `/re` + Enter (the IME-commit `re`
+    // gets appended to the picker-replaced `/review `).
+    if (e.nativeEvent.isComposing) return
+
     // Cmd/Ctrl+Enter always submits. If a mention menu is open we close it
     // first so the textarea state is clean for the next turn.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -503,6 +538,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
             dir={mentionToken.dir}
             loading={mentionLoading}
             hasProject={hasProject}
+            flat={mentionToken.dir === '' && mentionToken.query !== ''}
             emptyHint={mentionMissing ? 'no such directory' : (mentionToken.query ? 'no match' : 'empty')}
             onPick={pickMention}
             onHover={setActiveIdx}

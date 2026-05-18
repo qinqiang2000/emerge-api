@@ -160,14 +160,34 @@ def _is_tree_visible(name: str, parent_rel: PurePosixPath) -> bool:
     return True
 
 
+def _walk_tree(target: Path, rel: PurePosixPath, out: list[dict]) -> None:
+    """Recursive walker for `/tree?recursive=true`. Honors the same allow-list
+    filter at every level (so `prompts/`, `chats/`, `_candidate/` never leak
+    in). Output order is whatever `iterdir()` returns — caller sorts."""
+    for child in target.iterdir():
+        name = child.name
+        if not _is_tree_visible(name, rel):
+            continue
+        child_rel = rel / name
+        path_str = child_rel.as_posix()
+        if child.is_dir():
+            out.append({"name": name, "kind": "dir", "path": path_str})
+            _walk_tree(child, child_rel, out)
+        elif child.is_file():
+            out.append({"name": name, "kind": "file", "path": path_str})
+
+
 @router.get("/lab/projects/{slug}/tree")
-async def get_project_tree(slug: str, dir: str = "") -> list[dict]:
+async def get_project_tree(slug: str, dir: str = "", recursive: bool = False) -> list[dict]:
     """Browse the project workspace as a filtered tree. Powers the composer
     `@` mention picker.
 
     - `dir`: project-relative POSIX path; `""` is the project root.
-    - Returns `[{name, kind: "file"|"dir", path}]`, dirs first then files,
-      both case-insensitive alphabetical.
+    - `recursive`: when true, return a flat list of every visible descendant
+      under `dir` (used by the `@` mention root view to do Claude Code-style
+      fuzzy matching across the whole project). Sorted by path.
+    - Single-level mode (default): returns `[{name, kind, path}]`, dirs first
+      then files, both case-insensitive alphabetical.
     - Filters out internal-only artifacts (chats, prompts, models,
       predictions, jobs, metrics, experiments, project.json, dotfiles,
       versions/_candidate).
@@ -191,6 +211,12 @@ async def get_project_tree(slug: str, dir: str = "") -> list[dict]:
 
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="dir_not_found")
+
+    if recursive:
+        out: list[dict] = []
+        _walk_tree(target, rel, out)
+        out.sort(key=lambda x: x["path"].lower())
+        return out
 
     dirs: list[dict] = []
     files: list[dict] = []
