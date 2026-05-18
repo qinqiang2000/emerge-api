@@ -472,6 +472,10 @@ class ChatService:
             allowed_tools=[],
             disallowed_tools=_SDK_NEVER_TOOLS,
             max_turns=20,
+            # Let Claude decide per-turn whether to engage extended thinking,
+            # matching claude.ai's default. Cheap turns stay cheap; harder
+            # reasoning (autoresearch planning, schema diffs) gets the budget.
+            thinking={"type": "adaptive"},
         )
 
     async def chat_turn(
