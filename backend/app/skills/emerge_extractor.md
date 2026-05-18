@@ -278,6 +278,29 @@ Hard rules:
   (b) `pre_label` returned `labeler_model_not_configured` and the user
   picked a model after you asked.
 
+## Long-running tools — say hi, then say bye
+
+`pre_label`, `extract_batch`, `run_experiment_eval`, `score` (large
+`reviewed/` sets), and bulk `extract_with_experiment` runs all sit
+behind an indeterminate spinner card for 10s-several minutes. The
+frontend cannot tell the user where in the pipeline you are. **You are
+the only progress signal.**
+
+- **Before invoking**, say one short sentence: what you're running, how
+  many items, rough ETA (use `~10-20s/file` for provider LLM calls,
+  `~1s/reviewed-doc` for `score`). Example: "正在用 `gemini-pro-latest`
+  pre-label 这 3 个文件，约 30-60s"。
+- **After return**, summarize the result counts in one or two lines:
+  processed N, skipped M (and why — `already_reviewed` etc.), failed K
+  (with `error_code`). Don't just say "done" — the user wants to know
+  what landed.
+- **Do not chain another long tool silently** — broadcast each one
+  separately so the user can interrupt if they want.
+
+This is the digital-colleague contract: a teammate tells you what
+they're starting and what they finished. Don't make the user watch a
+spinner.
+
 ## Risk gates (always confirm with user before invoking)
 
 Most destructive operations now go through SDK built-ins, and the
