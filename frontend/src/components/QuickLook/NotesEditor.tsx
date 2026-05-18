@@ -41,6 +41,25 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
     if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
   }, [])
 
+  // Auto-grow to fit content up to ~35vh, then scroll internally. The cap is
+  // intentionally lower than the textarea could fill — the fields list lives
+  // directly below, and we want at least half the panel reserved for it so
+  // long notes never push the fields entirely below the fold.
+  useEffect(() => {
+    const el = taRef.current
+    if (!el || readOnly || collapsed) return
+    const recalc = () => {
+      el.style.height = 'auto'
+      const max = Math.floor(window.innerHeight * 0.35)
+      el.style.height = Math.min(el.scrollHeight, max) + 'px'
+      el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+    }
+    recalc()
+    const ro = new ResizeObserver(recalc)
+    if (el.parentElement) ro.observe(el.parentElement)
+    return () => ro.disconnect()
+  }, [local, collapsed, readOnly])
+
   const lineCount = local.length === 0 ? 0 : local.split('\n').length
   const summary = local.length === 0 ? 'empty' : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
 
