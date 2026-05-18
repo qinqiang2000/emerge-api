@@ -134,6 +134,9 @@ html, body, #root {
 .tool .t-row.nest2{padding-left:60px}
 .tool .t-row .label{color:var(--ink-2);font-weight:500;flex:1;display:flex;align-items:center;gap:8px}
 .tool .t-row .v{color:var(--ink-4);text-overflow:ellipsis;white-space:nowrap;overflow:hidden;max-width:50%}
+.tool .t-row.wrap{align-items:flex-start;flex-direction:column;gap:6px}
+.tool .t-row.wrap .label{flex:none}
+.tool .t-row.wrap .v{max-width:100%;white-space:pre-wrap;word-break:break-word;overflow:visible;text-overflow:clip;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.5;color:var(--ink-2);background:var(--paper-2,#f5f3ee);padding:8px 10px;border-radius:6px;align-self:stretch;max-height:320px;overflow:auto}
 .tool .t-row .mini{font-size:10.5px;color:var(--ink-5);text-transform:uppercase;letter-spacing:.08em}
 .tool .t-bar{height:3px;background:var(--paper-3);position:relative;overflow:hidden}
 .tool .t-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ochre);transition:width .4s ease}

@@ -2,7 +2,7 @@ import { KeyRound } from 'lucide-react'
 
 import type { ChatEvent } from '../../types/chat'
 import { groupChatEvents } from '../../lib/groupChatEvents'
-import { toolShortHint } from '../../lib/toolHint'
+import { toolInputHint, toolShortHint } from '../../lib/toolHint'
 import PublishStage, { adaptReadiness } from '../Publish/PublishStage'
 import { sampleCurl } from '../../lib/api'
 import { useApiKey } from '../../stores/apiKey'
@@ -235,13 +235,17 @@ function HoistedToolCard({ call }: { call: ToolCallEvent }) {
 function PlumbingToolCard({ call }: { call: ToolCallEvent }) {
   const status = toolStatus(call)
   const displayName = call.tool_name.replace(/^mcp__emerge_tools__/, '')
-  const hint = status !== 'run' ? toolShortHint(call.tool_name, call.tool_result) : null
+  const inputHint = toolInputHint(call.tool_name, call.tool_input)
+  const resultHint = status !== 'run' ? toolShortHint(call.tool_name, call.tool_result) : null
   const errorCode = status === 'err' ? extractErrorCode(call.tool_result) : null
-  const argsStr = hint ?? (errorCode ? errorCode : undefined)
+  const argsStr = inputHint ?? resultHint ?? (errorCode ? errorCode : undefined)
+  const inputPretty = (() => {
+    try { return JSON.stringify(call.tool_input, null, 2) } catch { return JSON.stringify(call.tool_input) }
+  })()
 
   return (
     <ToolCall name={displayName} args={argsStr} status={status}>
-      <ToolRow glyph="·" label="input" value={JSON.stringify(call.tool_input)} />
+      <ToolRow glyph="·" label="input" value={inputPretty} wrap />
       {call.tool_result !== undefined && call.tool_result !== null && (
         <ToolRow glyph="↳" label="result" value={resultText(call.tool_result)} />
       )}
