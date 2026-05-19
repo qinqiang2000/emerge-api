@@ -2,9 +2,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { attachToChat, stageUpload } from '../../lib/api'
+import { attachToChat, promoteChat, stageUpload } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
-import { useChat, type SurfaceContext } from '../../stores/chat'
+import { useChat, UNBOUND_SLUG, type SurfaceContext } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
@@ -12,6 +12,7 @@ import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
 import ConvHeader from './ConvHeader'
 import ChatErrorBoundary from './ChatErrorBoundary'
+import { openChatPopover } from './ChatHistoryActions'
 import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
@@ -60,7 +61,23 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   const busy = useChat(s => s.busy)
   const chatId = useChat(s => s.chatId)
   const chatsByProject = useChat(s => s.chatsByProject)
-  const chats = selectedSlug ? (chatsByProject[selectedSlug] ?? []) : []
+  const loadedUnboundChatId = useChat(s => s.loadedUnboundChatId)
+  const chatsUnbound = useChat(s => s.chatsUnbound)
+  // Three header scopes — the popover uses `chats` to render its body, the
+  // active scope label is one-word, no decorations (matches LeftSpine
+  // selected-state pattern: subtle, ink-3 weight).
+  //
+  //   `/p/<slug>` → scope=project, chats = chatsByProject[slug]
+  //   `/c/<cid>`  → scope=unbound, chats = chatsUnbound (active row marks current)
+  //   `/`         → scope=unbound, chats = chatsUnbound (no active row)
+  //
+  // We hand the popover the full unbound roster in both unbound and root
+  // cases; the active-row marker tracks via `currentChatId === c.chat_id`,
+  // so a row only lights up when the user is actually in that chat.
+  const isUnbound = !selectedSlug && !!loadedUnboundChatId
+  const chats = selectedSlug
+    ? (chatsByProject[selectedSlug] ?? [])
+    : chatsUnbound
   // Composer carve-out: a pending ask_user card means the agent is awaiting
   // structured input, but the user must still be able to redirect via free
   // text. The store's send() detects the pending card and converts the new
@@ -74,10 +91,24 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   // Reload-restore: when a real project becomes selected, bind to its persisted
   // chatId and hydrate the chat log. enterProject is a no-op for 'p_unset' and
   // when already on this project, so the create-project flow is safe.
+  //
+  // `deselect` is unbound-aware: it preserves an active `loadedUnboundChatId`
+  // so navigating from `/p/<slug>` → `/c/<cid>` (popover switch) keeps the
+  // unbound conversation intact.
   useEffect(() => {
     if (selectedSlug) useChat.getState().enterProject(selectedSlug)
     else useChat.getState().deselect()
   }, [selectedSlug])
+
+  // Empty-hero hint: when the user lands on `/` with no projects + no unbound
+  // chat history, the popover strip is hidden and the hero handles intro.
+  // Otherwise we kick off a one-shot listUnbound so the strip + popover render
+  // without waiting for the first interaction.
+  useEffect(() => {
+    if (!compact && !selectedSlug) {
+      void useChat.getState().listUnbound()
+    }
+  }, [compact, selectedSlug])
   const docCount = useDocs(s => (s.byProject[selectedSlug ?? ''] ?? []).length)
   const fieldCount = useSchema(s => (s.byProject[selectedSlug ?? ''] ?? []).length)
   const [pending, setPending] = useState<AttachInfo[]>([])
@@ -179,19 +210,75 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   }
 
   async function handleStarter(text: string) {
-    await send(selectedSlug ?? 'p_unset', text)
+    // Empty-hero starters submit through the unbound path so no project is
+    // minted server-side. The legacy `p_unset` mint is intentionally avoided.
+    await send(selectedSlug ?? UNBOUND_SLUG, text)
+  }
+
+  /** Promote the current unbound chat to a project. Hands the typed name to
+   *  `POST /lab/chats/{cid}/promote`; on success the URL flips to
+   *  `/p/<slug>` via the App.tsx sync effect once `selectedSlug` lands. */
+  async function handlePromote(name: string): Promise<void> {
+    const cid = chatId
+    if (!cid) return
+    try {
+      const { slug } = await promoteChat(cid, { name })
+      // Order matters: refresh the projects list FIRST so the sidebar has the
+      // new entry when select() flips selectedSlug (otherwise FSSpine paints
+      // an "unknown slug" row for one frame). enterProject is then driven by
+      // ChatPanel's effect and the adopt branch — events stay in place.
+      await useProjects.getState().refresh()
+      useProjects.getState().select(slug)
+    } catch (err) {
+      // Surface as a chat error event so the user sees the failure inline.
+      const msg = err instanceof Error ? err.message : String(err)
+      useChat.setState(s => ({
+        events: [...s.events, {
+          type: 'error',
+          error_code: 'promote_failed',
+          error_message_en: msg,
+        }],
+      }))
+    }
   }
 
   return (
     <>
-      {!compact && selectedSlug && (
+      {!compact && (
         <ConvHeader
-          activeProject={projectName}
+          activeProject={selectedSlug ? projectName : ''}
+          scope={selectedSlug ? 'project' : 'unbound'}
           currentChatId={chatId}
           chats={chats}
-          onNew={() => useChat.getState().newChat(selectedSlug)}
-          onSwitch={(cid) => useChat.getState().switchChat(selectedSlug, cid)}
-          onOpen={() => { void useChat.getState().listChats(selectedSlug) }}
+          onNew={() => {
+            if (selectedSlug) {
+              useChat.getState().newChat(selectedSlug)
+              return
+            }
+            // Unbound: on `/c/<cid>` click "new chat" mints a fresh local id
+            // and URL flips to `/c/<new_cid>` via the App.tsx sync effect.
+            // On `/` the user is already on an empty slate — minting + flipping
+            // would jump them off `/` for no benefit, so we no-op. Matches the
+            // lazy pattern from the plan: first user message is what creates
+            // the chat server-side.
+            if (loadedUnboundChatId) {
+              useChat.getState().newUnboundChat()
+            }
+          }}
+          onSwitch={(cid) => {
+            if (selectedSlug) {
+              useChat.getState().switchChat(selectedSlug, cid)
+            } else {
+              useChat.getState().enterUnboundChat(cid)
+            }
+          }}
+          onOpen={() => {
+            if (selectedSlug) {
+              void useChat.getState().listChats(selectedSlug)
+            } else {
+              void useChat.getState().listUnbound()
+            }
+          }}
         />
       )}
       {improveJob && (
@@ -200,7 +287,7 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
       {hasContent ? (
         <div className="conv-scroll" ref={convScrollRef}>
           <div className="conv-inner">
-            <ChatErrorBoundary key={`${selectedSlug ?? 'p_unset'}:${chatId}`}>
+            <ChatErrorBoundary key={`${selectedSlug ?? UNBOUND_SLUG}:${chatId}`}>
               <MessageList events={events} busy={busy} />
             </ChatErrorBoundary>
           </div>
@@ -214,6 +301,12 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
           projectName={projectName}
           onAttach={(files: File[]) => { void attach(files) }}
           onStarter={(text) => { void handleStarter(text) }}
+          recentConversations={!selectedSlug ? chatsUnbound : undefined}
+          onOpenConversation={(cid) => useChat.getState().enterUnboundChat(cid)}
+          onSeeAllConversations={() => {
+            void useChat.getState().listUnbound()
+            openChatPopover()
+          }}
         />
       )}
       <Composer
@@ -221,6 +314,8 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
         pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
         focusOnMount={!compact}
         projectId={selectedSlug ?? undefined}
+        unbound={!selectedSlug}
+        onPromote={isUnbound ? handlePromote : undefined}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onRetry={(i) => { void retry(i) }}
@@ -269,7 +364,7 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
               }
             }
           }
-          await send(selectedSlug ?? 'p_unset', text, ready, surfaceContext)
+          await send(selectedSlug ?? UNBOUND_SLUG, text, ready, surfaceContext)
           setPending([])
         }}
         onCancel={() => useChat.getState().cancel()}

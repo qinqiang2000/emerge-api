@@ -383,6 +383,98 @@ export async function getChatList(slug: string): Promise<ChatSummary[]> {
   }
 }
 
+// ── Unbound chats (Phase 2 frontend) ──────────────────────────────────────
+// "Unbound" = chats that haven't been bound to a project yet. They live
+// under `workspace/_chats/<cid>.*` on disk (a sibling of `_staging/`,
+// filtered out of project enumeration). The frontend talks about them as
+// "conversations"; the wire-level term `_chats` never leaks into UI copy.
+
+/** A row returned by `GET /lab/chats` — shape matches the project-scoped
+ *  `ChatSummary` plus `attachment_count`. Reused as the source for the
+ *  empty-hero "Recent conversations" strip and the unbound-mode popover. */
+export interface UnboundChatSummary extends ChatSummary {
+  attachment_count: number
+}
+
+/** Mint a fresh unbound chat id on the backend. Nothing is materialised on
+ *  disk yet — the first `append_event` (or `ensure_chat_meta`) creates
+ *  `_chats/<cid>.*`. Caller is expected to navigate to `/c/<cid>` and let
+ *  the chat-turn endpoint create the storage when the user actually
+ *  sends. */
+export async function createUnboundChat(): Promise<{ chat_id: string }> {
+  const r = await fetch(`${API}/lab/chats`, { method: 'POST' })
+  if (!r.ok) throw new Error(`createUnboundChat ${r.status}`)
+  return r.json()
+}
+
+/** List unbound chats newest-first. Permissive — any failure degrades to
+ *  an empty list, never throws into a render. Same posture as
+ *  `getChatList`. */
+export async function listUnboundChats(): Promise<UnboundChatSummary[]> {
+  try {
+    const r = await fetch(`${API}/lab/chats`)
+    if (!r.ok) {
+      if (r.status !== 404) console.warn('listUnboundChats failed', r.status)
+      return []
+    }
+    return (await r.json()) as UnboundChatSummary[]
+  } catch (err) {
+    console.warn('listUnboundChats threw', err)
+    return []
+  }
+}
+
+/** Replay an unbound chat's event log. Mirrors `getChatEvents` for the
+ *  project-scoped path. */
+export async function getUnboundChatEvents(chatId: string): Promise<unknown[]> {
+  try {
+    const r = await fetch(`${API}/lab/chats/${encodeURIComponent(chatId)}/events`)
+    if (!r.ok) {
+      if (r.status !== 404) console.warn('getUnboundChatEvents failed', r.status)
+      return []
+    }
+    const body = (await r.json()) as { events?: unknown[] }
+    return body.events ?? []
+  } catch (err) {
+    console.warn('getUnboundChatEvents threw', err)
+    return []
+  }
+}
+
+/** Bind an unbound chat to a fresh project. Backend atomically relocates the
+ *  jsonl + meta + attachments from `_chats/<cid>.*` under the new project's
+ *  `chats/`. Returns the resulting `slug` and `project_id`. */
+export async function promoteChat(
+  chatId: string,
+  body: { name: string; slug?: string },
+): Promise<{ slug: string; project_id: string }> {
+  const r = await fetch(`${API}/lab/chats/${encodeURIComponent(chatId)}/promote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let detail = ''
+    try { detail = (await r.json()).detail ?? '' } catch { /* swallow */ }
+    throw new Error(detail || `promoteChat ${r.status}`)
+  }
+  return r.json()
+}
+
+/** Tombstone an unbound chat. Idempotent — deleting an already-tombstoned
+ *  chat returns `{ok:true, existed:false}` rather than 404. */
+export async function deleteUnboundChat(chatId: string): Promise<{ ok: boolean; existed: boolean }> {
+  const r = await fetch(`${API}/lab/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`deleteUnboundChat ${r.status}`)
+  return r.json()
+}
+
+// The unbound-chat SSE turn is not a separate helper: the chat store routes
+// to `POST /lab/chats/{cid}/turn` directly via `streamSSE`, mirroring how the
+// project-scoped turn goes through `POST /lab/chat`. Keeping the SSE call
+// inline in the store keeps the wire-level decision (which URL + body shape)
+// next to the SSE event handler that depends on it.
+
 export async function listExperiments(
   slug: string,
   opts?: { includeArchived?: boolean },

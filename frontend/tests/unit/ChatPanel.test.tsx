@@ -12,6 +12,10 @@ vi.mock('../../src/stores/projects', () => ({
 }))
 vi.mock('../../src/stores/chat', () => ({
   useChat: vi.fn(),
+  // Sentinel value used by ChatPanel to feed `send()` in the unbound branch.
+  // Tests don't exercise that path, but the constant must exist for the
+  // ChatErrorBoundary key + Composer projectId fallback to resolve.
+  UNBOUND_SLUG: '_chats',
 }))
 vi.mock('../../src/stores/docs', () => ({
   useDocs: vi.fn(),
@@ -21,6 +25,9 @@ vi.mock('../../src/stores/schema', () => ({
 }))
 vi.mock('../../src/lib/api', () => ({
   uploadDoc: vi.fn(),
+  promoteChat: vi.fn(),
+  attachToChat: vi.fn(),
+  stageUpload: vi.fn(),
 }))
 
 import { useProjects } from '../../src/stores/projects'
@@ -68,9 +75,14 @@ function setupStores({
     deselect: vi.fn(),
     chatId: 'c_test',
     chatsByProject: {} as Record<string, unknown[]>,
+    chatsUnbound: [] as unknown[],
+    loadedUnboundChatId: null as string | null,
     listChats: vi.fn(),
+    listUnbound: vi.fn(),
     switchChat: vi.fn(),
     newChat: vi.fn(),
+    newUnboundChat: vi.fn(),
+    enterUnboundChat: vi.fn(),
   }
   ;(useChat as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector?: (s: unknown) => unknown) => {

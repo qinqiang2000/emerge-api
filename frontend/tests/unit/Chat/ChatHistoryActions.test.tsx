@@ -25,7 +25,7 @@ describe('ChatHistoryActions — full variant', () => {
     // `.tip` labels are present in full mode (the rendered text appears
     // adjacent to the chip even though it's visually hidden until hover).
     expect(screen.getAllByText('Chat history').length).toBeGreaterThan(0)
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
   })
 
   it('opens the popover on history-chip click, calls onOpen, lists rows, highlights the active one', () => {
@@ -33,7 +33,7 @@ describe('ChatHistoryActions — full variant', () => {
     render(<ChatHistoryActions activeProject="us-invoice" currentChatId="c_aaaaaaaaaaaa" chats={CHATS} onNew={vi.fn()} onSwitch={vi.fn()} onOpen={onOpen} />)
     fireEvent.click(screen.getByLabelText('Chat history'))
     expect(onOpen).toHaveBeenCalled()
-    expect(screen.getByText('history')).toBeInTheDocument()
+    expect(screen.getByText('in project')).toBeInTheDocument()
     expect(screen.getByText('us-invoice')).toBeInTheDocument()
     expect(screen.getByText('tune weak fields')).toBeInTheDocument()
     expect(screen.getByText('run batch')).toBeInTheDocument()
@@ -47,7 +47,7 @@ describe('ChatHistoryActions — full variant', () => {
     fireEvent.click(screen.getByLabelText('Chat history'))
     fireEvent.click(screen.getByText('run batch'))
     expect(onSwitch).toHaveBeenCalledWith('c_bbbbbbbbbbbb')
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
   })
 
   it('clicking the new-chat chip calls onNew', () => {
@@ -66,9 +66,9 @@ describe('ChatHistoryActions — full variant', () => {
   it('Escape closes the popover', () => {
     render(<ChatHistoryActions activeProject="us-invoice" currentChatId="c_x" chats={CHATS} onNew={vi.fn()} onSwitch={vi.fn()} onOpen={vi.fn()} />)
     fireEvent.click(screen.getByLabelText('Chat history'))
-    expect(screen.getByText('history')).toBeInTheDocument()
+    expect(screen.getByText('in project')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
   })
 
   it('outside click closes the popover', () => {
@@ -79,13 +79,13 @@ describe('ChatHistoryActions — full variant', () => {
       </>,
     )
     fireEvent.click(screen.getByLabelText('Chat history'))
-    expect(screen.getByText('history')).toBeInTheDocument()
+    expect(screen.getByText('in project')).toBeInTheDocument()
     // The mousedown listener is attached on a setTimeout(_, 0); flush the
     // microtask queue so the listener is live before we dispatch.
     return new Promise<void>(resolve => {
       setTimeout(() => {
         fireEvent.mouseDown(screen.getByTestId('outside'))
-        expect(screen.queryByText('history')).not.toBeInTheDocument()
+        expect(screen.queryByText('in project')).not.toBeInTheDocument()
         resolve()
       }, 0)
     })
@@ -94,9 +94,43 @@ describe('ChatHistoryActions — full variant', () => {
   it('closes the popover when activeProject changes', () => {
     const { rerender } = render(<ChatHistoryActions activeProject="us-invoice" currentChatId="c_x" chats={CHATS} onNew={vi.fn()} onSwitch={vi.fn()} onOpen={vi.fn()} />)
     fireEvent.click(screen.getByLabelText('Chat history'))
-    expect(screen.getByText('history')).toBeInTheDocument()
+    expect(screen.getByText('in project')).toBeInTheDocument()
     rerender(<ChatHistoryActions activeProject="contracts" currentChatId="c_x" chats={CHATS} onNew={vi.fn()} onSwitch={vi.fn()} onOpen={vi.fn()} />)
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
+  })
+
+  it('shows the UNBOUND scope label when scope="unbound"', () => {
+    render(
+      <ChatHistoryActions
+        scope="unbound"
+        activeProject=""
+        currentChatId="c_x"
+        chats={CHATS}
+        onNew={vi.fn()}
+        onSwitch={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Chat history'))
+    expect(screen.getByText('unbound')).toBeInTheDocument()
+    // Project name slot is intentionally blank for unbound scope.
+    expect(screen.queryByText('us-invoice')).not.toBeInTheDocument()
+  })
+
+  it('shows the unbound empty-state copy when scope="unbound" and chats=[]', () => {
+    render(
+      <ChatHistoryActions
+        scope="unbound"
+        activeProject=""
+        currentChatId="c_x"
+        chats={[]}
+        onNew={vi.fn()}
+        onSwitch={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Chat history'))
+    expect(screen.getByText('No conversations yet.')).toBeInTheDocument()
   })
 
   it('wraps with `.conv-hd` in full variant', () => {
@@ -149,15 +183,15 @@ describe('ChatHistoryActions — compact variant', () => {
     fireEvent.click(screen.getByLabelText('Chat history'))
     fireEvent.click(screen.getByText('run batch'))
     expect(onSwitch).toHaveBeenCalledWith('c_bbbbbbbbbbbb')
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
   })
 
   it('Escape closes the popover', () => {
     render(<ChatHistoryActions variant="compact" activeProject="p" currentChatId="c_x" chats={CHATS} onNew={vi.fn()} onSwitch={vi.fn()} onOpen={vi.fn()} />)
     fireEvent.click(screen.getByLabelText('Chat history'))
-    expect(screen.getByText('history')).toBeInTheDocument()
+    expect(screen.getByText('in project')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(screen.queryByText('history')).not.toBeInTheDocument()
+    expect(screen.queryByText('in project')).not.toBeInTheDocument()
   })
 
   it('calls onOpen when popover toggles open', () => {

@@ -361,6 +361,29 @@ html, body, #root {
 .empty-hero .starter .quote{color:var(--ink-4);font-family:var(--serif);font-size:16px;line-height:0;flex-shrink:0}
 .empty-hero .starter .arr{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-5);font-style:normal;flex-shrink:0}
 .empty-hero .starter:hover .arr{color:var(--ochre-2)}
+/* Recent-conversations strip: above the tagline, a single quiet row of the
+   five most-recent unbound chats. Visual weight matches the sidebar's
+   project list (mono + ink-3) — never card-like, never bordered. Each item
+   is a button so kbd nav reaches it; hover lifts ink + adds a faint
+   paper-2 wash. The `⌘N` hint sits at the row end in mono, ink-5. */
+.empty-hero .recent-strip{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:2px 6px;width:100%;max-width:680px;font-family:var(--mono);font-size:11.5px;color:var(--ink-4);margin-bottom:-4px}
+.empty-hero .recent-item{display:inline-flex;align-items:baseline;gap:6px;padding:3px 6px;border-radius:4px;background:transparent;border:0;font:inherit;color:inherit;cursor:default;max-width:280px}
+.empty-hero .recent-item:hover{background:var(--paper-2);color:var(--ink-2)}
+.empty-hero .recent-item .sep{color:var(--ink-5)}
+.empty-hero .recent-item .lbl{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.empty-hero .recent-item:hover .lbl{color:var(--ink)}
+.empty-hero .recent-item .ts{color:var(--ink-5);font-variant-numeric:tabular-nums}
+.empty-hero .recent-item .kbd{color:var(--ink-5);opacity:0;transition:opacity .12s}
+.empty-hero .recent-item:hover .kbd{opacity:1}
+.empty-hero .recent-see-all{background:transparent;border:0;font:inherit;color:var(--ink-5);padding:3px 6px;cursor:default;border-radius:4px;text-transform:uppercase;letter-spacing:.08em;font-size:10.5px}
+.empty-hero .recent-see-all:hover{color:var(--ochre-2)}
+
+/* Popover active-row token alignment (Phase 2): match the spine's paper-3 +
+   ochre rail/text pattern from commit 31abfea. The previous `ochre-soft`
+   fill was too loud — ochre-soft is reserved for transient menu fills
+   (slash / mention dropdowns), not persistent selection. */
+.hist-pop .h-row.active{background:var(--paper-3);box-shadow:inset 2px 0 0 var(--ochre);border-color:transparent}
+.hist-pop .h-row.active .lbl{color:var(--ochre-2)}
 
 /* ── review overlay ──────────────────────────────────────────────── */
 .rev-overlay{position:absolute;inset:0;background:var(--paper);display:flex;flex-direction:column;animation:slideUp .35s ease-out}

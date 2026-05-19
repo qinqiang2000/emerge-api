@@ -15,10 +15,16 @@
 //                       so it doesn't clip in a 280px-min column; it lives
 //                       INSIDE the cluster so the absolute coords resolve
 //                       against the cluster, not the column.
+//
+// Phase-2 unbound chats: a `scope` prop now switches the popover header
+// label (`IN PROJECT` / `UNBOUND`). The caller is responsible for picking
+// which chat list to hand in — see `useChatPopoverContents` below.
 
 import { useEffect, useState } from 'react'
 
 import type { ChatSummary } from '../../lib/api'
+import { useProjects } from '../../stores/projects'
+import { useChat } from '../../stores/chat'
 
 const IS_MAC =
   typeof navigator !== 'undefined' &&
@@ -28,6 +34,18 @@ const IS_MAC =
       navigator.userAgent,
   )
 const NEW_CHAT_SHORTCUT = IS_MAC ? '⌘⇧O' : 'Ctrl+Shift+O'
+
+/** Custom DOM event name that opens the (full-variant) popover from anywhere.
+ *  Used by the empty-hero "See all" link so the popover surfaces without
+ *  requiring a ref handoff up the component tree. Listeners live inside
+ *  `ChatHistoryActions` itself. */
+const OPEN_POPOVER_EVENT = 'emerge:open-chat-popover'
+
+/** Imperatively open the chat-history popover from any caller. Returns a
+ *  cleanup-free promise so the caller can `void openChatPopover()`. */
+export function openChatPopover(): void {
+  window.dispatchEvent(new CustomEvent(OPEN_POPOVER_EVENT))
+}
 
 interface Props {
   activeProject: string
@@ -40,6 +58,11 @@ interface Props {
   /** 'full' for main shell chrome (default), 'compact' for the review overlay's
    *  narrow 26px header row — icon-only chips, no `.tip` labels. */
   variant?: 'full' | 'compact'
+  /** Drives the popover header label:
+   *   - `'project'` → "IN PROJECT" + active project name on the right
+   *   - `'unbound'` → "UNBOUND"
+   *  Defaults to `'project'` so existing callers compile unchanged. */
+  scope?: 'project' | 'unbound'
 }
 
 function formatChatTs(iso: string): string {
@@ -65,6 +88,7 @@ export default function ChatHistoryActions({
   onSwitch,
   onOpen,
   variant = 'full',
+  scope = 'project',
 }: Props) {
   const [open, setOpen] = useState(false)
 
@@ -93,10 +117,27 @@ export default function ChatHistoryActions({
     window.addEventListener('keydown', onKey)
     return () => {
       clearTimeout(id)
-      window.removeEventListener('mousedown', onClick)
+      window.removeEventListener('mousedown', onKey)
       window.removeEventListener('keydown', onKey)
     }
   }, [open])
+
+  // Programmatic open hook: EmptyHero's "See all" link dispatches
+  // `emerge:open-chat-popover` so the popover surfaces without the user
+  // having to find the corner chip. Custom event keeps the coupling
+  // one-way + scope-aware (the popover that listens is the one currently
+  // mounted, which by App.tsx routing matches the user's mode). Only the
+  // `full` variant listens — the review-overlay compact variant has its
+  // own context and shouldn't pop from a hero click.
+  useEffect(() => {
+    if (variant !== 'full') return
+    const handler = () => {
+      onOpen?.()
+      setOpen(true)
+    }
+    window.addEventListener(OPEN_POPOVER_EVENT, handler)
+    return () => window.removeEventListener(OPEN_POPOVER_EVENT, handler)
+  }, [variant, onOpen])
 
   useEffect(() => { setOpen(false) }, [activeProject])
 
@@ -106,14 +147,22 @@ export default function ChatHistoryActions({
   // compact variant uses bare buttons styled by `.rev-chat-hd-actions button`.
   const chipBase = compact ? '' : 'chip '
 
+  // Scope label shown in the popover header. Single uppercase word, no
+  // decorations — matches the visual weight of the existing "history" label.
+  const scopeLabel = scope === 'project' ? 'in project' : 'unbound'
+  // Right-hand scope hint: project name for project scope, intentionally
+  // blank for unbound (the "UNBOUND" label is already the disambiguator).
+  const scopeHint = scope === 'project' ? activeProject : ''
+  const emptyHint = scope === 'project' ? 'No sessions yet.' : 'No conversations yet.'
+
   const popover = open ? (
     <div className="hist-pop" onClick={e => e.stopPropagation()}>
       <div className="h-hd">
-        <span className="lab">history</span>
-        <span className="scope">{activeProject}</span>
+        <span className="lab">{scopeLabel}</span>
+        <span className="scope">{scopeHint}</span>
       </div>
       {chats.length === 0 ? (
-        <div className="h-empty">No sessions yet.</div>
+        <div className="h-empty">{emptyHint}</div>
       ) : (
         <div className="h-list">
           {chats.map(c => (
@@ -170,4 +219,66 @@ export default function ChatHistoryActions({
       {!compact && popover}
     </>
   )
+}
+
+/** Resolve the popover's listing source + the "New chat" CTA dispatch based
+ *  on the current route. Lives next to `ChatHistoryActions` so callers don't
+ *  hand-branch on the URL — they grab `{chats, scope, onNew, onSwitch}` and
+ *  pass them straight to the component.
+ *
+ *  Three scopes:
+ *   - `/p/<slug>` → chats inside `<slug>`; new chat mints inside `<slug>`
+ *   - `/c/<cid>`  → other unbound chats; new chat mints a fresh unbound id
+ *   - `/`         → recent unbound chats; "new chat" is lazy — clicking it
+ *                   leaves the URL at `/`, and the first user message is
+ *                   what actually creates the chat (matches today's project
+ *                   "new chat" pattern).
+ *
+ *  The chat store actions called here (`newChat`, `switchChat`, `listChats`,
+ *  `newUnboundChat`, `enterUnboundChat`, `listUnbound`) all do the right
+ *  thing in their respective modes — the hook is purely glue. */
+export function useChatPopoverContents(): {
+  scope: 'project' | 'unbound'
+  activeProject: string
+  chats: ChatSummary[]
+  onNew: () => void
+  onSwitch: (chatId: string) => void
+  onOpen: () => void
+} {
+  const selectedSlug = useProjects(s => s.selectedSlug)
+  const projects = useProjects(s => s.projects)
+  const chatsByProject = useChat(s => s.chatsByProject)
+  const chatsUnbound = useChat(s => s.chatsUnbound)
+
+  if (selectedSlug) {
+    const name = projects.find(p => p.slug === selectedSlug)?.name ?? ''
+    return {
+      scope: 'project',
+      activeProject: name,
+      chats: chatsByProject[selectedSlug] ?? [],
+      onNew: () => useChat.getState().newChat(selectedSlug),
+      onSwitch: (cid) => useChat.getState().switchChat(selectedSlug, cid),
+      onOpen: () => { void useChat.getState().listChats(selectedSlug) },
+    }
+  }
+  // Unbound / root scope. `chatsUnbound` is the same array for both — the
+  // current chat is excluded from the rendered list inside the popover by
+  // its `currentChatId === c.chat_id` active-marker logic (a row is still
+  // shown but flagged active rather than filtered).
+  return {
+    scope: 'unbound',
+    activeProject: '',
+    chats: chatsUnbound,
+    onNew: () => {
+      // Lazy mint:
+      //  - on `/c/<cid>` → mint a fresh local id, App.tsx pushes `/c/<new>`
+      //  - on `/` (no current unbound chat) → no-op; user is already on an
+      //    empty slate. Matches the project-side "new chat" lazy pattern.
+      if (useChat.getState().loadedUnboundChatId) {
+        useChat.getState().newUnboundChat()
+      }
+    },
+    onSwitch: (cid) => useChat.getState().enterUnboundChat(cid),
+    onOpen: () => { void useChat.getState().listUnbound() },
+  }
 }

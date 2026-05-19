@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pathForSlug, readSlugFromPathname } from './slugUrl'
+import { pathForChatId, pathForSlug, readChatIdFromPathname, readSlugFromPathname } from './slugUrl'
 
 describe('readSlugFromPathname', () => {
   it('parses the slug out of /p/{slug}', () => {
@@ -52,6 +52,50 @@ describe('pathForSlug', () => {
     const slugs = ['us-invoice', '默沙东_小票', 'q4-2025', 'a b c']
     for (const s of slugs) {
       expect(readSlugFromPathname(pathForSlug(s))).toBe(s)
+    }
+  })
+})
+
+describe('readChatIdFromPathname', () => {
+  it('parses the chat id out of /c/{chat_id}', () => {
+    expect(readChatIdFromPathname('/c/c_abcdef123456')).toBe('c_abcdef123456')
+  })
+
+  it('ignores the search string', () => {
+    expect(readChatIdFromPathname('/c/c_abcdef123456?from=hero')).toBe('c_abcdef123456')
+  })
+
+  it('returns null on /p/ paths and root', () => {
+    expect(readChatIdFromPathname('/')).toBeNull()
+    expect(readChatIdFromPathname('/p/us-invoice')).toBeNull()
+  })
+
+  it('returns null when /c/ has no id', () => {
+    expect(readChatIdFromPathname('/c/')).toBeNull()
+  })
+
+  it('returns null on malformed percent-encoding', () => {
+    expect(readChatIdFromPathname('/c/%E0')).toBeNull()
+  })
+})
+
+describe('pathForChatId', () => {
+  it('builds /c/{chat_id} for the standard id shape', () => {
+    expect(pathForChatId('c_abcdef123456')).toBe('/c/c_abcdef123456')
+  })
+
+  it('renders root path when chat id is null', () => {
+    expect(pathForChatId(null)).toBe('/')
+  })
+
+  it('preserves search and hash', () => {
+    expect(pathForChatId('c_abcdef123456', '?tab=docs', '#turn-3')).toBe('/c/c_abcdef123456?tab=docs#turn-3')
+  })
+
+  it('round-trips with readChatIdFromPathname', () => {
+    const ids = ['c_abcdef123456', 'c_0000aabbccdd']
+    for (const id of ids) {
+      expect(readChatIdFromPathname(pathForChatId(id))).toBe(id)
     }
   })
 })

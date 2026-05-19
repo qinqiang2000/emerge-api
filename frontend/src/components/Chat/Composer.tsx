@@ -79,6 +79,15 @@ interface Props {
    *  When absent / `p_unset` (empty hero), the menu still opens but only
    *  surfaces the projects section so the user can jump in via `@<slug>`. */
   projectId?: string
+  /** True when the composer is attached to an unbound chat (`/c/<cid>` or
+   *  empty hero). Drives placeholder copy + opt-in `/init <name>`
+   *  interception. */
+  unbound?: boolean
+  /** Promote the current unbound chat to a project — called when the user
+   *  submits `/init <name>` in unbound mode. Receives the trimmed name.
+   *  When omitted, `/init <name>` falls through to the agent (legacy
+   *  behaviour). */
+  onPromote?: (name: string) => Promise<void> | void
 }
 
 // Per-chip status indicator. Lives next to the filename so the row reads
@@ -118,7 +127,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId }: Props) {
+export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -386,6 +395,20 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   function submit() {
     const trimmed = text.trim()
     if (!trimmed || disabled) return
+    // Unbound-mode promotion shortcut: `/init <name>` skips the agent and
+    // calls `POST /lab/chats/{cid}/promote` directly via the parent. A bare
+    // `/init` (no name) falls through to the agent — that path runs the
+    // existing emerge-extractor skill, which asks the user for a name then
+    // calls `create_project(from_unbound_chat_id=...)` itself. We don't try
+    // to inline-prompt for a name here; the chat IS the prompt surface.
+    if (unbound && onPromote && trimmed.startsWith('/init')) {
+      const rest = trimmed.slice('/init'.length).trim()
+      if (rest.length > 0) {
+        setText('')
+        void onPromote(rest)
+        return
+      }
+    }
     onSubmit(trimmed)
     setText('')
   }

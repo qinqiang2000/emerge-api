@@ -1,7 +1,20 @@
 import { create } from 'zustand'
 
-import { getChatEvents, getChatList, resolveAskUser, resolvePermission, rewindChat, type AskUserAnswerEntry, type ChatSummary } from '../lib/api'
+import {
+  createUnboundChat,
+  getChatEvents,
+  getChatList,
+  getUnboundChatEvents,
+  listUnboundChats,
+  resolveAskUser,
+  resolvePermission,
+  rewindChat,
+  type AskUserAnswerEntry,
+  type ChatSummary,
+  type UnboundChatSummary,
+} from '../lib/api'
 import { newChatId } from '../lib/ids'
+import { pathForChatId, pathForSlug } from '../lib/slugUrl'
 import { streamSSE } from '../lib/sse'
 import { dispatchUiAction } from '../lib/surfaceRouter'
 import type { ChatEvent } from '../types/chat'
@@ -16,6 +29,13 @@ import { useSchema } from './schema'
 
 const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
 const LEGACY_CHAT_ID_KEY_PREFIX = 'emerge.chatId.'   // pre-M8 single-chat key
+
+/** Sentinel `projectId` value for the unbound-chat code path. Callers that
+ *  hit `send()` from `/c/<cid>` or from the empty hero pass this so the
+ *  store routes to `POST /lab/chats/{cid}/turn` instead of the legacy
+ *  `POST /lab/chat` (with `project_id: 'p_unset'`). Matches the backend
+ *  `_UNBOUND_SLUG` constant. */
+export const UNBOUND_SLUG = '_chats'
 
 // Process-lifetime fallback when localStorage is unavailable (SSR / incognito).
 const _memChatIds = new Map<string, string>()
@@ -87,7 +107,17 @@ interface State {
   events: ChatEvent[]
   busy: boolean
   loadedProjectId: string | null
+  /** Non-null iff the active conversation is an *unbound* chat (`/c/<cid>`
+   *  route or pre-submit empty hero). Mutually exclusive with
+   *  `loadedProjectId` once set — promotion or project-pick clears it. The
+   *  value equals `chatId` while loaded; storing it explicitly lets `send()`
+   *  pick the unbound URL even after a hydrate race. */
+  loadedUnboundChatId: string | null
   chatsByProject: Record<string, ChatSummary[]>
+  /** Recent unbound chats (newest-first). Powers the empty-hero strip and
+   *  the popover in unbound + `/` modes. Refreshed on demand via
+   *  `listUnbound()`. */
+  chatsUnbound: UnboundChatSummary[]
   /** Live abort controller for the in-flight SSE turn; null when idle. */
   abort: AbortController | null
   /** True iff the most recent turn was cancelled by the user (Stop/Esc) and
@@ -117,8 +147,20 @@ interface State {
   /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle. */
   cancel: () => void
   enterProject: (projectId: string) => void
+  /** Bind the chat shell to an existing unbound chat id (URL = `/c/<cid>`).
+   *  Reuses the project-mode hydrate / race-safety pattern from
+   *  `enterProject`, but pulls events from `GET /lab/chats/{cid}/events`. */
+  enterUnboundChat: (chatId: string) => void
+  /** Mint a fresh local unbound-chat id and clear events. Doesn't hit the
+   *  backend — the first SSE turn / `POST /lab/chats/{cid}/turn` is what
+   *  materialises storage. Matches the lazy "new chat" pattern on the
+   *  project side. */
+  newUnboundChat: () => string
   deselect: () => void
   listChats: (projectId: string) => Promise<void>
+  /** Refresh the unbound-chat summary list. Permissive — degrades to empty
+   *  on failure. */
+  listUnbound: () => Promise<void>
   switchChat: (projectId: string, chatId: string) => void
   newChat: (projectId: string) => void
   lastUserMessage: () => string | null
@@ -146,7 +188,9 @@ export const useChat = create<State>((set, get) => ({
   events: [],
   busy: false,
   loadedProjectId: null,
+  loadedUnboundChatId: null,
   chatsByProject: {},
+  chatsUnbound: [],
   abort: null,
   interrupted: false,
   cancel: () => {
@@ -195,16 +239,33 @@ export const useChat = create<State>((set, get) => ({
     // first chat. Adopt it and persist the current chatId under the new project key
     // (keep get().chatId rather than minting a fresh one, so the server log written
     // under that chatId stays reachable on a later reload). Do not clear, do not hydrate.
-    if (get().loadedProjectId === null && get().events.length > 0) {
+    //
+    // Same shape applies to the unbound→promoted case: a `/c/<cid>` chat that
+    // was just promoted lands here via `useProjects.select(slug)` after the
+    // backend relocates the jsonl from `_chats/` to `<slug>/chats/`. The chat
+    // events already on disk under the new slug match the in-memory tail, so
+    // we adopt rather than re-hydrate. `loadedUnboundChatId` is cleared so
+    // future `send()` calls hit the per-project endpoint.
+    if (
+      (get().loadedProjectId === null || get().loadedUnboundChatId !== null)
+      && get().events.length > 0
+    ) {
       _writeChatId(projectId, get().chatId)
-      set({ loadedProjectId: projectId })
+      set({ loadedProjectId: projectId, loadedUnboundChatId: null })
       return
     }
 
     // Real project switch (or first entry into a project with no in-flight convo):
     // bind to that project's persisted chatId, clear, then fire-and-forget hydrate.
     const cid = chatIdFor(projectId)
-    set({ loadedProjectId: projectId, chatId: cid, events: [], busy: false, interrupted: false })
+    set({
+      loadedProjectId: projectId,
+      loadedUnboundChatId: null,
+      chatId: cid,
+      events: [],
+      busy: false,
+      interrupted: false,
+    })
     // Snapshot the prefix length right after the clear so the apply branch can
     // tell whether the user sent anything during the hydration window. If they
     // did, events.length will have grown past prefixLen → prepend rather than
@@ -225,18 +286,94 @@ export const useChat = create<State>((set, get) => ({
     // server-authoritative entries for this project.
     void get().listChats(projectId)
   },
+  enterUnboundChat: (chatId) => {
+    if (chatId === get().loadedUnboundChatId) return
+    // Adopt-in-flight: a fresh empty-hero conversation that already streamed
+    // a first turn is *this* unbound chat by construction — the SSE turn ran
+    // with `chat_id=get().chatId`, which we now rebind to the URL-provided
+    // id. (In practice the URL was just pushed from `send()` so the values
+    // already match, but the guard keeps the assertion explicit.)
+    if (
+      get().loadedProjectId === null
+      && get().loadedUnboundChatId === null
+      && get().events.length > 0
+      && chatId === get().chatId
+    ) {
+      set({ loadedUnboundChatId: chatId })
+      return
+    }
+    // Fresh entry / switch: clear, then fire-and-forget hydrate. Same
+    // race-safety pattern as enterProject — snapshot prefixLen so an in-flight
+    // user message during hydration isn't trampled.
+    set({
+      loadedProjectId: null,
+      loadedUnboundChatId: chatId,
+      chatId,
+      events: [],
+      busy: false,
+      interrupted: false,
+    })
+    const prefixLen = get().events.length
+    void (async () => {
+      const reduced = reduceEvents(await getUnboundChatEvents(chatId))
+      set(s => {
+        if (s.chatId !== chatId || s.loadedUnboundChatId !== chatId) return s
+        if (s.events.length === prefixLen) return { events: reduced }
+        return { events: [...reduced, ...s.events] }
+      })
+    })()
+    void get().listUnbound()
+  },
+  newUnboundChat: () => {
+    // Mint a fresh local chat id. Storage isn't created until the first
+    // SSE turn — same lazy posture as the project-side `newChat`. Caller is
+    // responsible for navigating to `/c/<cid>` once it wants the URL bar in
+    // sync; this action just resets the in-memory shell so the next `send()`
+    // hits an empty conversation under the new id.
+    const fresh = newChatId()
+    set({
+      loadedProjectId: null,
+      loadedUnboundChatId: fresh,
+      chatId: fresh,
+      events: [],
+      busy: false,
+      interrupted: false,
+    })
+    return fresh
+  },
   deselect: () => {
     // Reset to the no-project-loaded baseline. Used when the user clicks
     // "+ new project…" (selectedId → null) so the conv column doesn't keep
     // showing the previous project's events. Fresh chatId so the next
     // enterProject's adopt branch (loadedProjectId === null + events.length>0)
     // works cleanly for any immediate in-flight conversation.
-    set({ events: [], busy: false, loadedProjectId: null, chatId: newChatId(), interrupted: false })
+    //
+    // Important: `deselect` is also fired when the user is on `/c/<cid>` and
+    // the URL→store sync flips `selectedSlug` to null. In that case we must
+    // NOT clobber an active unbound load — checking `loadedUnboundChatId`
+    // keeps the unbound conversation intact while still clearing any stale
+    // project binding.
+    if (get().loadedUnboundChatId) {
+      set({ loadedProjectId: null })
+      return
+    }
+    set({
+      events: [],
+      busy: false,
+      loadedProjectId: null,
+      loadedUnboundChatId: null,
+      chatId: newChatId(),
+      interrupted: false,
+    })
   },
   listChats: async (projectId) => {
     if (projectId === 'p_unset') return
     const list = await getChatList(projectId)
     set(s => ({ chatsByProject: { ...s.chatsByProject, [projectId]: list } }))
+  },
+  listUnbound: async () => {
+    const list = await listUnboundChats()
+    set({ chatsUnbound: list })
   },
   switchChat: (projectId, chatId) => {
     if (projectId === 'p_unset') return
@@ -357,6 +494,15 @@ export const useChat = create<State>((set, get) => ({
     }
   },
   send: async (projectId, message, attachments, surfaceContext) => {
+    // Three send shapes coexist:
+    //   - project mode      → POST /lab/chat        with project_id=<slug>
+    //   - unbound mode      → POST /lab/chats/{cid}/turn  (no project_id)
+    //   - legacy p_unset    → POST /lab/chat        with project_id='p_unset'
+    //     (kept alive for backend compat; the Phase-2 frontend should never
+    //     hit this branch — empty-hero and unbound-mode both route to
+    //     `UNBOUND_SLUG` instead.)
+    const isUnbound = projectId === UNBOUND_SLUG
+
     // Capture the new pid emitted by the backend when chat_turn auto-mints a
     // project from a `p_unset` + stage_token submission. We listen for the
     // `project_minted` SSE event and re-bind on the fly: localStorage chatId
@@ -388,16 +534,23 @@ export const useChat = create<State>((set, get) => ({
 
     // First message into a freshly-selected real project: bind loadedProjectId and
     // persist the current chatId under that project key, so a later enterProject for
-    // the same id is a correct no-op and a reload restores the binding.
-    if (projectId !== 'p_unset' && get().loadedProjectId === null) {
+    // the same id is a correct no-op and a reload restores the binding. For unbound
+    // mode the analogue is `loadedUnboundChatId` — if a caller pushed the user into
+    // `send()` without going through `enterUnboundChat` / `newUnboundChat` (e.g.
+    // empty-hero first message), bind it now so the URL sync + popover scope agree.
+    if (isUnbound) {
+      if (get().loadedUnboundChatId === null) {
+        set({ loadedUnboundChatId: get().chatId, loadedProjectId: null })
+      }
+    } else if (projectId !== 'p_unset' && get().loadedProjectId === null) {
       _writeChatId(projectId, get().chatId)
-      set({ loadedProjectId: projectId })
+      set({ loadedProjectId: projectId, loadedUnboundChatId: null })
     }
     // Consume the interrupted flag: if the last turn was cancelled, drop its
     // user message + partial agent tail before sending the new turn. This
-    // makes composer-after-Stop visually equivalent to retry — the abandoned
-    // bubble doesn't stack. The rewind endpoint accepts `p_unset` too, so
-    // pre-adoption chats clean up identically.
+    // makes composer-after-Stop visually equivalent to retry — the rewind
+    // endpoint accepts `p_unset` and `_chats` alongside committed slugs, so
+    // pre-adoption / unbound chats clean up identically.
     if (get().interrupted) {
       try {
         await rewindChat(projectId, get().chatId)
@@ -436,21 +589,27 @@ export const useChat = create<State>((set, get) => ({
       busy: true,
       abort: abortCtrl,
     }))
+    // Unbound path: hit `POST /lab/chats/{cid}/turn` so no project gets
+    // minted server-side. The body has no `project_id` / `chat_id` fields —
+    // both are encoded in the URL. Surface-context shape is identical.
+    const unboundUrl = `/lab/chats/${encodeURIComponent(get().chatId)}/turn`
+    const projectBody = {
+      project_id: projectId,
+      chat_id: get().chatId,
+      user_message: message,
+      attachments,
+      ...(surfaceContext ? { surface_context: surfaceContext } : {}),
+    }
+    const unboundBody = {
+      user_message: message,
+      attachments,
+      ...(surfaceContext ? { surface_context: surfaceContext } : {}),
+    }
     try {
-      for await (const ev of streamSSE('/lab/chat', {
+      for await (const ev of streamSSE(isUnbound ? unboundUrl : '/lab/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: projectId,
-          chat_id: get().chatId,
-          user_message: message,
-          attachments,
-          // Only sent when the user submits from a surface that snapshots
-          // state (currently: review overlay's compact chat column).
-          // Backend treats absence as the pre-Phase-B path (no
-          // `## Surface context` block in system prompt).
-          ...(surfaceContext ? { surface_context: surfaceContext } : {}),
-        }),
+        body: JSON.stringify(isUnbound ? unboundBody : projectBody),
         signal: abortCtrl.signal,
       })) {
         if (ev.event === 'tool_result') {
@@ -586,9 +745,15 @@ export const useChat = create<State>((set, get) => ({
     } finally {
       set({ busy: false, abort: null })
       // After a `p_unset` submission that auto-minted a project, refresh the
-      // chat list under the new pid (the chat is now logged there).
+      // chat list under the new pid (the chat is now logged there). For
+      // unbound mode the analogue is `listUnbound()` — the unbound roster
+      // gained a new entry (or its label/ts moved on an existing entry).
       const finalPid = mintedPid ?? projectId
-      if (finalPid !== 'p_unset') void get().listChats(finalPid)
+      if (isUnbound && mintedPid === null) {
+        void get().listUnbound()
+      } else if (finalPid !== 'p_unset' && finalPid !== UNBOUND_SLUG) {
+        void get().listChats(finalPid)
+      }
     }
   },
 }))
@@ -721,6 +886,39 @@ function handleToolResult(
       t === 'mcp__emerge_tools__fork_project'
     ) {
       void useProjects.getState().refresh()
+      // Agent-side promote: when `create_project` was invoked from inside an
+      // unbound chat (the agent's reading of `from_unbound_chat_id`), the
+      // backend has already relocated this chat's jsonl + attachments under
+      // the new project. Flip the FE binding so subsequent turns go through
+      // the per-project path and the URL bar updates to `/p/<slug>`. The
+      // input shape is `{name, from_unbound_chat_id, ...}` — if the latter
+      // matches our active unbound chat, adopt.
+      if (t === 'mcp__emerge_tools__create_project'
+          && useChat.getState().loadedUnboundChatId
+      ) {
+        const input = parent.tool_input as { from_unbound_chat_id?: unknown } | null
+        const result = resultPayload as { slug?: unknown } | string | null
+        const slugRaw = (result && typeof result === 'object')
+          ? (result as { slug?: unknown }).slug
+          : null
+        if (
+          input
+          && typeof input.from_unbound_chat_id === 'string'
+          && input.from_unbound_chat_id === useChat.getState().loadedUnboundChatId
+          && typeof slugRaw === 'string'
+          && slugRaw.length > 0
+        ) {
+          const slug = slugRaw
+          // Persist the current chatId under the new slug key so reload-restore
+          // hits the existing jsonl rather than minting a fresh chat.
+          _writeChatId(slug, useChat.getState().chatId)
+          useChat.setState({ loadedProjectId: slug, loadedUnboundChatId: null })
+          useProjects.getState().select(slug)
+          // Refresh the unbound roster — the now-promoted chat should drop
+          // out of it.
+          void useChat.getState().listUnbound()
+        }
+      }
     }
     if (t === 'mcp__emerge_tools__score') {
       void useEval.getState().refresh(projectId)

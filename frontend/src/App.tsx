@@ -9,7 +9,12 @@ import PanelToggle from './components/Shell/PanelToggle'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
-import { pathForSlug, readSlugFromPathname } from './lib/slugUrl'
+import {
+  pathForChatId,
+  pathForSlug,
+  readChatIdFromPathname,
+  readSlugFromPathname,
+} from './lib/slugUrl'
 
 const KEY_LEFT_CHAT    = 'emerge.panel.leftHidden.chat'
 const KEY_RIGHT_CHAT   = 'emerge.panel.rightHidden.chat'
@@ -45,38 +50,73 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
 export default function App() {
   const { activeFilename } = useReview()
   const { selectedSlug } = useProjects()
+  const loadedUnboundChatId = useChat(s => s.loadedUnboundChatId)
 
   // URL ↔ store sync.
   //
-  // The frontend has no router despite the `react-router-dom` dep — slug
-  // selection has always lived in the Zustand store, so the address bar was
-  // decorative-only. Reloading `/p/foo` would drop selection back to `null`
-  // and the composer would silently fall through to the `p_unset` empty-hero
-  // path: the backend would mint a fresh project on every "send" instead of
-  // honouring the URL. Linking and bookmarks were also dead.
+  // Three address shapes now coexist:
+  //   `/`             → empty hero, no project, no unbound chat
+  //   `/p/<slug>`     → project-bound conversation
+  //   `/c/<cid>`      → unbound conversation (lives under workspace/_chats/)
   //
-  // Three-way sync without pulling in a router:
-  //   (a) on mount: read `/p/{slug}` and hydrate the store
-  //   (b) on `selectedSlug` change: pushState (but skip the no-op write that
-  //       would dirty history with the same path)
-  //   (c) on browser back/forward (`popstate`): re-read the URL into the store
+  // The frontend has no router despite the `react-router-dom` dep — selection
+  // lives in two Zustand stores (`useProjects.selectedSlug`,
+  // `useChat.loadedUnboundChatId`) so the address bar stays decorative unless
+  // we keep it in lock-step here. The handler does three things:
+  //   (a) on mount: read the URL once and hydrate whichever store applies
+  //   (b) on `selectedSlug` / `loadedUnboundChatId` change: pushState
+  //   (c) on browser back/forward (`popstate`): re-read the URL into the
+  //       relevant store, clearing the other so we don't end up in an
+  //       inconsistent both-set / both-clear state.
   useEffect(() => {
-    const initial = readSlugFromPathname(window.location.pathname)
-    if (initial) useProjects.getState().select(initial)
-    const onPop = () => useProjects.getState().select(
-      readSlugFromPathname(window.location.pathname),
-    )
+    const path = window.location.pathname
+    const initialSlug = readSlugFromPathname(path)
+    const initialChatId = readChatIdFromPathname(path)
+    if (initialSlug) {
+      useProjects.getState().select(initialSlug)
+    } else if (initialChatId) {
+      useChat.getState().enterUnboundChat(initialChatId)
+    }
+    const onPop = () => {
+      const p = window.location.pathname
+      const slug = readSlugFromPathname(p)
+      const cid = readChatIdFromPathname(p)
+      if (slug) {
+        useProjects.getState().select(slug)
+      } else if (cid) {
+        useProjects.getState().select(null)
+        useChat.getState().enterUnboundChat(cid)
+      } else {
+        // Root: clear both selections so the empty hero renders. We have to
+        // null the unbound binding explicitly first — `deselect()` is
+        // unbound-aware and would otherwise preserve any active
+        // `loadedUnboundChatId`.
+        useChat.setState({ loadedUnboundChatId: null })
+        useProjects.getState().select(null)
+        useChat.getState().deselect()
+      }
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   useEffect(() => {
-    const target = pathForSlug(selectedSlug, window.location.search, window.location.hash)
+    // Project route wins when both stores claim a binding — `selectedSlug` is
+    // set by the promote-flow before the unbound id clears, so checking it
+    // first keeps the URL stable through the `/c/<cid>` → `/p/<slug>` swap.
+    let target: string
+    if (selectedSlug) {
+      target = pathForSlug(selectedSlug, window.location.search, window.location.hash)
+    } else if (loadedUnboundChatId) {
+      target = pathForChatId(loadedUnboundChatId, window.location.search, window.location.hash)
+    } else {
+      target = pathForSlug(null, window.location.search, window.location.hash)
+    }
     const current = window.location.pathname + window.location.search + window.location.hash
     if (target !== current) {
       window.history.pushState(null, '', target)
     }
-  }, [selectedSlug])
+  }, [selectedSlug, loadedUnboundChatId])
 
   const [leftHiddenChat,    setLeftHiddenChatState]    = useState<boolean>(() => readBool(KEY_LEFT_CHAT))
   const [rightHiddenChat,   setRightHiddenChatState]   = useState<boolean>(() => readBool(KEY_RIGHT_CHAT))
@@ -140,10 +180,28 @@ export default function App() {
         onToggleRight()
         return
       }
+      // Cmd/Ctrl+1..5 → jump to the Nth most-recent unbound conversation
+      // from the empty-hero strip. Active only at `/` (no slug, no unbound
+      // chat loaded yet) — otherwise the user is already inside a chat and
+      // the same shortcuts would be a surprise switch. Mirrors the strip's
+      // visible `⌘N` hints.
+      if (!e.shiftKey && !selectedSlug && !loadedUnboundChatId) {
+        const digit = e.code.startsWith('Digit') ? e.code.slice(5) : ''
+        const idx = digit ? parseInt(digit, 10) - 1 : -1
+        if (idx >= 0 && idx <= 4) {
+          const list = useChat.getState().chatsUnbound
+          const target = list[idx]
+          if (target) {
+            e.preventDefault()
+            useChat.getState().enterUnboundChat(target.chat_id)
+            return
+          }
+        }
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedSlug, onToggleLeft, onToggleRight])
+  }, [selectedSlug, loadedUnboundChatId, onToggleLeft, onToggleRight])
 
   return (
     <>

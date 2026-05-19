@@ -15,6 +15,12 @@ interface Props {
   onSwitch: (chatId: string) => void
   /** Called when the history popover transitions to open — parent refreshes the list. */
   onOpen?: () => void
+  /** Distinguishes which chat scope the popover is operating on:
+   *   - `'project'`   → chats inside the active project (existing behaviour)
+   *   - `'unbound'`   → other unbound conversations (no project bound)
+   *  Drives the one-word scope label inside the popover header. Defaults to
+   *  `'project'` so existing callers compile unchanged. */
+  scope?: 'project' | 'unbound'
 }
 
 export default function ConvHeader(props: Props) {
