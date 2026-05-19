@@ -58,16 +58,6 @@ _HTTP_EXEMPT: dict[str, str] = {
     # "issue an ask_user" route. CLI clients drive their own prompts; they
     # never need to invoke ask_user from the outside.
     "ask_user":             "ask_user is the request half; resolution via POST /lab/chats/{cid}/ask_user/{rid}",
-    # `switch_active_prompt` sets the pointer `project.json.active_prompt_id`
-    # to an existing prompt id. The nearest HTTP route, `PUT /lab/projects/
-    # {slug}/prompts/active`, *replaces the active prompt's content* (schema +
-    # global_notes) and takes no `prompt_id` arg, so it is semantically a
-    # different operation. Mapping the tool to the content-edit route would
-    # encode a misleading contract; the cleaner stance is to surface the gap
-    # explicitly here. Adding a real id-switch endpoint is a Phase B
-    # follow-up (mirrors `PUT .../models/active` shape). Mirror tool to add:
-    # `PUT /lab/projects/{slug}/prompts/active_id` with `{prompt_id: str}`.
-    "switch_active_prompt": "pointer-switch tool; current PUT prompts/active does content edit, not id flip — follow-up",
 }
 
 
@@ -98,7 +88,8 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Schema axes
     "derive_schema":      ("POST", r"^/lab/projects/\{slug\}/schema/derive$"),
     "write_schema":       ("POST", r"^/lab/projects/\{slug\}/schema$"),
-    "switch_active_model": ("PUT", r"^/lab/projects/\{slug\}/models/active$"),
+    "switch_active_model":  ("PUT",  r"^/lab/projects/\{slug\}/models/active$"),
+    "switch_active_prompt": ("POST", r"^/lab/projects/\{slug\}/prompts/\{prompt_id\}/activate$"),
     # Experiments
     "create_experiment":       ("POST", r"^/lab/projects/\{slug\}/experiments$"),
     "extract_with_experiment": ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),

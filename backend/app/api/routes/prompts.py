@@ -15,6 +15,7 @@ from app.tools.prompt import (
     list_prompts,
     read_active_prompt,
     read_prompt,
+    switch_active_prompt,
     write_prompt,
 )
 from app.workspace.migrate import migrate_project_if_needed
@@ -95,6 +96,29 @@ async def put_project_active_prompt(slug: str, body: _PutActivePromptBody) -> di
         raise HTTPException(
             status_code=400,
             detail={"error_code": "prompt_clear_refused", "error_message_en": str(exc)},
+        )
+    pv = await read_active_prompt(workspace, slug)
+    return pv.model_dump(mode="json", exclude_none=True)
+
+
+@router.post("/lab/projects/{slug}/prompts/{prompt_id}/activate")
+async def post_activate_project_prompt(slug: str, prompt_id: str) -> dict:
+    """Id-flip mirror of the ``switch_active_prompt`` tool.
+
+    The existing ``PUT .../prompts/active`` is a *content edit* (writes schema
+    + notes for whichever prompt is currently active). This route is the pure
+    pointer flip: set ``project.json.active_prompt_id`` to ``prompt_id`` and
+    return the newly-active ``PromptVersion`` blob. Idempotent — re-activating
+    the currently-active prompt is a no-op.
+    """
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        await switch_active_prompt(workspace, slug, prompt_id)
+    except PromptNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "prompt_not_found"},
         )
     pv = await read_active_prompt(workspace, slug)
     return pv.model_dump(mode="json", exclude_none=True)
