@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.docs import list_docs
-from app.tools.projects import delete_project, list_projects
+from app.tools.projects import create_project, delete_project, list_projects
 from app.tools.reviewed import list_reviewed
 from app.workspace.paths import predictions_draft_dir, project_dir, project_json_path
 
@@ -41,6 +41,42 @@ _VERSIONS_HIDDEN_NAMES = frozenset({"_candidate"})
 async def get_projects() -> list[dict]:
     settings = get_settings()
     return await list_projects(settings.workspace_root)
+
+
+class _CreateProjectBody(BaseModel):
+    """HTTP mirror of the `create_project` tool input. M11-T8 closes the
+    AI-native symmetry gap (memory `feedback_ai_native_api_symmetry`) so a
+    CLI agent driving HTTP can mint a project without going through chat."""
+
+    name: str
+    from_unbound_chat_id: str | None = None
+
+
+@router.post("/lab/projects")
+async def post_create_project(body: _CreateProjectBody) -> dict:
+    """Mint a new project. Returns `{slug, project_id, name}` — same handles
+    the `create_project` tool returns, plus `name` echoed back for clients
+    that did not retain the request body. Slug is derived from `name` server-
+    side (see `derive_slug`); callers who need a specific handle should call
+    `PATCH /lab/projects/{slug}` to rename after creation."""
+    cleaned = body.name.strip()
+    if not cleaned:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_name", "error_message_en": "name must be non-empty"},
+        )
+    if len(cleaned) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_name", "error_message_en": "name too long (>200 chars)"},
+        )
+    settings = get_settings()
+    out = await create_project(
+        settings.workspace_root,
+        name=cleaned,
+        from_unbound_chat_id=body.from_unbound_chat_id or None,
+    )
+    return {"slug": out["slug"], "project_id": out["project_id"], "name": cleaned}
 
 
 class _ForkProjectBody(BaseModel):

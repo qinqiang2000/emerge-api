@@ -3,17 +3,18 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.routes._safety import safe_job_id, safe_slug
 from app.config import get_settings
 from app.schemas.reviewed import NoteConsumption, ReviewedSource
 from app.schemas.schema_field import SchemaField
 from app.tools.reviewed import get_reviewed, save_reviewed
-from app.tools.schema import StructuralChangeError, write_schema
+from app.tools.schema import StructuralChangeError, derive_schema, write_schema
 from app.workspace.paths import candidate_turn_path, parse_version_id, project_json_path, version_path
 
 
@@ -175,6 +176,121 @@ async def _mark_notes_consumed(
             )
             continue
     return consumed_summary
+
+
+class _WriteSchemaBody(BaseModel):
+    """HTTP mirror of the `write_schema` tool input.
+
+    `schema` is a list of SchemaField-shaped dicts; we revalidate via the
+    pydantic model so bad shapes 400 with a useful error before the tool
+    function ever sees them. `reason` is currently audit-only (the tool
+    accepts it for signature compat); `allow_structural` and `global_notes`
+    follow the tool's semantics exactly."""
+
+    fields: list[dict[str, Any]] = Field(alias="schema")
+    reason: str
+    allow_structural: bool = False
+    global_notes: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+@router.post("/lab/projects/{slug}/schema")
+async def post_write_schema(slug: str, body: _WriteSchemaBody) -> dict:
+    """Replace the active prompt's schema (and optionally `global_notes`).
+    Mirrors the `write_schema` tool surface so a CLI agent can call this
+    over HTTP without going through chat (M11-T8). Returns `{ok: true}`;
+    structural changes require `allow_structural=true` (the tool's
+    `StructuralChangeError` gate is preserved).
+
+    The body uses `schema` as the field key on the wire to keep the contract
+    aligned with the tool; the pydantic model aliases it to `fields`
+    internally so it doesn't shadow `BaseModel.schema`."""
+    safe_slug(slug)
+    settings = get_settings()
+    try:
+        fields = [SchemaField(**f) for f in body.fields]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "invalid_schema",
+                "error_message_en": str(exc),
+            },
+        )
+
+    pj = project_json_path(settings.workspace_root, slug)
+    if not pj.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+
+    try:
+        await write_schema(
+            settings.workspace_root,
+            slug,
+            fields,
+            reason=body.reason,
+            allow_structural=body.allow_structural,
+            global_notes=body.global_notes,
+        )
+    except StructuralChangeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "structural_change_blocked",
+                "error_message_en": str(exc),
+            },
+        )
+    return {"ok": True}
+
+
+class _DeriveSchemaBody(BaseModel):
+    """HTTP mirror of the `derive_schema` tool input.
+
+    `sample_filenames` and `intent` map 1:1 to the tool's required args.
+    The provider/model are resolved from the project's active model — same
+    as the tool wrapper — so callers don't need to pass them."""
+
+    sample_filenames: list[str]
+    intent: str
+
+
+@router.post("/lab/projects/{slug}/schema/derive")
+async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
+    """Propose a schema from sample documents + user intent. Returns
+    `{fields: [SchemaField, ...]}`. Does NOT persist — caller decides whether
+    to follow up with `POST /lab/projects/{slug}/schema` to write. Mirrors
+    the `derive_schema` tool (M11-T8); provider + model are picked off the
+    project's active model exactly the way the tool wrapper does."""
+    safe_slug(slug)
+    settings = get_settings()
+    pj = project_json_path(settings.workspace_root, slug)
+    if not pj.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+
+    from app.provider import get_provider_for_model
+    from app.tools import model as model_mod
+
+    mc = await model_mod.read_active_model(settings.workspace_root, slug)
+    mid = mc.provider_model_id
+    prj_provider = get_provider_for_model(mid, provider=mc.provider)
+    fields = await derive_schema(
+        settings.workspace_root,
+        slug,
+        sample_filenames=body.sample_filenames,
+        intent=body.intent,
+        provider=prj_provider,
+        model_id=mid,
+    )
+    return {
+        "fields": [f.model_dump(mode="json", exclude_none=True) for f in fields],
+        "fields_proposed": len(fields),
+    }
 
 
 @router.get("/lab/projects/{slug}/schema/raw", response_class=PlainTextResponse)
