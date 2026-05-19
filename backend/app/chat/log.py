@@ -6,10 +6,24 @@ from pathlib import Path
 from typing import Any
 
 from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import chat_meta_path, chats_dir
+from app.workspace.paths import chat_meta_path, chats_dir, project_json_path
 
 
 _log_lock = asyncio.Lock()
+
+
+def _project_alive(workspace: Path, slug: str) -> bool:
+    """True iff the project's `project.json` is still on disk.
+
+    Used as a tombstone check before any write into `workspace/<slug>/chats/`.
+    Why: when the agent deletes its own project mid-turn (e.g. `Bash rm -rf
+    <project_dir>` or `delete_project`), the SDK still emits a trailing
+    `agent_text` summarizing the deletion. Without this gate, `append_event`'s
+    `mkdir(parents=True)` would resurrect `chats/` as a half-zombie folder —
+    enough to confuse pid_index + sidebar even though `list_projects` filters
+    it out. Tombstoning on `project.json` (not the project dir itself) catches
+    half-deleted state too."""
+    return project_json_path(workspace, slug).exists()
 
 
 async def append_event(
@@ -18,6 +32,8 @@ async def append_event(
     chat_id: str,
     event: dict[str, Any],
 ) -> None:
+    if not _project_alive(workspace, slug):
+        return
     cdir = chats_dir(workspace, slug)
     cdir.mkdir(parents=True, exist_ok=True)
     log_path = cdir / f"{chat_id}.jsonl"
@@ -185,6 +201,8 @@ def read_chat_meta(workspace: Path, slug: str, chat_id: str) -> dict[str, Any]:
 
 
 def _write_chat_meta(workspace: Path, slug: str, chat_id: str, data: dict[str, Any]) -> None:
+    if not _project_alive(workspace, slug):
+        return
     chats_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
     atomic_write_json(chat_meta_path(workspace, slug, chat_id), data)
 

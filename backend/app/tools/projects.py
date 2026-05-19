@@ -321,21 +321,20 @@ async def list_projects(workspace: Path) -> list[dict[str, Any]]:
             continue
         await migrate_project_if_needed(workspace, child.name)
         blob = json.loads(pj.read_text())
-        # Folder name is the source of truth for slug. project.json.slug may
-        # be missing on legacy folders (pre-rewrite) — fall back so list never
-        # crashes mid-migration.
+        # Folder name is the source of truth for slug. project.json.slug can
+        # drift when callers rename via `Bash mv` instead of `rename_project`
+        # (the tool keeps both in sync; bare mv only touches the directory),
+        # so we ignore whatever `blob["slug"]` says and force the folder name.
+        # Without this, the lab UI shows a stale handle and the agent's next
+        # rm/cp targets a path that no longer exists. Order matters: `**blob`
+        # must come BEFORE the explicit overrides so they actually win.
         slug = child.name
         item: dict[str, Any] = {
-            "slug": slug,
-            "status": _project_status(child, blob),
             **blob,
+            "slug": slug,
+            "project_id": blob.get("project_id") or slug,
+            "status": _project_status(child, blob),
         }
-        # Back-compat: older code paths still key off `project_id`. The blob
-        # already contains it post-rewrite; for legacy folders missing the
-        # field we surface the folder name as a fallback so the response
-        # shape stays stable for callers mid-migration.
-        item.setdefault("project_id", blob.get("project_id") or slug)
-        item.setdefault("slug", slug)
         out.append(item)
     return out
 
@@ -346,3 +345,52 @@ async def update_project(workspace: Path, slug: str, patch: dict[str, Any]) -> N
         blob = json.loads(pj.read_text())
         blob.update(patch)
         atomic_write_json(pj, blob)
+
+
+async def delete_project(workspace: Path, slug: str) -> dict[str, str]:
+    """Permanently delete a whole project: `rmtree` its directory and drop the
+    `pid` from the in-memory index. Raises `FileNotFoundError` if the slug does
+    not exist (idempotency is the caller's job; misspellings should surface).
+
+    Why a tool, not just `Bash rm -rf`: chat persistence lives at
+    `workspace/<slug>/chats/`, and `append_event` will resurrect a half-zombie
+    `chats/` if a trailing SDK message lands after the agent ran `rm -rf`. The
+    log writer has a tombstone gate (`project.json` must exist), so the order
+    here is precise: bury `project.json` *first*, then `rmtree` the parent.
+    Even if the chat keeps streaming, no zombie folder appears.
+
+    Returns `{deleted_slug, deleted_pid}`. After this call the slug is free for
+    reuse; the frontend should redirect off the deleted project (the SSE
+    `project_renamed` mechanism doesn't fit — there's no destination)."""
+    import shutil
+
+    from app.workspace.migrate import migrate_project_if_needed
+
+    await migrate_project_if_needed(workspace, slug)
+    pj = project_json_path(workspace, slug)
+    if not pj.exists():
+        raise FileNotFoundError(f"project not found: {slug}")
+
+    # Snapshot pid before we unlink project.json so we can drop it from the
+    # index after rmtree (the file's gone by the time we'd want to read it).
+    try:
+        pid = json.loads(pj.read_text()).get("project_id")
+    except (OSError, json.JSONDecodeError):
+        pid = None
+
+    async with project_lock(workspace, slug):
+        # Tombstone first: unlink project.json so the chat log's
+        # `_project_alive` gate trips on any in-flight `append_event` from this
+        # same turn before we wipe the rest of the tree. This is the critical
+        # ordering — see the function docstring.
+        try:
+            pj.unlink()
+        except FileNotFoundError:
+            # Lost a race to another deleter; the rmtree below is still safe.
+            pass
+        shutil.rmtree(project_dir(workspace, slug), ignore_errors=True)
+
+    if isinstance(pid, str) and pid:
+        get_index(workspace).unregister(pid)
+
+    return {"deleted_slug": slug, "deleted_pid": pid or ""}

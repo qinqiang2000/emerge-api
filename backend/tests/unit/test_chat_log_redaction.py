@@ -13,6 +13,12 @@ async def test_issue_api_key_tool_result_redacted_in_jsonl(tmp_path: Path) -> No
 
     pid = "p_aaaaaaaaaaaa"
     cid = "c_test"
+    # The chat-log writer gates on project.json existence (tombstone for
+    # mid-turn project deletion). Materialize a stub so this redaction test
+    # — which only cares about scrubbing, not project lifecycle — can persist.
+    pdir = tmp_path / pid
+    pdir.mkdir(parents=True, exist_ok=True)
+    (pdir / "project.json").write_text(json.dumps({"project_id": pid, "slug": pid}))
     redactor = EventRedactor()
 
     parent = {

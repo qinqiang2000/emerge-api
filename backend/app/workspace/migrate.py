@@ -46,6 +46,8 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
               (only when prompts/ does not exist)
       - M9.4: rename experiments/{eid}/extracts/ -> experiments/{eid}/predictions/
               (only when the legacy extracts/ dir is present)
+      - slug-resync: project.json.slug realigned to folder name when they
+              diverge (caller used `Bash mv` instead of `rename_project`).
     """
     pdir = project_dir(workspace, project_id)
     if not pdir.exists():
@@ -53,6 +55,36 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
 
     await _migrate_to_m91(workspace, project_id, pdir)
     await _migrate_experiment_predictions(workspace, project_id, pdir)
+    await _resync_slug(workspace, project_id)
+
+
+async def _resync_slug(workspace: Path, slug: str) -> None:
+    """Heal stale `project.json.slug` when the folder was renamed via bare
+    `Bash mv`. The folder name is the URL handle and the source of truth;
+    `slug` inside the blob is just a denormalized echo that the rest of the
+    code (chats, jobs, public API) doesn't read off, but agents *do* see it
+    on `Read project.json` and then chase a path that no longer exists.
+
+    Idempotent — only writes when there's an actual mismatch."""
+    pj = project_json_path(workspace, slug)
+    if not pj.exists():
+        return
+    try:
+        blob = json.loads(pj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if blob.get("slug") == slug:
+        return
+    async with project_lock(workspace, slug):
+        # Re-read under lock — another worker may have just fixed it.
+        try:
+            blob = json.loads(pj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if blob.get("slug") == slug:
+            return
+        blob["slug"] = slug
+        atomic_write_json(pj, blob)
 
 
 async def _migrate_to_m91(workspace: Path, project_id: str, pdir: Path) -> None:

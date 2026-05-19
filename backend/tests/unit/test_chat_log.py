@@ -47,41 +47,66 @@ def test_read_chat_events_missing_file(workspace: Path) -> None:
     assert read_chat_events(workspace, "p_nope", "c_nope") == []
 
 
-def test_read_chat_events_skips_partial_trailing_line(workspace: Path) -> None:
-    cdir = chats_dir(workspace, "p_x")
-    cdir.mkdir(parents=True)
+async def test_read_chat_events_skips_partial_trailing_line(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    cdir = chats_dir(workspace, pid)
+    cdir.mkdir(parents=True, exist_ok=True)
     (cdir / "c_x.jsonl").write_text('{"type": "user", "text": "hi"}\n{"type": "agen')
-    assert read_chat_events(workspace, "p_x", "c_x") == [{"type": "user", "text": "hi"}]
+    assert read_chat_events(workspace, pid, "c_x") == [{"type": "user", "text": "hi"}]
 
 
-def test_read_chat_events_unreadable_log_degrades_to_empty(workspace: Path) -> None:
+async def test_read_chat_events_unreadable_log_degrades_to_empty(workspace: Path) -> None:
     # A path that exists but can't be opened as a file (here: a directory) must
     # degrade to [] rather than bubbling an OSError out of GET /lab/chats/...
-    cdir = chats_dir(workspace, "p_x")
+    pid = (await create_project(workspace, name="x"))["slug"]
+    cdir = chats_dir(workspace, pid)
+    cdir.mkdir(parents=True, exist_ok=True)
     (cdir / "c_x.jsonl").mkdir(parents=True)
-    assert read_chat_events(workspace, "p_x", "c_x") == []
+    assert read_chat_events(workspace, pid, "c_x") == []
 
 
-def test_session_id_sidecar_roundtrip(workspace: Path) -> None:
-    assert read_chat_session_id(workspace, "p_x", "c_x") is None
-    write_chat_session_id(workspace, "p_x", "c_x", "sess-1")
-    assert chat_meta_path(workspace, "p_x", "c_x").exists()
-    assert read_chat_session_id(workspace, "p_x", "c_x") == "sess-1"
+async def test_session_id_sidecar_roundtrip(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    assert read_chat_session_id(workspace, pid, "c_x") is None
+    write_chat_session_id(workspace, pid, "c_x", "sess-1")
+    assert chat_meta_path(workspace, pid, "c_x").exists()
+    assert read_chat_session_id(workspace, pid, "c_x") == "sess-1"
     # None clears it.
-    write_chat_session_id(workspace, "p_x", "c_x", None)
-    assert not chat_meta_path(workspace, "p_x", "c_x").exists()
-    assert read_chat_session_id(workspace, "p_x", "c_x") is None
+    write_chat_session_id(workspace, pid, "c_x", None)
+    assert not chat_meta_path(workspace, pid, "c_x").exists()
+    assert read_chat_session_id(workspace, pid, "c_x") is None
     # Clearing an already-absent sidecar is a no-op.
-    write_chat_session_id(workspace, "p_x", "c_x", None)
+    write_chat_session_id(workspace, pid, "c_x", None)
 
 
-def test_read_chat_session_id_bad_json(workspace: Path) -> None:
-    cdir = chats_dir(workspace, "p_x")
-    cdir.mkdir(parents=True)
-    chat_meta_path(workspace, "p_x", "c_x").write_text("{not json")
-    assert read_chat_session_id(workspace, "p_x", "c_x") is None
-    chat_meta_path(workspace, "p_x", "c_x").write_text('{"other_key": 1}')
-    assert read_chat_session_id(workspace, "p_x", "c_x") is None
+async def test_read_chat_session_id_bad_json(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    cdir = chats_dir(workspace, pid)
+    cdir.mkdir(parents=True, exist_ok=True)
+    chat_meta_path(workspace, pid, "c_x").write_text("{not json")
+    assert read_chat_session_id(workspace, pid, "c_x") is None
+    chat_meta_path(workspace, pid, "c_x").write_text('{"other_key": 1}')
+    assert read_chat_session_id(workspace, pid, "c_x") is None
+
+
+async def test_append_event_after_project_delete_is_no_op(workspace: Path) -> None:
+    """Defensive: when the project dir is gone mid-turn (agent rm-rf'd or
+    used delete_project), trailing SDK events (e.g. the `agent_text` that
+    summarizes the deletion) must NOT resurrect `chats/` as a half-zombie
+    folder. The chat log write should silently drop instead."""
+    import shutil
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    cid = "c_test"
+    await append_event(workspace, pid, cid, {"type": "user", "text": "delete it"})
+    # Simulate the agent deleting its own project mid-turn.
+    shutil.rmtree(workspace / pid)
+    # Trailing agent_text after the delete — must be dropped.
+    await append_event(workspace, pid, cid, {"type": "agent_text", "text": "已删除"})
+    # Sidecar writes (session id, ensure_chat_meta) must also be dropped.
+    write_chat_session_id(workspace, pid, cid, "sess-x")
+    assert not (workspace / pid).exists()
+    assert not chat_meta_path(workspace, pid, cid).exists()
 
 
 async def test_rewind_to_last_user_truncates_and_clears_sidecar(workspace: Path) -> None:

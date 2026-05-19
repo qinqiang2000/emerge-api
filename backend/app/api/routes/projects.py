@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.docs import list_docs
-from app.tools.projects import list_projects
+from app.tools.projects import delete_project, list_projects
 from app.tools.reviewed import list_reviewed
 from app.workspace.paths import predictions_draft_dir, project_dir, project_json_path
 
@@ -89,9 +89,28 @@ async def get_project(slug: str) -> dict:
         raise HTTPException(status_code=404, detail="project_not_found")
     await migrate_project_if_needed(settings.workspace_root, slug)
     blob = json.loads(pj.read_text())
-    # `project_id` field in response is the slug (back-compat key); the
-    # actual pid lives inside `blob["project_id"]`.
-    return {"project_id": slug, **blob, "slug": slug}
+    # Folder name (the URL slug) is the source of truth — see `list_projects`
+    # for the rationale. `blob["slug"]` can drift when callers rename via bare
+    # `Bash mv` (which doesn't update project.json); the URL we resolved off
+    # is correct by definition, so it wins. `project_id` keeps the immutable
+    # pid from the blob (the FE `Project` shape expects `p_xxx`).
+    return {**blob, "slug": slug}
+
+
+@router.delete("/lab/projects/{slug}")
+async def delete_project_route(slug: str) -> dict:
+    """Permanently delete a whole project. Dual of the `delete_project` MCP
+    tool — same semantics, same tombstone-then-rmtree ordering. Returns
+    `{deleted_slug, deleted_pid}`. 404 if the slug doesn't exist."""
+    safe_slug(slug)
+    settings = get_settings()
+    try:
+        return await delete_project(settings.workspace_root, slug)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
 
 
 @router.get("/lab/projects/{slug}/docs")

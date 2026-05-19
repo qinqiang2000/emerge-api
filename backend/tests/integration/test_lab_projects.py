@@ -35,6 +35,24 @@ def test_get_unknown_project_404() -> None:
     assert r.status_code == 404
 
 
+async def test_delete_project_route_removes_dir(workspace: Path) -> None:
+    out = await create_project(workspace, name="trash-me")
+    slug = out["slug"]
+    pid = out["project_id"]
+    client = TestClient(app)
+    r = client.delete(f"/lab/projects/{slug}")
+    assert r.status_code == 200
+    assert r.json() == {"deleted_slug": slug, "deleted_pid": pid}
+    assert not (workspace / slug).exists()
+
+
+def test_delete_unknown_project_404() -> None:
+    client = TestClient(app)
+    r = client.delete("/lab/projects/p_doesnotexist")
+    assert r.status_code == 404
+    assert r.json()["detail"]["error_code"] == "project_not_found"
+
+
 async def test_get_project_docs_with_status(workspace: Path) -> None:
     from app.tools.docs import upload_doc
     from app.tools.reviewed import save_reviewed

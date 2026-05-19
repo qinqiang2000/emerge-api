@@ -5,10 +5,12 @@ import pytest
 
 from app.tools.projects import (
     create_project,
+    delete_project,
     list_projects,
     rename_project,
     update_project,
 )
+from app.workspace.pid_index import get_index
 
 
 async def test_create_project_writes_project_json(workspace: Path) -> None:
@@ -112,3 +114,84 @@ async def test_rename_project_rejects_empty(workspace: Path) -> None:
 async def test_rename_project_missing_slug_raises(workspace: Path) -> None:
     with pytest.raises(FileNotFoundError):
         await rename_project(workspace, "doesnotexist", name="x")
+
+
+async def test_delete_project_removes_dir_and_unregisters_pid(workspace: Path) -> None:
+    out = await create_project(workspace, name="trash-me")
+    slug = out["slug"]
+    pid = out["project_id"]
+    assert (workspace / slug).is_dir()
+    assert get_index(workspace).resolve_pid(pid) == slug
+
+    res = await delete_project(workspace, slug)
+
+    assert res == {"deleted_slug": slug, "deleted_pid": pid}
+    assert not (workspace / slug).exists()
+    assert get_index(workspace).resolve_pid(pid) is None
+    # Slug is free for reuse.
+    re_out = await create_project(workspace, name="trash-me")
+    assert re_out["slug"] == slug
+
+
+async def test_delete_project_missing_slug_raises(workspace: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        await delete_project(workspace, "doesnotexist")
+
+
+async def test_list_projects_uses_folder_name_when_blob_slug_drifted(workspace: Path) -> None:
+    """`Bash mv old new` (the SDK rename path the skill documents) renames the
+    folder but doesn't touch `project.json.slug`. Folder name is the URL
+    handle and the source of truth — the lab UI / agent must see the
+    folder name, not the stale blob field. Regression: a prior `**blob`
+    spread order leaked the stale slug back out of `list_projects`."""
+    import os
+
+    out = await create_project(workspace, name="old-name")
+    old_slug = out["slug"]
+    new_slug = "new-name"
+    os.rename(workspace / old_slug, workspace / new_slug)
+    # Blob still says slug=old_slug — that's the divergence we're guarding.
+
+    items = await list_projects(workspace)
+    assert len(items) == 1
+    assert items[0]["slug"] == new_slug
+    # `project_id` (the pid) is preserved from the blob.
+    assert items[0]["project_id"] == out["project_id"]
+
+
+async def test_list_projects_resyncs_blob_slug_on_read(workspace: Path) -> None:
+    """Beyond surfacing the folder name through the list response, the lazy
+    migration should heal the underlying `project.json.slug` so agents that
+    `Read project.json` see a consistent view next turn."""
+    import json as _json
+    import os
+
+    out = await create_project(workspace, name="old")
+    old_slug = out["slug"]
+    new_slug = "renamed"
+    os.rename(workspace / old_slug, workspace / new_slug)
+
+    # The blob is stale right after the bare mv.
+    assert _json.loads((workspace / new_slug / "project.json").read_text())["slug"] == old_slug
+
+    await list_projects(workspace)
+
+    # Read entry-point ran the lazy migration → blob now matches the folder.
+    assert _json.loads((workspace / new_slug / "project.json").read_text())["slug"] == new_slug
+
+
+async def test_delete_project_tombstones_before_rmtree(workspace: Path) -> None:
+    """Critical ordering: project.json must be unlinked *before* the parent
+    rmtree, so any in-flight chat-log write (which gates on project.json
+    presence) trips its tombstone check rather than resurrecting `chats/`.
+
+    We can't observe the in-between state from a single-threaded test, so we
+    end-to-end check the gate's contract: appending after delete is a no-op.
+    """
+    from app.chat.log import append_event
+
+    out = await create_project(workspace, name="x")
+    slug = out["slug"]
+    await delete_project(workspace, slug)
+    await append_event(workspace, slug, "c_trail", {"type": "agent_text", "text": "hi"})
+    assert not (workspace / slug).exists()

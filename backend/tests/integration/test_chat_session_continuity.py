@@ -21,6 +21,21 @@ PID = "p_abc123def456"
 CID = "c_abc123def456"
 
 
+@pytest.fixture
+def project_skel(workspace: Path) -> Path:
+    """Materialize a minimal `project.json` at PID so chat-log writes (which
+    tombstone-gate on project.json existence) actually persist. Real chat
+    turns always run inside an already-minted project; tests that hand-craft
+    a slug must do the same."""
+    pdir = workspace / PID
+    pdir.mkdir(parents=True, exist_ok=True)
+    (pdir / "project.json").write_text(
+        json.dumps({"project_id": PID, "slug": PID, "name": "test"}),
+        encoding="utf-8",
+    )
+    return pdir
+
+
 class _FakeClient:
     """Async-context-manager stand-in for ClaudeSDKClient.
 
@@ -71,7 +86,7 @@ def _reset_fakes() -> None:
     _FAKE_MESSAGES.clear()
 
 
-async def test_first_turn_persists_session_id(workspace: Path) -> None:
+async def test_first_turn_persists_session_id(workspace: Path, project_skel: Path) -> None:
     _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
@@ -86,7 +101,7 @@ async def test_first_turn_persists_session_id(workspace: Path) -> None:
     assert read_chat_session_id(workspace, PID, CID) == "sess-abc"
 
 
-async def test_second_turn_resumes_prior_session(workspace: Path) -> None:
+async def test_second_turn_resumes_prior_session(workspace: Path, project_skel: Path) -> None:
     _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
@@ -97,7 +112,7 @@ async def test_second_turn_resumes_prior_session(workspace: Path) -> None:
     assert _FakeClient.instances[0].resume == "sess-abc"
 
 
-async def test_self_heal_on_dead_resume(workspace: Path) -> None:
+async def test_self_heal_on_dead_resume(workspace: Path, project_skel: Path) -> None:
     # Seed a stale sidecar pointing at a transcript that no longer exists.
     from app.chat.log import write_chat_session_id
 
@@ -123,7 +138,7 @@ async def test_self_heal_on_dead_resume(workspace: Path) -> None:
     assert not any("event: error" in c or '"error_code"' in c for c in chunks)
 
 
-async def test_no_retry_when_no_prior_session(workspace: Path) -> None:
+async def test_no_retry_when_no_prior_session(workspace: Path, project_skel: Path) -> None:
     constructed: list[Any] = []
 
     class _BoomClient(_FakeClient):
@@ -146,7 +161,7 @@ async def test_no_retry_when_no_prior_session(workspace: Path) -> None:
     assert "sdk_session_id" not in json.loads(meta.read_text())
 
 
-async def test_no_retry_on_mid_stream_failure_of_resumed_turn(workspace: Path) -> None:
+async def test_no_retry_on_mid_stream_failure_of_resumed_turn(workspace: Path, project_skel: Path) -> None:
     """A resumed turn that fails *after* yielding an event must not retry, and the
     (valid) sidecar must be left intact — re-streaming would duplicate events."""
     from app.chat.log import write_chat_session_id
@@ -188,7 +203,7 @@ def test_chat_history_endpoint_bad_ids(workspace: Path) -> None:
     assert resp.status_code == 400
 
 
-def test_chat_history_endpoint(workspace: Path) -> None:
+def test_chat_history_endpoint(workspace: Path, project_skel: Path) -> None:
     import asyncio
 
     async def _seed() -> None:
