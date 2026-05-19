@@ -34,6 +34,7 @@ html, body, #root {
 .hist-pop .h-row{display:flex;align-items:baseline;gap:8px;padding:6px 8px;border-radius:5px;border:1px solid transparent;cursor:default}
 .hist-pop .h-row:hover{background:var(--paper-2)}
 .hist-pop .h-row.active{background:var(--ochre-soft);border-color:transparent}
+.hist-pop .h-row.focused{background:var(--paper-3);border-color:var(--rule-soft)}
 .hist-pop .h-row .kind{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;width:54px}
 .hist-pop .h-row.active .kind{color:var(--ochre-2)}
 .hist-pop .h-row .lbl{font-family:var(--serif);font-size:13px;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.005em}

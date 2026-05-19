@@ -34,6 +34,7 @@ const IS_MAC =
       navigator.userAgent,
   )
 const NEW_CHAT_SHORTCUT = IS_MAC ? '⌘⇧O' : 'Ctrl+Shift+O'
+const HISTORY_SHORTCUT = IS_MAC ? '⌘⇧H' : 'Ctrl+Shift+H'
 
 /** Custom DOM event name that opens the (full-variant) popover from anywhere.
  *  Used by the empty-hero "See all" link so the popover surfaces without
@@ -91,6 +92,7 @@ export default function ChatHistoryActions({
   scope = 'project',
 }: Props) {
   const [open, setOpen] = useState(false)
+  const [activeIdx, setActiveIdx] = useState(-1)
 
   function toggleOpen() {
     setOpen(o => {
@@ -100,6 +102,23 @@ export default function ChatHistoryActions({
     })
   }
 
+  // Cmd/Ctrl+Shift+H → toggle history popover (always-on)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyH') {
+        e.preventDefault()
+        setOpen(o => {
+          const next = !o
+          if (next) onOpen?.()
+          return next
+        })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onOpen])
+
+  // Click-outside + Escape to close
   useEffect(() => {
     if (!open) return
     function onClick(e: MouseEvent) {
@@ -139,6 +158,28 @@ export default function ChatHistoryActions({
     return () => window.removeEventListener(OPEN_POPOVER_EVENT, handler)
   }, [variant, onOpen])
 
+  // ↑/↓/Enter keyboard navigation inside the popover
+  useEffect(() => {
+    if (!open || chats.length === 0) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveIdx(i => Math.min(i + 1, chats.length - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveIdx(i => Math.max(i - 1, 0))
+      } else if (e.key === 'Enter' && activeIdx >= 0 && chats[activeIdx]) {
+        e.preventDefault()
+        onSwitch(chats[activeIdx].chat_id)
+        setOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, chats, activeIdx, onSwitch])
+
+  // Reset keyboard cursor when popover closes or project changes
+  useEffect(() => { if (!open) setActiveIdx(-1) }, [open])
   useEffect(() => { setOpen(false) }, [activeProject])
 
   const compact = variant === 'compact'
@@ -165,10 +206,10 @@ export default function ChatHistoryActions({
         <div className="h-empty">{emptyHint}</div>
       ) : (
         <div className="h-list">
-          {chats.map(c => (
+          {chats.map((c, idx) => (
             <div
               key={c.chat_id}
-              className={'h-row ' + (c.chat_id === currentChatId ? 'active' : '')}
+              className={['h-row', c.chat_id === currentChatId ? 'active' : '', idx === activeIdx ? 'focused' : ''].filter(Boolean).join(' ')}
               onClick={() => { onSwitch(c.chat_id); setOpen(false) }}
             >
               <span className="kind">{c.kind}</span>
@@ -194,7 +235,7 @@ export default function ChatHistoryActions({
             <circle cx="8" cy="8" r="5.5" />
             <polyline points="8,4.5 8,8 10.5,9.5" />
           </svg>
-          {!compact && <span className="tip">Chat history</span>}
+          {!compact && <span className="tip">Chat history <span className="kbd">{HISTORY_SHORTCUT}</span></span>}
         </button>
         <button
           type="button"

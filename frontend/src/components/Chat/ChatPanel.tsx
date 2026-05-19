@@ -113,6 +113,74 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
   const fieldCount = useSchema(s => (s.byProject[selectedSlug ?? ''] ?? []).length)
   const [pending, setPending] = useState<AttachInfo[]>([])
   const convScrollRef = useRef<HTMLDivElement>(null)
+  // Stick-to-bottom: auto-follow streaming agent output, but back off when the
+  // user has scrolled up to read history / copy a tool result. We track stick
+  // state in a ref (not state) so the scroll handler doesn't re-render on
+  // every wheel tick. Threshold is generous — small layout jiggles (tool
+  // cards expanding, code blocks rendering) shouldn't break stick mode.
+  const STICK_THRESHOLD_PX = 120
+  const stickRef = useRef(true)
+
+  // `hasContent` flips `.conv-scroll` (and `.conv-inner`) into the tree —
+  // the scroll handler + ResizeObserver have to (re)attach when that happens,
+  // not just at first mount.
+  const hasContent = events.length > 0 || docCount > 0 || fieldCount > 0
+
+  useEffect(() => {
+    if (!hasContent) return
+    const el = convScrollRef.current
+    if (!el) return
+    const onScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      stickRef.current = distFromBottom < STICK_THRESHOLD_PX
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    const inner = el.querySelector('.conv-inner') as HTMLElement | null
+
+    // Catch in-place content growth — streaming text deltas mutate existing
+    // nodes rather than bumping events.length, and a ResizeObserver on the
+    // inner is the cheapest way to spot them. MutationObserver covers the
+    // case where a tool result lazily attaches a tall child node.
+    let ro: ResizeObserver | null = null
+    let mo: MutationObserver | null = null
+    const follow = () => {
+      if (stickRef.current) el.scrollTop = el.scrollHeight
+    }
+    if (inner) {
+      ro = new ResizeObserver(follow)
+      ro.observe(inner)
+      mo = new MutationObserver(follow)
+      mo.observe(inner, { subtree: true, childList: true, characterData: true })
+    }
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      ro?.disconnect()
+      mo?.disconnect()
+    }
+  }, [hasContent])
+
+  // Discrete events (new turn, tool_call, busy flip) — pin to bottom on the
+  // next frame so we read scrollHeight after React has committed the new
+  // node. Streaming token-by-token deltas don't bump events.length; the
+  // ResizeObserver above catches those.
+  useEffect(() => {
+    const el = convScrollRef.current
+    if (!el || !stickRef.current) return
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [events.length, busy])
+
+  // Switching project or chat: reset stick mode and pin to bottom so the
+  // newly-loaded conversation opens at the latest message, not wherever the
+  // previous one was scrolled to.
+  useEffect(() => {
+    const el = convScrollRef.current
+    if (!el) return
+    stickRef.current = true
+    el.scrollTop = el.scrollHeight
+  }, [selectedSlug, chatId])
 
   // Find any running improve job to show the banner.
   const byId = useJob(useShallow(s => s.byId))
@@ -134,8 +202,6 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
       if (el) el.scrollTop = el.scrollHeight
     }
   }
-
-  const hasContent = events.length > 0 || docCount > 0 || fieldCount > 0
 
   const projectName = projects.find(p => p.slug === selectedSlug)?.name ?? ''
 
