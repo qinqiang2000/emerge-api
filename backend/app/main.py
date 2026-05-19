@@ -41,6 +41,7 @@ app.add_middleware(
 )
 
 from app.api.routes import chat as chat_route
+from app.api.routes import turns as turns_route
 
 if os.getenv("EMERGE_TEST_MODE") == "1":
     # Register stub POST /lab/chat *before* the real router. FastAPI matches in
@@ -49,6 +50,15 @@ if os.getenv("EMERGE_TEST_MODE") == "1":
     # GET /lab/chats/{pid}/{cid} — those read the filesystem and are safe.
     from app.api.routes import _test_stubs
     app.include_router(_test_stubs.router)
+# M11 Phase A: turn-as-resource routes MUST be registered before
+# ``chat_route``. FastAPI matches handlers in include order; the legacy
+# ``GET /lab/chats/{slug}/{chat_id}`` route in chat.py is a two-segment
+# pattern that would otherwise eat ``GET /lab/chats/{cid}/turn_state``
+# (with ``slug=<cid>``, ``chat_id='turn_state'``) and bounce it through
+# ``safe_chat_id`` as a 400. Same risk for ``POST /lab/chats/{cid}/turns``
+# vs ``POST /lab/chats/{chat_id}/turn`` (singular) in chat.py — pinning
+# the turns router first means our specific patterns win.
+app.include_router(turns_route.router)
 app.include_router(chat_route.router)
 
 app.include_router(upload_route.router)
