@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 
 import {
-  createUnboundChat,
   getChatEvents,
   getChatList,
   getUnboundChatEvents,
@@ -15,8 +14,8 @@ import {
 } from '../lib/api'
 import { newChatId } from '../lib/ids'
 import { pathForChatId, pathForSlug } from '../lib/slugUrl'
-import { streamSSE } from '../lib/sse'
 import { dispatchUiAction } from '../lib/surfaceRouter'
+import { attachStream, cancelTurn, startTurn, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
@@ -75,6 +74,36 @@ function chatIdFor(projectId: string): string {
   return fresh
 }
 
+// Per-chat in-flight turn id. Persisted under `turn:{chatId}` so that a reload
+// (T6) can call `fetchTurnState` and decide whether to re-attach. Matches the
+// same fallback-to-process-memory shape as `_readChatId` for SSR / incognito.
+const TURN_ID_KEY_PREFIX = 'turn:'
+const _memTurnIds = new Map<string, string>()
+
+function _readTurnId(chatId: string): string | null {
+  try {
+    return localStorage.getItem(TURN_ID_KEY_PREFIX + chatId)
+  } catch {
+    return _memTurnIds.get(chatId) ?? null
+  }
+}
+
+function _writeTurnId(chatId: string, turnId: string): void {
+  try {
+    localStorage.setItem(TURN_ID_KEY_PREFIX + chatId, turnId)
+  } catch {
+    _memTurnIds.set(chatId, turnId)
+  }
+}
+
+function _clearTurnId(chatId: string): void {
+  try {
+    localStorage.removeItem(TURN_ID_KEY_PREFIX + chatId)
+  } catch {
+    _memTurnIds.delete(chatId)
+  }
+}
+
 /** Snapshot of the active surface's UI state at message-submit time, threaded
  *  into the chat envelope so the backend can inject a `## Surface context`
  *  block in the system prompt. The snapshot MUST be taken at submit time
@@ -118,8 +147,19 @@ interface State {
    *  the popover in unbound + `/` modes. Refreshed on demand via
    *  `listUnbound()`. */
   chatsUnbound: UnboundChatSummary[]
-  /** Live abort controller for the in-flight SSE turn; null when idle. */
-  abort: AbortController | null
+  /** Live abort controller for the SSE GET stream only — never the backend
+   *  turn. Renamed from `abort` in M11 T5 to make the new semantics explicit:
+   *  aborting this kills the tail-f subscription, not the agent loop. The
+   *  agent loop is killed exclusively via `cancel()` → POST cancel. Null
+   *  when no stream is attached. */
+  streamAbort: AbortController | null
+  /** Registry-assigned id of the live turn on this chat, or null if no turn
+   *  is in flight (or the last turn ended naturally). Persisted under
+   *  `turn:{chatId}` so a re-enter (T6) or reload can call `fetchTurnState`
+   *  and decide whether to re-attach. Lifecycle methods (`enterProject` etc.)
+   *  detach the stream but DO NOT clear `inflightTurnId` — the OLD chat's
+   *  slice keeps it so the user can come back and re-tail. */
+  inflightTurnId: string | null
   /** True iff the most recent turn was cancelled by the user (Stop/Esc) and
    *  no new send has reset state. The next send — whether via composer, retry,
    *  or edit-save — must rewind the chat log first so the abandoned user
@@ -144,8 +184,18 @@ interface State {
    *  the re-run (files in `chats/<chat_id>/attachments/` survive rewind).
    *  Powers retry (text = original) / edit-save (text = edited). No-op when busy. */
   rewindAndSend: (projectId: string, text: string, userIndex?: number, attachments?: { filename: string; source?: 'chat' | 'docs' }[]) => Promise<void>
-  /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle. */
+  /** Cancel the in-flight turn (Stop button / Esc). Idempotent when idle.
+   *  M11 T5: explicit POST to the cancel endpoint — closing SSE alone is
+   *  no longer cancellation. */
   cancel: () => void
+  /** Internal: detach the SSE GET stream without cancelling the turn. Called
+   *  by lifecycle methods (`enterProject` / `switchChat` / `enterUnboundChat`
+   *  / `newChat` / `deselect`) when the user navigates away mid-turn. Leaves
+   *  `inflightTurnId` on the OLD chat's slice + its localStorage entry, so a
+   *  later re-enter (T6) can re-attach. Set `busy: false` so the NEW chat
+   *  doesn't inherit a stale spinner — the active chat after detach is the
+   *  one we're about to load, and it has no turn in flight. */
+  _detachStream: () => void
   enterProject: (projectId: string) => void
   /** Bind the chat shell to an existing unbound chat id (URL = `/c/<cid>`).
    *  Reuses the project-mode hydrate / race-safety pattern from
@@ -191,13 +241,37 @@ export const useChat = create<State>((set, get) => ({
   loadedUnboundChatId: null,
   chatsByProject: {},
   chatsUnbound: [],
-  abort: null,
+  streamAbort: null,
+  inflightTurnId: null,
   interrupted: false,
   cancel: () => {
-    const a = get().abort
-    if (!a) return
-    a.abort()
-    set({ interrupted: true })
+    // Stop button / Esc. Explicit cancel: POST to the cancel endpoint
+    // (server-side `asyncio.Task.cancel`), then abort the SSE GET so the
+    // stream closes promptly (the server will also flush a terminating
+    // envelope, but waiting for it would leave `busy: true` flicker). The
+    // POST is fire-and-forget — backend is idempotent and returns 200 even
+    // on unknown turn_id, but we still want to proceed past a network glitch.
+    const { chatId, inflightTurnId, streamAbort } = get()
+    if (inflightTurnId) {
+      void cancelTurn(chatId, inflightTurnId).catch(err => {
+        console.warn('cancelTurn failed', err)
+      })
+      _clearTurnId(chatId)
+    }
+    if (streamAbort) streamAbort.abort()
+    set({ interrupted: true, busy: false, streamAbort: null, inflightTurnId: null })
+  },
+  _detachStream: () => {
+    // Lifecycle methods call this when the user navigates away from a chat
+    // that has a live turn streaming. We close the SSE GET so the network
+    // doesn't keep delivering events into the (about-to-be-replaced) chat
+    // slice, but we deliberately leave `inflightTurnId` (+ its localStorage
+    // entry) in place — re-entering the same chat (T6) calls
+    // `fetchTurnState` and re-attaches via that id. `busy: false` because
+    // the active chat after detach is the NEW one, which has no turn.
+    const a = get().streamAbort
+    if (a) a.abort()
+    set({ streamAbort: null, busy: false })
   },
   rewindAndSend: async (projectId, text, userIndex, attachments) => {
     if (get().busy) return
@@ -257,6 +331,11 @@ export const useChat = create<State>((set, get) => ({
 
     // Real project switch (or first entry into a project with no in-flight convo):
     // bind to that project's persisted chatId, clear, then fire-and-forget hydrate.
+    // M11 T5: detach the SSE before we flip slice fields — the OLD chat's
+    // turn (if any) is registry-resident on the backend and stays running;
+    // its `inflightTurnId` survives in the OLD chat's localStorage key so a
+    // later re-enter (T6) can re-attach.
+    get()._detachStream()
     const cid = chatIdFor(projectId)
     set({
       loadedProjectId: projectId,
@@ -265,6 +344,7 @@ export const useChat = create<State>((set, get) => ({
       events: [],
       busy: false,
       interrupted: false,
+      inflightTurnId: _readTurnId(cid),
     })
     // Snapshot the prefix length right after the clear so the apply branch can
     // tell whether the user sent anything during the hydration window. If they
@@ -305,6 +385,9 @@ export const useChat = create<State>((set, get) => ({
     // Fresh entry / switch: clear, then fire-and-forget hydrate. Same
     // race-safety pattern as enterProject — snapshot prefixLen so an in-flight
     // user message during hydration isn't trampled.
+    // M11 T5: detach the SSE for the OLD chat (if any), but don't touch the
+    // OLD chat's `turn:{cid}` localStorage — that lets re-enter (T6) re-attach.
+    get()._detachStream()
     set({
       loadedProjectId: null,
       loadedUnboundChatId: chatId,
@@ -312,6 +395,7 @@ export const useChat = create<State>((set, get) => ({
       events: [],
       busy: false,
       interrupted: false,
+      inflightTurnId: _readTurnId(chatId),
     })
     const prefixLen = get().events.length
     void (async () => {
@@ -330,6 +414,11 @@ export const useChat = create<State>((set, get) => ({
     // responsible for navigating to `/c/<cid>` once it wants the URL bar in
     // sync; this action just resets the in-memory shell so the next `send()`
     // hits an empty conversation under the new id.
+    //
+    // M11 T5: detach any in-flight stream from the previous chat. The
+    // previous chat's `inflightTurnId` localStorage entry stays — re-entering
+    // it later can still re-attach.
+    get()._detachStream()
     const fresh = newChatId()
     set({
       loadedProjectId: null,
@@ -338,6 +427,7 @@ export const useChat = create<State>((set, get) => ({
       events: [],
       busy: false,
       interrupted: false,
+      inflightTurnId: null,
     })
     return fresh
   },
@@ -357,6 +447,10 @@ export const useChat = create<State>((set, get) => ({
       set({ loadedProjectId: null })
       return
     }
+    // M11 T5: this branch fully resets to the empty baseline, so the
+    // previous chat's stream (if any) must detach. Its `inflightTurnId`
+    // stays on localStorage so re-entering that chat by URL still works.
+    get()._detachStream()
     set({
       events: [],
       busy: false,
@@ -364,6 +458,7 @@ export const useChat = create<State>((set, get) => ({
       loadedUnboundChatId: null,
       chatId: newChatId(),
       interrupted: false,
+      inflightTurnId: null,
     })
   },
   listChats: async (projectId) => {
@@ -378,8 +473,19 @@ export const useChat = create<State>((set, get) => ({
   switchChat: (projectId, chatId) => {
     if (projectId === 'p_unset') return
     if (chatId === get().chatId) return
+    // M11 T5: detach the previous chat's SSE before we flip slice fields.
+    // The old chat's turn keeps running on the backend; its `inflightTurnId`
+    // remains in localStorage so coming back re-attaches.
+    get()._detachStream()
     _writeChatId(projectId, chatId)
-    set({ loadedProjectId: projectId, chatId, events: [], busy: false, interrupted: false })
+    set({
+      loadedProjectId: projectId,
+      chatId,
+      events: [],
+      busy: false,
+      interrupted: false,
+      inflightTurnId: _readTurnId(chatId),
+    })
     // Same in-flight-tail race-safety pattern as enterProject's switch branch:
     // snapshot prefixLen post-clear, re-check chatId + loadedProjectId on apply.
     const prefixLen = get().events.length
@@ -394,9 +500,19 @@ export const useChat = create<State>((set, get) => ({
   },
   newChat: (projectId) => {
     if (projectId === 'p_unset') return
+    // M11 T5: detach the previous chat's SSE. Its `inflightTurnId` (if any)
+    // stays in localStorage so the user can switch back and re-attach.
+    get()._detachStream()
     const fresh = newChatId()
     _writeChatId(projectId, fresh)
-    set({ loadedProjectId: projectId, chatId: fresh, events: [], busy: false, interrupted: false })
+    set({
+      loadedProjectId: projectId,
+      chatId: fresh,
+      events: [],
+      busy: false,
+      interrupted: false,
+      inflightTurnId: null,
+    })
   },
   lastUserMessage: () => {
     const events = get().events
@@ -494,42 +610,52 @@ export const useChat = create<State>((set, get) => ({
     }
   },
   send: async (projectId, message, attachments, surfaceContext) => {
-    // Three send shapes coexist:
-    //   - project mode      → POST /lab/chat        with project_id=<slug>
-    //   - unbound mode      → POST /lab/chats/{cid}/turn  (no project_id)
-    //   - legacy p_unset    → POST /lab/chat        with project_id='p_unset'
-    //     (kept alive for backend compat; the Phase-2 frontend should never
-    //     hit this branch — empty-hero and unbound-mode both route to
-    //     `UNBOUND_SLUG` instead.)
+    // M11 T5: send is now a two-phase operation. Phase 1 (preflight +
+    // ``startTurn``) returns a ``turn_id`` immediately; phase 2
+    // (``_consumeStream``) tail-fs the turn's SSE stream. The two are
+    // separable so that lifecycle methods (``enterProject`` etc.) can detach
+    // the SSE without killing the backend turn — see ``_detachStream``.
+    //
+    // Three logical slug shapes coexist for the turn:
+    //   - project mode      → real slug
+    //   - unbound mode      → `_chats` (UNBOUND_SLUG)
+    //   - legacy p_unset    → `p_unset` (back-compat; new code routes to
+    //     UNBOUND_SLUG for empty-hero, but the backend still accepts it).
+    // All three flow through ``POST /lab/chats/{cid}/turns`` — the slug is
+    // a body field, not a URL component.
     const isUnbound = projectId === UNBOUND_SLUG
 
     // Capture the new pid emitted by the backend when chat_turn auto-mints a
-    // project from a `p_unset` + stage_token submission. We listen for the
-    // `project_minted` SSE event and re-bind on the fly: localStorage chatId
-    // moves under the new pid, selectedId flips, and the projects list
-    // refreshes. The in-memory `events` array is left untouched (adopt
-    // semantics — the user/agent_text/tool events already pushed are this
-    // project's first chat).
-    let mintedPid: string | null = null
+    // project from a `p_unset` + stage_token submission. Held in a ref so
+    // the stream-consumer can mutate it from inside the event loop and the
+    // ``finally`` cleanup can read the final value. The in-memory `events`
+    // array is left untouched on mint (adopt semantics).
+    const mintedPidRef: { value: string | null } = { value: null }
 
     // Mid-prompt redirect: if an ask_user card is still waiting on a pick and
     // the user typed into the composer instead, treat the new message as a
-    // redirect. POST cancel so the agent's tool await resolves to
-    // ``ask_user_cancelled``; abort the in-flight SSE so the new turn can
-    // open cleanly without two concurrent chat_turn on the same chat. We
-    // intentionally do NOT set ``interrupted=true`` — that path rewinds the
-    // last user message, which would drop the original question and the
-    // agent's ask_user trail. Keeping them visible reads as "I asked, agent
-    // proposed options, I went a different direction" — same shape as the
-    // chat-history view that comes back on reload.
+    // redirect. POST cancel-ask-user so the agent's tool await resolves to
+    // ``ask_user_cancelled``. M11 T5: also POST the explicit turn cancel
+    // before opening a new turn — the user is choosing to abandon the old
+    // line of thinking. (Without this the old turn would keep running in the
+    // backend until something else cancels it.) Then close the SSE GET so
+    // the new turn can open cleanly. We intentionally do NOT set
+    // ``interrupted=true`` — that path rewinds the last user message, which
+    // would drop the original question and the agent's ask_user trail.
     const pendingAsk = get().events.find(
       e => e.type === 'ask_user_request' && !e.resolution,
     )
     if (pendingAsk && pendingAsk.type === 'ask_user_request') {
       await get().cancelAskUser(pendingAsk.request_id, 'User redirected via composer.')
-      const a = get().abort
-      if (a) a.abort()
-      set({ busy: false, abort: null, interrupted: false })
+      const { chatId: redirCid, inflightTurnId: redirTid, streamAbort: redirAbort } = get()
+      if (redirTid) {
+        void cancelTurn(redirCid, redirTid).catch(err => {
+          console.warn('cancelTurn (mid-prompt redirect) failed', err)
+        })
+        _clearTurnId(redirCid)
+      }
+      if (redirAbort) redirAbort.abort()
+      set({ busy: false, streamAbort: null, interrupted: false, inflightTurnId: null })
     }
 
     // First message into a freshly-selected real project: bind loadedProjectId and
@@ -568,7 +694,6 @@ export const useChat = create<State>((set, get) => ({
         return { events: s.events.slice(0, lastUserIdx), interrupted: false }
       })
     }
-    const abortCtrl = new AbortController()
     // Filename is the only doc handle now — keep entries that have a non-empty
     // filename, drop pre-upload placeholders (no real filename yet). Backend
     // applies the same filter when persisting.
@@ -579,6 +704,11 @@ export const useChat = create<State>((set, get) => ({
     const userAttachments = (attachments ?? [])
       .filter(a => typeof a.filename === 'string' && a.filename.length > 0)
       .map(a => ({ filename: a.filename, source: a.source ?? 'chat' as const }))
+    // Push the optimistic user event before `startTurn` resolves so the
+    // composer empties immediately and the UI doesn't appear to swallow the
+    // submit. `events.length` at this point is the offset we'll later pass
+    // to `attachStream` as `after_offset` — the stream catches up everything
+    // appended on the backend after our optimistic line.
     set(s => ({
       events: [
         ...s.events,
@@ -587,176 +717,273 @@ export const useChat = create<State>((set, get) => ({
           : { type: 'user', text: message },
       ],
       busy: true,
-      abort: abortCtrl,
     }))
-    // Unbound path: hit `POST /lab/chats/{cid}/turn` so no project gets
-    // minted server-side. The body has no `project_id` / `chat_id` fields —
-    // both are encoded in the URL. Surface-context shape is identical.
-    const unboundUrl = `/lab/chats/${encodeURIComponent(get().chatId)}/turn`
-    const projectBody = {
-      project_id: projectId,
-      chat_id: get().chatId,
+
+    // Phase 1: start the turn (HTTP POST, returns turn_id).
+    const cid = get().chatId
+    const startBody: StartTurnBody = {
+      slug: projectId,
       user_message: message,
       attachments,
       ...(surfaceContext ? { surface_context: surfaceContext } : {}),
     }
-    const unboundBody = {
-      user_message: message,
-      attachments,
-      ...(surfaceContext ? { surface_context: surfaceContext } : {}),
-    }
+    let turnId: string
     try {
-      for await (const ev of streamSSE(isUnbound ? unboundUrl : '/lab/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isUnbound ? unboundBody : projectBody),
-        signal: abortCtrl.signal,
-      })) {
-        if (ev.event === 'tool_result') {
-          const d = ev.data as { tool_use_id: string; result_text: string; ok: boolean }
-          handleToolResult(d, mintedPid ?? projectId, _findRecentVersionId())
-          continue
-        }
-        if (ev.event === 'ui_action') {
-          // Out-of-band navigation push from the agent's ui_* tools. The
-          // router resolves `action` (e.g. 'review:goto_page') to the
-          // appropriate store mutation. Best-effort: if router rejects the
-          // params or the surface is wrong, we swallow — the user's main
-          // chat experience must not stall on a navigation glitch.
-          try {
-            dispatchUiAction(ev.data)
-          } catch (err) {
-            console.warn('ui_action dispatch failed', err)
-          }
-          continue
-        }
-        if (ev.event === 'project_minted') {
-          // Agent-3 emits all three handles on project_minted so the FE can
-          // pick whichever is most convenient. We use `slug` (or
-          // `project_id` as the legacy-compatible alias — values match).
-          const d = ev.data as { project_id: string; slug?: string; pid?: string; name: string }
-          const slug = d.slug ?? d.project_id
-          mintedPid = slug
-          // Persist chatId under the new slug, mark loadedProjectId before the
-          // ChatPanel useEffect re-runs (so enterProject's same-slug early
-          // return fires instead of the clear-and-hydrate path), refresh
-          // projects, then flip selectedSlug. The current chat events stay in
-          // place — they are this project's first chat by construction.
-          _writeChatId(slug, get().chatId)
-          set({ loadedProjectId: slug })
-          void useProjects.getState().refresh()
-          useProjects.getState().select(slug)
-          void get().listChats(slug)
-          // Staged docs are already on disk in the new project's docs/ —
-          // surface them in FSSpine right away, without waiting for the
-          // agent's first list_docs tool_result.
-          void useDocs.getState().refresh(slug)
-          continue
-        }
-        if (ev.event === 'ask_user_request') {
-          // ``ask_user`` MCP tool blocks on a per-(chat_id, request_id) future
-          // server-side. Push the event into the conv log so AskUserCard can
-          // render the structured Q&A; resolveAskUser() resolves the future
-          // when the user clicks an option. Like permission_request, nothing
-          // here is persisted server-side — a reload during the prompt drops
-          // the card and cancel_pending_ask_user releases the agent's await
-          // with an ask_user_cancelled envelope.
-          const d = ev.data as {
-            request_id: string
-            questions: import('../types/chat').AskUserQuestion[]
-          }
-          set(s => ({
-            events: [
-              ...s.events,
-              {
-                type: 'ask_user_request',
-                request_id: d.request_id,
-                questions: d.questions,
-              },
-            ],
-          }))
-          continue
-        }
-        if (ev.event === 'permission_request') {
-          // SDK `can_use_tool` ask-user round-trip — the agent's tool call
-          // is suspended on the backend awaiting our reply. Push the event
-          // into the conv log; PermissionCard renders the approve/deny UI
-          // and dispatches resolvePermission() when the user clicks. The
-          // resolution lands on this same event object (no separate
-          // `permission_resolved` SSE — the backend doesn't echo, just
-          // releases the future). Reload-permissive: nothing here gets
-          // written to events.jsonl (server-side filter), so a refresh
-          // mid-prompt drops the card and the agent's awaited future will
-          // resolve via `cancel_pending` at turn end.
-          const d = ev.data as {
-            request_id: string
-            tool_name: string
-            tool_input: unknown
-            reason: string
-            suggested_scope?: 'once' | 'always'
-          }
-          set(s => ({
-            events: [
-              ...s.events,
-              {
-                type: 'permission_request',
-                request_id: d.request_id,
-                tool_name: d.tool_name,
-                tool_input: d.tool_input,
-                reason: d.reason,
-                suggested_scope: d.suggested_scope ?? 'once',
-              },
-            ],
-          }))
-          continue
-        }
-        if (ev.event === 'project_renamed') {
-          // Agent called `rename_project` mid-turn — the on-disk slug has
-          // changed and chat_turn already rerouted post-rename appends to
-          // the new path. Mirror that on the FE: re-point selectedSlug
-          // (triggers App.tsx's URL sync to push /p/{new_slug}), move our
-          // activeChatId mapping to the new slug, and refresh projects so
-          // the sidebar shows the new name. The conversation array stays
-          // intact (mapped events are already in `s.events`).
-          const d = ev.data as { old_slug: string; new_slug: string }
-          if (d.new_slug && d.new_slug !== d.old_slug) {
-            const cid = get().chatId
-            if (cid) _writeChatId(d.new_slug, cid)
-            mintedPid = d.new_slug
-            set({ loadedProjectId: d.new_slug })
-            void useProjects.getState().refresh()
-            useProjects.getState().select(d.new_slug)
-            void get().listChats(d.new_slug)
-            void useDocs.getState().refresh(d.new_slug)
-          }
-          continue
-        }
-        const mapped = mapSse(ev.event, ev.data)
-        if (mapped === null) continue   // ignored event (user_acknowledged etc.)
-        if (mapped.type === 'turn_end') break
-        set(s => ({ events: [...s.events, mapped] }))
-      }
+      const resp = await startTurn(cid, startBody)
+      turnId = resp.turn_id
     } catch (e) {
-      // User-initiated cancel surfaces as AbortError — silent. Anything else re-raises.
-      const aborted = abortCtrl.signal.aborted
-        || (e instanceof DOMException && e.name === 'AbortError')
-        || (e instanceof Error && e.name === 'AbortError')
-      if (!aborted) throw e
+      // Couldn't even start the turn — surface as an error event and bail.
+      // The optimistic user line stays so the user can retry / edit; matches
+      // the legacy posture of treating start-time failures as soft errors.
+      set(s => ({
+        events: [...s.events, {
+          type: 'error',
+          error_code: 'turn_start_failed',
+          error_message_en: e instanceof Error ? e.message : String(e),
+        }],
+        busy: false,
+      }))
+      return
+    }
+
+    // After offset captures the local count of events before stream attach —
+    // any chunks the backend already appended to events.jsonl beyond this
+    // point will be replayed by the route layer when we GET the stream.
+    const afterOffset = get().events.length
+    const abortCtrl = new AbortController()
+    _writeTurnId(cid, turnId)
+    set({ streamAbort: abortCtrl, inflightTurnId: turnId })
+
+    // Phase 2: consume the stream. Returns `streamEndedNaturally=true` only
+    // when a `turn_end` was reached or the iterator completed without abort;
+    // `false` on abort (lifecycle detach OR cancel()). We use that flag to
+    // decide whether `finally` should clear `inflightTurnId` — a plain
+    // detach must NOT clear it, because re-entering the chat needs to be
+    // able to re-attach (T6).
+    let streamEndedNaturally = false
+    try {
+      const result = await _consumeStream(
+        cid, turnId, afterOffset, abortCtrl, projectId, mintedPidRef,
+      )
+      streamEndedNaturally = result.streamEndedNaturally
+    } catch (e) {
+      // _consumeStream re-raises non-abort errors. Treat them as natural
+      // termination of THIS send() — the turn is done from the FE's POV
+      // and we won't be coming back to re-attach.
+      streamEndedNaturally = true
+      throw e
     } finally {
-      set({ busy: false, abort: null })
+      // Clear streamAbort always — the controller is single-use. Clearing
+      // `inflightTurnId` is conditional: only when the stream ended of its
+      // own accord (turn_end consumed) or via an exception that propagated.
+      // A plain SSE abort (from `_detachStream`) leaves `inflightTurnId`
+      // on the slice — the caller of `_detachStream` has already swapped
+      // the slice to the new chat by the time we run this `finally`, so
+      // writing `inflightTurnId: null` here would clobber the new chat's
+      // slice (which has its own `inflightTurnId` from `_readTurnId`).
+      // ``cancel()`` clears the turn id itself, so its detach path lands
+      // here with `streamEndedNaturally=false` and we correctly avoid
+      // touching the now-empty `inflightTurnId`.
+      if (streamEndedNaturally) {
+        // Only touch state if this chat is still the active one — a lifecycle
+        // detach + re-enter might have brought a different chat into focus.
+        const curState = get()
+        if (curState.chatId === cid) {
+          set({ busy: false, streamAbort: null, inflightTurnId: null })
+        }
+        _clearTurnId(cid)
+      } else {
+        // Stream ended via abort. If this chat is still active, the abort
+        // came from `cancel()` (which already cleared streamAbort) — be
+        // idempotent. If not, the slice has already swapped; leave
+        // `inflightTurnId` alone on the new chat.
+        const curState = get()
+        if (curState.chatId === cid && curState.streamAbort === abortCtrl) {
+          // Defensive — `cancel()` should have set this null already, but
+          // a future caller might forget.
+          set({ streamAbort: null })
+        }
+      }
       // After a `p_unset` submission that auto-minted a project, refresh the
       // chat list under the new pid (the chat is now logged there). For
       // unbound mode the analogue is `listUnbound()` — the unbound roster
       // gained a new entry (or its label/ts moved on an existing entry).
-      const finalPid = mintedPid ?? projectId
-      if (isUnbound && mintedPid === null) {
-        void get().listUnbound()
-      } else if (finalPid !== 'p_unset' && finalPid !== UNBOUND_SLUG) {
-        void get().listChats(finalPid)
+      // Only fire these on natural end, otherwise we spam fetches when a
+      // user switches view mid-turn.
+      if (streamEndedNaturally) {
+        const finalPid = mintedPidRef.value ?? projectId
+        if (isUnbound && mintedPidRef.value === null) {
+          void get().listUnbound()
+        } else if (finalPid !== 'p_unset' && finalPid !== UNBOUND_SLUG) {
+          void get().listChats(finalPid)
+        }
       }
     }
   },
 }))
+
+/**
+ * Drain the SSE stream for ``turnId`` and dispatch each event into the chat
+ * slice. Mirrors the pre-M11 event-dispatch branches verbatim — the only
+ * difference is the source of the events (``attachStream`` GET vs. the old
+ * ``streamSSE`` POST). Returns ``streamEndedNaturally=true`` iff we saw a
+ * ``turn_end`` envelope (or the iterator completed without exception);
+ * ``false`` when ``signal.aborted`` is what closed us. Non-abort exceptions
+ * propagate so ``send()`` can decide.
+ */
+async function _consumeStream(
+  cid: string,
+  turnId: string,
+  afterOffset: number,
+  abortCtrl: AbortController,
+  projectId: string,
+  mintedPidRef: { value: string | null },
+): Promise<{ streamEndedNaturally: boolean }> {
+  try {
+    for await (const ev of attachStream(cid, turnId, {
+      after_offset: afterOffset,
+      signal: abortCtrl.signal,
+    })) {
+      if (ev.event === 'tool_result') {
+        const d = ev.data as { tool_use_id: string; result_text: string; ok: boolean }
+        handleToolResult(d, mintedPidRef.value ?? projectId, _findRecentVersionId())
+        continue
+      }
+      if (ev.event === 'ui_action') {
+        // Out-of-band navigation push from the agent's ui_* tools. The
+        // router resolves `action` (e.g. 'review:goto_page') to the
+        // appropriate store mutation. Best-effort: if router rejects the
+        // params or the surface is wrong, we swallow — the user's main
+        // chat experience must not stall on a navigation glitch.
+        try {
+          dispatchUiAction(ev.data)
+        } catch (err) {
+          console.warn('ui_action dispatch failed', err)
+        }
+        continue
+      }
+      if (ev.event === 'project_minted') {
+        // Agent-3 emits all three handles on project_minted so the FE can
+        // pick whichever is most convenient. We use `slug` (or
+        // `project_id` as the legacy-compatible alias — values match).
+        const d = ev.data as { project_id: string; slug?: string; pid?: string; name: string }
+        const slug = d.slug ?? d.project_id
+        mintedPidRef.value = slug
+        // Persist chatId under the new slug, mark loadedProjectId before the
+        // ChatPanel useEffect re-runs (so enterProject's same-slug early
+        // return fires instead of the clear-and-hydrate path), refresh
+        // projects, then flip selectedSlug. The current chat events stay in
+        // place — they are this project's first chat by construction.
+        _writeChatId(slug, useChat.getState().chatId)
+        useChat.setState({ loadedProjectId: slug })
+        void useProjects.getState().refresh()
+        useProjects.getState().select(slug)
+        void useChat.getState().listChats(slug)
+        // Staged docs are already on disk in the new project's docs/ —
+        // surface them in FSSpine right away, without waiting for the
+        // agent's first list_docs tool_result.
+        void useDocs.getState().refresh(slug)
+        continue
+      }
+      if (ev.event === 'ask_user_request') {
+        // ``ask_user`` MCP tool blocks on a per-(chat_id, request_id) future
+        // server-side. Push the event into the conv log so AskUserCard can
+        // render the structured Q&A; resolveAskUser() resolves the future
+        // when the user clicks an option. Like permission_request, nothing
+        // here is persisted server-side — a reload during the prompt drops
+        // the card and cancel_pending_ask_user releases the agent's await
+        // with an ask_user_cancelled envelope.
+        const d = ev.data as {
+          request_id: string
+          questions: import('../types/chat').AskUserQuestion[]
+        }
+        useChat.setState(s => ({
+          events: [
+            ...s.events,
+            {
+              type: 'ask_user_request',
+              request_id: d.request_id,
+              questions: d.questions,
+            },
+          ],
+        }))
+        continue
+      }
+      if (ev.event === 'permission_request') {
+        // SDK `can_use_tool` ask-user round-trip — the agent's tool call
+        // is suspended on the backend awaiting our reply. Push the event
+        // into the conv log; PermissionCard renders the approve/deny UI
+        // and dispatches resolvePermission() when the user clicks. The
+        // resolution lands on this same event object (no separate
+        // `permission_resolved` SSE — the backend doesn't echo, just
+        // releases the future). Reload-permissive: nothing here gets
+        // written to events.jsonl (server-side filter), so a refresh
+        // mid-prompt drops the card and the agent's awaited future will
+        // resolve via `cancel_pending` at turn end.
+        const d = ev.data as {
+          request_id: string
+          tool_name: string
+          tool_input: unknown
+          reason: string
+          suggested_scope?: 'once' | 'always'
+        }
+        useChat.setState(s => ({
+          events: [
+            ...s.events,
+            {
+              type: 'permission_request',
+              request_id: d.request_id,
+              tool_name: d.tool_name,
+              tool_input: d.tool_input,
+              reason: d.reason,
+              suggested_scope: d.suggested_scope ?? 'once',
+            },
+          ],
+        }))
+        continue
+      }
+      if (ev.event === 'project_renamed') {
+        // Agent called `rename_project` mid-turn — the on-disk slug has
+        // changed and chat_turn already rerouted post-rename appends to
+        // the new path. Mirror that on the FE: re-point selectedSlug
+        // (triggers App.tsx's URL sync to push /p/{new_slug}), move our
+        // activeChatId mapping to the new slug, and refresh projects so
+        // the sidebar shows the new name. The conversation array stays
+        // intact (mapped events are already in `s.events`).
+        const d = ev.data as { old_slug: string; new_slug: string }
+        if (d.new_slug && d.new_slug !== d.old_slug) {
+          const renameCid = useChat.getState().chatId
+          if (renameCid) _writeChatId(d.new_slug, renameCid)
+          mintedPidRef.value = d.new_slug
+          useChat.setState({ loadedProjectId: d.new_slug })
+          void useProjects.getState().refresh()
+          useProjects.getState().select(d.new_slug)
+          void useChat.getState().listChats(d.new_slug)
+          void useDocs.getState().refresh(d.new_slug)
+        }
+        continue
+      }
+      const mapped = mapSse(ev.event, ev.data)
+      if (mapped === null) continue   // ignored event (user_acknowledged etc.)
+      if (mapped.type === 'turn_end') {
+        return { streamEndedNaturally: true }
+      }
+      useChat.setState(s => ({ events: [...s.events, mapped] }))
+    }
+  } catch (e) {
+    // User-initiated abort (`_detachStream` or `cancel`) surfaces as
+    // AbortError — return cleanly so the caller can branch on
+    // `streamEndedNaturally=false`. Anything else propagates.
+    const aborted = abortCtrl.signal.aborted
+      || (e instanceof DOMException && e.name === 'AbortError')
+      || (e instanceof Error && e.name === 'AbortError')
+    if (!aborted) throw e
+    return { streamEndedNaturally: false }
+  }
+  // Iterator exhausted without seeing turn_end (shouldn't happen — registry
+  // always sends a sentinel — but treat as natural close).
+  return { streamEndedNaturally: true }
+}
 
 function _findRecentVersionId(): string | null {
   const events = useChat.getState().events
