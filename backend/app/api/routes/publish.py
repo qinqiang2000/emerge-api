@@ -5,10 +5,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Header, UploadFile
+from fastapi import APIRouter, File, Form, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 
-from app.api.routes._safety import safe_published_id
+from app.api.routes._safety import safe_published_id, safe_slug
 from app.config import get_settings
 from app.provider import get_provider_for_model
 from app.schemas.envelope import ErrorEnvelope
@@ -20,7 +20,14 @@ from app.security.keys import (
     sha256_key,
 )
 from app.tools.extract import extract_bytes_with_schema
-from app.workspace.paths import published_path
+from app.tools.publish import contract_diff as contract_diff_impl
+from app.tools.publish import readiness_check as readiness_check_impl
+from app.workspace.paths import (
+    parse_version_id,
+    project_json_path,
+    published_path,
+    version_path,
+)
 
 
 router = APIRouter()
@@ -148,6 +155,94 @@ async def v1_extract(
         get_keystore(settings.workspace_root).update_last_used(auth.hash_hex, _iso_now())
     except Exception:
         pass
+    return out
+
+
+# ---------------------------------------------------------------------------
+# M11 Phase B T10 — HTTP mirrors of `readiness_check` and `contract_diff` tools.
+# Distinct from the prod fast-path `POST /v1/extract` above: those routes
+# read project lab state (slug-scoped) rather than the frozen artifact, so
+# CLI agents can drive the same publish-prep checks the in-session agent
+# runs through its tool surface.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/lab/projects/{slug}/readiness")
+async def get_readiness(slug: str) -> dict:
+    """Publish readiness checklist for the current lab state.
+
+    Returns the same `{checks, soft_warnings, hard_pass, macro_f1,
+    n_reviewed}` envelope the `readiness_check` tool produces. The route
+    only validates inputs and routes 404s through the structured error
+    shape; the business logic lives in `app.tools.publish.readiness_check`.
+    """
+    safe_slug(slug)
+    settings = get_settings()
+    if not project_json_path(settings.workspace_root, slug).exists():
+        return _error(404, "project_not_found", "no project at this slug")
+    return await readiness_check_impl(settings.workspace_root, slug)
+
+
+@router.get("/lab/projects/{slug}/contract-diff")
+async def get_contract_diff(
+    slug: str,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+):
+    """Diff two schema versions of this project.
+
+    Query params (FastAPI doesn't let us name a python kwarg `from`):
+    * `from` — base version_id (`v1`, `v2`, …). Omit to diff against the
+      active version (or against an empty schema for first-publish previews).
+    * `to` — target version_id. Omit to diff against the *current lab
+      schema* (the in-progress edits that haven't been frozen yet).
+
+    Echoes the `{added, removed, type_changed, enum_narrowed,
+    is_breaking}` shape `app.tools.publish.contract_diff` produces. The
+    extra `note` key surfaces when `from` resolves to "no prior version"
+    so callers can tell first-publish previews from no-change diffs.
+    """
+    safe_slug(slug)
+    settings = get_settings()
+    ws = settings.workspace_root
+    pj = project_json_path(ws, slug)
+    if not pj.exists():
+        return _error(404, "project_not_found", "no project at this slug")
+
+    # Resolve `from` — explicit version, else project.active_version_id.
+    project = json.loads(pj.read_text(encoding="utf-8"))
+    from_id = from_ if from_ is not None else project.get("active_version_id")
+    prev_schema: list[SchemaField] = []
+    note: str | None = None
+    if from_id:
+        n = parse_version_id(from_id)
+        if n is None:
+            return _error(400, "invalid_version_id", f"invalid version_id: {from_id!r}")
+        vp = version_path(ws, slug, n)
+        if not vp.exists():
+            return _error(404, "version_not_found", f"version {from_id} not found")
+        prev_blob = json.loads(vp.read_text(encoding="utf-8"))
+        prev_schema = [SchemaField(**f) for f in prev_blob.get("schema", [])]
+    else:
+        note = "no prior active version"
+
+    # Resolve `to` — explicit version, else current lab schema.
+    if to is not None:
+        n = parse_version_id(to)
+        if n is None:
+            return _error(400, "invalid_version_id", f"invalid version_id: {to!r}")
+        tp = version_path(ws, slug, n)
+        if not tp.exists():
+            return _error(404, "version_not_found", f"version {to} not found")
+        to_blob = json.loads(tp.read_text(encoding="utf-8"))
+        cand_schema = [SchemaField(**f) for f in to_blob.get("schema", [])]
+    else:
+        from app.tools.schema import read_schema
+        cand_schema = await read_schema(ws, slug)
+
+    out = contract_diff_impl(prev_schema, cand_schema)
+    if note is not None:
+        out["note"] = note
     return out
 
 

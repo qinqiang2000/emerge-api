@@ -14,6 +14,7 @@ from app.api.routes import docs as docs_route
 from app.api.routes import eval as eval_route
 from app.api.routes import experiments as experiments_route
 from app.api.routes import export as export_route
+from app.api.routes import extract_lab as extract_lab_route
 from app.api.routes import jobs as jobs_route
 from app.api.routes import pre_label as pre_label_route
 from app.api.routes import predictions as predictions_route
@@ -71,6 +72,7 @@ app.include_router(experiments_route.router)
 app.include_router(reviewed_route.router)
 app.include_router(pre_label_route.router)
 app.include_router(eval_route.router)
+app.include_router(extract_lab_route.router)
 app.include_router(jobs_route.router)
 app.include_router(schema_route.router)
 app.include_router(export_route.router)

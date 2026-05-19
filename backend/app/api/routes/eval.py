@@ -27,6 +27,35 @@ async def post_eval(slug: str) -> dict:
     return result.model_dump(mode="json")
 
 
+@router.post("/lab/projects/{slug}/score")
+async def post_score(slug: str) -> dict:
+    """M11 Phase B T10 — HTTP mirror of the `score` tool surface.
+
+    Differs from `POST /lab/projects/{slug}/eval` only in error envelope
+    shape: `eval` returns a bare `{"detail": "project_not_found"}` for
+    legacy reasons; `score` returns the structured
+    `{error_code, error_message_en}` shape every newer route uses. Both
+    delegate to `run_eval` so the on-disk side effects
+    (`metrics/eval_*.json` snapshot, per-field counts) are identical."""
+    from app.tools.schema import read_schema
+    safe_slug(slug)
+    settings = get_settings()
+    ws = settings.workspace_root
+    if not project_json_path(ws, slug).exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+    fields = await read_schema(ws, slug)
+    if not fields:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "schema_not_found"},
+        )
+    result = await run_eval(ws, slug)
+    return result.model_dump(mode="json")
+
+
 @router.get("/lab/projects/{slug}/evals/latest")
 async def get_eval_latest(slug: str) -> dict:
     """Return the most-recent persisted `metrics/eval_*.json`.
