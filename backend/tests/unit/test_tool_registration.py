@@ -189,3 +189,24 @@ async def test_read_doc_image_registered(
     names = await _extract_tool_names(server)
     assert "read_doc_image" in names
     assert "read_doc_image" in _emerge_tool_names()
+
+
+async def test_delete_project_registered(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """`delete_project` was intended to land in Phase 1 of unbound-chat
+    (commit 7286c5e) but its `@tool` decorator slipped past both the
+    `tools=[...]` list passed to `create_sdk_mcp_server` and the
+    `_EMERGE_TOOL_NAMES` canonical tuple. M11 T14's symmetry invariant
+    surfaced the omission. This test pins the registration so the same
+    regression — decorator present, registration missing — can't recur
+    silently. The pairing with `create_project` is deliberate: lifecycle
+    create/delete are dual ops and the agent needs both to discover via
+    the MCP listing."""
+    from unittest.mock import MagicMock
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    names = await _extract_tool_names(server)
+    assert "delete_project" in names
+    assert "delete_project" in _emerge_tool_names()

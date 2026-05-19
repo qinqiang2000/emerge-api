@@ -825,6 +825,7 @@ def build_emerge_mcp(
         version="0.0.1",
         tools=[
             t_create_project,
+            t_delete_project,
             t_promote_chat_to_project,
             t_promote_attachment_to_docs,
             t_pre_label,
@@ -866,6 +867,7 @@ def build_emerge_mcp(
 
 _EMERGE_TOOL_NAMES = (
     "create_project",
+    "delete_project",
     "promote_chat_to_project",
     "promote_attachment_to_docs",
     "pre_label", "set_labeler_model", "get_labeler_config",
