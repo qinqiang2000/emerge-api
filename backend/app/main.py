@@ -45,20 +45,22 @@ from app.api.routes import chat as chat_route
 from app.api.routes import turns as turns_route
 
 if os.getenv("EMERGE_TEST_MODE") == "1":
-    # Register stub POST /lab/chat *before* the real router. FastAPI matches in
-    # registration order, so the stub wins for the SSE endpoint (no real LLM
-    # call), while the real chat router still serves GET /lab/chats/{pid} and
-    # GET /lab/chats/{pid}/{cid} — those read the filesystem and are safe.
+    # Register the e2e stub turn routes *before* both the real ``turns_route``
+    # and ``chat_route`` so they win on POST /lab/chats/{cid}/turns +
+    # GET .../stream + .../cancel + GET .../turn_state. FastAPI matches in
+    # registration order. The real chat router still serves GET /lab/chats/{pid}
+    # and GET /lab/chats/{pid}/{cid} — those read the filesystem and are safe.
+    # (Pre-followup-D this stubbed the legacy POST /lab/chat; the M11 frontend
+    # cutover means the new turn surface is what the e2e exercises now.)
     from app.api.routes import _test_stubs
     app.include_router(_test_stubs.router)
 # M11 Phase A: turn-as-resource routes MUST be registered before
-# ``chat_route``. FastAPI matches handlers in include order; the legacy
+# ``chat_route``. FastAPI matches handlers in include order; the
 # ``GET /lab/chats/{slug}/{chat_id}`` route in chat.py is a two-segment
 # pattern that would otherwise eat ``GET /lab/chats/{cid}/turn_state``
 # (with ``slug=<cid>``, ``chat_id='turn_state'``) and bounce it through
-# ``safe_chat_id`` as a 400. Same risk for ``POST /lab/chats/{cid}/turns``
-# vs ``POST /lab/chats/{chat_id}/turn`` (singular) in chat.py — pinning
-# the turns router first means our specific patterns win.
+# ``safe_chat_id`` as a 400. Pinning the turns router first means our
+# specific patterns win.
 app.include_router(turns_route.router)
 app.include_router(chat_route.router)
 

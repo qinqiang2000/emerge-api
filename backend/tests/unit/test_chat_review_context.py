@@ -1,7 +1,7 @@
 # backend/tests/unit/test_chat_review_context.py
-"""`surface_context` flows from ChatBody into the chat-turn system prompt as
-a `## Surface context` block. When absent, the block is omitted (so chat-mode
-behavior is byte-identical to pre-Phase-B)."""
+"""`surface_context` flows from the turn-start body into the chat-turn system
+prompt as a `## Surface context` block. When absent, the block is omitted (so
+chat-mode behavior is byte-identical to pre-Phase-B)."""
 from __future__ import annotations
 
 from pathlib import Path

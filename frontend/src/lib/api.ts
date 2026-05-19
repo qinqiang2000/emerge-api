@@ -469,12 +469,6 @@ export async function deleteUnboundChat(chatId: string): Promise<{ ok: boolean; 
   return r.json()
 }
 
-// The unbound-chat SSE turn is not a separate helper: the chat store routes
-// to `POST /lab/chats/{cid}/turn` directly via `streamSSE`, mirroring how the
-// project-scoped turn goes through `POST /lab/chat`. Keeping the SSE call
-// inline in the store keeps the wire-level decision (which URL + body shape)
-// next to the SSE event handler that depends on it.
-
 export async function listExperiments(
   slug: string,
   opts?: { includeArchived?: boolean },

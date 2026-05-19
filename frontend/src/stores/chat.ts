@@ -30,10 +30,9 @@ const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
 const LEGACY_CHAT_ID_KEY_PREFIX = 'emerge.chatId.'   // pre-M8 single-chat key
 
 /** Sentinel `projectId` value for the unbound-chat code path. Callers that
- *  hit `send()` from `/c/<cid>` or from the empty hero pass this so the
- *  store routes to `POST /lab/chats/{cid}/turn` instead of the legacy
- *  `POST /lab/chat` (with `project_id: 'p_unset'`). Matches the backend
- *  `_UNBOUND_SLUG` constant. */
+ *  hit `send()` from `/c/<cid>` or from the empty hero pass this as the
+ *  ``slug`` body field on ``POST /lab/chats/{cid}/turns``. Matches the
+ *  backend `_UNBOUND_SLUG` constant. */
 export const UNBOUND_SLUG = '_chats'
 
 // Process-lifetime fallback when localStorage is unavailable (SSR / incognito).
@@ -202,9 +201,9 @@ interface State {
    *  `enterProject`, but pulls events from `GET /lab/chats/{cid}/events`. */
   enterUnboundChat: (chatId: string) => void
   /** Mint a fresh local unbound-chat id and clear events. Doesn't hit the
-   *  backend — the first SSE turn / `POST /lab/chats/{cid}/turn` is what
-   *  materialises storage. Matches the lazy "new chat" pattern on the
-   *  project side. */
+   *  backend — the first SSE turn (``POST /lab/chats/{cid}/turns`` with
+   *  ``slug='_chats'``) is what materialises storage. Matches the lazy
+   *  "new chat" pattern on the project side. */
   newUnboundChat: () => string
   deselect: () => void
   listChats: (projectId: string) => Promise<void>
