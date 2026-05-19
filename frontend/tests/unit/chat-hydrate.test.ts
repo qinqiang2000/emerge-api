@@ -331,6 +331,85 @@ describe('enterProject', () => {
     expect(spy).toHaveBeenCalled()
     expect(useChat.getState().events).toEqual([{ type: 'agent_text', text: 'historical' }])
   })
+
+  it('test_enter_project_uses_latest_chat_when_cache_missing: empty localStorage → swap to chats[0]', async () => {
+    // M11 T13: localStorage is a hint. When the cache is empty (e.g. a second
+    // device / CLI client opens the project), enterProject should refine the
+    // chosen chat via `listChats` and silently switch to the newest chat
+    // returned by the server (backend sorts ts_iso desc → chats[0]).
+    localStorage.clear()
+    // List returns three chats; the newest is c_latest.
+    vi.spyOn(api, 'getChatList').mockResolvedValue([
+      { chat_id: 'c_latest000001', label: 'fresh', kind: 'run', ts_iso: '2026-05-12T10:00:00+00:00', n_events: 4 },
+      { chat_id: 'c_middle000001', label: 'mid',   kind: 'run', ts_iso: '2026-05-12T09:00:00+00:00', n_events: 2 },
+      { chat_id: 'c_oldest000001', label: 'old',   kind: 'run', ts_iso: '2026-05-12T08:00:00+00:00', n_events: 1 },
+    ])
+    // getChatEvents fires for both the initial minted cid and the swap target.
+    const eventsSpy = vi.spyOn(api, 'getChatEvents').mockResolvedValue([
+      { type: 'agent_text', text: 'history from latest' },
+    ])
+
+    useChat.setState({ events: [], loadedProjectId: null, chatId: 'c_initial' })
+    useChat.getState().enterProject('p_remote')
+
+    // Synchronously the cold path mints a fresh chatId for the project (cache
+    // was empty). That id is *not* in the returned list.
+    const minted = useChat.getState().chatId
+    expect(minted).not.toBe('c_latest000001')
+    expect(useChat.getState().loadedProjectId).toBe('p_remote')
+
+    // Generous microtask flush so listChats resolves, the refinement IIFE
+    // fires switchChat, and the swap's own hydrate IIFE resolves.
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    // Slice now reflects the latest chat from the server.
+    const after = useChat.getState()
+    expect(after.chatId).toBe('c_latest000001')
+    expect(after.loadedProjectId).toBe('p_remote')
+    // Cache was updated by switchChat → second device's next reload skips the round-trip.
+    expect(localStorage.getItem('emerge.activeChatId.p_remote')).toBe('c_latest000001')
+    // Hydrate was called for the resolved chat id.
+    expect(eventsSpy).toHaveBeenCalledWith('p_remote', 'c_latest000001')
+  })
+
+  it('M11 T13: cached chatId present in list → no swap', async () => {
+    // When localStorage cache points at a chat that the server still knows
+    // about, we keep using it even if a newer chat exists. The cache is
+    // honoured as "the user's last pick" until the server tells us it's gone.
+    localStorage.setItem('emerge.activeChatId.p_keep', 'c_cached000001')
+    vi.spyOn(api, 'getChatList').mockResolvedValue([
+      { chat_id: 'c_newer0000001', label: 'newer',  kind: 'run', ts_iso: '2026-05-12T10:00:00+00:00', n_events: 2 },
+      { chat_id: 'c_cached000001', label: 'cached', kind: 'run', ts_iso: '2026-05-12T09:00:00+00:00', n_events: 5 },
+    ])
+    vi.spyOn(api, 'getChatEvents').mockResolvedValue([])
+
+    useChat.setState({ events: [], loadedProjectId: null, chatId: 'c_initial' })
+    useChat.getState().enterProject('p_keep')
+
+    expect(useChat.getState().chatId).toBe('c_cached000001')
+
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    // No swap — cached id is still in the list.
+    expect(useChat.getState().chatId).toBe('c_cached000001')
+  })
+
+  it('M11 T13: empty list → keep freshly-minted cid', async () => {
+    // A truly empty project (no chats yet on disk) should leave the minted
+    // cid in place so the next user send writes a new jsonl. No swap.
+    localStorage.clear()
+    vi.spyOn(api, 'getChatList').mockResolvedValue([])
+    vi.spyOn(api, 'getChatEvents').mockResolvedValue([])
+
+    useChat.setState({ events: [], loadedProjectId: null, chatId: 'c_initial' })
+    useChat.getState().enterProject('p_empty')
+    const minted = useChat.getState().chatId
+
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    expect(useChat.getState().chatId).toBe(minted)
+    expect(useChat.getState().loadedProjectId).toBe('p_empty')
+  })
 })
 
 describe('localStorage key migration', () => {

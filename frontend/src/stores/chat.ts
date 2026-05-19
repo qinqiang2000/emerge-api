@@ -335,6 +335,13 @@ export const useChat = create<State>((set, get) => ({
     // turn (if any) is registry-resident on the backend and stays running;
     // its `inflightTurnId` survives in the OLD chat's localStorage key so a
     // later re-enter (T6) can re-attach.
+    //
+    // M11 T13: localStorage is a hint, not authoritative. We use `chatIdFor`
+    // synchronously to avoid a round-trip on the cold path, but then refine
+    // by listing chats server-side and — if the cached id is missing from
+    // the list, or a more-recent chat exists — silently switch to it. This
+    // lets a second device / CLI client open the same project and land on
+    // the same chat without any cross-device sync mechanism.
     get()._detachStream()
     const cid = chatIdFor(projectId)
     set({
@@ -367,9 +374,29 @@ export const useChat = create<State>((set, get) => ({
         void _maybeReattach(cid, projectId)
       }
     })()
-    // Fire-and-forget: refresh the chat list so the conv-header popover has
-    // server-authoritative entries for this project.
-    void get().listChats(projectId)
+    // M11 T13 refinement: fire-and-forget list chats, then reconcile.
+    // - If the cached cid is present in the returned list → keep, refresh popover.
+    // - Else if list is non-empty → switch to chats[0] (backend sorts ts_iso desc).
+    // - Else (list is empty) → keep the freshly-minted cid; nothing to do.
+    // `switchChat` already owns detach + clear + hydrate + race-safety, so
+    // we delegate to it for the swap path. The race-guard re-checks chatId +
+    // loadedProjectId after the await so a user who has already navigated
+    // away doesn't get yanked back.
+    void (async () => {
+      await get().listChats(projectId)
+      const cur = useChat.getState()
+      if (cur.loadedProjectId !== projectId) return
+      const list = cur.chatsByProject[projectId] ?? []
+      if (list.length === 0) return
+      // Still on the originally-bound cid? Only swap if user hasn't manually
+      // moved to a different chat (e.g. via switchChat or newChat) during
+      // the await. If they have, leave their explicit pick alone.
+      if (cur.chatId !== cid) return
+      if (list.some(c => c.chat_id === cid)) return
+      const latest = list[0].chat_id
+      if (latest === cid) return
+      get().switchChat(projectId, latest)
+    })()
   },
   enterUnboundChat: (chatId) => {
     if (chatId === get().loadedUnboundChatId) return
