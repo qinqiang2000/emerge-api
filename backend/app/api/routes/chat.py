@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -26,6 +27,18 @@ from app.workspace.ids import new_chat_id
 
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
+
+
+# RFC-7234-ish Sunset date for the legacy ``/lab/chat`` + ``/lab/chats/{cid}/turn``
+# shims. Both endpoints now delegate to the M11 turn-as-resource routes; this
+# header is a heads-up to integrators that the fat-endpoint form will eventually
+# disappear. Date is symbolic — the cutover is gated on dogfood + frontend
+# migration, not the wall clock.
+_LEGACY_SUNSET_HEADER = {
+    "Sunset": "Sun, 31 Dec 2026 00:00:00 GMT",
+    "Deprecation": "true",
+}
 
 
 # Sentinel: the empty-hero composer mints a project mid-turn (see
@@ -97,27 +110,71 @@ def _get_chat_service() -> ChatService:
 
 @router.post("/lab/chat")
 async def lab_chat(body: ChatBody) -> EventSourceResponse:
+    """Legacy fat-endpoint shim — start a turn + immediately attach to its stream.
+
+    This route predates M11's turn-as-resource split. New clients should use
+    ``POST /lab/chats/{cid}/turns`` + ``GET /lab/chats/{cid}/turns/{tid}/stream``
+    so the agent loop survives an SSE disconnect. We keep this endpoint alive
+    so external scripts and pre-M11 frontend builds don't break overnight; a
+    ``Sunset`` response header signals the future removal.
+
+    Concurrent turns on the same chat are now rejected with HTTP 409
+    (``turn_already_active``). The old behaviour was undefined — two parallel
+    ``chat_turn`` calls would race over the same ``events.jsonl`` writer and
+    SDK session sidecar; rejecting is the safer choice. (No existing test
+    exercised the concurrent-on-same-chat case.)
+
+    SSE-on-the-wire is byte-identical to the pre-M11 shape: the underlying
+    runner is the same ``ChatService.chat_turn`` coroutine, just driven via
+    :data:`turns._REGISTRY` instead of inline.
+    """
+    # Lazy import: ``app.api.routes.turns`` imports from this module
+    # (``_get_chat_service``, ``SurfaceContext``), so a top-level import would
+    # create a cycle. Doing it inside the handler is cheap (the modules are
+    # already loaded by FastAPI's router registration) and matches the
+    # one-source-of-truth contract — both shims and the new POST start route
+    # call into the same helper.
+    from app.api.routes.turns import (
+        StartTurnBody, _attach_and_stream, _start_turn_for, get_registry,
+    )
+
+    _log.info(
+        "legacy /lab/chat hit — delegating to /lab/chats/%s/turns "
+        "(slug=%s)",
+        body.chat_id,
+        body.project_id,
+    )
+
+    # Field rename: legacy body carries ``project_id`` (kept for FE back-compat);
+    # ``StartTurnBody`` uses ``slug``. Same string value either way.
+    start_body = StartTurnBody(
+        slug=body.project_id,
+        user_message=body.user_message,
+        attachments=body.attachments,
+        surface_context=body.surface_context,
+    )
+    registry = get_registry()
+    # Resolve the ChatService through *this* module's symbol — the
+    # legacy-route tests patch ``app.api.routes.chat._get_chat_service``;
+    # going through ``turns.py``'s import would bypass that mock.
     svc = _get_chat_service()
-
-    async def gen():
-        async for chunk in svc.chat_turn(
-            slug=body.project_id,
-            chat_id=body.chat_id,
-            user_message=body.user_message,
-            attachments=body.attachments,
-            surface_context=body.surface_context.model_dump() if body.surface_context else None,
-        ):
-            # sse_starlette wants {event, data} dicts; ChatService yields fully-formed
-            # "event: x\ndata: y\n\n" strings. Re-parse them so sse_starlette can re-emit.
-            lines = chunk.strip().split("\n")
-            event_line = next((ln for ln in lines if ln.startswith("event:")), "event: message")
-            data_line = next((ln for ln in lines if ln.startswith("data:")), "data: {}")
-            yield {
-                "event": event_line.split(":", 1)[1].strip(),
-                "data": data_line.split(":", 1)[1].strip(),
-            }
-
-    return EventSourceResponse(gen())
+    entry = await _start_turn_for(
+        cid=body.chat_id, body=start_body, registry=registry, svc=svc,
+    )
+    # Subscribe synchronously, *before* yielding to the scheduler — see
+    # ``_attach_and_stream``'s ``pre_subscribed`` docstring for the race
+    # we're avoiding. ``registry.subscribe`` is async but does no actual
+    # awaiting for a fresh entry, so the queue lands in
+    # ``entry.subscribers`` before the wrapper task gets a tick.
+    pre_subscribed = await registry.subscribe(entry.turn_id)
+    return _attach_and_stream(
+        cid=body.chat_id,
+        tid=entry.turn_id,
+        after_offset=0,
+        registry=registry,
+        headers=_LEGACY_SUNSET_HEADER,
+        pre_subscribed=pre_subscribed,
+    )
 
 
 # ── Unbound chats (Phase 1 backend) ───────────────────────────────────────
@@ -182,28 +239,52 @@ async def lab_unbound_chat_history(chat_id: str) -> dict[str, Any]:
 async def lab_unbound_chat_turn(
     chat_id: str, body: UnboundTurnBody,
 ) -> EventSourceResponse:
-    """Run one chat turn against an unbound chat. Backend dispatches with
-    `slug='_chats'`; events land in `_chats/<chat_id>.jsonl`."""
+    """Legacy unbound-turn shim — same delegation pattern as ``/lab/chat``.
+
+    Backend dispatches with ``slug='_chats'``; events land in
+    ``_chats/<chat_id>.jsonl``. New clients should use
+    ``POST /lab/chats/{chat_id}/turns`` with ``slug='_chats'`` in the body.
+
+    See :func:`lab_chat` for the rationale on the ``Sunset`` header, the
+    new 409-on-concurrent contract, and the byte-identical SSE shape.
+    """
     safe_chat_id(chat_id)
+
+    from app.api.routes.turns import (
+        StartTurnBody, _attach_and_stream, _start_turn_for, get_registry,
+    )
+
+    _log.info(
+        "legacy /lab/chats/%s/turn hit — delegating to /lab/chats/%s/turns",
+        chat_id,
+        chat_id,
+    )
+
+    # Unbound shim: slug isn't in the body (URL encodes "unbound" by shape),
+    # so we inject ``_UNBOUND_SLUG`` at the shim boundary to match the new
+    # ``StartTurnBody`` contract.
+    start_body = StartTurnBody(
+        slug=_UNBOUND_SLUG,
+        user_message=body.user_message,
+        attachments=body.attachments,
+        surface_context=body.surface_context,
+    )
+    registry = get_registry()
+    # See ``lab_chat`` for the rationale on resolving svc here.
     svc = _get_chat_service()
-
-    async def gen():
-        async for chunk in svc.chat_turn(
-            slug=_UNBOUND_SLUG,
-            chat_id=chat_id,
-            user_message=body.user_message,
-            attachments=body.attachments,
-            surface_context=body.surface_context.model_dump() if body.surface_context else None,
-        ):
-            lines = chunk.strip().split("\n")
-            event_line = next((ln for ln in lines if ln.startswith("event:")), "event: message")
-            data_line = next((ln for ln in lines if ln.startswith("data:")), "data: {}")
-            yield {
-                "event": event_line.split(":", 1)[1].strip(),
-                "data": data_line.split(":", 1)[1].strip(),
-            }
-
-    return EventSourceResponse(gen())
+    entry = await _start_turn_for(
+        cid=chat_id, body=start_body, registry=registry, svc=svc,
+    )
+    # Pre-subscribe before any yield to the scheduler — see ``lab_chat``.
+    pre_subscribed = await registry.subscribe(entry.turn_id)
+    return _attach_and_stream(
+        cid=chat_id,
+        tid=entry.turn_id,
+        after_offset=0,
+        registry=registry,
+        headers=_LEGACY_SUNSET_HEADER,
+        pre_subscribed=pre_subscribed,
+    )
 
 
 @router.post("/lab/chats/{chat_id}/promote")

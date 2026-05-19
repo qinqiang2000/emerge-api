@@ -43,6 +43,7 @@ What we do NOT do:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -244,6 +245,146 @@ async def replay_from_disk(
         return
 
 
+# ── shared helpers (also called by legacy shims in ``chat.py``) ─────────
+
+
+async def _start_turn_for(
+    *,
+    cid: str,
+    body: StartTurnBody,
+    registry: TurnRegistry,
+    svc: Any | None = None,
+) -> TurnEntry:
+    """Build the chat_turn runner factory + call ``registry.start``.
+
+    Shared entrypoint for ``POST /lab/chats/{cid}/turns`` and the legacy
+    ``/lab/chat`` shims in :mod:`app.api.routes.chat`. Both paths must
+    use this single function so the wiring (runner_factory shape, 409
+    translation, return type) stays in one place.
+
+    ``svc`` lets callers inject a pre-built :class:`ChatService` (or a
+    test double). Legacy shims pass the one they resolved through
+    :func:`app.api.routes.chat._get_chat_service` so existing tests that
+    patch that symbol keep working; the new route lets this default to
+    ``None`` and falls back to its own ``_get_chat_service`` resolution.
+
+    Note: validation of ``cid`` (via :func:`safe_chat_id`) is the
+    caller's responsibility — the new route validates inline, the
+    legacy shims deliberately skip it to preserve pre-M11 behaviour
+    where ``POST /lab/chat`` accepted any chat_id string. Don't add
+    validation here without checking the chat-routes regression tests.
+
+    Raises :class:`HTTPException` 409 with the standard
+    ``error_code: turn_already_active`` envelope when a turn is already
+    running on the same chat.
+    """
+    if svc is None:
+        svc = _get_chat_service()
+    surface_dict = (
+        body.surface_context.model_dump() if body.surface_context else None
+    )
+
+    def factory() -> AsyncIterator[str]:
+        # ``runner_factory`` is zero-arg so the registry can construct
+        # the iterator inside the wrapper task. A fresh call each turn —
+        # callers don't reuse this factory.
+        return svc.chat_turn(
+            slug=body.slug,
+            chat_id=cid,
+            user_message=body.user_message,
+            attachments=body.attachments,
+            surface_context=surface_dict,
+        )
+
+    try:
+        return await registry.start(
+            chat_id=cid,
+            slug=body.slug,
+            runner_factory=factory,
+        )
+    except TurnAlreadyActiveError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "turn_already_active",
+                "error_message_en": str(exc),
+                "active_turn_id": exc.active_turn_id,
+            },
+        ) from exc
+
+
+def _attach_and_stream(
+    *,
+    cid: str,
+    tid: str,
+    after_offset: int,
+    registry: TurnRegistry,
+    headers: dict[str, str] | None = None,
+    pre_subscribed: tuple[TurnEntry, asyncio.Queue[str | None]] | None = None,
+) -> EventSourceResponse:
+    """Attach to a turn's broadcast and return an ``EventSourceResponse``.
+
+    Shared between ``GET .../turns/{tid}/stream`` and the legacy ``/lab/chat``
+    shims. ``headers`` lets the legacy callers slap on ``Sunset`` (or
+    any other deprecation marker) without forcing the modern route to
+    care.
+
+    ``pre_subscribed`` is the legacy-shim escape hatch. The shim path does
+    POST-then-stream in one handler; if we let ``gen()`` call
+    :meth:`TurnRegistry.subscribe` lazily (only when sse_starlette starts
+    iterating it), the wrapper task that ``start_turn`` just scheduled
+    can race ahead and emit every chunk into an empty subscriber set
+    before ``gen()`` ever runs — chunks lost, response body empty. By
+    letting the shim subscribe **synchronously** right after start (no
+    yield to the scheduler in between), we guarantee the subscriber is
+    in place when the wrapper finally runs. ``gen()`` then reads from
+    the pre-built queue instead of subscribing again.
+
+    Validation of ``cid`` is the caller's responsibility (same rationale
+    as :func:`_start_turn_for`).
+
+    Cold cache (no entry) → replay whatever ``events.jsonl`` has from
+    ``after_offset`` and close.
+    Hot cache, behind live offset → replay the bridge slice from disk,
+    then subscribe.
+    Hot cache, caught up → subscribe directly.
+    """
+    workspace = get_settings().workspace_root
+    entry = registry.lookup_turn(tid) if pre_subscribed is None else pre_subscribed[0]
+
+    async def gen() -> AsyncIterator[dict[str, str]]:
+        if entry is None:
+            # Cold cache — replay whatever disk has, then close.
+            async for chunk in replay_from_disk(workspace, cid, after_offset):
+                yield _split_sse_chunk(chunk)
+            return
+
+        # Hot cache: bridge any offset gap from disk so the live
+        # subscription picks up at the right place. Skip this when the
+        # caller pre-subscribed — they want a from-the-start subscription,
+        # not an offset-aware replay.
+        if pre_subscribed is None and after_offset < entry.last_offset:
+            async for chunk in replay_from_disk(
+                workspace, cid, after_offset, until=entry.last_offset,
+            ):
+                yield _split_sse_chunk(chunk)
+
+        if pre_subscribed is not None:
+            sub_entry, queue = pre_subscribed
+        else:
+            sub_entry, queue = await registry.subscribe(tid)
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    break
+                yield _split_sse_chunk(chunk)
+        finally:
+            registry.unsubscribe(sub_entry, queue)
+
+    return EventSourceResponse(gen(), headers=headers)
+
+
 # ── routes ──────────────────────────────────────────────────────────────
 
 
@@ -264,39 +405,7 @@ async def start_turn(
     inherited from the registry).
     """
     safe_chat_id(cid)
-    svc = _get_chat_service()
-    surface_dict = (
-        body.surface_context.model_dump() if body.surface_context else None
-    )
-
-    def factory() -> AsyncIterator[str]:
-        # ``runner_factory`` is zero-arg so the registry can construct
-        # the iterator inside the wrapper task. A fresh call each turn —
-        # callers don't reuse this factory.
-        return svc.chat_turn(
-            slug=body.slug,
-            chat_id=cid,
-            user_message=body.user_message,
-            attachments=body.attachments,
-            surface_context=surface_dict,
-        )
-
-    try:
-        entry = await registry.start(
-            chat_id=cid,
-            slug=body.slug,
-            runner_factory=factory,
-        )
-    except TurnAlreadyActiveError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error_code": "turn_already_active",
-                "error_message_en": str(exc),
-                "active_turn_id": exc.active_turn_id,
-            },
-        ) from exc
-
+    entry = await _start_turn_for(cid=cid, body=body, registry=registry)
     return {"turn_id": entry.turn_id, "status": entry.status.value}
 
 
@@ -327,35 +436,9 @@ async def stream_turn(
     returns).
     """
     safe_chat_id(cid)
-    workspace = get_settings().workspace_root
-    entry = registry.lookup_turn(tid)
-
-    async def gen() -> AsyncIterator[dict[str, str]]:
-        if entry is None:
-            # Cold cache — replay whatever disk has, then close.
-            async for chunk in replay_from_disk(workspace, cid, after_offset):
-                yield _split_sse_chunk(chunk)
-            return
-
-        # Hot cache: bridge any offset gap from disk so the live
-        # subscription picks up at the right place.
-        if after_offset < entry.last_offset:
-            async for chunk in replay_from_disk(
-                workspace, cid, after_offset, until=entry.last_offset,
-            ):
-                yield _split_sse_chunk(chunk)
-
-        sub_entry, queue = await registry.subscribe(tid)
-        try:
-            while True:
-                chunk = await queue.get()
-                if chunk is None:
-                    break
-                yield _split_sse_chunk(chunk)
-        finally:
-            registry.unsubscribe(sub_entry, queue)
-
-    return EventSourceResponse(gen())
+    return _attach_and_stream(
+        cid=cid, tid=tid, after_offset=after_offset, registry=registry,
+    )
 
 
 @router.post("/lab/chats/{cid}/turns/{tid}/cancel")
