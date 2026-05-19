@@ -287,11 +287,21 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 ## 14. Turn lifetime ≠ SSE lifetime — `enterProject` must NOT abort the in-flight stream
 
-**Where:** `frontend/src/stores/chat.ts` lifecycle methods (`enterProject`, `switchChat`, `enterUnboundChat`, `newChat`, `deselect`); `backend/app/chat/turn_registry.py` (M11).
+**Where:** `frontend/src/stores/chat.ts` lifecycle methods (`enterProject`, `switchChat`, `enterUnboundChat`, `newChat`, `deselect`); `backend/app/chat/turn_registry.py`; `backend/app/api/routes/turns.py` (M11).
 
-**The trap:** placeholder — body filled in at M11-T7 closeout. Short version: prior to M11, switching project mid-turn left the SSE stream live → events bled into the new chat's `events[]`. Naive fix "abort on switch" trades the bleed for "switch view = kill the agent" — incompatible with AI-native API symmetry (a CLI client must be able to detach/reattach). M11 makes the turn a backend-owned resource (`TurnRegistry`); lifecycle methods detach the SSE without cancelling the task; re-entering re-attaches with offset.
+**The trap:** prior to M11, switching project mid-turn left the SSE stream live → events bled into the new chat's `events[]` (we observed live 2026-05-19 on `太古_美国发票` → `荣耀_欧洲1` switch). The naive fix is to call `abort()` on every lifecycle switch — but that trades the bleed for "switch view = kill the backend agent task." That contradicts the AI-native API symmetry rule (a CLI client must be able to detach/reattach without affecting the running turn), and contradicts the digital-colleague stance generally.
 
-**Don't change** the lifecycle methods to call `cancelTurn()` on switch — that's the "small fix" we rejected. The Stop button (`cancel()`) is the only path that should hit the cancel endpoint.
+**The shape that works (M11):**
+1. Backend owns the turn via `TurnRegistry`. `POST /lab/chats/{cid}/turns` starts a turn (returns `turn_id`); `GET .../turns/{tid}/stream?after_offset=N` is a "tail -f" attach that any client can open / close / reopen.
+2. Frontend persists `inflightTurnId` to `localStorage[turn:{cid}]` for the lifetime of the turn. Lifecycle methods (`enterProject` real-switch branch, etc.) call `_detachStream` — aborts the SSE GET only, does NOT touch `inflightTurnId`, does NOT call `cancelTurn`.
+3. Re-entering the chat (`_maybeReattach` after hydrate) reads localStorage → `fetchTurnState` → if `running`, attaches a fresh stream with `after_offset = events.length`.
+4. The Stop button (`cancel()`) is the ONLY frontend path that issues `POST .../cancel`. Closing SSE ≠ cancelling a turn.
+
+**Don't change** the lifecycle methods to call `cancelTurn()` on switch — that's the "small fix" we rejected. And don't add a recursive auto-cancel in `_detachStream`. Detach is intentionally pure-client-side.
+
+**Verified 2026-05-19** end-to-end: with a slow `/extract Airbus Invoice.pdf` turn running, switching to another project preserved the OLD chat's `turn:c_xxx` localStorage key; backend `turn_state` showed `status: running` with `last_offset` continuing to advance after the SSE GET disconnected; switching back fired `GET turn_state` + `GET stream?after_offset=N` and the full extract result rendered in the OLD chat.
+
+**Known cosmetic issue:** cold-cache stream re-attach (turn already finished + evicted before client reattaches) returns HTTP 503 from sse_starlette instead of cleanly 200-ing through `replay_from_disk`. The data is correct either way (jsonl hydrate covers it), but the route's `if entry is None: replay_from_disk(...); return` branch should reach the client as 200 SSE close. Tracked as a Phase B follow-up — not behaviour-critical.
 
 ---
 
