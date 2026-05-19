@@ -352,11 +352,50 @@ def _attach_and_stream(
     workspace = get_settings().workspace_root
     entry = registry.lookup_turn(tid) if pre_subscribed is None else pre_subscribed[0]
 
+    # Short-circuit reattaches to an already-finished turn. Two paths land
+    # here:
+    #   (a) Cold cache — registry has no entry for ``tid`` (evicted or
+    #       bogus). ``replay_from_disk`` may yield zero chunks (e.g.
+    #       ``after_offset`` past the jsonl tail) and the empty
+    #       generator below trips sse_starlette into a 503 fallback.
+    #   (b) Hot cache, terminal status, caller already at the tail
+    #       (``after_offset >= entry.last_offset``) — bridge replay is
+    #       empty and ``subscribe`` returns a queue whose only item is
+    #       the ``None`` sentinel; again zero yielded chunks → 503.
+    # Yielding a synthetic ``turn_end`` event in both cases gives:
+    #   1. a clean HTTP 200 SSE response (sse_starlette commits the
+    #      status line as soon as the generator yields anything),
+    #   2. an explicit "this turn is over" signal so the client can flip
+    #      its inflight state without waiting on jsonl hydrate or a
+    #      separate ``turn_state`` round-trip,
+    #   3. no impact on the live-stream / hot-cache / offset-bridge
+    #      paths — those still emit real events and the real
+    #      ``turn_end`` from the runner.
+    _is_terminal_reattach = (
+        entry is None
+        or (
+            pre_subscribed is None
+            and entry.status != TurnStatus.RUNNING
+            and after_offset >= entry.last_offset
+        )
+    )
+
     async def gen() -> AsyncIterator[dict[str, str]]:
         if entry is None:
-            # Cold cache — replay whatever disk has, then close.
+            # Cold cache — replay whatever disk has, then close. We
+            # still emit the synthetic ``turn_end`` below so the
+            # response is a clean 200 even when the jsonl is empty.
             async for chunk in replay_from_disk(workspace, cid, after_offset):
                 yield _split_sse_chunk(chunk)
+            yield _split_sse_chunk(_chunk_for_event("turn_end", {}))
+            return
+
+        if _is_terminal_reattach:
+            # Hot cache but the turn already finished AND the caller is
+            # already at the tail. Skip subscribe (would only yield the
+            # sentinel) and emit the synthetic close so the response is
+            # 200 + a usable "turn over" signal.
+            yield _split_sse_chunk(_chunk_for_event("turn_end", {}))
             return
 
         # Hot cache: bridge any offset gap from disk so the live

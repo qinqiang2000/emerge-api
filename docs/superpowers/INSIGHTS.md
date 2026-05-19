@@ -301,8 +301,6 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 **Verified 2026-05-19** end-to-end: with a slow `/extract Airbus Invoice.pdf` turn running, switching to another project preserved the OLD chat's `turn:c_xxx` localStorage key; backend `turn_state` showed `status: running` with `last_offset` continuing to advance after the SSE GET disconnected; switching back fired `GET turn_state` + `GET stream?after_offset=N` and the full extract result rendered in the OLD chat.
 
-**Known cosmetic issue:** cold-cache stream re-attach (turn already finished + evicted before client reattaches) returns HTTP 503 from sse_starlette instead of cleanly 200-ing through `replay_from_disk`. The data is correct either way (jsonl hydrate covers it), but the route's `if entry is None: replay_from_disk(...); return` branch should reach the client as 200 SSE close. Tracked as a Phase B follow-up — not behaviour-critical.
-
 ---
 
 ## 15. tool ↔ HTTP dual-form is enforced by `test_symmetry_invariant.py`
