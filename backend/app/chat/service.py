@@ -37,9 +37,18 @@ from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
 from app.tools.projects import create_project as _create_project
-from app.workspace.paths import chat_attachment_path, doc_path, project_json_path
+from app.workspace.paths import (
+    chat_attachment_path,
+    doc_path,
+    project_json_path,
+    unbound_chat_attachment_path,
+)
 from app.workspace.pid_index import get_index
-from app.workspace.staging import StagingClaimError, claim_staged_to_chat
+from app.workspace.staging import (
+    StagingClaimError,
+    claim_staged_to_chat,
+    claim_staged_to_unbound_chat,
+)
 
 
 # Filename suffix → Anthropic image media type. PDFs deliberately excluded:
@@ -59,9 +68,10 @@ def _load_image_blocks(
     files we can't read — the surrounding `[attachments: ...]` text mention
     still lets the agent reference them by name.
 
-    Dispatches on `source`:
-      - `chat` (default for paste/drop) → reads via `chat_attachment_path`
-      - `docs` (post-promote refs) → reads via `doc_path`
+    Dispatches on `source` + slug shape:
+      - slug == `_chats` (unbound chat) → `_chats/<chat_id>/attachments/<f>`
+      - `source='docs'` (post-promote refs) → reads via `doc_path`
+      - default (`source='chat'`) → `<slug>/chats/<chat_id>/attachments/<f>`
     """
     if not attachments:
         return []
@@ -75,7 +85,10 @@ def _load_image_blocks(
         if not media_type:
             continue
         source = a.get("source", "chat")
-        if source == "docs":
+        if slug == _UNBOUND_SLUG:
+            # Unbound chat: no project, no docs/ — every attachment is per-chat.
+            path = unbound_chat_attachment_path(workspace, chat_id, filename)
+        elif source == "docs":
             path = doc_path(workspace, slug, filename)
         else:
             path = chat_attachment_path(workspace, slug, chat_id, filename)
@@ -126,6 +139,14 @@ def _placeholder_project_name() -> str:
 # the route layer.
 _UNSET_SLUG = "p_unset"
 
+# Sentinel for an unbound chat — a conversation that has not been bound to a
+# project (yet). Routes events to `_chats/<chat_id>.jsonl` instead of
+# `<slug>/chats/<chat_id>.jsonl`. Coexists with `_UNSET_SLUG` during Phase 1
+# so the existing frontend's empty-hero mint flow keeps working until the
+# Phase 2 frontend cutover migrates it to this sentinel. Must stay in sync
+# with `_UNBOUND_SLUG` in `chat/log.py`.
+_UNBOUND_SLUG = "_chats"
+
 
 _WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
   docs/                # 源文档（pdf / image / 其它 user-supplied files）
@@ -170,6 +191,23 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
             "`create_project` first, then use its returned slug for "
             "subsequent tool calls. Do NOT call `list_projects` to look for "
             "an active project; there isn't one."
+        )
+    if slug == _UNBOUND_SLUG:
+        return (
+            "## Active context\n\n"
+            f"WORKSPACE_ROOT=`{workspace_root}` (absolute)\n\n"
+            f"You are in an **unbound chat** (no project), chat_id=`{chat_id}`. "
+            "Chat history and attachments live under `_chats/`. "
+            "Project-scoped tools (`derive_schema`, `write_schema`, "
+            "`extract_batch`, `promote_attachment_to_docs`, `pre_label`, …) "
+            "will raise `chat_not_bound` if called from here. "
+            "If the user expresses project intent (`/init`, \"build a schema "
+            "for these\", \"make this a project\"), ASK for a name first, "
+            "then call `create_project(name=..., from_unbound_chat_id="
+            f"\"{chat_id}\")`. That atomically relocates this chat's history "
+            "+ attachments under the new project's slug; you then own a "
+            "normal project context and the full tool kit unlocks. Do NOT "
+            "silently bind a chat to a project on the user's behalf."
         )
 
     name = slug
@@ -495,6 +533,35 @@ class ChatService:
         slug, which can be renamed. The empty-hero drop case below mints
         both atomically and surfaces them on the `project_minted` SSE event.
         """
+        # ── pre-flight: unbound-chat path — no project, write to `_chats/` ──
+        # Phase 1 new path: frontend (post-cutover) submits with `slug='_chats'`
+        # for any conversation that hasn't been bound to a project yet. No
+        # project is minted; events land in `_chats/<chat_id>.jsonl`. Staged
+        # attachments claim into `_chats/<chat_id>/attachments/`. The legacy
+        # `p_unset` branch below stays alive until Phase 2 cuts the frontend
+        # over to this sentinel.
+        minted: dict[str, str] | None = None
+        if slug == _UNBOUND_SLUG:
+            claimed: list[dict[str, Any]] = []
+            for a in (attachments or []):
+                tok = a.get("stage_token")
+                if isinstance(tok, str):
+                    try:
+                        final_name = await claim_staged_to_unbound_chat(
+                            self.workspace, tok, chat_id,
+                        )
+                        claimed.append({"filename": final_name, "source": "chat"})
+                    except (StagingClaimError, ValueError):
+                        # Stale / unknown token — drop silently rather than
+                        # fail the whole turn; the agent sees one fewer doc
+                        # but the rest succeed.
+                        continue
+                else:
+                    fname = a.get("filename") or ""
+                    if isinstance(fname, str) and fname:
+                        claimed.append({"filename": fname, "source": "chat"})
+            attachments = claimed
+
         # ── pre-flight: mint a placeholder project whenever slug is unset ──
         # Empty-hero entry: frontend submits with `slug='p_unset'` either
         # because the user dropped files (each carries a `stage_token`) OR
@@ -505,7 +572,6 @@ class ChatService:
         # project's `chats/<chat_id>/attachments/`; files do NOT enter
         # `docs/` (that requires an explicit user-ack
         # `promote_attachment_to_docs` later).
-        minted: dict[str, str] | None = None
         if slug == "p_unset":
             placeholder = _placeholder_project_name()
             try:
@@ -589,18 +655,23 @@ class ChatService:
         user_event: dict[str, Any] = {"type": "user", "text": user_message}
         if persisted_attachments:
             user_event["attachments"] = persisted_attachments
-        await append_event(
-            self.workspace,
-            slug,
-            chat_id,
-            user_event,
-        )
+        # Write the meta sidecar BEFORE the first event. For unbound chats the
+        # alive gate accepts the meta sidecar as "chat registered" — without
+        # this order the very first `append_event` would see neither jsonl
+        # nor attachments dir nor meta and drop the user line. For project
+        # chats the order is harmless (the gate is on `project.json`).
         ensure_chat_meta(
             self.workspace,
             slug,
             chat_id,
             first_user_message=user_message,
             has_attachments=bool(attachments),
+        )
+        await append_event(
+            self.workspace,
+            slug,
+            chat_id,
+            user_event,
         )
         yield sse_event("user_acknowledged", {"text": user_message})
         if minted is not None:

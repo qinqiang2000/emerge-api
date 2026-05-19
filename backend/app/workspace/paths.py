@@ -103,6 +103,52 @@ def chats_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "chats"
 
 
+# ── Unbound-chat paths ────────────────────────────────────────────────────
+# A chat that hasn't been promoted to a project yet lives under
+# `workspace/_chats/` — parallel to `_staging/`. The leading underscore keeps
+# it invisible to `list_projects` (projects.py filters underscore-prefixed
+# children) so unbound chats never pollute the sidebar.
+#
+# Same per-chat layout as a project chat, just rooted under `_chats/` instead
+# of `<slug>/chats/`:
+#   _chats/<chat_id>.jsonl              ← event log
+#   _chats/<chat_id>.meta.json          ← sidecar (label / kind / sdk_session_id)
+#   _chats/<chat_id>/attachments/<f>    ← per-chat attachments
+#
+# Promotion (`promote_chat_to_project`) atomically `os.rename`s these three
+# entries under `<new_slug>/chats/` inside the new project's lock.
+
+
+def unbound_chats_root(workspace: Path) -> Path:
+    """Workspace-level root for all unbound chats. Parallel to `_staging/`;
+    naturally excluded from `list_projects` by the underscore filter."""
+    return workspace / "_chats"
+
+
+def unbound_chat_log_path(workspace: Path, chat_id: str) -> Path:
+    """`_chats/<chat_id>.jsonl` — the event log for one unbound chat."""
+    return unbound_chats_root(workspace) / f"{chat_id}.jsonl"
+
+
+def unbound_chat_meta_path(workspace: Path, chat_id: str) -> Path:
+    """`_chats/<chat_id>.meta.json` — sidecar holding {label, kind, created_at,
+    sdk_session_id} for one unbound chat. Parallels `chat_meta_path` for
+    project chats."""
+    return unbound_chats_root(workspace) / f"{chat_id}.meta.json"
+
+
+def unbound_chat_attachments_dir(workspace: Path, chat_id: str) -> Path:
+    """`_chats/<chat_id>/attachments/` — paste/drop attachments for one
+    unbound chat. Parallels `chat_attachments_dir` for project chats."""
+    return unbound_chats_root(workspace) / chat_id / "attachments"
+
+
+def unbound_chat_attachment_path(
+    workspace: Path, chat_id: str, filename: str,
+) -> Path:
+    return unbound_chat_attachments_dir(workspace, chat_id) / filename
+
+
 def chat_meta_path(workspace: Path, slug: str, chat_id: str) -> Path:
     return chats_dir(workspace, slug) / f"{chat_id}.meta.json"
 

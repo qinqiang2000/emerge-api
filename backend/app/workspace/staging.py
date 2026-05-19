@@ -25,7 +25,11 @@ import time
 from pathlib import Path
 
 from app.tools.docs import upload_doc
-from app.workspace.paths import chat_attachments_dir, dedupe_filename
+from app.workspace.paths import (
+    chat_attachments_dir,
+    dedupe_filename,
+    unbound_chat_attachments_dir,
+)
 
 
 _STAGE_TOKEN_RE = re.compile(r"^st_[a-f0-9]{16}$")
@@ -183,6 +187,35 @@ async def claim_staged_to_chat(
         raise StagingClaimError(f"stage_token has no file: {stage_token!r}")
     src = files[0]
     target_dir = chat_attachments_dir(workspace, slug, chat_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    final_name = dedupe_filename(target_dir, src.name)
+    target = target_dir / final_name
+    shutil.move(str(src), str(target))
+    shutil.rmtree(dirp, ignore_errors=True)
+    return final_name
+
+
+async def claim_staged_to_unbound_chat(
+    workspace: Path,
+    stage_token: str,
+    chat_id: str,
+) -> str:
+    """Move a staged file into `_chats/<chat_id>/attachments/` with dedupe.
+    Parallel of `claim_staged_to_chat` for chats that don't have a project yet.
+    No sidecar — unbound-chat attachments are conversational scratch.
+
+    Returns the post-dedupe on-disk filename. Raises `StagingClaimError` if the
+    token is unknown / already claimed. Promotion (chat-attachment → project
+    docs) happens later as part of `promote_chat_to_project` (the per-chat dir
+    is `os.rename`-d into the new project's `chats/<chat_id>/attachments/`)."""
+    dirp = stage_dir(workspace, stage_token)
+    if not dirp.exists() or not dirp.is_dir():
+        raise StagingClaimError(f"stage_token not found: {stage_token!r}")
+    files = [p for p in dirp.iterdir() if p.is_file()]
+    if not files:
+        raise StagingClaimError(f"stage_token has no file: {stage_token!r}")
+    src = files[0]
+    target_dir = unbound_chat_attachments_dir(workspace, chat_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     final_name = dedupe_filename(target_dir, src.name)
     target = target_dir / final_name

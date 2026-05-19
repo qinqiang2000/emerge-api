@@ -7,11 +7,29 @@ from pathlib import Path
 from typing import Any
 
 from app.workspace.atomic import atomic_write_json
-from app.workspace.paths import chat_meta_path, chats_dir, project_json_path
+from app.workspace.paths import (
+    chat_meta_path,
+    chats_dir,
+    project_json_path,
+    unbound_chat_attachments_dir,
+    unbound_chat_log_path,
+    unbound_chat_meta_path,
+    unbound_chats_root,
+)
 
 
 _log_lock = asyncio.Lock()
 _log = logging.getLogger(__name__)
+
+
+# Sentinel slug that routes log/meta/session-id ops to `_chats/<cid>.*` instead
+# of `<slug>/chats/<cid>.*`. Mirrors `_UNBOUND_SLUG` in chat/service.py;
+# defined here too so log helpers don't need to import the service layer.
+_UNBOUND_SLUG = "_chats"
+
+
+def _is_unbound(slug: str) -> bool:
+    return slug == _UNBOUND_SLUG
 
 
 def _project_alive(workspace: Path, slug: str) -> bool:
@@ -28,27 +46,101 @@ def _project_alive(workspace: Path, slug: str) -> bool:
     return project_json_path(workspace, slug).exists()
 
 
+def unbound_chat_tombstone_path(workspace: Path, chat_id: str) -> Path:
+    """Zero-byte marker dropped by `DELETE /lab/chats/{cid}`. Its presence
+    means trailing SDK events from a still-running turn must be dropped, even
+    if the jsonl was recreated by a racy write between the unlink and the
+    marker drop. Parallels the way `delete_project` removes `project.json` to
+    trip `_project_alive`."""
+    return unbound_chats_root(workspace) / f"{chat_id}.tombstone"
+
+
+def _unbound_chat_alive(workspace: Path, chat_id: str) -> bool:
+    """Tombstone gate for unbound-chat writes. True iff `_chats/<cid>.jsonl`
+    exists OR `_chats/<cid>/` exists.
+
+    A brand-new unbound chat (turn 1) materialises the jsonl on its first
+    `append_event`, so the first call sees "neither exists" → False and would
+    drop the user event. To support that bootstrap, callers MUST either:
+      * have already written the meta sidecar (`ensure_chat_meta`) — which
+        creates `_chats/<cid>.meta.json` and thus passes a separate check, OR
+      * use the per-turn entry point in `chat/service.py` which calls
+        `ensure_chat_meta` before the first `append_event`.
+
+    Concretely: the alive check also accepts the presence of the meta sidecar
+    (`<cid>.meta.json`) as proof the chat has been "registered" — the HTTP
+    `POST /lab/chats` route writes a stub meta on mint so the very first turn
+    passes the gate. Once the jsonl exists, every subsequent turn sees the
+    file directly.
+
+    Explicit tombstone wins: if `<cid>.tombstone` exists we return False even
+    when leftover state is present (so a half-finished delete doesn't leak)."""
+    if unbound_chat_tombstone_path(workspace, chat_id).exists():
+        return False
+    log_path = unbound_chat_log_path(workspace, chat_id)
+    if log_path.exists():
+        return True
+    att_dir = unbound_chats_root(workspace) / chat_id
+    if att_dir.exists():
+        return True
+    meta_path = unbound_chat_meta_path(workspace, chat_id)
+    return meta_path.exists()
+
+
+def _chat_log_path(workspace: Path, slug: str, chat_id: str) -> Path:
+    """Resolve the event-log path. Project chats live under
+    `<slug>/chats/<cid>.jsonl`; unbound chats under `_chats/<cid>.jsonl`."""
+    if _is_unbound(slug):
+        return unbound_chat_log_path(workspace, chat_id)
+    return chats_dir(workspace, slug) / f"{chat_id}.jsonl"
+
+
+def _meta_path(workspace: Path, slug: str, chat_id: str) -> Path:
+    if _is_unbound(slug):
+        return unbound_chat_meta_path(workspace, chat_id)
+    return chat_meta_path(workspace, slug, chat_id)
+
+
+def _chat_alive(workspace: Path, slug: str, chat_id: str) -> bool:
+    """Branch the tombstone check on slug kind. Project chats gate on
+    `project.json`; unbound chats gate on the existence of `_chats/<cid>.*`."""
+    if _is_unbound(slug):
+        return _unbound_chat_alive(workspace, chat_id)
+    return _project_alive(workspace, slug)
+
+
 async def append_event(
     workspace: Path,
     slug: str,
     chat_id: str,
     event: dict[str, Any],
 ) -> None:
-    if not _project_alive(workspace, slug):
-        # Surface the drop in server logs — silent loss here used to mask
-        # bare-`Bash mv` renames (pid_index never updated, every subsequent
-        # event hit this gate). Behaviour is unchanged; the warning just
-        # makes the failure mode noticeable next time it happens.
-        _log.warning(
-            "append_event dropped (project tombstoned): slug=%s chat_id=%s type=%s",
-            slug,
-            chat_id,
-            event.get("type"),
-        )
-        return
-    cdir = chats_dir(workspace, slug)
-    cdir.mkdir(parents=True, exist_ok=True)
-    log_path = cdir / f"{chat_id}.jsonl"
+    if _is_unbound(slug):
+        if not _unbound_chat_alive(workspace, chat_id):
+            _log.warning(
+                "append_event dropped (unbound chat tombstoned): chat_id=%s type=%s",
+                chat_id,
+                event.get("type"),
+            )
+            return
+        log_path = unbound_chat_log_path(workspace, chat_id)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        if not _project_alive(workspace, slug):
+            # Surface the drop in server logs — silent loss here used to mask
+            # bare-`Bash mv` renames (pid_index never updated, every subsequent
+            # event hit this gate). Behaviour is unchanged; the warning just
+            # makes the failure mode noticeable next time it happens.
+            _log.warning(
+                "append_event dropped (project tombstoned): slug=%s chat_id=%s type=%s",
+                slug,
+                chat_id,
+                event.get("type"),
+            )
+            return
+        cdir = chats_dir(workspace, slug)
+        cdir.mkdir(parents=True, exist_ok=True)
+        log_path = cdir / f"{chat_id}.jsonl"
     line = json.dumps(event, ensure_ascii=False) + "\n"
     async with _log_lock:
         # Append-only, JSONL, no atomic rename (a partial trailing line is recoverable).
@@ -76,7 +168,7 @@ def rewind_to_user(
     cleared so the call is safe to retry). Pairs with the UI's retry / edit
     flow on any user bubble — see ``useChat.rewindAndSend``.
     """
-    log_path = chats_dir(workspace, slug) / f"{chat_id}.jsonl"
+    log_path = _chat_log_path(workspace, slug, chat_id)
     new_size = 0
     if log_path.exists():
         try:
@@ -133,7 +225,7 @@ rewind_to_last_user = rewind_to_user
 
 def read_chat_events(workspace: Path, slug: str, chat_id: str) -> list[dict[str, Any]]:
     """Read back the JSONL chat log for UI replay. Returns [] if no/unreadable log file."""
-    log_path = chats_dir(workspace, slug) / f"{chat_id}.jsonl"
+    log_path = _chat_log_path(workspace, slug, chat_id)
     if not log_path.exists():
         return []
     out: list[dict[str, Any]] = []
@@ -202,7 +294,7 @@ def derive_chat_label(first_user_message: str) -> str:
 
 def read_chat_meta(workspace: Path, slug: str, chat_id: str) -> dict[str, Any]:
     """Whole meta dict ({} if missing/unreadable)."""
-    meta_path = chat_meta_path(workspace, slug, chat_id)
+    meta_path = _meta_path(workspace, slug, chat_id)
     if not meta_path.exists():
         return {}
     try:
@@ -213,6 +305,17 @@ def read_chat_meta(workspace: Path, slug: str, chat_id: str) -> dict[str, Any]:
 
 
 def _write_chat_meta(workspace: Path, slug: str, chat_id: str, data: dict[str, Any]) -> None:
+    if _is_unbound(slug):
+        if not _unbound_chat_alive(workspace, chat_id):
+            # Edge case: the chat hasn't even been registered yet (no jsonl, no
+            # meta, no attachments dir) AND no tombstone is set. Allow the
+            # write so `ensure_chat_meta` can bootstrap on turn 1 — the
+            # tombstone check above is the only way to refuse.
+            if unbound_chat_tombstone_path(workspace, chat_id).exists():
+                return
+        unbound_chats_root(workspace).mkdir(parents=True, exist_ok=True)
+        atomic_write_json(unbound_chat_meta_path(workspace, chat_id), data)
+        return
     if not _project_alive(workspace, slug):
         return
     chats_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
@@ -262,7 +365,7 @@ def write_chat_session_id(
     meta = read_chat_meta(workspace, slug, chat_id)
     if session_id is None:
         meta.pop("sdk_session_id", None)
-        meta_path = chat_meta_path(workspace, slug, chat_id)
+        meta_path = _meta_path(workspace, slug, chat_id)
         if not meta:
             try:
                 meta_path.unlink()
@@ -273,6 +376,108 @@ def write_chat_session_id(
         return
     meta["sdk_session_id"] = session_id
     _write_chat_meta(workspace, slug, chat_id, meta)
+
+
+def list_unbound_chats(workspace: Path) -> list[dict[str, Any]]:
+    """All unbound chats under `_chats/`, newest first. Source of truth =
+    directory scan of `_chats/c_*.jsonl` plus `_chats/c_*.meta.json`. Returns
+    [] if the unbound-chats dir is missing. Tombstoned entries are filtered
+    out so callers never see chats that have been explicitly deleted."""
+    root = unbound_chats_root(workspace)
+    if not root.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    # Iterate the union of jsonl files and meta sidecars — a chat created via
+    # `POST /lab/chats` (meta only, no events yet) should still surface.
+    for child in root.iterdir():
+        name = child.name
+        if name.startswith("c_") and name.endswith(".jsonl") and child.is_file():
+            chat_id = child.stem
+        elif name.startswith("c_") and name.endswith(".meta.json") and child.is_file():
+            chat_id = name[: -len(".meta.json")]
+        else:
+            continue
+        if chat_id in seen:
+            continue
+        seen.add(chat_id)
+        if unbound_chat_tombstone_path(workspace, chat_id).exists():
+            continue
+        events = read_chat_events(workspace, _UNBOUND_SLUG, chat_id)
+        meta = read_chat_meta(workspace, _UNBOUND_SLUG, chat_id)
+        kind = meta.get("kind")
+        label = meta.get("label")
+        ts_iso = meta.get("created_at")
+        if not kind or not label or not ts_iso:
+            first_user = next(
+                (e.get("text", "") for e in events if e.get("type") == "user"), ""
+            )
+            kind = kind or derive_chat_kind(first_user, has_attachments=False)
+            label = label or derive_chat_label(first_user)
+            if not ts_iso:
+                try:
+                    ts_iso = datetime.fromtimestamp(
+                        unbound_chat_log_path(workspace, chat_id).stat().st_mtime,
+                        timezone.utc,
+                    ).isoformat()
+                except OSError:
+                    ts_iso = _now_iso()
+        # Count attachments (if any). Cheap and lets the popover render a chip.
+        att_dir = unbound_chat_attachments_dir(workspace, chat_id)
+        attachment_count = 0
+        if att_dir.exists():
+            try:
+                attachment_count = sum(1 for p in att_dir.iterdir() if p.is_file())
+            except OSError:
+                attachment_count = 0
+        out.append({
+            "chat_id": chat_id,
+            "label": label,
+            "kind": kind,
+            "ts_iso": ts_iso,
+            "n_events": len(events),
+            "attachment_count": attachment_count,
+        })
+    out.sort(key=lambda c: c["ts_iso"], reverse=True)
+    return out
+
+
+def tombstone_unbound_chat(workspace: Path, chat_id: str) -> bool:
+    """Drop the jsonl + meta sidecar + per-chat dir for one unbound chat, then
+    write the `.tombstone` marker so trailing SDK events from a still-running
+    turn are silently dropped (mirrors `delete_project` ordering: tombstone
+    first, then wipe the rest).
+
+    Idempotent: returns False if nothing was on disk (no jsonl / meta / dir)
+    AND no tombstone existed; True otherwise. Tombstoning an already-tombstoned
+    chat is a no-op that still returns True (the chat is, in fact, dead).
+    """
+    import shutil
+
+    root = unbound_chats_root(workspace)
+    log_path = unbound_chat_log_path(workspace, chat_id)
+    meta_path = unbound_chat_meta_path(workspace, chat_id)
+    att_dir = root / chat_id
+    tombstone = unbound_chat_tombstone_path(workspace, chat_id)
+
+    existed = log_path.exists() or meta_path.exists() or att_dir.exists() or tombstone.exists()
+
+    # Drop the marker FIRST so a racy `append_event` between the unlink and
+    # the marker write still finds the marker and refuses to resurrect state.
+    root.mkdir(parents=True, exist_ok=True)
+    tombstone.touch(exist_ok=True)
+
+    try:
+        log_path.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        meta_path.unlink()
+    except FileNotFoundError:
+        pass
+    if att_dir.exists():
+        shutil.rmtree(att_dir, ignore_errors=True)
+    return existed
 
 
 def list_chats(workspace: Path, slug: str) -> list[dict[str, Any]]:

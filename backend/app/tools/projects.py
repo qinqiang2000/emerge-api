@@ -133,10 +133,18 @@ async def create_project(
     *,
     name: str,
     project_type: str = "extraction",
+    from_unbound_chat_id: str | None = None,
 ) -> dict[str, str]:
     """Create a new project. Folder name is the derived slug; an immutable
     `project_id` (pid) is also minted and persisted inside `project.json` for
     chat / jobs event-log anchoring.
+
+    When ``from_unbound_chat_id`` is set, the named unbound chat's jsonl /
+    meta / per-chat attachment dir under `_chats/` is atomically relocated
+    into the new project's `chats/` (inside the project's lock) and the
+    unbound slot is tombstoned. This is the agent-side entry into the
+    promote flow — used from inside an unbound chat when the user says
+    "make this a project".
 
     Returns `{project_id, slug}`. Callers that just need the folder identifier
     should use `out["slug"]` — every path helper takes the slug, not the pid.
@@ -224,6 +232,18 @@ async def create_project(
     except Exception:
         shutil.rmtree(pdir, ignore_errors=True)
         raise
+
+    if from_unbound_chat_id is not None:
+        # Atomic relocate of the unbound chat into the freshly minted project.
+        # Hold the project lock so any in-flight `append_event(slug=_chats, ...)`
+        # from a still-streaming SDK turn either lands before the rename
+        # (preserved) or after the tombstone (dropped + logged).
+        from app.tools.promote import relocate_unbound_chat
+        from app.workspace.lock import project_lock
+
+        async with project_lock(workspace, slug):
+            await relocate_unbound_chat(workspace, from_unbound_chat_id, slug)
+
     return {"project_id": pid, "slug": slug}
 
 

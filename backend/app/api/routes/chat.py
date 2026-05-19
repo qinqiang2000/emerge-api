@@ -9,11 +9,20 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.routes._safety import safe_chat_id, safe_slug
 from app.chat.ask_user import resolve_user_answer
-from app.chat.log import list_chats, read_chat_events, rewind_to_user
+from app.chat.log import (
+    ensure_chat_meta,
+    list_chats,
+    list_unbound_chats,
+    read_chat_events,
+    rewind_to_user,
+    tombstone_unbound_chat,
+)
 from app.chat.permissions import resolve_permission
-from app.chat.service import ChatService
+from app.chat.service import ChatService, _UNBOUND_SLUG
 from app.config import get_settings
 from app.provider import get_provider_for_model
+from app.tools.promote import promote_chat_to_project
+from app.workspace.ids import new_chat_id
 
 
 router = APIRouter()
@@ -109,6 +118,124 @@ async def lab_chat(body: ChatBody) -> EventSourceResponse:
             }
 
     return EventSourceResponse(gen())
+
+
+# ── Unbound chats (Phase 1 backend) ───────────────────────────────────────
+# `/lab/chats` (no slug) is the address of a chat that hasn't been bound to a
+# project. Mint with POST → carries until `/promote` migrates the jsonl + meta
+# + attachments under a new project slug. Coexists with the legacy `p_unset`
+# mint behaviour for Phase 1 — frontend cutover lands in Phase 2.
+#
+# Route ordering note: these handlers MUST stay declared BEFORE the existing
+# `GET /lab/chats/{slug}` / `GET /lab/chats/{slug}/{chat_id}` so a chat_id
+# in `/lab/chats/{chat_id}/events` doesn't get matched as a (slug, chat_id)
+# pair (the literal `events` would otherwise fall into the `chat_id`
+# placeholder and trip `safe_chat_id` with a 400). FastAPI route resolution
+# is purely positional.
+
+
+class UnboundTurnBody(BaseModel):
+    """Body for `POST /lab/chats/{chat_id}/turn`. Mirrors `ChatBody` minus
+    `project_id` — the route already encodes "unbound" by URL shape."""
+
+    user_message: str
+    attachments: list[dict[str, Any]] | None = None
+    surface_context: SurfaceContext | None = None
+
+
+class PromoteUnboundBody(BaseModel):
+    name: str
+    slug: str | None = None
+
+
+@router.post("/lab/chats")
+async def lab_unbound_chat_create() -> dict[str, str]:
+    """Mint a fresh unbound chat id. No storage is created yet — the very
+    first `append_event` (or `ensure_chat_meta`) materialises `_chats/<cid>.*`.
+    The HTTP layer is responsible for the id; the frontend then routes the
+    user to `/c/<cid>` (Phase 2)."""
+    cid = new_chat_id()
+    return {"chat_id": cid}
+
+
+@router.get("/lab/chats")
+async def lab_unbound_chat_list() -> list[dict[str, Any]]:
+    """List all unbound chats under `_chats/`, newest first. Returns a list of
+    `{chat_id, label, kind, ts_iso, n_events, attachment_count}` so the
+    Phase-2 frontend can render the empty-hero "Recent conversations" strip
+    + the scope-aware chat-history popover without N round-trips."""
+    workspace_root = get_settings().workspace_root
+    return list_unbound_chats(workspace_root)
+
+
+@router.get("/lab/chats/{chat_id}/events")
+async def lab_unbound_chat_history(chat_id: str) -> dict[str, Any]:
+    """Replay the unbound chat's event log. Mirrors
+    `GET /lab/chats/{slug}/{chat_id}` for project chats; the trailing
+    `/events` segment disambiguates from the slug-keyed route."""
+    safe_chat_id(chat_id)
+    workspace_root = get_settings().workspace_root
+    return {"events": read_chat_events(workspace_root, _UNBOUND_SLUG, chat_id)}
+
+
+@router.post("/lab/chats/{chat_id}/turn")
+async def lab_unbound_chat_turn(
+    chat_id: str, body: UnboundTurnBody,
+) -> EventSourceResponse:
+    """Run one chat turn against an unbound chat. Backend dispatches with
+    `slug='_chats'`; events land in `_chats/<chat_id>.jsonl`."""
+    safe_chat_id(chat_id)
+    svc = _get_chat_service()
+
+    async def gen():
+        async for chunk in svc.chat_turn(
+            slug=_UNBOUND_SLUG,
+            chat_id=chat_id,
+            user_message=body.user_message,
+            attachments=body.attachments,
+            surface_context=body.surface_context.model_dump() if body.surface_context else None,
+        ):
+            lines = chunk.strip().split("\n")
+            event_line = next((ln for ln in lines if ln.startswith("event:")), "event: message")
+            data_line = next((ln for ln in lines if ln.startswith("data:")), "data: {}")
+            yield {
+                "event": event_line.split(":", 1)[1].strip(),
+                "data": data_line.split(":", 1)[1].strip(),
+            }
+
+    return EventSourceResponse(gen())
+
+
+@router.post("/lab/chats/{chat_id}/promote")
+async def lab_unbound_chat_promote(
+    chat_id: str, body: PromoteUnboundBody,
+) -> dict[str, str]:
+    """Bind an unbound chat to a fresh project. Atomically relocates the
+    chat's jsonl + meta + attachments under the new project's `chats/`.
+    Returns `{slug, project_id}`. After this call the chat is reachable at
+    `/p/<slug>` and the unbound slot is tombstoned."""
+    safe_chat_id(chat_id)
+    workspace_root = get_settings().workspace_root
+    out = await promote_chat_to_project(
+        workspace_root,
+        chat_id,
+        name=body.name,
+        slug=body.slug,
+    )
+    return out
+
+
+@router.delete("/lab/chats/{chat_id}")
+async def lab_unbound_chat_delete(chat_id: str) -> dict[str, Any]:
+    """Tombstone an unbound chat: unlink jsonl + meta + per-chat dir, then
+    drop a `.tombstone` marker so trailing SDK events from a still-running
+    turn are silently dropped. Idempotent: deleting an already-tombstoned
+    chat returns `{ok: true}` with `existed=false` only when there was
+    nothing at all on disk."""
+    safe_chat_id(chat_id)
+    workspace_root = get_settings().workspace_root
+    existed = tombstone_unbound_chat(workspace_root, chat_id)
+    return {"ok": True, "existed": existed}
 
 
 @router.get("/lab/chats/{slug}")

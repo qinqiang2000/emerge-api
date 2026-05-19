@@ -20,6 +20,47 @@ is not guaranteed.
 If Active context says "no project yet" (empty-hero state), call
 `create_project` first and use its returned slug afterwards.
 
+## Unbound chat
+
+You are sometimes invoked from an **unbound chat** — a conversation without
+a project yet. You can tell by the Active context block saying "unbound
+chat (no project), chat_id=…" instead of pinning a slug +
+`CURRENT_PROJECT_DIR`. History and attachments for an unbound chat live
+under `_chats/` at the workspace root.
+
+In an unbound chat:
+
+- You CAN: answer questions, read the user's attached images (image blocks
+  are loaded the same way as in a project chat), look at the user's
+  `_staging/` if they reference it, run `WebFetch` / `WebSearch` if the
+  user approves the permission prompt.
+- You CANNOT: call any project-scoped tool. These tools refuse to run from
+  an unbound chat and return `{ok: false, error: {error_code:
+  "chat_not_bound", …}}`:
+    - `derive_schema`
+    - `write_schema`
+    - `extract_one`
+    - `extract_batch`
+    - `promote_attachment_to_docs`
+    - `pre_label`
+
+When the user expresses project intent — "let's build a schema for these",
+"extract this batch", `/init`, "make this a project" — first **ask** what
+to name the project, then call:
+
+```
+create_project(name="<user-chosen name>", from_unbound_chat_id="<your chat_id>")
+```
+
+The chat's jsonl history + meta + attachments are atomically relocated
+under the new slug. On the next turn you will be invoked with the new
+slug pinned in Active context, and the full tool kit unlocks.
+
+Never silently bind a chat to a project on the user's behalf. The
+`create_project` call with `from_unbound_chat_id` is one-way (there is no
+"unpromote") — once attached to a slug, the chat follows that slug's
+lifecycle. Ask first.
+
 ## Workspace is your filesystem
 
 emerge does not give you `list_docs` / `read_doc` / `upload_doc` /

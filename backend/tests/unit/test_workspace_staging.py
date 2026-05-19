@@ -14,12 +14,18 @@ from pathlib import Path
 import pytest
 
 from app.tools.projects import create_project
-from app.workspace.paths import chat_attachments_dir, doc_meta_path, doc_path
+from app.workspace.paths import (
+    chat_attachments_dir,
+    doc_meta_path,
+    doc_path,
+    unbound_chat_attachments_dir,
+)
 from app.workspace.staging import (
     StagingClaimError,
     StagingError,
     claim_staged,
     claim_staged_to_chat,
+    claim_staged_to_unbound_chat,
     cleanup_stale,
     stage_dir,
     stage_file,
@@ -161,3 +167,37 @@ def test_cleanup_stale_noop_when_staging_root_missing(workspace: Path) -> None:
     """No staging activity yet — must be safe to call (app startup hook)."""
     assert not staging_root(workspace).exists()
     assert cleanup_stale(workspace) == 0
+
+
+async def test_claim_staged_to_unbound_chat_moves_and_dedupes(workspace: Path) -> None:
+    """Two staged files with the same name land under the unbound chat's
+    attachments dir with `(1)` dedup suffix, mirroring `claim_staged_to_chat`.
+    The staging dirs are wiped after the claim — leftover staged trees would
+    leak storage and confuse `cleanup_stale`."""
+    chat_id = "c_unb000111222"
+    info1 = await stage_file(workspace, SAMPLE_PDF, "scan.pdf")
+    info2 = await stage_file(workspace, SAMPLE_PDF, "scan.pdf")
+
+    name1 = await claim_staged_to_unbound_chat(
+        workspace, info1["stage_token"], chat_id,  # type: ignore[arg-type]
+    )
+    assert name1 == "scan.pdf"
+    att_dir = unbound_chat_attachments_dir(workspace, chat_id)
+    assert (att_dir / "scan.pdf").exists()
+
+    name2 = await claim_staged_to_unbound_chat(
+        workspace, info2["stage_token"], chat_id,  # type: ignore[arg-type]
+    )
+    assert name2 == "scan (1).pdf"
+    assert (att_dir / "scan (1).pdf").exists()
+
+    # Staging dirs cleaned up.
+    assert not stage_dir(workspace, info1["stage_token"]).exists()  # type: ignore[arg-type]
+    assert not stage_dir(workspace, info2["stage_token"]).exists()  # type: ignore[arg-type]
+
+
+async def test_claim_staged_to_unbound_chat_unknown_token_raises(workspace: Path) -> None:
+    with pytest.raises(StagingClaimError):
+        await claim_staged_to_unbound_chat(
+            workspace, "st_deadbeefdeadbeef", "c_abc123def456",
+        )

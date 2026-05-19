@@ -166,6 +166,37 @@ def test_bash_mv_staging_into_project_allows(workspace: Path) -> None:
     assert decision.behavior == "allow"
 
 
+def test_bash_mv_inside_unbound_chat_allows(workspace: Path) -> None:
+    """`_chats/` is a sibling of `_staging/` — also `_`-prefixed, also NOT a
+    real project root. The `_is_project_root` check filters underscore-
+    prefixed dirs, so `mv` operations inside `_chats/` must stay allowed
+    (the agent legitimately moves attachments between unbound chats during
+    promote / cleanup scratchwork)."""
+    decision = classify(
+        "Bash",
+        {
+            "command": (
+                f"mv {workspace}/_chats/c_abc/attachments/x.pdf "
+                f"{workspace}/_chats/c_def/attachments/x.pdf"
+            )
+        },
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "allow"
+
+
+def test_bash_mv_unbound_chat_root_allows(workspace: Path) -> None:
+    """Moving the `_chats/c_xxx/` dir itself is allowed for the same reason:
+    not a project root. (The mv-deny only fires on direct workspace
+    children that aren't `_`-prefixed.)"""
+    decision = classify(
+        "Bash",
+        {"command": f"mv {workspace}/_chats/c_abc {workspace}/_chats/c_def"},
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "allow"
+
+
 # ── Read / Write / Edit / Glob / Grep ─────────────────────────────────────
 
 

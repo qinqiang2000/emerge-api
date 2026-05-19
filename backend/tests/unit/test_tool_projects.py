@@ -223,3 +223,71 @@ async def test_delete_project_tombstones_before_rmtree(workspace: Path) -> None:
     await delete_project(workspace, slug)
     await append_event(workspace, slug, "c_trail", {"type": "agent_text", "text": "hi"})
     assert not (workspace / slug).exists()
+
+
+async def test_create_project_with_from_unbound_chat_id_relocates_chat(
+    workspace: Path,
+) -> None:
+    """Calling `create_project(name=..., from_unbound_chat_id=cid)` from an
+    unbound chat mints the project AND atomically moves the chat's jsonl +
+    meta + attachments under the new slug. Source `_chats/<cid>.*` is gone
+    and tombstoned after the call."""
+    from app.chat.log import (
+        append_event,
+        ensure_chat_meta,
+        unbound_chat_tombstone_path,
+    )
+    from app.chat.service import _UNBOUND_SLUG
+    from app.workspace.paths import (
+        chat_attachment_path,
+        chats_dir,
+        unbound_chat_attachments_dir,
+        unbound_chat_log_path,
+        unbound_chat_meta_path,
+    )
+
+    cid = "c_unbproj00001"
+    ensure_chat_meta(
+        workspace, _UNBOUND_SLUG, cid,
+        first_user_message="hello",
+        has_attachments=False,
+    )
+    await append_event(
+        workspace, _UNBOUND_SLUG, cid, {"type": "user", "text": "hello"},
+    )
+    att_dir = unbound_chat_attachments_dir(workspace, cid)
+    att_dir.mkdir(parents=True, exist_ok=True)
+    (att_dir / "img.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    out = await create_project(
+        workspace, name="bound-project", from_unbound_chat_id=cid,
+    )
+    new_slug = out["slug"]
+    assert new_slug == "bound-project"
+
+    # Source gone.
+    assert not unbound_chat_log_path(workspace, cid).exists()
+    assert not unbound_chat_meta_path(workspace, cid).exists()
+    # Destination present.
+    dst_log = chats_dir(workspace, new_slug) / f"{cid}.jsonl"
+    assert dst_log.exists()
+    assert json.loads(dst_log.read_text().splitlines()[0]) == {
+        "type": "user", "text": "hello",
+    }
+    dst_att = chat_attachment_path(workspace, new_slug, cid, "img.png")
+    assert dst_att.exists()
+    # Tombstone in place.
+    assert unbound_chat_tombstone_path(workspace, cid).exists()
+
+
+async def test_create_project_with_unknown_unbound_chat_id_still_mints(
+    workspace: Path,
+) -> None:
+    """If the unbound chat id points at nothing on disk, the rename steps
+    silently skip and the project is still created — mirrors the
+    half-state tolerance of `promote_chat_to_project`."""
+    out = await create_project(
+        workspace, name="solo", from_unbound_chat_id="c_doesntexist0",
+    )
+    assert out["slug"] == "solo"
+    assert (workspace / "solo" / "project.json").exists()

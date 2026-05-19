@@ -30,6 +30,32 @@ if TYPE_CHECKING:
     from app.jobs.runner import JobRunner
 
 
+# Sentinel slug used by the unbound-chat flow (mirrors `chat/service.py:
+# _UNBOUND_SLUG`). Tools that require a real project context refuse to run
+# against this slug and surface a structured `chat_not_bound` error so the
+# agent (per skill guidance) prompts the user to create a project first
+# instead of silently failing or — worse — minting one without confirmation.
+_UNBOUND_SLUG = "_chats"
+
+
+def _chat_not_bound_error(tool_name: str) -> dict[str, Any]:
+    """Structured payload returned when a project-scoped tool is invoked from
+    an unbound chat. The agent reads `error_code` to route its reply (see
+    `app/skills/emerge_extractor.md` "Unbound chat" section)."""
+    return {
+        "ok": False,
+        "error": {
+            "error_code": "chat_not_bound",
+            "error_message_en": (
+                f"`{tool_name}` requires a project — this chat is not bound "
+                "to one yet. Ask the user for a project name, then call "
+                "`create_project(name=..., from_unbound_chat_id=...)` (or "
+                "`promote_chat_to_project`)."
+            ),
+        },
+    }
+
+
 def build_emerge_mcp(
     workspace: Path,
     provider: Provider,
@@ -57,11 +83,87 @@ def build_emerge_mcp(
     `project.json` and chat/jobs jsonl event streams.
     """
 
-    @tool("create_project", "Create a new extraction project.", {"name": str})
+    @tool(
+        "create_project",
+        "Create a new extraction project. When called from inside an "
+        "unbound chat (CURRENT_PROJECT_DIR empty), pass "
+        "`from_unbound_chat_id=<your chat_id>` so the chat's history + "
+        "attachments are atomically relocated under the new project's slug; "
+        "the unbound chat is then tombstoned and you operate in the new "
+        "project context for the rest of the turn. ALWAYS ask the user for a "
+        "name first — never silently bind a chat on their behalf.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "from_unbound_chat_id": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    )
     async def t_create_project(args: dict[str, Any]) -> dict[str, Any]:
-        out = await projects_mod.create_project(workspace, name=args["name"])
+        out = await projects_mod.create_project(
+            workspace,
+            name=args["name"],
+            from_unbound_chat_id=args.get("from_unbound_chat_id") or None,
+        )
         # `out` is `{project_id, slug}`. The slug is the only handle every
         # subsequent tool takes; the pid is audit metadata.
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "delete_project",
+        "Permanently delete a whole project: rmtree its dir and drop the pid "
+        "from the index. Returns {deleted_slug, deleted_pid}. ALWAYS ask the "
+        "user to confirm first — this is unrecoverable. Use this instead of "
+        "`Bash rm -rf <project_dir>`: bare rm leaves the chat-log writer free "
+        "to resurrect `chats/` with a trailing `agent_text`, producing a "
+        "half-zombie folder. This tool tombstones project.json first so the "
+        "log writer's gate trips even on in-flight events from the same turn. "
+        "For sub-paths (docs/, prompts/, experiments/, individual files) keep "
+        "using Bash rm — only whole-project delete needs this tool.",
+        {"slug": str},
+    )
+    async def t_delete_project(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            out = await projects_mod.delete_project(workspace, args["slug"])
+        except FileNotFoundError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "project_not_found",
+                    "error_message_en": str(e),
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "promote_chat_to_project",
+        "Bind the current unbound chat to a freshly minted project. Mints "
+        "the project (via `create_project`), then atomically relocates the "
+        "chat's `_chats/<chat_id>.jsonl` + `.meta.json` + `<chat_id>/` "
+        "attachments under the new project's `chats/`. Returns "
+        "`{slug, project_id}`. Prefer `create_project(name=..., "
+        "from_unbound_chat_id=...)` from inside an unbound chat — this tool "
+        "is the symmetric HTTP-route handle (used by `/init` / Promote "
+        "button). ALWAYS ask the user for a name first.",
+        {
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+            },
+            "required": ["chat_id", "name"],
+        },
+    )
+    async def t_promote_chat_to_project(args: dict[str, Any]) -> dict[str, Any]:
+        out = await promote_mod.promote_chat_to_project(
+            workspace,
+            args["chat_id"],
+            name=args["name"],
+            slug=args.get("slug") or None,
+        )
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
@@ -74,6 +176,10 @@ def build_emerge_mcp(
         {"slug": str, "chat_id": str, "filename": str},
     )
     async def t_promote_attachment_to_docs(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("promote_attachment_to_docs")
+            )}]}
         out = await promote_mod.promote_attachment_to_docs(
             workspace, args["slug"], args["chat_id"], args["filename"],
         )
@@ -103,6 +209,10 @@ def build_emerge_mcp(
         },
     )
     async def t_pre_label(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("pre_label")
+            )}]}
         try:
             out = await pre_label_mod.pre_label(
                 workspace, args["slug"],
@@ -214,6 +324,10 @@ def build_emerge_mcp(
         {"slug": str, "sample_filenames": list, "intent": str},
     )
     async def t_derive_schema(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("derive_schema")
+            )}]}
         fields = await schema_mod.derive_schema(
             workspace,
             args["slug"],
@@ -241,6 +355,10 @@ def build_emerge_mcp(
         },
     )
     async def t_write_schema(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("write_schema")
+            )}]}
         fields = [SchemaField(**f) for f in args["schema"]]
         await schema_mod.write_schema(
             workspace,
@@ -393,6 +511,10 @@ def build_emerge_mcp(
         {"slug": str, "filename": str},
     )
     async def t_extract_one(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("extract_one")
+            )}]}
         out = await extract_mod.extract_one(
             workspace, args["slug"], args["filename"], provider=provider
         )
@@ -405,6 +527,10 @@ def build_emerge_mcp(
         {"slug": str, "filenames": list},
     )
     async def t_extract_batch(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("extract_batch")
+            )}]}
         summary = await extract_mod.extract_batch(
             workspace, args["slug"], args["filenames"], provider=provider
         )
@@ -693,6 +819,7 @@ def build_emerge_mcp(
         version="0.0.1",
         tools=[
             t_create_project,
+            t_promote_chat_to_project,
             t_promote_attachment_to_docs,
             t_pre_label,
             t_set_labeler_model,
@@ -733,6 +860,7 @@ def build_emerge_mcp(
 
 _EMERGE_TOOL_NAMES = (
     "create_project",
+    "promote_chat_to_project",
     "promote_attachment_to_docs",
     "pre_label", "set_labeler_model", "get_labeler_config",
     "pdf_render_page", "read_doc_image",
