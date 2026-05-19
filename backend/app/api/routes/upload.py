@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from app.api.routes._safety import safe_chat_id, safe_filename, safe_slug
 from app.config import get_settings
 from app.tools.docs import IngestLocalError, ingest_local_path, upload_doc
+from app.tools.promote import promote_attachment_to_docs as promote_attachment_impl
 from app.workspace.paths import (
     chat_attachment_path,
     chat_attachments_dir,
@@ -166,3 +167,54 @@ async def get_chat_attachment(
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     media = _ATTACHMENT_MEDIA.get(ext, "application/octet-stream")
     return FileResponse(path, media_type=media)
+
+
+# ---------------------------------------------------------------------------
+# M11 Phase B T11 — HTTP mirror of the `promote_attachment_to_docs` tool.
+# A chat attachment becomes a curated `docs/` sample only via this explicit,
+# user-acked promotion path. The route closes the AI-native API symmetry gap
+# (memory `feedback_ai_native_api_symmetry`) so a CLI agent driving HTTP can
+# promote without going through chat. Idempotent on re-promote of an already-
+# moved file: the chat source is gone, so we surface the existing docs name.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/lab/projects/{slug}/chats/{chat_id}/attachments/{filename:path}/promote")
+async def post_promote_attachment(
+    slug: str, chat_id: str, filename: str,
+) -> dict[str, str]:
+    """Promote a chat-scoped attachment into `docs/`. Returns
+    `{target_filename}` — the post-dedupe on-disk handle (may differ from
+    the chat filename if `docs/` already had a same-named file).
+
+    Idempotency: re-promoting a file that's already been promoted (chat
+    source is gone but `docs/<filename>` exists) returns the same target
+    name without re-uploading. 404 only when neither the chat source nor
+    the docs target exists."""
+    safe_slug(slug)
+    safe_chat_id(chat_id)
+    safe_filename(filename)
+    settings = get_settings()
+    try:
+        out = await promote_attachment_impl(
+            settings.workspace_root, slug, chat_id, filename,
+        )
+    except FileNotFoundError:
+        # Idempotent fallback: if the chat source is gone but the file is
+        # already in docs/ under the original name, treat the re-promote
+        # as a no-op and echo the target. This matches the tool's
+        # documented contract ("re-promote = no-op, returns same target").
+        from app.workspace.paths import doc_path
+        existing = doc_path(settings.workspace_root, slug, filename)
+        if existing.exists() and existing.is_file():
+            return {"target_filename": filename}
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "attachment_not_found",
+                "error_message_en": (
+                    f"chat attachment not found: {slug}/{chat_id}/{filename}"
+                ),
+            },
+        )
+    return {"target_filename": out["final_name"]}

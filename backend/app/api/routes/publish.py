@@ -5,8 +5,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Header, Query, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.api.routes._safety import safe_published_id, safe_slug
 from app.config import get_settings
@@ -20,8 +21,13 @@ from app.security.keys import (
     sha256_key,
 )
 from app.tools.extract import extract_bytes_with_schema
-from app.tools.publish import contract_diff as contract_diff_impl
-from app.tools.publish import readiness_check as readiness_check_impl
+from app.tools.publish import (
+    PublishNotReadyError,
+    contract_diff as contract_diff_impl,
+    freeze_version as freeze_version_impl,
+    issue_api_key as issue_api_key_impl,
+    readiness_check as readiness_check_impl,
+)
 from app.workspace.paths import (
     parse_version_id,
     project_json_path,
@@ -274,4 +280,97 @@ async def lab_keys_meta(user_id: str = "default") -> dict:
         "key_hash_short": key_hash_short(row["hash"]),
         "created_at": row["created_at"],
         "last_used": row.get("last_used"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# M11 Phase B T11 — HTTP mirrors of `freeze_version` and `issue_api_key`
+# tools. Both close AI-native API symmetry gaps (memory
+# `feedback_ai_native_api_symmetry`): a CLI agent driving HTTP can now freeze
+# a version and issue a key without going through chat. `POST /lab/keys` is
+# the **one-time reveal** — plaintext appears in this response and never
+# again (mirrors what the tool already emits on its SSE turn).
+# ---------------------------------------------------------------------------
+
+
+class _FreezeVersionBody(BaseModel):
+    """HTTP mirror of the `freeze_version` tool input.
+
+    `version_id` is reserved for future explicit-id callers; the module
+    function auto-mints `v{n}` today, so the value is currently accepted
+    for shape parity but ignored. Pass `force=true` to bypass readiness
+    gates (matches the tool's `force` kwarg)."""
+
+    version_id: str | None = None
+    force: bool = False
+
+
+@router.post("/lab/projects/{slug}/versions/freeze")
+async def post_freeze_version(slug: str, body: _FreezeVersionBody | None = None) -> dict:
+    """Freeze the current lab schema into a published version.
+
+    Returns `{version_id, published_id}` — same shape the `freeze_version`
+    tool returns. Readiness gates run first; failures surface as a
+    structured 400 envelope carrying the per-check detail so callers can
+    show the user *which* gate blocked them (instead of a flat 500)."""
+    safe_slug(slug)
+    settings = get_settings()
+    if not project_json_path(settings.workspace_root, slug).exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+    # `version_id` is accepted but currently unused — the module function
+    # auto-mints `v{n}`. Kept in the body for forward compat.
+    body = body or _FreezeVersionBody()
+    try:
+        out = await freeze_version_impl(
+            settings.workspace_root, slug, force=body.force,
+        )
+    except PublishNotReadyError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": exc.error_code,
+                "error_message_en": exc.error_message_en,
+                "checks": exc.checks,
+            },
+        )
+    return out
+
+
+class _IssueKeyBody(BaseModel):
+    """HTTP mirror of the `issue_api_key` tool input.
+
+    Keys are user-scoped (not project-scoped) post-slug-transparency, so
+    `user_id` is the actual axis. `project_id` / `version_id` are accepted
+    for shape parity with the plan's documented body but pass through as
+    audit hints only — the plaintext key calls *any* published_id the
+    user wants."""
+
+    user_id: str | None = None
+    project_id: str | None = None
+    version_id: str | None = None
+
+
+@router.post("/lab/keys")
+async def post_issue_api_key(body: _IssueKeyBody | None = None) -> dict:
+    """Mint (or rotate) the user's API key. **One-time reveal**: the
+    `key_plaintext` is returned exactly once in this response body and
+    never again — `/lab/keys/meta` only exposes the hash short. Mirrors
+    what the `issue_api_key` tool emits on its SSE turn so a CLI agent
+    can issue keys without going through chat."""
+    body = body or _IssueKeyBody()
+    user_id = (body.user_id or "default").strip() or "default"
+    settings = get_settings()
+    out = await issue_api_key_impl(settings.workspace_root, user_id=user_id)
+    # Echo any audit hints the caller passed (project_id / version_id) so
+    # responses are self-describing in transcripts. Plaintext is the only
+    # security-sensitive field — it's just been minted and is about to be
+    # discarded server-side.
+    return {
+        "user_id": user_id,
+        "project_id": body.project_id,
+        "version_id": body.version_id,
+        **out,
     }
