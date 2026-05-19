@@ -285,6 +285,16 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 ---
 
+## 14. Turn lifetime ≠ SSE lifetime — `enterProject` must NOT abort the in-flight stream
+
+**Where:** `frontend/src/stores/chat.ts` lifecycle methods (`enterProject`, `switchChat`, `enterUnboundChat`, `newChat`, `deselect`); `backend/app/chat/turn_registry.py` (M11).
+
+**The trap:** placeholder — body filled in at M11-T7 closeout. Short version: prior to M11, switching project mid-turn left the SSE stream live → events bled into the new chat's `events[]`. Naive fix "abort on switch" trades the bleed for "switch view = kill the agent" — incompatible with AI-native API symmetry (a CLI client must be able to detach/reattach). M11 makes the turn a backend-owned resource (`TurnRegistry`); lifecycle methods detach the SSE without cancelling the task; re-entering re-attaches with offset.
+
+**Don't change** the lifecycle methods to call `cancelTurn()` on switch — that's the "small fix" we rejected. The Stop button (`cancel()`) is the only path that should hit the cancel endpoint.
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code
