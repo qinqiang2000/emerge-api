@@ -181,11 +181,72 @@ describe('chat store: send() split + lifecycle detach', () => {
     startTurnSpy.mockRestore()
   })
 
-  it.skip('test_reenter_chat_reattaches: pending T6', async () => {
-    // Re-entering a chat with `localStorage.turn:{cid}` set should call
-    // `fetchTurnState(cid)`; on `active_turn_id` matching, it should call
-    // `attachStream(cid, tid, after_offset = events.length)`. T6 wires this
-    // and fills in this test.
+  it('test_reenter_chat_reattaches: hydrate + fetchTurnState(running) → attachStream(after_offset=events.length)', async () => {
+    // Seed: chat A had an in-flight turn (t_a) that's still running on the
+    // backend. localStorage carries the turn id so re-enter can probe. Also
+    // pre-bind activeChatId.p_a → c_a... so enterProject('p_a') picks up the
+    // SAME chat id (otherwise chatIdFor mints a fresh one and the turn:{cid}
+    // entry under c_a... would be ignored).
+    localStorage.setItem('emerge.activeChatId.p_a', 'c_a000000001')
+    localStorage.setItem('turn:c_a000000001', 't_a')
+
+    // fetchTurnState reports turn t_a still running, last_offset=3 (jsonl has
+    // 3 lines persisted). The chat's hydrate will load those 3 events; the
+    // re-attached stream should pick up at after_offset=3.
+    const turnStateSpy = vi.spyOn(turn, 'fetchTurnState').mockResolvedValue({
+      active_turn_id: 't_a',
+      status: 'running',
+      last_offset: 3,
+    })
+
+    // getChatEvents returns 3 events (matching last_offset=3). reduceEvents
+    // produces 3 ChatEvents from these.
+    const hydrateEvents = [
+      { type: 'user', text: 'hello A' },
+      { type: 'agent_text', text: 'first chunk' },
+      { type: 'agent_text', text: 'second chunk' },
+    ]
+    vi.spyOn(api, 'getChatEvents').mockResolvedValue(hydrateEvents)
+
+    // Re-attached stream yields two more agent_text events, then closes
+    // naturally via a turn_end sentinel. (We use the same attachStream mock
+    // from beforeEach; the queue keyed by turn_id is the test's lever.)
+    pushEvent('t_a', { event: 'agent_text', data: { text: 'live chunk 1' } })
+    pushEvent('t_a', { event: 'agent_text', data: { text: 'live chunk 2' } })
+    pushEvent('t_a', { event: 'turn_end', data: {} })
+
+    // Act: enterProject('p_a') hydrates (installs 3 events) then probes
+    // turn_state. Since the turn is still running and matches, _maybeReattach
+    // opens attachStream at after_offset=3 and feeds events into the slice.
+    useChat.getState().enterProject('p_a')
+
+    // Flush enough microtasks for: hydrate await → set → fetchTurnState
+    // await → _consumeStream loop → turn_end. The attachStream mock yields
+    // one event per next() call, so several microtask ticks are needed.
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    const after = useChat.getState()
+    // Hydrated 3 + reattached 2 = 5 events on the slice.
+    expect(after.events.length).toBe(5)
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /live chunk 1/.test(e.text),
+    )).toBe(true)
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /live chunk 2/.test(e.text),
+    )).toBe(true)
+    // attachStream was called with after_offset matching the hydrate length.
+    expect(turn.attachStream).toHaveBeenCalledWith(
+      'c_a000000001',
+      't_a',
+      expect.objectContaining({ after_offset: 3 }),
+    )
+    // Natural stream end → inflight cleared on slice + localStorage.
+    expect(after.inflightTurnId).toBeNull()
+    expect(localStorage.getItem('turn:c_a000000001')).toBeNull()
+    // streamAbort cleared post-natural-end.
+    expect(after.streamAbort).toBeNull()
+
+    turnStateSpy.mockRestore()
   })
 
   it('test_cancel_calls_server: cancel() POSTs to the cancel endpoint and clears inflight state', async () => {

@@ -15,7 +15,7 @@ import {
 import { newChatId } from '../lib/ids'
 import { pathForChatId, pathForSlug } from '../lib/slugUrl'
 import { dispatchUiAction } from '../lib/surfaceRouter'
-import { attachStream, cancelTurn, startTurn, type StartTurnBody } from '../lib/turn'
+import { attachStream, cancelTurn, fetchTurnState, startTurn, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useDocs } from './docs'
@@ -361,6 +361,11 @@ export const useChat = create<State>((set, get) => ({
         // User sent during hydration → prepend server history, keep in-flight tail.
         return { events: [...reduced, ...s.events] }
       })
+      // M11 T6: after hydrate installs, probe turn_state and re-attach if the
+      // backend still has a live turn for this chat. Race-guarded inside.
+      if (useChat.getState().chatId === cid && useChat.getState().loadedProjectId === projectId) {
+        void _maybeReattach(cid, projectId)
+      }
     })()
     // Fire-and-forget: refresh the chat list so the conv-header popover has
     // server-authoritative entries for this project.
@@ -405,6 +410,11 @@ export const useChat = create<State>((set, get) => ({
         if (s.events.length === prefixLen) return { events: reduced }
         return { events: [...reduced, ...s.events] }
       })
+      // M11 T6: same re-attach probe as the project branch. Unbound mode
+      // passes UNBOUND_SLUG so _maybeReattach checks loadedUnboundChatId.
+      if (useChat.getState().chatId === chatId && useChat.getState().loadedUnboundChatId === chatId) {
+        void _maybeReattach(chatId, UNBOUND_SLUG)
+      }
     })()
     void get().listUnbound()
   },
@@ -496,6 +506,11 @@ export const useChat = create<State>((set, get) => ({
         if (s.events.length === prefixLen) return { events: reduced }
         return { events: [...reduced, ...s.events] }
       })
+      // M11 T6: probe turn_state and re-attach if the backend still has a
+      // live turn. Race-guarded inside _maybeReattach as well.
+      if (useChat.getState().chatId === chatId && useChat.getState().loadedProjectId === projectId) {
+        void _maybeReattach(chatId, projectId)
+      }
     })()
   },
   newChat: (projectId) => {
@@ -983,6 +998,113 @@ async function _consumeStream(
   // Iterator exhausted without seeing turn_end (shouldn't happen — registry
   // always sends a sentinel — but treat as natural close).
   return { streamEndedNaturally: true }
+}
+
+/**
+ * M11 T6: after a lifecycle method (``enterProject`` / ``enterUnboundChat`` /
+ * ``switchChat``) hydrates a chat from disk, check whether the backend still
+ * has a live turn for this chat — if so, attach a fresh SSE stream at
+ * ``after_offset = events.length`` so the user sees the live tail again.
+ *
+ * Called from inside the hydrate IIFE *after* the hydrated events have been
+ * installed via ``set``. The IIFE's race-safety guard (chatId + project match)
+ * has already filtered out switch-during-hydrate cases. We re-check the same
+ * invariants here because ``fetchTurnState`` is another async hop and the
+ * user may have switched again during it.
+ *
+ * Best-effort: any network/state mismatch falls through silently to "treat
+ * this chat as static history". The OLD chat's ``inflightTurnId`` localStorage
+ * entry is cleared on confirmed-done/stale paths so we don't keep retrying
+ * a dead turn on every re-enter.
+ *
+ * The mintedPidRef passed into ``_consumeStream`` is a fresh ``{value: null}``
+ * — capturing a mid-turn ``project_minted`` is essentially impossible on
+ * re-attach (the turn started in this same project / unbound chat and the
+ * mint already happened or didn't). A clean ref is the right default.
+ */
+async function _maybeReattach(cid: string, projectId: string): Promise<void> {
+  const localTurnId = _readTurnId(cid)
+  if (!localTurnId) return
+
+  let state
+  try {
+    state = await fetchTurnState(cid)
+  } catch (err) {
+    // Network / 5xx — leave the local entry as-is so a later re-enter can
+    // retry. The chat falls back to static-history behaviour for now.
+    console.warn('fetchTurnState failed on re-attach probe', err)
+    return
+  }
+
+  // Turn no longer registered backend-side (registry evicted post-finish, or
+  // backend restart wiped state). The jsonl hydrate is authoritative.
+  if (state.active_turn_id === null) {
+    _clearTurnId(cid)
+    return
+  }
+  // Stale local id — a different turn is live now (could happen if a CLI
+  // client started a new turn while this client was offline). Don't attach;
+  // wipe the stale local so the next re-enter doesn't keep stumbling on it.
+  if (state.active_turn_id !== localTurnId) {
+    _clearTurnId(cid)
+    return
+  }
+  // Turn already terminated — jsonl hydrate has the final state; nothing to
+  // tail. (Backend keeps a brief window of finished entries in registry for
+  // late-attaching clients to read the terminal envelope, but on re-enter we
+  // already have the final events on disk.)
+  if (state.status === 'done' || state.status === 'cancelled' || state.status === 'error') {
+    _clearTurnId(cid)
+    return
+  }
+  if (state.status !== 'running') return
+
+  // Race-check: did the user switch chats while fetchTurnState was in flight?
+  // The hydrate IIFE has its own guard, but we ran AFTER it, and ours is an
+  // independent async hop. Bail if focus moved.
+  const cur = useChat.getState()
+  if (cur.chatId !== cid) return
+  // Project mode → require loadedProjectId match. Unbound mode → require
+  // loadedUnboundChatId match. Same shape as the hydrate IIFEs.
+  const isUnbound = projectId === UNBOUND_SLUG
+  if (isUnbound) {
+    if (cur.loadedUnboundChatId !== cid) return
+  } else {
+    if (cur.loadedProjectId !== projectId) return
+  }
+
+  const afterOffset = cur.events.length
+  const ctrl = new AbortController()
+  useChat.setState({ busy: true, streamAbort: ctrl })
+
+  const mintedPidRef: { value: string | null } = { value: null }
+  let streamEndedNaturally = false
+  try {
+    const result = await _consumeStream(
+      cid, localTurnId, afterOffset, ctrl, projectId, mintedPidRef,
+    )
+    streamEndedNaturally = result.streamEndedNaturally
+  } catch (e) {
+    streamEndedNaturally = true
+    throw e
+  } finally {
+    // Same conditional-clear posture as send()'s finally: only wipe
+    // inflightTurnId when the stream ended of its own accord. A detach
+    // (user switched again mid-reattach) leaves the entry so the NEXT
+    // re-enter can try again.
+    if (streamEndedNaturally) {
+      const cur2 = useChat.getState()
+      if (cur2.chatId === cid) {
+        useChat.setState({ busy: false, streamAbort: null, inflightTurnId: null })
+      }
+      _clearTurnId(cid)
+    } else {
+      const cur2 = useChat.getState()
+      if (cur2.chatId === cid && cur2.streamAbort === ctrl) {
+        useChat.setState({ streamAbort: null })
+      }
+    }
+  }
 }
 
 function _findRecentVersionId(): string | null {
