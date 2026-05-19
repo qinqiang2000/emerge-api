@@ -27,6 +27,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - 测试: `cd backend && uv run pytest -v`
 - 单一 schema 真相: `backend/app/schemas/schema_field.py` 的 `SchemaField` pydantic model
 - **任务类型无关的 UI**：本 shell 要复用到非文档提取任务（matching、classification 等）。chrome 层（按钮、空状态、popover、slash-menu copy、kind chips）用通用动词（`init / run / tune / review / publish / ingest`），不出现 `extract` / `invoice` / 文档提取专用名词；提取专用术语只允许出现在 content/help 文案和真实路径（如 `docs/`）里。API 发布层（`/v1/{pid}/extract` 路由名等已固化部分）保持现状不破坏兼容
+- **Tool ↔ HTTP dual-form symmetry**：每个 `@tool` 注册必须配套 HTTP route（由 `backend/tests/unit/test_symmetry_invariant.py` 强制）。无法对称的 tool（如 `ui_*` 侧通道、`ask_user` 请求半）走 `_HTTP_EXEMPT` 并写明一行理由。新加 tool 时同步加 route（thin-delegate 模板见 `2026-05-19-turn-as-resource.md` §Phase B）或加 exempt 项。
 
 ## 四层 LLM（互不交叉）
 

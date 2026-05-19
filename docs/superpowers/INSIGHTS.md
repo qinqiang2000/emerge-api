@@ -305,6 +305,24 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 ---
 
+## 15. tool ↔ HTTP dual-form is enforced by `test_symmetry_invariant.py`
+
+**Where:** `backend/tests/unit/test_symmetry_invariant.py`; the contract it locks in is the AI-native API symmetry principle from memory `feedback_ai_native_api_symmetry` ("every lab action must be tool + HTTP dual-form; UI must be replaceable by Claude Code CLI agent without losing capability").
+
+**The trap (M11 Phase B audit, 2026-05-19):** 13 tool-only actions had no HTTP counterpart. Each violated symmetry — a CLI agent driving HTTP could not do what the in-session agent could do via its tool surface. The asymmetry accumulated quietly across milestones (M9.3 added 7 experiment tools but only 4 HTTP routes; M10 added the labeler tools then back-filled HTTP routes in T6; M3 minted `issue_api_key` tool with no HTTP twin; etc.).
+
+**The fix that actually works (M11 T14):** a single invariant test enumerates every `@tool("name", ...)` registration in `backend/app/tools/__init__.py` and asserts each is either mapped to a live `APIRoute` via `_TOOL_HTTP_MAP` or in `_HTTP_EXEMPT` with a one-line justification. The test runs in the regular unit suite, so opening a PR that adds a new tool without thinking about the HTTP twin trips CI immediately — catches the asymmetry at review time instead of months later when a CLI workflow surfaces it.
+
+**Three known exempt categories (kept honest by the justification comment requirement):**
+- `ui_*` (`ui_goto_page`, `ui_set_active_field`, `ui_set_active_tab`, `ui_set_active_entity`) — agent→UI side-channel; CLI clients silently ignore.
+- `get_surface_state` — introspects the in-session frontend's review-mode pointer; a CLI caller already knows what doc it asked about.
+- `ask_user` — the *request* half of an ask_user round-trip; the resolution half is `POST /lab/chats/{chat_id}/ask_user/{request_id}` (which IS the HTTP form a frontend / second CLI client uses to answer the question).
+- `switch_active_prompt` — the existing `PUT /lab/projects/{slug}/prompts/active` does a *content edit* of the active prompt, not an id-flip; mapping the tool to it would encode a misleading contract. A real id-switch endpoint (`PUT /lab/projects/{slug}/prompts/active_id` with `{prompt_id: str}`, mirroring `PUT .../models/active`) is a Phase B follow-up.
+
+**Don't** silently bypass the test by adding a new tool to `_HTTP_EXEMPT` without an explicit one-line reason — the third test (`test_exempt_entries_carry_justification`) refuses blank strings. Either add the route (preferred — Phase B route fillers in `2026-05-19-turn-as-resource.md` show the thin-delegate pattern: ~15–30 lines of body-validate + delegate to the same module function the tool wraps) or write down why the asymmetry is fundamental.
+
+---
+
 ## When to add an entry here
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code
