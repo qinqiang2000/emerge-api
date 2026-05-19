@@ -328,12 +328,18 @@ def build_emerge_mcp(
             return {"content": [{"type": "text", "text": _json.dumps(
                 _chat_not_bound_error("derive_schema")
             )}]}
+        from app.provider import get_provider_for_model
+
+        mc = await model_mod.read_active_model(workspace, args["slug"])
+        mid = mc.provider_model_id
+        prj_provider = get_provider_for_model(mid, provider=mc.provider)
         fields = await schema_mod.derive_schema(
             workspace,
             args["slug"],
             sample_filenames=args["sample_filenames"],
             intent=args["intent"],
-            provider=provider,
+            provider=prj_provider,
+            model_id=mid,
         )
         return {"content": [{"type": "text", "text": str([f.model_dump(mode="json") for f in fields])}]}
 

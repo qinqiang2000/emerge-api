@@ -183,7 +183,7 @@ def _validate_notes_hit(
             continue
         # Split on the LAST dot. Filenames legitimately contain dots (e.g.
         # `inv-042.pdf.buyer_name` reads as filename `inv-042.pdf` + field
-        # `buyer_name`); field names are snake_case identifiers with no dot.
+        # `buyer_name`); SchemaField names are letter-led identifiers with no dot.
         filename, _, field = hit.rpartition(".")
         if not filename or not field:
             filtered.append(hit)

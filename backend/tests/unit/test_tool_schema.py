@@ -69,11 +69,60 @@ async def test_derive_schema_calls_provider(workspace: Path, stub_provider: Asyn
         sample_filenames=[meta["filename"]],
         intent="extract core invoice info",
         provider=stub_provider,
+        model_id="stub-model",
     )
     assert len(fields) == 2
     names = {f.name for f in fields}
     assert names == {"invoice_no", "total_amount"}
     stub_provider.extract.assert_awaited_once()
+
+
+async def test_derive_schema_scrubs_proposer_noise(workspace: Path, stub_provider: AsyncMock) -> None:
+    """Proposer LLM occasionally hangs format/enum on non-string types, or items on
+    non-array types — response_schema can't express the cross-field rule. The tool
+    must scrub those毛刺 instead of failing the whole call (the schema gets edited
+    downstream anyway)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf_bytes = (Path(__file__).parent.parent / "fixtures" / "invoice_sample.pdf").read_bytes()
+    meta = await upload_doc(workspace, pid, pdf_bytes, "a.pdf")
+
+    stub_provider.extract.return_value = make_provider_result(
+        {
+            "fields": [
+                # format on type=number → must be stripped
+                {"name": "total", "type": "number", "description": "d", "format": "date"},
+                # array with items that wrongly carries format on type=object → strip nested format
+                {
+                    "name": "line_items",
+                    "type": "array",
+                    "description": "d",
+                    "items": {
+                        "type": "object",
+                        "description": "d",
+                        "format": "date",
+                        "properties": [
+                            {"name": "sku", "type": "string", "description": "d"},
+                        ],
+                    },
+                },
+                # clean field passes through
+                {"name": "invoice_no", "type": "string", "description": "d"},
+            ]
+        }
+    )
+
+    fields = await derive_schema(
+        workspace, pid,
+        sample_filenames=[meta["filename"]],
+        intent="x",
+        provider=stub_provider,
+        model_id="stub-model",
+    )
+    by_name = {f.name: f for f in fields}
+    assert set(by_name) == {"total", "line_items", "invoice_no"}
+    assert by_name["total"].format is None
+    assert by_name["line_items"].items is not None
+    assert by_name["line_items"].items.format is None
 
 
 async def test_write_schema_writes_to_active_prompt_not_schema_json(workspace: Path) -> None:

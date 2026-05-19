@@ -82,7 +82,7 @@ _DERIVE_SYSTEM = """You are designing a JSON extraction schema for a document ty
 Given sample documents and a user intent, propose a list of fields to extract.
 
 Output rules:
-- snake_case English keys only
+- field names: letter-led identifiers `[A-Za-z][A-Za-z0-9_]*`. snake_case is the preferred default (e.g. `invoice_number`); camelCase is equally valid when it matches existing schemas or downstream systems (e.g. `docType`, `billToName`).
 - prefer flat fields; nest only for natural arrays (line items, addresses)
 - write a `description` for each field that says what to look for AND what format to output
 - mark fields `required: true` only when they always appear
@@ -143,6 +143,34 @@ _DERIVE_TOOL_SCHEMA = {
 }
 
 
+def _scrub_proposer_field(node: Any) -> Any:
+    """Strip stochastic毛刺 from proposer-LLM JSON before SchemaField validation.
+    response_schema (OpenAPI 3.0) can't express "format only valid when type=string",
+    so the proposer occasionally hangs format/enum/properties/items on the wrong type.
+    Drop the mismatched keys per `SchemaField._shape` rules; nested items/properties
+    are scrubbed recursively. Array items must be unnamed."""
+    if not isinstance(node, dict):
+        return node
+    t = node.get("type")
+    out = dict(node)
+    if t != "string":
+        out.pop("format", None)
+        out.pop("enum", None)
+    if t != "object":
+        out.pop("properties", None)
+    if t != "array":
+        out.pop("items", None)
+    props = out.get("properties")
+    if isinstance(props, list):
+        out["properties"] = [_scrub_proposer_field(c) for c in props]
+    it = out.get("items")
+    if isinstance(it, dict):
+        scrubbed = _scrub_proposer_field(it)
+        scrubbed.pop("name", None)
+        out["items"] = scrubbed
+    return out
+
+
 _SUPPORTED_EXTS = {"pdf", "png", "jpg", "jpeg"}
 
 
@@ -171,7 +199,7 @@ async def derive_schema(
     sample_filenames: list[str],
     intent: str,
     provider: Provider,
-    model_id: str = "claude-sonnet-4-6",
+    model_id: str,
 ) -> list[SchemaField]:
     user_blocks: list[ContentBlock] = [TextBlock(text=f"User intent: {intent}")]
     for fn in sample_filenames:
@@ -186,5 +214,8 @@ async def derive_schema(
     raw_fields = result.raw_json.get("fields", [])
     out: list[SchemaField] = []
     for f in raw_fields:
-        out.append(SchemaField(**f))
+        try:
+            out.append(SchemaField(**_scrub_proposer_field(f)))
+        except Exception:
+            continue
     return out

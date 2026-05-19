@@ -63,11 +63,9 @@ lifecycle. Ask first.
 
 ## Workspace is your filesystem
 
-emerge does not give you `list_docs` / `read_doc` / `upload_doc` /
-`list_projects` / `rename_project` / `delete_*` etc. — the Claude Agent
-SDK's built-in **Bash / Glob / Grep / Read / Write / Edit** cover them,
-with permission gates that ask the user when something is destructive or
-crosses the workspace boundary.
+For listing / reading / copying / deleting files, use SDK built-ins
+(Bash / Glob / Grep / Read / Write / Edit). emerge intentionally has no
+`list_docs` / `rename_project` / `delete_*` tools — paths are the API.
 
 ### Directory layout (per project)
 
@@ -87,27 +85,13 @@ crosses the workspace boundary.
 └── chats/{chat_id}/      # chat jsonl + per-chat attachments
 ```
 
-### Frequent four ops (use SDK, NOT emerge_tools)
+### File ops cheatsheet (use SDK, NOT emerge_tools)
 
-| op | tool | example |
-|---|---|---|
-| List files | `Glob` / `Bash ls` | `Glob {CURRENT_PROJECT_DIR}/docs/*.pdf` |
-| Search content | `Grep` | `Grep "酒店\|住宿\|hotel" {CURRENT_PROJECT_DIR}/predictions/_draft/` |
-| Copy / move | `Bash cp` / `Bash mv` | `cp {WORKSPACE_ROOT}/src_slug/docs/{a,b,c}.png {WORKSPACE_ROOT}/dst_slug/docs/` |
-| Delete | `Bash rm` | `rm {CURRENT_PROJECT_DIR}/docs/{a,b,c}.pdf` |
-| Read one file | `Read` (native PDF/image vision) | `Read {CURRENT_PROJECT_DIR}/predictions/_draft/foo.pdf.json` |
-
-After `Bash cp` into `docs/`, sidecars rebuild lazily on the next listing
-— you do not need to call any emerge tool to "register" the new doc.
-
-Same idea for the other dirs:
-
-- "How many reviewed?" → `Bash ls {CURRENT_PROJECT_DIR}/reviewed/*.json | wc -l`
-- "What's the latest prediction for `foo.pdf`?" → `Read {CURRENT_PROJECT_DIR}/predictions/_draft/foo.pdf.json`
-- "What's in the Pro draft for `bar.pdf`?" → `Read {CURRENT_PROJECT_DIR}/reviewed/_pending/bar.pdf.json`
-- "Show the active prompt's fields" → `Read {CURRENT_PROJECT_DIR}/prompts/{active_prompt_id}.json`
-- "List all projects" → `Bash ls {WORKSPACE_ROOT}/` (skip dotfiles)
-- "Rename this project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug`
+- List / search → `Glob` / `Grep`. Read PDFs and images directly with `Read` (native vision).
+- Copy / move / delete inside workspace → `Bash cp` / `mv` / `rm`. Sidecars rebuild lazily; no "register" tool needed after `cp` into `docs/`.
+- "Rename project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug`. "List projects" → `Bash ls {WORKSPACE_ROOT}/` (skip dotfiles).
+- **"Delete a whole project"** → `delete_project(slug)`, NOT `Bash rm -rf <project_dir>`. Why: bare `rm` leaves the chat-log writer free to resurrect `chats/` with this turn's trailing `agent_text`, producing a half-zombie folder. The tool tombstones `project.json` first so the log writer's gate trips. Always confirm with the user before calling (unrecoverable).
+- `reviewed/_pending/{filename}.json` = Pro-labeler draft awaiting verify; `predictions/_draft/{filename}.json` = latest model output (overwritten each run).
 
 ### Permission boundary
 
@@ -131,33 +115,20 @@ user can decide approve / deny / always-allow at a glance.
 
 ## Business tools (the moat — SDK built-ins can't replace)
 
-Use these `mcp__emerge_tools__*` only when listed; everything else goes
-through SDK built-ins above.
+These need transactional / provider-HTTP / atomic-flock behavior Bash can't
+mimic. Each tool's own description has the full args; this section just
+lists which capabilities require the business tool (default to SDK
+built-ins for anything not here).
 
-| tool | why it must stay an emerge tool |
-|---|---|
-| `create_project` | seeds the full dir skeleton + project.json + pid_index |
-| `fork_project` | hardlinks docs/, copies prompts/+models/, mints new pid |
-| `promote_attachment_to_docs` | atomic move from `chats/<cid>/attachments/` to `docs/` with sidecar |
-| `write_schema` | active-prompt schema atomic write + version bump + draft invalidate. Accepts optional `global_notes` to update both in one call. **The only legal way to mutate the active prompt's schema or global_notes** — see red lines below. |
-| `switch_active_prompt` / `switch_active_model` | project.json mutation under flock |
-| `set_labeler_model` | same |
-| `get_labeler_config` | reads project.json + env to report `{override, env_default, resolved, source}` for the labeler — use this instead of `Read project.json` whenever you need to know what `pre_label` will run |
-| `derive_schema` | LLM call (provider HTTP) to propose fields from samples |
-| `extract_one` / `extract_batch` | provider HTTP — Bash can't dispatch to Anthropic/OpenAI/Gemini |
-| `extract_with_experiment` | same, per-experiment writes |
-| `pre_label` | labeler-LLM provider HTTP, writes `reviewed/_pending/` |
-| `save_reviewed` | triggers doc-status change + atomic `_pending/` cleanup |
-| `create_experiment` / `promote_experiment` | (prompt,model) upsert + atomic active flip + draft re-seed |
-| `run_experiment_eval` | reviewed-loop scoring with provider HTTP |
-| `score` | precision/recall/F1 + metrics snapshot |
-| `readiness_check` / `contract_diff` / `freeze_version` / `issue_api_key` | publish pipeline with version atomicity + key plaintext one-shot |
-| `start_job` / `get_job` / `pause_job` / `resume_job` / `cancel_job` | asyncio queue handles, not files |
-| `pdf_render_page` / `read_doc_image` | PyMuPDF rendering + vision-block conversion |
-| `get_surface_state` | reads disk truth for the review UI (status, evidence, experiments) |
-| `ui_goto_page` / `ui_set_active_{field,tab,entity}` | push navigation commands to the open review viewer |
-
-Anything not in that table → SDK built-in.
+- **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project` (whole-project rmtree — confirm first), `promote_attachment_to_docs`.
+- **Active prompt / model mutation**: `write_schema` (schema and/or `global_notes` — see red lines, the only legal mutation path), `switch_active_prompt`, `switch_active_model`, `set_labeler_model`, `get_labeler_config`.
+- **Provider HTTP calls**: `derive_schema`, `extract_one` / `extract_batch`, `extract_with_experiment`, `pre_label`.
+- **Reviewed lifecycle**: `save_reviewed` (atomic `_pending/` cleanup).
+- **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
+- **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
+- **Jobs (asyncio queue)**: `start_job`, `get_job`, `pause_job`, `resume_job`, `cancel_job`.
+- **PDF / vision**: `pdf_render_page`, `read_doc_image`.
+- **Review UI**: `get_surface_state`, `ui_goto_page`, `ui_set_active_{field,tab,entity}`.
 
 ## Discipline (red lines — never violate)
 
@@ -172,8 +143,10 @@ Anything not in that table → SDK built-in.
   image few-shot, or hidden heuristics.
 - NEVER store, request, or use bbox / coordinate metadata. The only
   spatial data that exists is `_evidence` page integers.
-- Output contract for extraction: top-level `array` of `object`,
-  snake_case English keys, omit fields when uncertain (no hallucinated
+- Output contract for extraction: top-level `array` of `object`. Output
+  field names match the schema verbatim — the schema's casing (snake_case
+  is the default; camelCase is equally valid) is authoritative; never
+  translate between them. Omit fields when uncertain (no hallucinated
   null/empty placeholders).
 - AutoResearch never auto-promotes — that's a separate skill (loaded via
   /improve). You do not optimize schemas yourself.
@@ -289,35 +262,22 @@ active pair. Use when the user says "试试" / "A/B" / "对比 model X" /
 
 ## Pro labeler (pre-label)
 
-A stronger / slower model (the "pro old-timer", e.g. `gemini-pro-latest`)
-drafts labels for the human boss to verify. Trigger phrases: "pro 先标一
-版", "用大模型预标这批", "stand by N 张", "labeler 跑一遍".
+A stronger / slower model drafts labels for the human boss to verify.
+Trigger phrases: "pro 先标一版", "用大模型预标这批", "labeler 跑一遍".
 
-1. `pre_label(slug, filenames=[...], labeler_model?)` — writes draft to
-   `reviewed/_pending/{filename}.json` per doc. Skips docs already in
-   `reviewed/` (human-verified wins). Overwrites existing pending. Cap
-   each call at ≤10 filenames; split larger sets across multiple calls.
-2. The user opens Review mode → top banner shows "Pro-labeled by {model}
-   · please verify". Boss edits / confirms / saves.
-3. `save_reviewed` atomically deletes the matching `_pending/` draft.
-4. "换 pro 模型" / "use X as pro" → `set_labeler_model(slug, model_id)`.
-5. For batches > 30 docs, ask first: "用 pro 标 N 张大约要花 X 分钟，确
-   定吗？" Small batches (≤ 10) don't need confirmation when explicit.
+- `pre_label(slug, filenames=[...], labeler_model?)` writes to
+  `reviewed/_pending/{filename}.json`. Skips docs already in `reviewed/`
+  (human wins). Cap each call ≤10 filenames; for >30 docs, confirm first.
+  `save_reviewed` later atomically clears the matching `_pending/`.
+- To know which model will run, call `get_labeler_config(slug)`. Do NOT
+  `Read project.json` to pre-check — `labeler_model` is normally null
+  and the env fallback (`EMERGE_DEFAULT_LABELER_MODEL`) resolves it.
+- `set_labeler_model(slug, model_id)` only when user asks to lock a
+  project to a model, or `pre_label` returned `labeler_model_not_configured`.
 
-Hard rules:
-
-- `pre_label` is **NOT** a substitute for `extract`. Output goes to
-  `reviewed/_pending/`, never `predictions/_draft/`, never `reviewed/`.
-- Only `save_reviewed` (boss clicking Save) moves data into ground truth.
-- **Don't pre-check `project.json.labeler_model` with `Read`** — it's
-  normally null (no project-specific override) and the labeler will
-  still resolve via `EMERGE_DEFAULT_LABELER_MODEL`. If you need to
-  report what labeler will run, call `get_labeler_config(slug)` instead;
-  if you need to verify "is it configured at all", trust `pre_label`'s
-  error path. Only fall back to `set_labeler_model` when:
-  (a) the user explicitly asks to lock a project to a model, or
-  (b) `pre_label` returned `labeler_model_not_configured` and the user
-  picked a model after you asked.
+Hard rules: `pre_label` output never lands in `predictions/_draft/` or
+`reviewed/` — only in `_pending/`. Only `save_reviewed` (Save click)
+promotes to ground truth.
 
 ## Long-running tools — say hi, then say bye
 
@@ -338,10 +298,6 @@ the only progress signal.**
 - **Do not chain another long tool silently** — broadcast each one
   separately so the user can interrupt if they want.
 
-This is the digital-colleague contract: a teammate tells you what
-they're starting and what they finished. Don't make the user watch a
-spinner.
-
 ## Risk gates (always confirm with user before invoking)
 
 Most destructive operations now go through SDK built-ins, and the
@@ -361,6 +317,7 @@ user wouldn't realize the blast radius from the command literal alone:
   schema).
 - Cancelling a job: `cancel_job`.
 - `pre_label` for batches > 30 files.
+- Deleting a whole project: `delete_project` (unrecoverable; takes docs, prompts, models, experiments, reviewed, predictions, chats all together).
 
 Bash `rm` / `mv` of `docs/`, `prompts/`, `models/`, `experiments/`,
 `reviewed/` files all trigger a permission prompt automatically — you
@@ -370,19 +327,12 @@ blast radius obvious.
 
 ### Structured confirmations — use `ask_user`, not `AskUserQuestion`
 
-When a confirmation needs more than yes/no — pick mapping A vs B, choose
-which experiment to promote, opt in to "缺失=空串" vs default — call
-`ask_user(questions=[...])`. Schema mirrors Claude Code's
-AskUserQuestion: each question has `question`, optional ≤12-char `header`
-chip, optional `multiSelect`, and 2-4 `options` of `{label, description}`.
-The frontend renders option buttons with 1/2/3 keyboard shortcuts so the
-user picks without typing. Tool result: `{ok, answers: [{question_index,
-selected: [{option_index, label}]}]}` — read `answers[0].selected[0].label`
-for the single-select case.
-
-Do **not** call the SDK built-in `AskUserQuestion` directly — emerge
-does not wire it up; the permission gate will treat it as an unknown
-tool. Always use `ask_user`.
+For multi-choice confirmation (pick A vs B, choose which experiment to
+promote), call `ask_user(questions=[...])`. Schema: each question has
+`question`, optional ≤12-char `header`, optional `multiSelect`, 2-4
+`options` of `{label, description}`. Read the answer at
+`answers[0].selected[0].label`. The SDK's built-in `AskUserQuestion` is
+NOT wired up — using it errors as an unknown tool.
 
 ## Tool usage hints
 
@@ -416,24 +366,15 @@ tool. Always use `ask_user`.
 
 ## Cross-project clone
 
-- `fork_project(src_slug, name, include_docs=false)` — clones an entire
-  project's prompt/model setup into a fresh project. Copies `project.json`
-  (with reset `active_version_id`), all `prompts/*.json`, all
-  `models/*.json`. Skips chats, reviewed, predictions/_draft,
-  experiments, versions, metrics — project-bound. `include_docs=true`
-  hardlinks every doc into the new project. Use when the user says "从 X
-  起跑新项目", "fork from X", "make a UK version of us-invoice".
-- Single-prompt clone: `Bash cp
+- Whole-project ("fork from X", "make a UK version of us-invoice"):
+  `fork_project(src_slug, name, include_docs=false)`. Copies prompts/
+  + models/ + project.json (reset `active_version_id`); skips chats,
+  reviewed, predictions/_draft, experiments, versions, metrics.
+  `include_docs=true` hardlinks docs.
+- Single prompt ("试 X 项目的 prompt"): `Bash cp
   {WORKSPACE_ROOT}/src_slug/prompts/{pid}.json
-  {WORKSPACE_ROOT}/dst_slug/prompts/`. Edit the copy if needed. Use when
-  the user has an existing project and wants to "试 X 项目的 prompt 看看
-  效果" without forking the whole project.
-
-Typical follow-up after a single-prompt clone:
-`create_experiment(prompt_id=<copied>, model_id=active)` → user picks a
-doc → `extract_with_experiment` → review the result. If the copied
-prompt wins, `promote_experiment`; otherwise leave it or `Bash rm` the
-variant.
+  {WORKSPACE_ROOT}/dst_slug/prompts/`, then `create_experiment` →
+  `extract_with_experiment` → review → `promote_experiment` if it wins.
 
 ## Slash commands handled by this skill
 

@@ -89,8 +89,8 @@ async def _mark_notes_consumed(
         return {}
     # Group hits by filename. Split on the LAST dot because filenames
     # legitimately contain dots (e.g. `inv-042.pdf.buyer_name` reads as
-    # filename `inv-042.pdf` + field `buyer_name`); field names are
-    # snake_case identifiers with no dot.
+    # filename `inv-042.pdf` + field `buyer_name`); SchemaField names are
+    # letter-led identifiers with no dot.
     grouped: dict[str, list[str]] = {}
     for hit in notes_hit:
         if not isinstance(hit, str) or "." not in hit:

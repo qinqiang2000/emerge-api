@@ -22,7 +22,7 @@ _EXTRACT_SYSTEM = """You extract structured data from a document.
 
 Output rules:
 - top-level: array of objects (entities). One PDF may contain multiple entities (e.g. multiple receipts).
-- snake_case English keys only.
+- use the field names from the schema verbatim (case-sensitive); do not translate snake_case↔camelCase.
 - ALWAYS include every field declared in the schema for each entity. Use null when the value is absent from the document or you are uncertain. Do NOT omit keys.
 - emit `_evidence` parallel to `entities`: per-entity dict mapping field_name -> page integer (1-based).
   Use the page where you saw the value. For derived fields (sums, formatted dates) emit null.

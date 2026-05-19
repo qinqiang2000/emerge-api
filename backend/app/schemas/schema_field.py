@@ -7,7 +7,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-_SNAKE_CASE = re.compile(r"^[a-z][a-z0-9_]*$")
+_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 
 
 class FieldType(str, Enum):
@@ -80,11 +80,13 @@ class SchemaField(BaseModel):
 
     @field_validator("name")
     @classmethod
-    def name_snake_case(cls, v: Optional[str]) -> Optional[str]:
+    def name_identifier(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        if not _SNAKE_CASE.match(v):
-            raise ValueError(f"field name must be snake_case: {v!r}")
+        if not _NAME_RE.match(v):
+            raise ValueError(
+                f"field name must be a letter-led identifier ([A-Za-z][A-Za-z0-9_]*): {v!r}"
+            )
         return v
 
     @model_validator(mode="after")

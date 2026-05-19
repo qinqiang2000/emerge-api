@@ -18,10 +18,10 @@ type TypeName = (typeof TYPES)[number]
 const ITEMS_TYPES = ['string', 'integer', 'number', 'boolean', 'object'] as const
 type ItemsTypeName = (typeof ITEMS_TYPES)[number]
 
-const SNAKE_RE = /^[a-z][a-z0-9_]*$/
+const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/
 
-function isSnake(name: string): boolean {
-  return SNAKE_RE.test(name)
+function isValidName(name: string): boolean {
+  return NAME_RE.test(name)
 }
 
 function csvSplit(v: string): string[] {
@@ -287,8 +287,8 @@ function SchemaCardEditor({ field, onChange, onDelete, nameless = false, onInser
                 e.currentTarget.textContent = field.name ?? ''
                 return
               }
-              if (!isSnake(v)) {
-                setNameError('snake_case only')
+              if (!isValidName(v)) {
+                setNameError('letters/digits/underscore only; must start with a letter')
                 e.currentTarget.textContent = field.name ?? ''
                 return
               }

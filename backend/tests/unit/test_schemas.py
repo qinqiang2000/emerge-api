@@ -15,11 +15,24 @@ def test_simple_field_minimal() -> None:
     assert f.format is None
 
 
-def test_field_name_must_be_snake_case() -> None:
-    with pytest.raises(ValidationError):
-        SchemaField(name="InvoiceNo", type=FieldType.STRING, description="x")
+def test_field_name_accepts_snake_and_camel() -> None:
+    # snake_case (default convention) and camelCase (for matching external
+    # systems, e.g. 3_2.yaml `docType`) are both legal.
+    assert SchemaField(name="invoice_no", type=FieldType.STRING, description="x").name == "invoice_no"
+    assert SchemaField(name="docType", type=FieldType.STRING, description="x").name == "docType"
+    assert SchemaField(name="billToName", type=FieldType.STRING, description="x").name == "billToName"
+
+
+def test_field_name_rejects_non_identifier() -> None:
+    # hyphen, leading digit, dot, space, empty — none are valid identifiers.
     with pytest.raises(ValidationError):
         SchemaField(name="invoice-no", type=FieldType.STRING, description="x")
+    with pytest.raises(ValidationError):
+        SchemaField(name="1foo", type=FieldType.STRING, description="x")
+    with pytest.raises(ValidationError):
+        SchemaField(name="a.b", type=FieldType.STRING, description="x")
+    with pytest.raises(ValidationError):
+        SchemaField(name="has space", type=FieldType.STRING, description="x")
 
 
 def test_enum_field() -> None:

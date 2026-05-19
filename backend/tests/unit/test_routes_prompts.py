@@ -97,14 +97,16 @@ def test_put_active_prompt_writes_schema(client: TestClient, tmp_path: Path) -> 
     assert [f["name"] for f in r2.json()["schema"]] == ["vendor_name", "total"]
 
 
-def test_put_active_prompt_rejects_invalid_snake_case(client: TestClient, tmp_path: Path) -> None:
+def test_put_active_prompt_rejects_invalid_identifier(client: TestClient, tmp_path: Path) -> None:
+    # snake_case + camelCase are both accepted; only non-identifier names
+    # (hyphen, leading digit, dot, space) are rejected.
     import asyncio
     from app.tools.projects import create_project as _create
 
     pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     r = client.put(
         f"/lab/projects/{pid}/prompts/active",
-        json={"schema": [{"name": "BadCamel", "type": "string", "description": "x"}]},
+        json={"schema": [{"name": "bad-name", "type": "string", "description": "x"}]},
     )
     assert r.status_code == 400
     assert r.json()["detail"]["error_code"] == "invalid_schema_field"
