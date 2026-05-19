@@ -11,6 +11,7 @@ import {
 } from '../lib/api'
 import type { ExperimentPredictionPayload, ReviewedPayload } from '../types/review'
 import { useDocs } from './docs'
+import { useProjects } from './projects'
 
 type FieldsValue = Record<string, unknown>
 
@@ -91,6 +92,14 @@ export const useReview = create<State>((set, get) => ({
   isPending: false,
   labelerModel: null,
   open: async (projectId, filename) => {
+    // Re-anchor the spine to the review's project. Covers the case where the
+    // user clicked another project in the spine after entering review: prev /
+    // next here snaps selectedSlug (and the URL) back to the doc being
+    // reviewed, restoring the docs/ row highlight that gates on
+    // `reviewActiveProjectId === selectedSlug` in FSSpine.
+    if (useProjects.getState().selectedSlug !== projectId) {
+      useProjects.getState().select(projectId)
+    }
     set({
       activeProjectId: projectId,
       activeFilename: filename,
