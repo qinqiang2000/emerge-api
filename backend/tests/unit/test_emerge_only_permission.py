@@ -118,6 +118,54 @@ def test_bash_ssh_key_path_denies(workspace: Path) -> None:
     assert decision.behavior == "deny"
 
 
+def test_bash_mv_project_root_denies(workspace: Path) -> None:
+    # Renaming a project folder via mv bypasses pid_index and silently drops
+    # chat events after the move — must be denied with a `rename_project` hint.
+    decision = classify(
+        "Bash",
+        {"command": f"mv {workspace}/chat-260519-071155 {workspace}/荣耀_欧洲1"},
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "deny"
+    assert "rename_project" in decision.reason
+
+
+def test_bash_mv_project_root_with_flags_denies(workspace: Path) -> None:
+    decision = classify(
+        "Bash",
+        {"command": f"mv -v {workspace}/old_slug {workspace}/new_slug"},
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "deny"
+
+
+def test_bash_mv_inside_project_allows(workspace: Path) -> None:
+    # Internal moves (a file from one subdir to another within the same
+    # project) are routine and must stay allowed.
+    decision = classify(
+        "Bash",
+        {
+            "command": (
+                f"mv {workspace}/p1/docs/old.pdf "
+                f"{workspace}/p1/docs/new.pdf"
+            )
+        },
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "allow"
+
+
+def test_bash_mv_staging_into_project_allows(workspace: Path) -> None:
+    # `_staging` is not a real project root; moving from it into a project
+    # is the standard ingest path.
+    decision = classify(
+        "Bash",
+        {"command": f"mv {workspace}/_staging/x.pdf {workspace}/p1/docs/x.pdf"},
+        workspace_root=workspace,
+    )
+    assert decision.behavior == "allow"
+
+
 # ── Read / Write / Edit / Glob / Grep ─────────────────────────────────────
 
 

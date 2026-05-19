@@ -116,6 +116,34 @@ async def test_rename_project_missing_slug_raises(workspace: Path) -> None:
         await rename_project(workspace, "doesnotexist", name="x")
 
 
+async def test_rename_project_slug_only_pulls_placeholder_name_along(
+    workspace: Path,
+) -> None:
+    """Slug-only rename of a still-anonymous chat-mint project must also
+    bump the auto `Chat-…` display name — otherwise the sidebar keeps
+    showing the timestamp after the user has already named the slug."""
+    out = await create_project(workspace, name="Chat-260519-071155")
+    slug = out["slug"]
+    res = await rename_project(workspace, slug, new_slug="荣耀_欧洲1")
+    new_slug = res["slug"]
+    blob = json.loads((workspace / new_slug / "project.json").read_text())
+    assert blob["slug"] == new_slug
+    assert blob["name"] == new_slug
+
+
+async def test_rename_project_slug_only_preserves_user_name(workspace: Path) -> None:
+    """A user-set name (anything that's not the auto placeholder) must be
+    left alone on a slug-only rename — name and slug can legitimately
+    diverge once the user has expressed intent."""
+    out = await create_project(workspace, name="acme-invoices")
+    slug = out["slug"]
+    res = await rename_project(workspace, slug, new_slug="acme-v2")
+    new_slug = res["slug"]
+    blob = json.loads((workspace / new_slug / "project.json").read_text())
+    assert blob["slug"] == new_slug
+    assert blob["name"] == "acme-invoices"
+
+
 async def test_delete_project_removes_dir_and_unregisters_pid(workspace: Path) -> None:
     out = await create_project(workspace, name="trash-me")
     slug = out["slug"]

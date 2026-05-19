@@ -181,6 +181,54 @@ def _bash_uses_network(command: str) -> bool:
     return any(t in _NETWORK_COMMAND_TOKENS for t in tokens)
 
 
+def _is_project_root(path: Path, workspace_root: Path) -> bool:
+    """True iff ``path`` resolves to a direct child of ``workspace_root`` —
+    i.e. a project folder, not the workspace itself nor anything deeper.
+    Hidden / `_staging` siblings are ignored (not real projects)."""
+    try:
+        rel = Path(os.path.normpath(str(path))).relative_to(workspace_root)
+    except (TypeError, ValueError):
+        return False
+    parts = rel.parts
+    if len(parts) != 1:
+        return False
+    name = parts[0]
+    return bool(name) and not name.startswith("_") and not name.startswith(".")
+
+
+def _bash_touches_project_root(command: str, workspace_root: Path) -> bool:
+    """Detect `mv` invocations whose source or destination is a project
+    folder directly under the workspace.
+
+    Why this is its own deny: bare `mv workspace/<slug> workspace/<other>`
+    looks like a rename but bypasses ``pid_index``. ``_current_slug()`` in
+    chat/service.py then keeps returning the old slug for the rest of the
+    turn, and every subsequent ``append_event`` hits the tombstone guard in
+    chat/log.py and silently drops — half the conversation disappears with
+    no error surfaced. Steering the agent to ``rename_project`` is the only
+    safe path."""
+    if not re.search(r"\bmv\b", command):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        tokens = command.split()
+    ws_resolved = workspace_root.resolve() if workspace_root.exists() else workspace_root
+    after_mv = False
+    for tok in tokens:
+        if tok == "mv":
+            after_mv = True
+            continue
+        if not after_mv:
+            continue
+        if tok.startswith("-"):
+            continue
+        resolved = _resolve_path(tok, cwd=ws_resolved)
+        if _is_project_root(resolved, ws_resolved):
+            return True
+    return False
+
+
 def classify(
     tool_name: str,
     tool_input: dict[str, Any],
@@ -228,6 +276,15 @@ def classify(
             return GateDecision(
                 "ask",
                 "Command performs a network operation (curl/wget/ssh/...).",
+            )
+
+        # Project-root `mv` bypasses pid_index → silent chat-event drop.
+        if _bash_touches_project_root(command, workspace_root):
+            return GateDecision(
+                "deny",
+                "Renaming or moving a project folder via `mv` bypasses "
+                "pid_index and silently drops chat events after the move. "
+                "Use the `rename_project` tool instead.",
             )
 
         # Inspect path-shaped tokens.

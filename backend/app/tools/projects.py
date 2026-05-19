@@ -37,6 +37,12 @@ _SLUG_COLLAPSE_DASH = re.compile(r"-{2,}")
 # must not produce something the validator will reject.
 _SLUG_MAX_LEN = 64
 
+# Matches the auto-mint display name `_placeholder_project_name()` writes when
+# `chat_turn` mints an empty-hero project (`Chat-YYMMDD-HHMMSS`). Used by
+# `rename_project` to detect a placeholder name that should track a slug
+# change — versus a name the user deliberately set and wants to keep.
+_PLACEHOLDER_NAME_RE = re.compile(r"^Chat-\d{6}-\d{6}$")
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -300,6 +306,13 @@ async def rename_project(
         blob["slug"] = new_slug
         if cleaned_name is not None:
             blob["name"] = cleaned_name
+        elif _PLACEHOLDER_NAME_RE.match(str(blob.get("name") or "")):
+            # Slug-only rename of a still-anonymous chat-mint project: pull
+            # the display name along so sidebar stops showing the auto-stamp
+            # after the user has already named the slug. A name set by the
+            # user (anything not matching the placeholder pattern) is left
+            # alone — slug and name can legitimately diverge.
+            blob["name"] = new_slug
         atomic_write_json(new_pj, blob)
         if isinstance(pid, str) and pid:
             get_index(workspace).rename(pid, slug, new_slug)

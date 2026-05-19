@@ -109,6 +109,31 @@ async def test_append_event_after_project_delete_is_no_op(workspace: Path) -> No
     assert not chat_meta_path(workspace, pid, cid).exists()
 
 
+async def test_append_event_tombstone_drop_logs_warning(
+    workspace: Path, caplog
+) -> None:
+    """Drops past the `_project_alive` gate are silent at the network layer
+    (the SSE channel keeps streaming), but server logs must record them.
+    Regression: a bare `Bash mv` project-root rename used to silently lose
+    half the conversation; this warning is the breadcrumb."""
+    import logging
+    import shutil
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    cid = "c_test"
+    shutil.rmtree(workspace / pid)
+
+    with caplog.at_level(logging.WARNING, logger="app.chat.log"):
+        await append_event(
+            workspace, pid, cid, {"type": "agent_text", "text": "lost"}
+        )
+
+    assert any(
+        "tombstoned" in rec.message and pid in rec.message
+        for rec in caplog.records
+    )
+
+
 async def test_rewind_to_last_user_truncates_and_clears_sidecar(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     cid = "c_rewind"

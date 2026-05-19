@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,7 @@ from app.workspace.paths import chat_meta_path, chats_dir, project_json_path
 
 
 _log_lock = asyncio.Lock()
+_log = logging.getLogger(__name__)
 
 
 def _project_alive(workspace: Path, slug: str) -> bool:
@@ -33,6 +35,16 @@ async def append_event(
     event: dict[str, Any],
 ) -> None:
     if not _project_alive(workspace, slug):
+        # Surface the drop in server logs — silent loss here used to mask
+        # bare-`Bash mv` renames (pid_index never updated, every subsequent
+        # event hit this gate). Behaviour is unchanged; the warning just
+        # makes the failure mode noticeable next time it happens.
+        _log.warning(
+            "append_event dropped (project tombstoned): slug=%s chat_id=%s type=%s",
+            slug,
+            chat_id,
+            event.get("type"),
+        )
         return
     cdir = chats_dir(workspace, slug)
     cdir.mkdir(parents=True, exist_ok=True)
