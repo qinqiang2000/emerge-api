@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
@@ -11,6 +12,7 @@ from app.tools.model import (
     list_models,
     read_active_model,
     read_model,
+    switch_active_model,
 )
 from app.workspace.migrate import migrate_project_if_needed
 from app.workspace.paths import project_json_path
@@ -42,6 +44,31 @@ async def get_project_models(slug: str) -> list[dict]:
 async def get_project_active_model(slug: str) -> dict:
     workspace = _project_or_404(slug)
     await migrate_project_if_needed(workspace, slug)
+    mc = await read_active_model(workspace, slug)
+    return mc.model_dump(mode="json")
+
+
+class _PutActiveModelBody(BaseModel):
+    model_id: str
+
+
+@router.put("/lab/projects/{slug}/models/active")
+async def put_project_active_model(slug: str, body: _PutActiveModelBody) -> dict:
+    """Direct human switch of the active model — bypasses the agent.
+
+    Last-writer-wins semantics under the project lock (mirrors the
+    `PUT .../prompts/active` shape). 404 if the target model_id is unknown
+    in this project.
+    """
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        await switch_active_model(workspace, slug, body.model_id)
+    except ModelNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "model_not_found"},
+        )
     mc = await read_active_model(workspace, slug)
     return mc.model_dump(mode="json")
 
