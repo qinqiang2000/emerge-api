@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
 from app.provider import get_provider_for_model
 from app.tools.experiment import (
+    ExperimentInUseError,
     ExperimentNotFoundError,
+    archive_experiment,
+    create_experiment,
     extract_with_experiment,
     list_experiments,
+    promote_experiment,
     read_experiment,
+    run_experiment_eval,
 )
-from app.tools.model import read_model
+from app.tools.model import ModelNotFoundError, read_model
+from app.tools.prompt import PromptNotFoundError
 from app.workspace.migrate import migrate_project_if_needed
 from app.workspace.paths import experiment_prediction_path, project_json_path
 
@@ -106,3 +114,136 @@ async def run_experiment_prediction(
         workspace, slug, experiment_id, filename, provider=provider,
     )
     return payload
+
+
+# ---------------------------------------------------------------------------
+# M11 T12: HTTP setters mirroring the t_create_experiment / t_run_experiment_eval
+# / t_promote_experiment tool surfaces. Each route is a thin delegate to the
+# same module function the tool wraps — no business logic lives here.
+# ---------------------------------------------------------------------------
+
+
+class _CreateExperimentBody(BaseModel):
+    """Both axes default to the project's active. Mirrors the
+    `create_experiment` tool's input schema: upsert by (prompt, model)."""
+    prompt_id: str | None = None
+    model_id: str | None = None
+
+
+@router.post("/lab/projects/{slug}/experiments")
+async def post_create_experiment(slug: str, body: _CreateExperimentBody) -> dict:
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        eid = await create_experiment(
+            workspace, slug,
+            prompt_id=body.prompt_id or None,
+            model_id=body.model_id or None,
+        )
+    except PromptNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "prompt_not_found", "error_message_en": str(exc)},
+        )
+    except ModelNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "model_not_found", "error_message_en": str(exc)},
+        )
+    except ValueError as exc:
+        # `_resolve_active_{prompt,model}_id` raises ValueError when the
+        # project lacks an active axis. Surface as 400 so callers see the
+        # validation reason instead of a generic 500.
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "active_axis_missing", "error_message_en": str(exc)},
+        )
+    ex = await read_experiment(workspace, slug, eid)
+    return ex.model_dump(mode="json")
+
+
+class _RunEvalBody(BaseModel):
+    """No body args today — `run_experiment_eval` walks all `reviewed/` docs.
+    `filenames` is reserved for a future scoped-eval variant and ignored if
+    the tool doesn't accept it yet. Empty body is valid."""
+    filenames: list[str] | None = None
+
+
+@router.post("/lab/projects/{slug}/experiments/{experiment_id}/eval")
+async def post_run_experiment_eval(
+    slug: str, experiment_id: str, body: _RunEvalBody | None = None,
+) -> dict:
+    """Synchronous eval — loops every `reviewed/` doc through the experiment's
+    (prompt, model). May take a while for large reviewed sets; the symmetric
+    long-running form is the `start_job(skill='autoresearch')` background path
+    (mirrored by `/lab/jobs/*` routes). Keeping this endpoint sync matches the
+    `t_run_experiment_eval` tool semantics so a CLI client can invoke eval the
+    same way the in-session agent does."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        ex = await read_experiment(workspace, slug, experiment_id)
+    except ExperimentNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "experiment_not_found"},
+        )
+    try:
+        model = await read_model(workspace, slug, ex.model_id)
+    except ModelNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "model_not_found", "error_message_en": str(exc)},
+        )
+    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
+    try:
+        ev = await run_experiment_eval(
+            workspace, slug, experiment_id, provider=provider,
+        )
+    except ExperimentInUseError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "experiment_promoted", "error_message_en": str(exc)},
+        )
+    except ValueError as exc:
+        # No reviewed docs to score against.
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "no_reviewed_docs", "error_message_en": str(exc)},
+        )
+    return ev
+
+
+class _PromoteExperimentBody(BaseModel):
+    """`to='active'` flips the project's active (prompt, model) to this
+    experiment's pair and re-seeds `predictions/_draft/`. `to='archived'`
+    soft-archives the experiment (blocked on `status='promoted'` per audit
+    trail)."""
+    to: Literal["active", "archived"] = "active"
+
+
+@router.post("/lab/projects/{slug}/experiments/{experiment_id}/promote")
+async def post_promote_experiment(
+    slug: str, experiment_id: str, body: _PromoteExperimentBody | None = None,
+) -> dict:
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    target = (body.to if body is not None else "active")
+    try:
+        await read_experiment(workspace, slug, experiment_id)
+    except ExperimentNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "experiment_not_found"},
+        )
+    try:
+        if target == "archived":
+            await archive_experiment(workspace, slug, experiment_id)
+        else:
+            await promote_experiment(workspace, slug, experiment_id)
+    except ExperimentInUseError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "experiment_promoted", "error_message_en": str(exc)},
+        )
+    return {"ok": True}
