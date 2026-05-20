@@ -7,6 +7,7 @@ import { useSchema } from '../../src/stores/schema'
 import { useQuickLook } from '../../src/stores/quicklook'
 import { usePrompts } from '../../src/stores/prompts'
 import { useModels } from '../../src/stores/models'
+import { useExperiments } from '../../src/stores/experiments'
 
 // Post-slug-transparency: the FE handle is `slug` (folder name). QuickLook's
 // `target.pid` field is now historical — it carries a slug, not the internal
@@ -35,6 +36,7 @@ describe('FSSpine → QuickLook wiring', () => {
       activeByProject: { [SLUG]: { model_id: 'm_default', label: 'Default', provider: 'google', provider_model_id: 'gemini-2.5-flash', params: {}, created_at: 'x' } as any },
       loading: {},
     })
+    useExperiments.setState({ list: { [SLUG]: [] }, loading: {} })
   })
 
   it('schema.json row no longer rendered', () => {
