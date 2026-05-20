@@ -240,17 +240,22 @@ async def run_experiment_eval(
     use_llm_judge: bool = False,
 ) -> dict:
     """Foreground loop: for each doc in reviewed/, ensure
-    experiments/{exp_id}/predictions/{doc}.json exists (extract if missing),
-    then score predictions vs reviewed (overall + per-doc). Writes the
-    resulting ExperimentEval into meta.json.eval, sets status='ran'.
+    experiments/{exp_id}/predictions/{doc}.json exists (extract if missing).
+    Then delegate scoring to `eval.score.run_eval(experiment_id=...)` so the
+    dir-form artifact (`metrics/eval_<ts>/{summary,cells,matrix,meta}`) gets
+    written and is available to the M12 matrix UI / compare page. Per-doc
+    scores are computed separately for the legacy `meta.json.eval` blob that
+    the experiment-tab UI still reads.
 
-    Returns the eval dict (matching the persisted blob).
+    Returns the legacy eval dict augmented with `summary_ts` so callers
+    (e.g. the `/compare` skill) can link to `/eval/<summary_ts>` directly.
 
     Reviewed docs with no underlying doc file (rare; usually means the doc was
     deleted after review) are skipped silently — the eval coverage count
     reflects only docs that were successfully extracted.
     """
-    from app.eval.score import score
+    from app.eval.score import run_eval as eval_run_eval
+    from app.eval.score import score as eval_score
     from app.tools.extract import extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
@@ -274,22 +279,19 @@ async def run_experiment_eval(
     if not reviewed_files:
         raise ValueError("project has no reviewed docs; nothing to eval against")
 
+    # 1. Ensure every reviewed doc has a candidate prediction on disk. The new
+    #    eval_run_eval below reads predictions from the experiment dir, so we
+    #    have to populate it first.
     predictions: dict[str, list[dict]] = {}
     reviewed_payloads: dict[str, list[dict]] = {}
-    per_doc: dict[str, float] = {}
-
     for rfile in reviewed_files:
         # Reviewed filenames carry the doc's extension (e.g. `inv.pdf.json` →
         # `inv.pdf`). Strip only the trailing `.json` to recover the doc handle.
         filename = rfile.name[:-len(".json")]
         reviewed_blob = json.loads(rfile.read_text(encoding="utf-8"))
         reviewed_entities = reviewed_blob.get("entities", [])
-        # Skip reviewed entries whose underlying doc file is gone (rare; doc
-        # deleted after review). The eval coverage count then reflects only
-        # docs that were successfully extracted.
         if not doc_path(workspace, project_id, filename).exists():
             continue
-        # reuse cached extract if present
         ep = experiment_prediction_path(workspace, project_id, experiment_id, filename)
         if ep.exists():
             payload = json.loads(ep.read_text(encoding="utf-8"))
@@ -308,28 +310,35 @@ async def run_experiment_eval(
         predictions[filename] = payload.get("entities", [])
         reviewed_payloads[filename] = reviewed_entities
 
-    # overall score
-    overall, _cells = await score(
-        workspace, project_id, prompt.schema, predictions, reviewed_payloads,
+    # 2. Run the new orchestrator against this experiment's predictions. This
+    #    writes `metrics/eval_<ts>/{summary,cells,matrix,meta}` so the matrix
+    #    UI / compare page can load this candidate eval the same way as the
+    #    active-baseline eval.
+    summary = await eval_run_eval(
+        workspace, project_id,
         use_llm_judge=use_llm_judge,
+        experiment_id=experiment_id,
     )
-    # per-doc: re-score one doc at a time (cheap; in-memory)
+
+    # 3. Per-doc scores for the legacy `meta.json.eval` blob — the experiment
+    #    tab strip and review-mode prediction tabs still read this shape.
+    per_doc: dict[str, float] = {}
     for fn in predictions:
-        single, _ = await score(
+        single, _ = await eval_score(
             workspace,
             project_id,
             prompt.schema,
             {fn: predictions[fn]},
             {fn: reviewed_payloads[fn]},
-            use_llm_judge=use_llm_judge,
+            use_llm_judge=False,
         )
         per_doc[fn] = single.macro_f1
 
     now = _now_iso()
     eval_blob = ExperimentEval(
         ran_at=now,
-        score=overall.macro_f1,
-        per_field={fs.field: fs.f1 for fs in overall.per_field},
+        score=summary.macro_f1,
+        per_field={fs.field: fs.f1 for fs in summary.per_field},
         per_doc=per_doc,
         run_id=f"r_{int(time.time())}",
         coverage=len(predictions),
@@ -340,7 +349,9 @@ async def run_experiment_eval(
             experiment_meta_path(workspace, project_id, experiment_id),
             updated.model_dump(mode="json"),
         )
-    return eval_blob.model_dump(mode="json")
+    out = eval_blob.model_dump(mode="json")
+    out["summary_ts"] = summary.ts
+    return out
 
 
 async def promote_experiment(

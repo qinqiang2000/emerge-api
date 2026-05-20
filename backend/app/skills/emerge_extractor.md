@@ -419,12 +419,16 @@ Sequence (all steps mandatory; never skip the pre-check):
 3. **`create_experiment`** with `model_id=<m_short>` (defaults prompt to
    active). Idempotent — re-running returns the existing id.
 4. **`score(slug)`** to produce the active-baseline eval (writes
-   `metrics/eval_<ts_baseline>/`).
+   `metrics/eval_<ts_baseline>/`). The `ts` field in the returned blob is
+   `<ts_baseline>` — keep it.
 5. **`run_experiment_eval(experiment_id)`** to produce the candidate
-   eval (writes `experiments/<exp_id>/predictions/`).
+   eval. The return blob has a `summary_ts` field — that IS the
+   `<ts_candidate>` for the compare link. The candidate's `metrics/eval_<ts_candidate>/`
+   dir is also written. (The blob's older `ran_at` field is a separate
+   audit timestamp and is NOT a valid eval ts — don't use it in the link.)
 6. **Markdown delta table** in chat: per-field F1 deltas sorted by
    `|Δ|`, doc_accuracy A→B, macro_f1 A→B. End with a link:
-   `/projects/<slug>/eval/compare?a=<ts_baseline>&b=<ts_candidate>`.
+   `/projects/<slug>/eval/compare?a=<ts_baseline>&b=<summary_ts>`.
 7. **Never** auto-`switch_active_model`. Only suggest the command if B
    wins decisively.
 8. If `doc_accuracy < 0.5` for either side, prepend "low ground-truth
