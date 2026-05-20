@@ -294,28 +294,6 @@ async def test_doc_accuracy_smooth_vs_strict(workspace: Path) -> None:
     assert summary.doc_accuracy_strict == 0.0
 
 
-async def test_doc_accuracy_without_array(workspace: Path) -> None:
-    """M12.x.c — `doc_accuracy_without_array` drops ARRAY-typed cells.
-    Schema has 4 scalars + 1 array. Doc: array wrong, all scalars correct.
-    `doc_accuracy` = 4/5 = 0.80 (smooth includes array cell);
-    `doc_accuracy_without_array` = 4/4 = 1.00 (array dropped).
-    """
-    schema = [
-        _f("a"), _f("b"), _f("c"), _f("d"),
-        SchemaField(
-            name="items",
-            type=FieldType.ARRAY,
-            description="d",
-            items=SchemaField(type=FieldType.STRING, description="d"),
-        ),
-    ]
-    reviewed = {"d_a": [{"a": "1", "b": "2", "c": "3", "d": "4", "items": ["x"]}]}
-    predictions = {"d_a": [{"a": "1", "b": "2", "c": "3", "d": "4", "items": ["WRONG"]}]}
-    summary, _cells = await score(workspace, "p_x", schema, predictions, reviewed)
-    assert summary.doc_accuracy == pytest.approx(4 / 5, rel=0.01)
-    assert summary.doc_accuracy_without_array == pytest.approx(1.0, rel=0.01)
-
-
 async def test_doc_accuracy_strict_legacy(workspace: Path) -> None:
     """M12.x.c — legacy strict semantics live on under `doc_accuracy_strict`.
     With 2 docs and 1 fully-correct + 1 with one wrong cell, strict = 1/2 = 0.5.

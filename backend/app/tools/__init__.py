@@ -516,14 +516,14 @@ def build_emerge_mcp(
         "run_experiment_eval",
         "Loop reviewed/ docs through the experiment's (prompt, model); writes "
         "per-doc extracts and computes overall + per-field + per-doc scores. "
-        "Returns the eval dict and sets status='ran'. Pass use_llm_judge=true "
-        "to opt-in the L2 LLM-as-judge layer (off by default).",
+        "Returns the eval dict and sets status='ran'. Pass use_llm_judge=false "
+        "to skip the L2 LLM-as-judge layer (on by default).",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
                 "experiment_id": {"type": "string"},
-                "use_llm_judge": {"type": "boolean", "default": False},
+                "use_llm_judge": {"type": "boolean", "default": True},
             },
             "required": ["slug", "experiment_id"],
         },
@@ -542,7 +542,7 @@ def build_emerge_mcp(
         ev = await experiment_mod.run_experiment_eval(
             workspace, args["slug"], args["experiment_id"],
             provider=exp_provider,
-            use_llm_judge=bool(args.get("use_llm_judge", False)),
+            use_llm_judge=bool(args.get("use_llm_judge", True)),
         )
         return {"content": [{"type": "text", "text": _json.dumps(ev)}]}
 
@@ -690,13 +690,13 @@ def build_emerge_mcp(
         "(optional) L2 LLM-judge + L3 presence pipeline. Persists a "
         "directory artifact under metrics/eval_{ts}/ "
         "(summary.json + cells.jsonl + matrix.csv + meta.json). Returns "
-        "the summary. Pass use_llm_judge=true to opt-in the L2 LLM-as-judge "
-        "layer (off by default).",
+        "the summary. Pass use_llm_judge=false to skip the L2 LLM-as-judge "
+        "layer (on by default).",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
-                "use_llm_judge": {"type": "boolean", "default": False},
+                "use_llm_judge": {"type": "boolean", "default": True},
             },
             "required": ["slug"],
         },
@@ -704,7 +704,7 @@ def build_emerge_mcp(
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
         result = await score_mod.run_eval(
             workspace, args["slug"],
-            use_llm_judge=bool(args.get("use_llm_judge", False)),
+            use_llm_judge=bool(args.get("use_llm_judge", True)),
         )
         return {"content": [{"type": "text", "text": _json.dumps(result.model_dump(mode='json'))}]}
 

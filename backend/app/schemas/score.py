@@ -50,9 +50,6 @@ class ScoreResultSummary(BaseModel):
     blobs that carried the strict value still parse (the field is Optional)
     — the disambiguator is `doc_accuracy_strict`: when present, the
     sibling `doc_accuracy` is the new smooth definition.
-
-    `doc_accuracy_without_array` is the same smooth metric with `ARRAY`-type
-    fields dropped (e.g. `items`), giving a clean signal on header fields.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -61,8 +58,7 @@ class ScoreResultSummary(BaseModel):
     field_accuracy_macro: Optional[float] = None
     macro_f1: Optional[float] = None
     doc_accuracy: Optional[float] = None
-    # M12.x.c — new doc-level metrics. Optional so legacy summaries parse.
-    doc_accuracy_without_array: Optional[float] = None
+    # M12.x.c — legacy strict view; Optional so old summaries parse.
     doc_accuracy_strict: Optional[float] = None
     per_field: list[FieldScore]
     errors: list[str]

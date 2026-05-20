@@ -131,13 +131,6 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
               <span>
                 文档准确率 <strong>{pct(summary.doc_accuracy)}</strong>
               </span>
-              {/* M12.x.c — scalar-only sibling; surface when backend wrote it. */}
-              {summary.doc_accuracy_without_array != null && (
-                <span>
-                  文档准确率 (去除 items){' '}
-                  <strong>{pct(summary.doc_accuracy_without_array)}</strong>
-                </span>
-              )}
               <span className="text-ink-3">{summary.n_reviewed} docs</span>
               {summary.judge_used > 0 && (
                 <span className="text-ochre">

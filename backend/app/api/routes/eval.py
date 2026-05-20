@@ -36,7 +36,7 @@ def _validate_ts(ts: str) -> None:
 
 
 class _EvalBody(BaseModel):
-    use_llm_judge: bool = False
+    use_llm_judge: bool = True
 
 
 @router.post("/lab/projects/{slug}/eval")
@@ -53,7 +53,7 @@ async def post_eval(slug: str, body: Optional[_EvalBody] = None) -> dict:
         raise HTTPException(status_code=404, detail="schema_not_found")
     result = await run_eval(
         ws, slug,
-        use_llm_judge=(body.use_llm_judge if body is not None else False),
+        use_llm_judge=(body.use_llm_judge if body is not None else True),
     )
     return result.model_dump(mode="json")
 
@@ -78,7 +78,7 @@ async def post_score(slug: str, body: Optional[_EvalBody] = None) -> dict:
         )
     result = await run_eval(
         ws, slug,
-        use_llm_judge=(body.use_llm_judge if body is not None else False),
+        use_llm_judge=(body.use_llm_judge if body is not None else True),
     )
     return result.model_dump(mode="json")
 
