@@ -53,3 +53,72 @@ export function readChatIdFromPathname(pathname: string): string | null {
 export function pathForChatId(chatId: string | null, search: string = '', hash: string = ''): string {
   return chatId ? `/c/${encodeURIComponent(chatId)}${search}${hash}` : `/${search}${hash}`
 }
+
+
+// M12 — eval matrix routes ────────────────────────────────────────────────
+//
+// Address shapes:
+//   `/projects/<slug>/eval/<ts>`       → single eval matrix
+//   `/projects/<slug>/eval/latest`     → resolves to the most-recent ts
+//   `/projects/<slug>/eval/compare`    → side-by-side (?a=<ts1>&b=<ts2>)
+
+
+export interface EvalMatrixRoute {
+  kind: 'eval'
+  slug: string
+  ts: string
+}
+
+
+export interface EvalCompareRoute {
+  kind: 'compare'
+  slug: string
+  a: string | null
+  b: string | null
+}
+
+
+/** Parse an eval-matrix path. Returns `null` if the path isn't an eval route. */
+export function readEvalRouteFromUrl(pathname: string, search: string): EvalMatrixRoute | EvalCompareRoute | null {
+  const compare = pathname.match(/^\/projects\/([^/]+)\/eval\/compare\/?$/)
+  if (compare) {
+    let slug: string
+    try {
+      slug = decodeURIComponent(compare[1])
+    } catch {
+      return null
+    }
+    const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+    return {
+      kind: 'compare',
+      slug,
+      a: params.get('a'),
+      b: params.get('b'),
+    }
+  }
+  const m = pathname.match(/^\/projects\/([^/]+)\/eval\/([^/]+)\/?$/)
+  if (!m) return null
+  let slug: string
+  let ts: string
+  try {
+    slug = decodeURIComponent(m[1])
+    ts = decodeURIComponent(m[2])
+  } catch {
+    return null
+  }
+  return { kind: 'eval', slug, ts }
+}
+
+
+export function pathForEvalMatrix(slug: string, ts: string): string {
+  return `/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}`
+}
+
+
+export function pathForEvalCompare(slug: string, a?: string, b?: string): string {
+  const base = `/projects/${encodeURIComponent(slug)}/eval/compare`
+  const qs: string[] = []
+  if (a) qs.push(`a=${encodeURIComponent(a)}`)
+  if (b) qs.push(`b=${encodeURIComponent(b)}`)
+  return qs.length ? `${base}?${qs.join('&')}` : base
+}

@@ -6,6 +6,8 @@ import ContextSurface from './components/Context/ContextSurface'
 import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
 import PromptQuickLook from './components/QuickLook/PromptQuickLook'
 import PanelToggle from './components/Shell/PanelToggle'
+import EvalMatrixPage from './components/EvalMatrix/EvalMatrixPage'
+import EvalCompare from './components/EvalMatrix/EvalCompare'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
@@ -13,6 +15,7 @@ import {
   pathForChatId,
   pathForSlug,
   readChatIdFromPathname,
+  readEvalRouteFromUrl,
   readSlugFromPathname,
 } from './lib/slugUrl'
 
@@ -48,9 +51,32 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
 }
 
 export default function App() {
+  // M12 — eval matrix / compare are standalone pages that bypass the chat
+  // shell entirely. Read the URL on every render so popstate from the matrix
+  // back-link does the right thing without wiring react-router yet.
+  const [evalRoute, setEvalRoute] = useState(() =>
+    readEvalRouteFromUrl(window.location.pathname, window.location.search),
+  )
+  useEffect(() => {
+    const onPop = () => {
+      setEvalRoute(
+        readEvalRouteFromUrl(window.location.pathname, window.location.search),
+      )
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
   const { activeFilename } = useReview()
   const { selectedSlug } = useProjects()
   const loadedUnboundChatId = useChat(s => s.loadedUnboundChatId)
+
+  if (evalRoute && evalRoute.kind === 'eval') {
+    return <EvalMatrixPage slug={evalRoute.slug} ts={evalRoute.ts} />
+  }
+  if (evalRoute && evalRoute.kind === 'compare') {
+    return <EvalCompare slug={evalRoute.slug} a={evalRoute.a} b={evalRoute.b} />
+  }
 
   // URL ↔ store sync.
   //
