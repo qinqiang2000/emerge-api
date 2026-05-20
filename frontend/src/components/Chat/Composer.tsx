@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEve
 import { listProjectTree, type TreeEntry } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
-import SlashMenu, { COMMANDS } from './SlashMenu'
+import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
 // affordances are visually familiar. Both render at 14px in a 28x28 button.
@@ -169,14 +169,16 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     return ws === -1 ? text : text.slice(0, ws)
   }, [text])
   const looksLikePath = firstSegment.length > 1 && firstSegment.indexOf('/', 1) !== -1
-  // Prefix-filter commands by the first segment so the menu hides entirely when
-  // nothing matches — mirrors Claude Code CLI where `/abc达到` shows no popup.
-  // Note: this depends only on `text` (not `showSlash`) to keep the wiring acyclic;
+  // Filter commands by the first segment so the menu hides entirely when nothing
+  // matches — mirrors Claude Code CLI where `/abc达到` shows no popup. Ranks
+  // cmd-prefix > cmd-contains > desc-contains so `/auditing`-style queries that
+  // hit a description word still surface the right command. See
+  // `filterSlashCommands` in SlashMenu.tsx for the ranking detail.
+  // Note: depends only on `text` (not `showSlash`) to keep the wiring acyclic;
   // `showSlash` consumes it below.
   const slashMatches = useMemo(() => {
     if (!text.startsWith('/')) return []
-    const q = firstSegment.toLowerCase()
-    return COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(q))
+    return filterSlashCommands(firstSegment)
   }, [text, firstSegment])
   const showSlash =
     text.startsWith('/') &&
