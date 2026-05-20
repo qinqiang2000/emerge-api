@@ -249,6 +249,50 @@ export async function getLatestEval(slug: string): Promise<EvalSnapshot | null> 
   return r.json()
 }
 
+
+// M12 — dir-form eval helpers ─────────────────────────────────────────────
+import type {
+  CellVerdict,
+  EvalListEntry,
+  ScoreResultSummary,
+} from '../types/eval'
+
+export async function listEvals(slug: string): Promise<EvalListEntry[]> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/evals`)
+  if (!r.ok) return []
+  return (await r.json()) as EvalListEntry[]
+}
+
+export async function getEvalSummary(
+  slug: string,
+  ts: string,
+): Promise<ScoreResultSummary | null> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/summary.json`,
+  )
+  if (!r.ok) return null
+  return (await r.json()) as ScoreResultSummary
+}
+
+export async function getEvalCells(
+  slug: string,
+  ts: string,
+): Promise<CellVerdict[]> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/cells.jsonl`,
+  )
+  if (!r.ok) return []
+  const text = await r.text()
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as CellVerdict)
+}
+
+export function evalMatrixCsvUrl(slug: string, ts: string): string {
+  return `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/matrix.csv`
+}
+
 // Raw chat JSONL log for hydration on project entry. Permissive by design —
 // any failure (bad ids, network, parse) degrades to "empty chat", never throws
 // into a render.

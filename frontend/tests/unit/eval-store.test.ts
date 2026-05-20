@@ -52,4 +52,58 @@ describe('useEval', () => {
     useEval.getState().invalidate('p_a')
     expect(useEval.getState().byProject['p_a']).toBeUndefined()
   })
+
+  // M12 — matrix-page slice ───────────────────────────────────────────────
+
+  it('loadList stores eval-list rows per slug', async () => {
+    const rows = [
+      {
+        ts: '2026-05-21T00-00-00Z',
+        meta: {},
+        doc_accuracy: 0.92,
+        macro_f1: 0.95,
+        n_reviewed: 10,
+      },
+    ]
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => rows })
+    await useEval.getState().loadList('p_a')
+    expect(useEval.getState().list['p_a']).toEqual(rows)
+  })
+
+  it('loadSummary caches by slug|ts', async () => {
+    const sum = {
+      ...SNAPSHOT,
+      doc_accuracy: 0.8,
+      judge_used: 0,
+      judge_skipped_budget: 0,
+    }
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => sum })
+    await useEval.getState().loadSummary('p_a', '2026-05-21T00-00-00Z')
+    await useEval.getState().loadSummary('p_a', '2026-05-21T00-00-00Z')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(
+      useEval.getState().summary['p_a|2026-05-21T00-00-00Z']?.doc_accuracy,
+    ).toBeCloseTo(0.8)
+  })
+
+  it('loadCells parses JSONL into an array', async () => {
+    const cells = [
+      {
+        filename: 'a.pdf',
+        entity_idx: 0,
+        field: 'x',
+        status: 'correct',
+        truth: '1',
+        pred: '1',
+        verdict_source: 'exact',
+        normalizer: null,
+        judge_reason: null,
+        judge_model: null,
+      },
+    ]
+    const text = cells.map((c) => JSON.stringify(c)).join('\n') + '\n'
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => text })
+    await useEval.getState().loadCells('p_a', '2026-05-21T00-00-00Z')
+    expect(useEval.getState().cells['p_a|2026-05-21T00-00-00Z']?.length).toBe(1)
+  })
 })
