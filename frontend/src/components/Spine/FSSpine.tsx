@@ -10,6 +10,8 @@ import { useReview } from '../../stores/review'
 import { usePrompts } from '../../stores/prompts'
 import { useModels } from '../../stores/models'
 import { useExperiments } from '../../stores/experiments'
+import { useEval } from '../../stores/eval'
+import { pathForEvalMatrix } from '../../lib/slugUrl'
 import PanelToggle from '../Shell/PanelToggle'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
@@ -36,6 +38,7 @@ function buildTree(
   promptItems: LeafNode[],
   modelItems: LeafNode[],
   experimentItems: LeafNode[],
+  metricsItems: LeafNode[],
   openDoc: (slug: string, filename: string) => void,
   docsVisible: number,
   onLoadMoreDocs: () => void,
@@ -78,6 +81,7 @@ function buildTree(
       { name: 'prompts/', count: promptItems.filter(n => n.kind === 'file').length, items: promptItems },
       { name: 'models/', count: modelItems.filter(n => n.kind === 'file').length, items: modelItems },
       { name: 'experiments/', count: experimentItems.filter(n => n.kind === 'file').length, items: experimentItems },
+      { name: 'metrics/', count: metricsItems.filter(n => n.kind === 'file').length, items: metricsItems },
       { name: 'versions/', count: activeVersionId ? 1 : 0, items: versionItems },
     ],
     rootFiles,
@@ -147,7 +151,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     void usePrompts.getState().load(selectedSlug)
     void useModels.getState().load(selectedSlug)
     void useExperiments.getState().load(selectedSlug)
+    void useEval.getState().loadList(selectedSlug)
   }, [selectedSlug])
+
+  const evalListByProject = useEval(s => s.list)
 
   const activeDocs = selectedSlug ? (docsByProject[selectedSlug] ?? []) : []
   const activeSchemaFields = selectedSlug ? (schemaByProject[selectedSlug] ?? []) : []
@@ -185,6 +192,26 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     }))
   }, [selectedSlug, modelListByProject])
 
+  // Build metrics/ leaf nodes from the eval list. Each entry routes to the
+  // matrix page for that ts; the most recent ts gets the active marker.
+  const metricsItems: LeafNode[] = useMemo(() => {
+    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    const rows = evalListByProject[selectedSlug]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    return rows.map((row, i) => ({
+      kind: 'file' as const,
+      name: `eval_${row.ts}`,
+      stamp: row.doc_accuracy != null
+        ? `${(row.doc_accuracy * 100).toFixed(1)}%`
+        : row.macro_f1.toFixed(2),
+      active: i === 0,
+      onClick: () => {
+        window.history.pushState(null, '', pathForEvalMatrix(selectedSlug, row.ts))
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      },
+    }))
+  }, [selectedSlug, evalListByProject])
+
   // Build experiments leaf nodes
   const experimentItems: LeafNode[] = useMemo(() => {
     if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
@@ -210,13 +237,14 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           promptItems,
           modelItems,
           experimentItems,
+          metricsItems,
           (slug, filename) => { void openReview(slug, filename) },
           docsVisible,
           loadMoreDocs,
           selectedDocFilename,
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, openReview, docsVisible, loadMoreDocs, selectedDocFilename],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, openReview, docsVisible, loadMoreDocs, selectedDocFilename],
   )
 
   // When review ← / → steps past the visible page boundary, bump

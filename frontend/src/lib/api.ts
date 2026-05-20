@@ -258,35 +258,47 @@ import type {
 } from '../types/eval'
 
 export async function listEvals(slug: string): Promise<EvalListEntry[]> {
-  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/evals`)
-  if (!r.ok) return []
-  return (await r.json()) as EvalListEntry[]
+  try {
+    const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/evals`)
+    if (!r.ok) return []
+    return (await r.json()) as EvalListEntry[]
+  } catch {
+    return []
+  }
 }
 
 export async function getEvalSummary(
   slug: string,
   ts: string,
 ): Promise<ScoreResultSummary | null> {
-  const r = await fetch(
-    `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/summary.json`,
-  )
-  if (!r.ok) return null
-  return (await r.json()) as ScoreResultSummary
+  try {
+    const r = await fetch(
+      `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/summary.json`,
+    )
+    if (!r.ok) return null
+    return (await r.json()) as ScoreResultSummary
+  } catch {
+    return null
+  }
 }
 
 export async function getEvalCells(
   slug: string,
   ts: string,
 ): Promise<CellVerdict[]> {
-  const r = await fetch(
-    `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/cells.jsonl`,
-  )
-  if (!r.ok) return []
-  const text = await r.text()
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as CellVerdict)
+  try {
+    const r = await fetch(
+      `/lab/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}/cells.jsonl`,
+    )
+    if (!r.ok) return []
+    const text = await r.text()
+    return text
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as CellVerdict)
+  } catch {
+    return []
+  }
 }
 
 export function evalMatrixCsvUrl(slug: string, ts: string): string {

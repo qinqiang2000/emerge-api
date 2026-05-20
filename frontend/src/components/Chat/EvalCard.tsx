@@ -4,6 +4,7 @@ import type { ChatEvent } from '../../types/chat'
 import ToolCall from './ToolCall'
 import ToolRow from './ToolRow'
 import { toolShortHint } from '../../lib/toolHint'
+import { pathForEvalMatrix } from '../../lib/slugUrl'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,14 @@ export interface EvalCardProps {
   rows: EvalRow[]
   scoredAt: string    // "just now" or ISO timestamp
   overall: number     // e.g. 0.914
+  /** M12 — when the score result carries `doc_accuracy`, display it
+   *  prominently alongside macro F1. Optional for back-compat with legacy
+   *  results that pre-date M12. */
+  docAccuracy?: number | null
+  /** M12 — when known, render an "open full matrix" link to the dir-form
+   *  matrix view. Requires both slug and ts; either missing → omit link. */
+  slug?: string | null
+  ts?: string | null
 }
 
 // ── Tone helper ────────────────────────────────────────────────────────────
@@ -37,6 +46,7 @@ function toTone(f1: number): EvalTone {
 
 interface ScoreResult {
   macro_f1: number
+  doc_accuracy?: number | null
   per_field?: Array<{
     field: string
     precision: number
@@ -63,7 +73,13 @@ function parseScoreResult(raw: unknown): ScoreResult | null {
 
 export function adaptScoreResult(
   result: unknown,
-): { rows: EvalRow[]; overall: number; scoredAt: string } | null {
+): {
+  rows: EvalRow[]
+  overall: number
+  scoredAt: string
+  docAccuracy?: number | null
+  ts?: string | null
+} | null {
   const sr = parseScoreResult(result)
   if (!sr) return null
 
@@ -85,12 +101,18 @@ export function adaptScoreResult(
     (typeof sr.scored_at === 'string' && sr.scored_at) ||
     (typeof sr.ts === 'string' && sr.ts) ||
     'just now'
-  return { rows, overall, scoredAt }
+  return {
+    rows,
+    overall,
+    scoredAt,
+    docAccuracy: typeof sr.doc_accuracy === 'number' ? sr.doc_accuracy : null,
+    ts: typeof sr.ts === 'string' ? sr.ts : null,
+  }
 }
 
 // ── EvalCard ───────────────────────────────────────────────────────────────
 
-export default function EvalCard({ rows, scoredAt, overall }: EvalCardProps) {
+export default function EvalCard({ rows, scoredAt, overall, docAccuracy, slug, ts }: EvalCardProps) {
   const [open, setOpen] = useState<string | null>(null)
 
   return (
@@ -99,6 +121,12 @@ export default function EvalCard({ rows, scoredAt, overall }: EvalCardProps) {
       <div className="eh">
         <span className="nm">eval result</span>
         <span className="stamp">{scoredAt}</span>
+        {docAccuracy != null && (
+          <span className="agg">
+            <span className="lbl">doc</span>
+            {(docAccuracy * 100).toFixed(1)}%
+          </span>
+        )}
         <span className="agg">
           <span className="lbl">F1</span>
           {overall.toFixed(3)}
@@ -119,6 +147,18 @@ export default function EvalCard({ rows, scoredAt, overall }: EvalCardProps) {
           <span className="f" style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>
             per-field breakdown not available
           </span>
+        </div>
+      )}
+
+      {slug && ts && (
+        <div className="eval-row" style={{ gridTemplateColumns: '1fr' }}>
+          <a
+            href={pathForEvalMatrix(slug, ts)}
+            className="f"
+            style={{ color: 'var(--ochre-2)', textDecoration: 'underline' }}
+          >
+            ↗ open full matrix
+          </a>
         </div>
       )}
 
@@ -166,7 +206,7 @@ export default function EvalCard({ rows, scoredAt, overall }: EvalCardProps) {
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
 
-export function EvalCardAdapter({ call }: { call: ToolCallEvent }) {
+export function EvalCardAdapter({ call, slug }: { call: ToolCallEvent; slug?: string | null }) {
   const status = call.ok === false ? 'err' : call.tool_result == null ? 'run' : 'done'
   const displayName = call.tool_name.replace(/^mcp__emerge_tools__/, '')
   const hint = status !== 'run' ? toolShortHint(call.tool_name, call.tool_result) : null
@@ -182,7 +222,14 @@ export function EvalCardAdapter({ call }: { call: ToolCallEvent }) {
           <ToolRow glyph="·" label="input" value={JSON.stringify(call.tool_input)} />
           <ToolRow glyph="↳" label="result" value={`macro_f1=${adapted.overall.toFixed(3)}`} />
         </ToolCall>
-        <EvalCard rows={adapted.rows} scoredAt={adapted.scoredAt} overall={adapted.overall} />
+        <EvalCard
+          rows={adapted.rows}
+          scoredAt={adapted.scoredAt}
+          overall={adapted.overall}
+          docAccuracy={adapted.docAccuracy}
+          slug={slug ?? null}
+          ts={adapted.ts ?? null}
+        />
       </>
     )
   }

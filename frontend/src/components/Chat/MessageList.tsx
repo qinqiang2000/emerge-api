@@ -211,7 +211,8 @@ function HoistedToolCard({ call }: { call: ToolCallEvent }) {
     return <PublishStageKeyAdapter event={call} />
   }
   if (call.tool_name === 'mcp__emerge_tools__score') {
-    return <EvalCardAdapter call={call} />
+    const slug = useProjects.getState().selectedSlug
+    return <EvalCardAdapter call={call} slug={slug} />
   }
   if (call.tool_name === 'mcp__emerge_tools__save_reviewed') {
     // Render the regular plumbing tool card AND the escalation chip row
