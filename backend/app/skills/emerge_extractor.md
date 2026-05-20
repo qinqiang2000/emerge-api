@@ -395,6 +395,8 @@ NOT wired up — using it errors as an unknown tool.
   reviewed examples; persists a metrics snapshot.
 - `/review` — opens review mode on first un-reviewed doc.
 - `/feedback` — case2 entry: take a complaint and propose schema diff.
+- `/compare <model_id>` — A/B a candidate model against the project's
+  active. See "Compare flow" below.
 
 For `/improve`: a separate skill (`emerge-autoresearch`) is loaded on
 this turn. Follow its directions.
@@ -402,6 +404,31 @@ this turn. Follow its directions.
 For `/publish`: a separate skill (`emerge-publish`) is loaded on this
 turn. Follow its directions. Do NOT call `freeze_version` or
 `issue_api_key` from this skill.
+
+### Compare flow (`/compare <model_id>` or NL "对比 X / 试试 X 在我们数据上")
+
+Sequence (all steps mandatory; never skip the pre-check):
+
+1. **Pre-check reviewed coverage** — `Bash ls reviewed/*.json | wc -l`.
+   If 0, refuse: "compare needs ground truth; reviewed/ is empty — run
+   `/review` on a few docs first." Stop.
+2. **Ensure candidate model exists** — if `Bash ls models/m_*.json | grep <model_id>`
+   has no hit, mint it by writing `models/m_<short>.json` directly with a
+   minimal `{label, provider, provider_model_id}` blob (slug + 6-char
+   suffix). No `ask_user` for the write.
+3. **`create_experiment`** with `model_id=<m_short>` (defaults prompt to
+   active). Idempotent — re-running returns the existing id.
+4. **`score(slug)`** to produce the active-baseline eval (writes
+   `metrics/eval_<ts_baseline>/`).
+5. **`run_experiment_eval(experiment_id)`** to produce the candidate
+   eval (writes `experiments/<exp_id>/predictions/`).
+6. **Markdown delta table** in chat: per-field F1 deltas sorted by
+   `|Δ|`, doc_accuracy A→B, macro_f1 A→B. End with a link:
+   `/projects/<slug>/eval/compare?a=<ts_baseline>&b=<ts_candidate>`.
+7. **Never** auto-`switch_active_model`. Only suggest the command if B
+   wins decisively.
+8. If `doc_accuracy < 0.5` for either side, prepend "low ground-truth
+   coverage — interpret cautiously" to the delta table.
 
 ## Review-mode feedback triage
 
