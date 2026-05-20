@@ -250,10 +250,10 @@ async def run_experiment_eval(
     deleted after review) are skipped silently — the eval coverage count
     reflects only docs that were successfully extracted.
     """
+    from app.eval.score import score
     from app.tools.extract import extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
-    from app.tools.score import score
     from app.workspace.paths import (
         doc_path,
         reviewed_dir,

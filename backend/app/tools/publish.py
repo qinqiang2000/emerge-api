@@ -158,9 +158,12 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
             "detail": "schema empty; cannot compute F1",
         })
     else:
-        from app.tools.score import score
+        from app.eval.score import score
 
-        result = score(schema, _load_predictions(workspace, slug), reviewed)
+        result, _cells = await score(
+            workspace, slug, schema,
+            _load_predictions(workspace, slug), reviewed,
+        )
         per_field = result.per_field
         supported = [field_score for field_score in per_field if field_score.support > 0]
         macro_f1 = (
