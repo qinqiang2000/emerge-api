@@ -15,7 +15,7 @@ from app.eval.presence import (
     resolve_policy,
 )
 from app.eval.types import CellVerdict
-from app.schemas.schema_field import SchemaField
+from app.schemas.schema_field import FieldType, SchemaField
 from app.schemas.score import FieldScore, ScoreResultSummary
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
@@ -82,7 +82,7 @@ def _aggregate(
     cells: list[CellVerdict],
     schema: list[SchemaField],
     reviewed: dict[str, list[dict[str, Any]]],
-) -> tuple[list[FieldScore], float, float, int]:
+) -> tuple[list[FieldScore], float, float, float, float, int]:
     """M12.x — accuracy-first aggregation.
 
     Per-field `accuracy = (correct + absent_both) / total`. The model nailing
@@ -93,6 +93,18 @@ def _aggregate(
 
     `not_applicable=True` when `total==0` (defensive — schema has the field
     but no entity ever exposed it). Macro accuracy excludes these.
+
+    M12.x.c — three doc-level numbers:
+      * `doc_accuracy` (smooth): mean over graded docs of
+        (correct + absent_both) / total_cells_in_doc. Replaces the brittle
+        all-or-nothing strict number as the new headline.
+      * `doc_accuracy_without_array`: same as smooth, but drops cells where
+        the schema field has `type == ARRAY`. Array fields (e.g. `items`)
+        are the brittleness magnet; this sibling gives a clean signal on
+        header fields. Falls back to `doc_accuracy` when schema has no
+        array fields.
+      * `doc_accuracy_strict` (legacy): the old "all cells correct/absent_both"
+        definition, kept for "is this doc 100% perfect?" signal.
     """
     counts: dict[str, dict[str, int]] = {
         f.name: {"correct": 0, "total": 0, "absent_both": 0}
@@ -138,16 +150,53 @@ def _aggregate(
     for c in cells:
         docs_seen.setdefault(c.filename, []).append(c)
     n_reviewed_graded = sum(1 for fn in reviewed if fn in docs_seen)
-    doc_correct = 0
-    for fn, c_list in docs_seen.items():
-        if fn not in reviewed:
-            continue
-        ok = all(c.status in ("correct", "absent_both") for c in c_list)
-        if ok:
-            doc_correct += 1
-    doc_acc = (doc_correct / n_reviewed_graded) if n_reviewed_graded > 0 else 0.0
 
-    return per_field, field_accuracy_macro, doc_acc, n_reviewed_graded
+    def _ok(c: CellVerdict) -> bool:
+        return c.status in ("correct", "absent_both")
+
+    # strict: legacy "all cells correct/absent_both"
+    doc_strict = sum(
+        1 for fn, c_list in docs_seen.items()
+        if fn in reviewed and all(_ok(c) for c in c_list)
+    )
+    doc_accuracy_strict = (
+        doc_strict / n_reviewed_graded if n_reviewed_graded > 0 else 0.0
+    )
+
+    # smooth: mean over docs of (correct+absent_both)/total per doc
+    graded_docs = [c_list for fn, c_list in docs_seen.items() if fn in reviewed]
+    if graded_docs:
+        doc_accuracy = sum(
+            sum(1 for c in cs if _ok(c)) / len(cs)
+            for cs in graded_docs
+        ) / len(graded_docs)
+    else:
+        doc_accuracy = 0.0
+
+    # without_array: same as smooth but skip cells where field.type == ARRAY
+    array_field_names = {f.name for f in schema if f.type == FieldType.ARRAY}
+    scalar_docs: list[list[CellVerdict]] = []
+    for cs in graded_docs:
+        scalar = [c for c in cs if c.field not in array_field_names]
+        if scalar:
+            scalar_docs.append(scalar)
+    if scalar_docs:
+        doc_accuracy_without_array = sum(
+            sum(1 for c in cs if _ok(c)) / len(cs)
+            for cs in scalar_docs
+        ) / len(scalar_docs)
+    else:
+        # No array fields in schema (or no scalar cells) → identical to smooth.
+        doc_accuracy_without_array = doc_accuracy
+
+    return (
+        per_field,
+        field_accuracy_macro,
+        doc_accuracy,
+        doc_accuracy_without_array,
+        doc_accuracy_strict,
+        n_reviewed_graded,
+    )
 
 
 async def score(
@@ -264,16 +313,23 @@ async def score(
                     "judge_model": v.model,
                 })
 
-    per_field, field_accuracy_macro, doc_acc, n_reviewed = _aggregate(
-        cells, schema, reviewed,
-    )
+    (
+        per_field,
+        field_accuracy_macro,
+        doc_accuracy,
+        doc_accuracy_without_array,
+        doc_accuracy_strict,
+        n_reviewed,
+    ) = _aggregate(cells, schema, reviewed)
 
     summary = ScoreResultSummary(
         n_docs=len(reviewed) + sum(1 for fn in predictions if fn not in reviewed),
         n_reviewed=n_reviewed,
         field_accuracy_macro=field_accuracy_macro,
         macro_f1=None,  # M12.x: F1 demoted; new writes no longer carry it.
-        doc_accuracy=doc_acc,
+        doc_accuracy=doc_accuracy,
+        doc_accuracy_without_array=doc_accuracy_without_array,
+        doc_accuracy_strict=doc_accuracy_strict,
         per_field=per_field,
         errors=errors,
         ts=_now_ts(),

@@ -55,16 +55,44 @@ function fieldAccuracyMacro(snap: EvalSnapshot): number {
 export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: string } {
   const fieldAcc = fieldAccuracyMacro(snap)
   const docAcc = snap.doc_accuracy ?? null
+  const docAccNoArray = snap.doc_accuracy_without_array ?? null
   const coverage = snap.n_docs === 0 ? 0 : snap.n_reviewed / snap.n_docs
+
+  // M12.x.c — when the scalar-only sibling is materially different (Δ ≥ 0.05),
+  // expand into two rows so the items-heavy noise vs. clean-signal split is
+  // visible at a glance.
+  const showWithoutArray =
+    docAcc != null && docAccNoArray != null
+      ? Math.abs(docAccNoArray - docAcc) >= 0.05
+      : false
+
   const rows: MetricRow[] = [
     { k: 'field accuracy', v: `${(fieldAcc * 100).toFixed(1)}%`, tone: toneFor(fieldAcc) },
-    {
+  ]
+  if (showWithoutArray) {
+    rows.push(
+      {
+        k: 'doc accuracy',
+        v: docAcc == null ? '—' : `${(docAcc * 100).toFixed(1)}%`,
+        tone: toneFor(docAcc ?? 0),
+      },
+      {
+        k: 'doc accuracy (去除 items)',
+        v: docAccNoArray == null
+          ? '—'
+          : `${(docAccNoArray * 100).toFixed(1)}%`,
+        tone: toneFor(docAccNoArray ?? 0),
+      },
+    )
+  } else {
+    rows.push({
       k: 'doc accuracy',
       v: docAcc == null ? '—' : `${(docAcc * 100).toFixed(1)}%`,
       tone: toneFor(docAcc ?? 0),
-    },
-    { k: 'coverage',  v: `${Math.round(coverage * 100)}%`, tone: toneFor(coverage) },
-  ]
+    })
+  }
+  rows.push({ k: 'coverage', v: `${Math.round(coverage * 100)}%`, tone: toneFor(coverage) })
+
   const hint = `${(fieldAcc * 100).toFixed(1)}% · ${snap.n_reviewed} reviewed`
   return { rows, hint }
 }

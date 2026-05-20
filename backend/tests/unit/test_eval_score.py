@@ -62,7 +62,10 @@ async def test_score_one_wrong_value(workspace: Path) -> None:
     assert by_field["buyer_name"].accuracy == 0.0
     assert by_field["total"].accuracy == 1.0
     assert summary.field_accuracy_macro == pytest.approx(2 / 3, rel=0.01)
-    assert summary.doc_accuracy == 0.0  # doc is not fully correct
+    # M12.x.c — smooth doc_accuracy: 2/3 cells correct in the single doc.
+    assert summary.doc_accuracy == pytest.approx(2 / 3, rel=0.01)
+    # Legacy strict view still surfaces "doc isn't 100% perfect".
+    assert summary.doc_accuracy_strict == 0.0
 
 
 async def test_normalize_makes_number_correct(workspace: Path) -> None:
@@ -271,6 +274,66 @@ async def test_accuracy_counts_absent_both(workspace: Path) -> None:
     assert all(c.status == "absent_both" for c in cells)
     # Macro should be 1.0 since the single applicable field is at 1.0.
     assert summary.field_accuracy_macro == 1.0
+
+
+async def test_doc_accuracy_smooth_vs_strict(workspace: Path) -> None:
+    """M12.x.c — smooth doc_accuracy averages per-doc accuracy; the legacy
+    strict view treats one wrong cell as a doc failure. With 17 fields and
+    one wrong cell, smooth ≈ 16/17 while strict = 0/1.
+    """
+    schema = [_f(f"f{i}") for i in range(17)]
+    truth = {f"f{i}": f"v{i}" for i in range(17)}
+    pred = dict(truth)
+    pred["f0"] = "WRONG"  # exactly one cell wrong out of 17
+    reviewed = {"d_a": [truth]}
+    predictions = {"d_a": [pred]}
+    summary, _cells = await score(workspace, "p_x", schema, predictions, reviewed)
+    # Smooth: 16/17 of the single doc's cells correct.
+    assert summary.doc_accuracy == pytest.approx(16 / 17, rel=0.01)
+    # Strict: doc isn't fully correct, so 0/1.
+    assert summary.doc_accuracy_strict == 0.0
+
+
+async def test_doc_accuracy_without_array(workspace: Path) -> None:
+    """M12.x.c — `doc_accuracy_without_array` drops ARRAY-typed cells.
+    Schema has 4 scalars + 1 array. Doc: array wrong, all scalars correct.
+    `doc_accuracy` = 4/5 = 0.80 (smooth includes array cell);
+    `doc_accuracy_without_array` = 4/4 = 1.00 (array dropped).
+    """
+    schema = [
+        _f("a"), _f("b"), _f("c"), _f("d"),
+        SchemaField(
+            name="items",
+            type=FieldType.ARRAY,
+            description="d",
+            items=SchemaField(type=FieldType.STRING, description="d"),
+        ),
+    ]
+    reviewed = {"d_a": [{"a": "1", "b": "2", "c": "3", "d": "4", "items": ["x"]}]}
+    predictions = {"d_a": [{"a": "1", "b": "2", "c": "3", "d": "4", "items": ["WRONG"]}]}
+    summary, _cells = await score(workspace, "p_x", schema, predictions, reviewed)
+    assert summary.doc_accuracy == pytest.approx(4 / 5, rel=0.01)
+    assert summary.doc_accuracy_without_array == pytest.approx(1.0, rel=0.01)
+
+
+async def test_doc_accuracy_strict_legacy(workspace: Path) -> None:
+    """M12.x.c — legacy strict semantics live on under `doc_accuracy_strict`.
+    With 2 docs and 1 fully-correct + 1 with one wrong cell, strict = 1/2 = 0.5.
+    """
+    reviewed = {
+        "d_a": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
+        "d_b": [{"invoice_no": "INV-2", "buyer_name": "BETA", "total": 200}],
+    }
+    predictions = {
+        "d_a": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
+        "d_b": [{"invoice_no": "INV-2", "buyer_name": "WRONG", "total": 200}],
+    }
+    summary, _cells = await score(workspace, "p_x", SCHEMA, predictions, reviewed)
+    # Legacy strict: 1 of 2 docs has every cell correct.
+    assert summary.doc_accuracy_strict == 0.5
+    # Smooth, for sanity: doc_a contributes 1.0, doc_b contributes 2/3 →
+    # mean ≈ 0.833.
+    assert summary.doc_accuracy == pytest.approx((1.0 + 2 / 3) / 2, rel=0.01)
 
 
 async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:

@@ -250,7 +250,13 @@ export interface EvalSnapshot {
   // from per_field as fallback.
   field_accuracy_macro?: number | null
   macro_f1: number | null
+  // M12.x.c — semantics shifted to smooth on new writes.
   doc_accuracy?: number | null
+  // M12.x.c — smooth `doc_accuracy` with ARRAY-typed cells dropped.
+  doc_accuracy_without_array?: number | null
+  // M12.x.c — legacy "all cells correct" view; presence ⇒ `doc_accuracy`
+  // is the new smooth definition.
+  doc_accuracy_strict?: number | null
   per_field: FieldScore[]
   errors: string[]
   ts: string

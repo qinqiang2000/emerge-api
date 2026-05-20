@@ -32,8 +32,13 @@ export interface EvalCardProps {
   overall: number          // field_accuracy_macro
   /** M12 — when the score result carries `doc_accuracy`, display it
    *  prominently alongside field accuracy. Optional for back-compat with
-   *  legacy results that pre-date M12. */
+   *  legacy results that pre-date M12. M12.x.c: smooth semantics on new
+   *  writes (mean of per-doc accuracy). */
   docAccuracy?: number | null
+  /** M12.x.c — smooth `doc_accuracy` with ARRAY-typed cells (e.g. `items`)
+   *  dropped. Rendered as a small parenthetical when materially different
+   *  from `docAccuracy` (Δ ≥ 0.05). */
+  docAccuracyWithoutArray?: number | null
   /** M12 — when known, render an "open full matrix" link to the dir-form
    *  matrix view. Requires both slug and ts; either missing → omit link. */
   slug?: string | null
@@ -56,6 +61,9 @@ interface ScoreResult {
   field_accuracy_macro?: number | null
   macro_f1?: number | null  // legacy
   doc_accuracy?: number | null
+  // M12.x.c — sibling metrics, optional on read.
+  doc_accuracy_without_array?: number | null
+  doc_accuracy_strict?: number | null
   per_field?: Array<{
     field: string
     accuracy?: number | null
@@ -106,6 +114,8 @@ export function adaptScoreResult(
   overall: number
   scoredAt: string
   docAccuracy?: number | null
+  /** M12.x.c — smooth doc_accuracy excluding ARRAY-typed fields. */
+  docAccuracyWithoutArray?: number | null
   ts?: string | null
 } | null {
   const sr = parseScoreResult(result)
@@ -167,14 +177,33 @@ export function adaptScoreResult(
     overall,
     scoredAt,
     docAccuracy: typeof sr.doc_accuracy === 'number' ? sr.doc_accuracy : null,
+    docAccuracyWithoutArray:
+      typeof sr.doc_accuracy_without_array === 'number'
+        ? sr.doc_accuracy_without_array
+        : null,
     ts: typeof sr.ts === 'string' ? sr.ts : null,
   }
 }
 
 // ── EvalCard ───────────────────────────────────────────────────────────────
 
-export default function EvalCard({ rows, scoredAt, overall, docAccuracy, slug, ts }: EvalCardProps) {
+export default function EvalCard({
+  rows,
+  scoredAt,
+  overall,
+  docAccuracy,
+  docAccuracyWithoutArray,
+  slug,
+  ts,
+}: EvalCardProps) {
   const [open, setOpen] = useState<string | null>(null)
+
+  // M12.x.c — surface the scalar-only sibling only when materially different
+  // from the smooth headline (Δ ≥ 0.05). Otherwise the parenthetical adds noise.
+  const showWithoutArray =
+    docAccuracy != null &&
+    docAccuracyWithoutArray != null &&
+    Math.abs(docAccuracyWithoutArray - docAccuracy) >= 0.05
 
   return (
     <div className="eval-card" data-testid="eval-card">
@@ -186,6 +215,14 @@ export default function EvalCard({ rows, scoredAt, overall, docAccuracy, slug, t
           <span className="agg">
             <span className="lbl">doc acc</span>
             {(docAccuracy * 100).toFixed(1)}%
+            {showWithoutArray && (
+              <span
+                className="num acc"
+                style={{ marginLeft: 4, fontSize: 10, color: 'var(--ink-4)' }}
+              >
+                (去除 items：{((docAccuracyWithoutArray ?? 0) * 100).toFixed(1)}%)
+              </span>
+            )}
           </span>
         )}
         <span className="agg">
@@ -308,6 +345,7 @@ export function EvalCardAdapter({ call, slug }: { call: ToolCallEvent; slug?: st
           scoredAt={adapted.scoredAt}
           overall={adapted.overall}
           docAccuracy={adapted.docAccuracy}
+          docAccuracyWithoutArray={adapted.docAccuracyWithoutArray}
           slug={slug ?? null}
           ts={adapted.ts ?? null}
         />

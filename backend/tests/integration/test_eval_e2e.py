@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.eval.score import run_eval
 from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import FieldType, SchemaField
@@ -69,8 +71,10 @@ async def test_eval_e2e_mixed_normalize_cases(workspace: Path) -> None:
 
     assert result.n_reviewed == 4
     # doc1, doc2 (number normalize), doc3 (date normalize) all fully correct;
-    # doc4 wrong on total. doc_accuracy = 3/4.
-    assert result.doc_accuracy == 0.75
+    # doc4 wrong on total. M12.x.c smooth: 3 docs at 1.0 + 1 doc at 2/3 →
+    # mean = (3 + 2/3) / 4 ≈ 0.9167. Strict (legacy "all cells correct") = 3/4.
+    assert result.doc_accuracy == pytest.approx((3 + 2 / 3) / 4, rel=0.01)
+    assert result.doc_accuracy_strict == 0.75
 
     d = eval_dir(workspace, slug, result.ts)
     assert d.exists()

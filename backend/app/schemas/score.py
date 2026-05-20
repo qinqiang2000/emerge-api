@@ -44,6 +44,15 @@ class ScoreResultSummary(BaseModel):
     M12.x: `field_accuracy_macro` is the new headline. `macro_f1` is kept
     as `Optional[float]` so legacy `metrics/eval_*.json` blobs on disk still
     parse; new writes set it to `None`.
+
+    M12.x.c: `doc_accuracy` semantics shifted from "strict all-cells-correct"
+    to "smooth mean of per-doc accuracy" on new writes. Old summary.json
+    blobs that carried the strict value still parse (the field is Optional)
+    — the disambiguator is `doc_accuracy_strict`: when present, the
+    sibling `doc_accuracy` is the new smooth definition.
+
+    `doc_accuracy_without_array` is the same smooth metric with `ARRAY`-type
+    fields dropped (e.g. `items`), giving a clean signal on header fields.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -52,6 +61,9 @@ class ScoreResultSummary(BaseModel):
     field_accuracy_macro: Optional[float] = None
     macro_f1: Optional[float] = None
     doc_accuracy: Optional[float] = None
+    # M12.x.c — new doc-level metrics. Optional so legacy summaries parse.
+    doc_accuracy_without_array: Optional[float] = None
+    doc_accuracy_strict: Optional[float] = None
     per_field: list[FieldScore]
     errors: list[str]
     ts: str

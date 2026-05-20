@@ -32,7 +32,14 @@ export interface ScoreResultSummary {
   field_accuracy_macro: number | null
   // Legacy: only present on pre-M12.x summaries.
   macro_f1: number | null
+  // M12.x.c — semantics shifted to smooth (mean of per-doc accuracy) on
+  // new writes. Old summaries on disk still carry the strict value here.
   doc_accuracy: number | null
+  // M12.x.c — smooth `doc_accuracy` with ARRAY-typed cells dropped.
+  doc_accuracy_without_array?: number | null
+  // M12.x.c — legacy "all cells correct" view; presence implies the
+  // sibling `doc_accuracy` is the new smooth definition.
+  doc_accuracy_strict?: number | null
   per_field: FieldScoreSummary[]
   errors: string[]
   ts: string
