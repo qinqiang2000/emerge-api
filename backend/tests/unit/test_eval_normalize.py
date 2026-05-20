@@ -152,3 +152,89 @@ def test_field_without_type_defaults_to_string() -> None:
     f = SchemaField(name="x", type="string", description="x")
     r = normalize_equivalent("hello world", "hello world", f)
     assert r.equivalent is True
+
+
+def _items_field() -> SchemaField:
+    """Build a SchemaField mirroring `默沙东_小票.items`:
+    array<object{name:str, quantity:number, unit_price:number, amount:number}>."""
+    return SchemaField(
+        name="items",
+        type="array",
+        description="line items",
+        items=SchemaField(
+            type="object",
+            description="line item",
+            properties=[
+                SchemaField(name="name", type="string", description="name"),
+                SchemaField(name="quantity", type="number", description="qty"),
+                SchemaField(name="unit_price", type="number", description="price"),
+                SchemaField(name="amount", type="number", description="amount"),
+            ],
+        ),
+    )
+
+
+def test_normalize_array_int_vs_float() -> None:
+    f = _items_field()
+    truth = "[{'name': 'a', 'quantity': 1, 'unit_price': 159, 'amount': 159}]"
+    pred = "[{'name': 'a', 'quantity': 1.0, 'unit_price': 159.0, 'amount': 159.0}]"
+    r = normalize_equivalent(truth, pred, f)
+    assert r.equivalent is True
+    assert r.normalizer == "array"
+
+
+def test_normalize_array_unicode_punct() -> None:
+    # When the only diff inside the list is fullwidth-vs-halfwidth punctuation,
+    # NFKC canonicalization at the outer string level already collapses the two
+    # repr strings to equal — so the "unicode" branch fires before the "array"
+    # branch is reached. Either label is fine; what matters is `equivalent`.
+    f = _items_field()
+    truth = "[{'name': '半天妖（济南）'}]"
+    pred = "[{'name': '半天妖(济南)'}]"
+    r = normalize_equivalent(truth, pred, f)
+    assert r.equivalent is True
+    assert r.normalizer in ("unicode", "array")
+
+
+def test_normalize_array_length_mismatch() -> None:
+    f = _items_field()
+    truth = "[{'name': 'a', 'quantity': 1}]"
+    pred = "[{'name': 'a', 'quantity': 1}, {'name': 'b', 'quantity': 2}]"
+    r = normalize_equivalent(truth, pred, f)
+    assert r.equivalent is False
+
+
+def test_normalize_array_empty_vs_none_subfield() -> None:
+    f = _items_field()
+    truth = "[{'name': 'a', 'unit_price': None}]"
+    pred = "[{'name': 'a', 'unit_price': ''}]"
+    r = normalize_equivalent(truth, pred, f)
+    assert r.equivalent is True
+    assert r.normalizer == "array"
+
+
+def test_normalize_fullwidth_punct_scalar() -> None:
+    f = SchemaField(name="x", type="string", description="x")
+    r = normalize_equivalent("a，b！c", "a,b!c", f)
+    assert r.equivalent is True
+    assert r.normalizer == "unicode"
+
+
+def test_normalize_array_real_dogfood_case() -> None:
+    # Synthesized from `0034f6ca.jpg items` row in `默沙东_小票/metrics/...`:
+    # the real row has 8 truth items vs 1 pred item (length mismatch → still
+    # wrong). To exercise the int-vs-float path that the array branch fixes,
+    # we take just the first item from both sides, where the only difference
+    # is `1` vs `1.0` / `159` vs `159.0` JSON serialization.
+    f = _items_field()
+    truth = (
+        "[{'name': '大口鱼味咔3-4人餐 (叉尾鮰鱼)', "
+        "'quantity': 1, 'unit_price': 159, 'amount': 159}]"
+    )
+    pred = (
+        "[{'name': '大口鱼味咔3-4人餐 (叉尾鮰鱼)', "
+        "'quantity': 1.0, 'unit_price': 159.0, 'amount': 159.0}]"
+    )
+    r = normalize_equivalent(truth, pred, f)
+    assert r.equivalent is True
+    assert r.normalizer == "array"

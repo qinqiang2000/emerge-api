@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
@@ -9,7 +10,7 @@ import dateparser
 from babel.numbers import NumberFormatError, parse_decimal
 from rapidfuzz import fuzz
 
-from app.schemas.schema_field import SchemaField
+from app.schemas.schema_field import FieldType, SchemaField
 
 
 class NormalizeResult(NamedTuple):
@@ -23,9 +24,19 @@ _NUMBER_LOCALES = ("en_US", "en_GB", "de_DE", "zh_CN")
 
 
 def _unicode_canonical(s: str) -> str:
-    s = unicodedata.normalize("NFC", s)
+    s = unicodedata.normalize("NFKC", s)
     s = _WS.sub(" ", s.strip())
     return s
+
+
+def _loose_absent(v: Any) -> bool:
+    """True for None, empty string, or pure whitespace. Used at sub-cell level
+    to replicate cell-level absent_both equivalence inside array<object> items."""
+    if v is None:
+        return True
+    if isinstance(v, str) and v.strip() == "":
+        return True
+    return False
 
 
 def _try_number(s: str) -> Optional[Decimal]:
@@ -111,6 +122,55 @@ def normalize_equivalent(
         p_canon = _PUNCT.sub("", p_u).casefold()
         if t_canon == p_canon:
             return NormalizeResult(True, "enum")
+
+    # Array-of-object / array-of-scalar structural compare. cells.jsonl stores
+    # str(repr_of_list), so ast.literal_eval is the right parser (json.loads
+    # won't accept single-quote dicts). Recursion is bounded by schema depth
+    # (array → object → scalar in this codebase).
+    if field.type == FieldType.ARRAY and field.items is not None:
+        try:
+            t_list = ast.literal_eval(t_u)
+            p_list = ast.literal_eval(p_u)
+        except (ValueError, SyntaxError):
+            t_list = p_list = None
+        if isinstance(t_list, list) and isinstance(p_list, list):
+            if len(t_list) != len(p_list):
+                return NormalizeResult(False, None)
+            item_field = field.items
+            all_eq = True
+            for t_item, p_item in zip(t_list, p_list):
+                if item_field.type == FieldType.OBJECT and item_field.properties:
+                    if not (isinstance(t_item, dict) and isinstance(p_item, dict)):
+                        all_eq = False
+                        break
+                    sub_ok = True
+                    for sub in item_field.properties:
+                        t_v = t_item.get(sub.name)
+                        p_v = p_item.get(sub.name)
+                        if _loose_absent(t_v) and _loose_absent(p_v):
+                            continue
+                        if _loose_absent(t_v) != _loose_absent(p_v):
+                            sub_ok = False
+                            break
+                        sub_eq = normalize_equivalent(t_v, p_v, sub)
+                        if not sub_eq.equivalent:
+                            sub_ok = False
+                            break
+                    if not sub_ok:
+                        all_eq = False
+                        break
+                else:
+                    if _loose_absent(t_item) and _loose_absent(p_item):
+                        continue
+                    if _loose_absent(t_item) != _loose_absent(p_item):
+                        all_eq = False
+                        break
+                    sub_eq = normalize_equivalent(t_item, p_item, item_field)
+                    if not sub_eq.equivalent:
+                        all_eq = False
+                        break
+            if all_eq:
+                return NormalizeResult(True, "array")
 
     threshold = getattr(field, "fuzzy_threshold", None) or 95
     if fuzz.ratio(t_u, p_u) >= threshold:
