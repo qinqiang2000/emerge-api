@@ -20,11 +20,19 @@ def _f(name: str = "invoice_no") -> SchemaField:
     return SchemaField(name=name, type=FieldType.STRING, description="d")
 
 
-def _fake_score(macro_f1: float) -> ScoreResult:
+def _fake_score(field_accuracy_macro: float) -> ScoreResult:
+    # M12.x — autoresearch loop now optimizes accuracy. Test fixtures expose
+    # the input as `field_accuracy_macro`; the FieldScore carries the matching
+    # `accuracy`. F1 family is left None (matches what the new scorer emits).
     return ScoreResult(
-        n_docs=1, n_reviewed=1, macro_f1=macro_f1,
-        per_field=[FieldScore(field="invoice_no", tp=1, fp=0, fn=0, support=1,
-                              precision=1.0, recall=1.0, f1=macro_f1)],
+        n_docs=1, n_reviewed=1,
+        field_accuracy_macro=field_accuracy_macro,
+        macro_f1=None,
+        per_field=[FieldScore(
+            field="invoice_no",
+            accuracy=field_accuracy_macro,
+            correct=1, total=1, n_absent_both=0, not_applicable=False,
+        )],
         errors=[], ts="t", schema_field_count=1,
     )
 

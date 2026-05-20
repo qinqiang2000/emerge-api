@@ -133,8 +133,8 @@ async def stub_stream_turn(
         readiness = {
             "checks": [
                 {"key": "schema_non_empty", "status": "pass", "detail": "2 fields"},
-                {"key": "reviewed_and_f1", "status": "pass",
-                 "detail": "macro_f1=1.000 (threshold 0.7); n_reviewed=3"},
+                {"key": "reviewed_and_accuracy", "status": "pass",
+                 "detail": "field_accuracy_macro=1.000 (threshold 0.75); n_reviewed=3"},
                 {"key": "reviewed_fields_in_schema", "status": "pass",
                  "detail": "all reviewed fields are in schema"},
                 {"key": "no_running_jobs", "status": "pass", "detail": "no running jobs"},
@@ -143,6 +143,7 @@ async def stub_stream_turn(
             ],
             "soft_warnings": [],
             "hard_pass": True,
+            "field_accuracy_macro": 1.0,
             "macro_f1": 1.0,
             "n_reviewed": 3,
         }

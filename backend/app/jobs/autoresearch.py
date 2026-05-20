@@ -321,12 +321,21 @@ def _save_candidate_turn(
 ) -> Path:
     candidate_dir(workspace, project_id, job_id).mkdir(parents=True, exist_ok=True)
     target = candidate_turn_path(workspace, project_id, job_id, turn)
+    # M12.x: candidate turns now optimize against field_accuracy_macro.
+    # We surface it under both `macro_f1` (legacy candidate readers) and
+    # `field_accuracy_macro` (M12.x readers) so accept-candidate stays a
+    # straight copy and the JobProgressCard's bestTurn picker can compare
+    # apples-to-apples. The actual value is the accuracy macro.
+    headline = score_result.field_accuracy_macro
+    if headline is None:
+        headline = score_result.macro_f1 or 0.0
     payload: dict[str, Any] = {
         "turn": turn,
         "parent_turn": parent_turn,
         "schema": [f.model_dump(mode="json") for f in schema],
         "rationale": rationale,
-        "macro_f1": score_result.macro_f1,
+        "field_accuracy_macro": headline,
+        "macro_f1": headline,
         "per_field": [fs.model_dump(mode="json") for fs in score_result.per_field],
         "predictions": predictions,
         "ts": score_result.ts,
@@ -381,6 +390,12 @@ async def run_autoresearch_loop(
         workspace=workspace, project_id=project_id, schema=initial_schema,
         provider=provider, model_id=model_id,
     )
+    # M12.x: switch best-turn picker to field_accuracy_macro. The lifecycle
+    # `best_macro_f1` field name is preserved on JobInfo (it's an in-memory
+    # legacy alias) but the value stored is the accuracy macro.
+    baseline_headline = baseline.field_accuracy_macro
+    if baseline_headline is None:
+        baseline_headline = baseline.macro_f1 or 0.0
     _save_candidate_turn(
         workspace=workspace, project_id=project_id, job_id=job_id, turn=0,
         schema=initial_schema, score_result=baseline, predictions=baseline_predictions,
@@ -389,12 +404,16 @@ async def run_autoresearch_loop(
     )
     await emit(JobEvent(
         type="turn", ts=now_iso_filename_safe(), turn=0,
-        macro_f1=baseline.macro_f1,
+        # Emit both keys so the frontend picker can use the new field while
+        # legacy turn JSONL readers (jobs/{job_id}.jsonl) still find `macro_f1`.
+        # The value is the accuracy macro under both keys.
+        macro_f1=baseline_headline,
+        field_accuracy_macro=baseline_headline,
         per_field=[fs.model_dump(mode="json") for fs in baseline.per_field],
         saved=True,
     ))
 
-    best_macro_f1 = baseline.macro_f1
+    best_macro_f1 = baseline_headline
     best_turn = 0
     no_improvement = 0
     current_schema = initial_schema
@@ -441,7 +460,10 @@ async def run_autoresearch_loop(
             workspace=workspace, project_id=project_id, schema=proposed,
             provider=provider, model_id=model_id,
         )
-        improved = scored.macro_f1 > best_macro_f1
+        scored_headline = scored.field_accuracy_macro
+        if scored_headline is None:
+            scored_headline = scored.macro_f1 or 0.0
+        improved = scored_headline > best_macro_f1
         if improved:
             _save_candidate_turn(
                 workspace=workspace, project_id=project_id, job_id=job_id, turn=turn,
@@ -449,14 +471,15 @@ async def run_autoresearch_loop(
                 rationale=rationale, parent_turn=best_turn,
                 notes_hit=notes_hit, notes_hit_filtered=notes_hit_filtered,
             )
-            best_macro_f1 = scored.macro_f1
+            best_macro_f1 = scored_headline
             best_turn = turn
             no_improvement = 0
         else:
             no_improvement += 1
         await emit(JobEvent(
             type="turn", ts=now_iso_filename_safe(), turn=turn,
-            macro_f1=scored.macro_f1,
+            macro_f1=scored_headline,
+            field_accuracy_macro=scored_headline,
             per_field=[fs.model_dump(mode="json") for fs in scored.per_field],
             saved=improved, rationale=rationale,
         ))

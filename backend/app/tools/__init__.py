@@ -685,7 +685,7 @@ def build_emerge_mcp(
 
     @tool(
         "score",
-        "Compute precision/recall/F1/doc_accuracy by comparing draft "
+        "Compute field accuracy + doc accuracy by comparing draft "
         "predictions against reviewed examples via the L1 normalize + "
         "(optional) L2 LLM-judge + L3 presence pipeline. Persists a "
         "directory artifact under metrics/eval_{ts}/ "

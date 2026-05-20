@@ -32,7 +32,8 @@ async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> Non
         workspace=workspace, project_id=pid, schema=schema,
         provider=provider, model_id="stub",
     )
-    assert score_result.macro_f1 == 1.0
+    # M12.x: headline switched to field_accuracy_macro.
+    assert score_result.field_accuracy_macro == 1.0
     assert predictions == {filename: [{"invoice_no": "INV-1"}]}
 
 

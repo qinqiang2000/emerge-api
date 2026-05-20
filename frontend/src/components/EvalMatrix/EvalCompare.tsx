@@ -4,6 +4,7 @@ import { pathForEvalMatrix, pathForSlug } from '../../lib/slugUrl'
 import { useEval } from '../../stores/eval'
 import { useSchema } from '../../stores/schema'
 import type { CellStatus, CellVerdict, FieldScoreSummary } from '../../types/eval'
+import { synthesizeAccuracyMacro } from '../../types/eval'
 import { pct } from './filters'
 
 
@@ -58,6 +59,17 @@ interface DeltaRow {
 }
 
 
+// M12.x — delta against per-field accuracy (was F1). For legacy summaries
+// that still carry F1 but no accuracy, fall back to F1 so the compare page
+// stays usable.
+function rowScore(f: FieldScoreSummary | undefined): number | null {
+  if (!f) return null
+  if (f.not_applicable) return null
+  if (typeof f.accuracy === 'number') return f.accuracy
+  if (typeof f.f1 === 'number') return f.f1
+  return null
+}
+
 function buildFieldDeltas(
   fieldsA: FieldScoreSummary[] | undefined,
   fieldsB: FieldScoreSummary[] | undefined,
@@ -67,8 +79,8 @@ function buildFieldDeltas(
   const names = new Set<string>([...byA.keys(), ...byB.keys()])
   const rows: DeltaRow[] = []
   for (const n of names) {
-    const a = byA.get(n)?.f1 ?? null
-    const b = byB.get(n)?.f1 ?? null
+    const a = rowScore(byA.get(n))
+    const b = rowScore(byB.get(n))
     const delta = (b ?? 0) - (a ?? 0)
     rows.push({ field: n, a, b, delta })
   }
@@ -153,13 +165,13 @@ export default function EvalCompare({ slug, a, b }: Props) {
       <section className="mb-6 grid grid-cols-2 gap-4">
         <div className="border border-rule rounded p-3 text-sm">
           <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">A</div>
-          <div>doc accuracy {pct(summaryA?.doc_accuracy)}</div>
-          <div className="text-ink-3">macro F1 {summaryA?.macro_f1.toFixed(2) ?? '—'}</div>
+          <div>字段准确率 {pct(summaryA ? synthesizeAccuracyMacro(summaryA) : null)}</div>
+          <div>文档准确率 {pct(summaryA?.doc_accuracy)}</div>
         </div>
         <div className="border border-rule rounded p-3 text-sm">
           <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">B</div>
-          <div>doc accuracy {pct(summaryB?.doc_accuracy)}</div>
-          <div className="text-ink-3">macro F1 {summaryB?.macro_f1.toFixed(2) ?? '—'}</div>
+          <div>字段准确率 {pct(summaryB ? synthesizeAccuracyMacro(summaryB) : null)}</div>
+          <div>文档准确率 {pct(summaryB?.doc_accuracy)}</div>
         </div>
       </section>
 
@@ -169,8 +181,8 @@ export default function EvalCompare({ slug, a, b }: Props) {
           <thead>
             <tr className="text-xs uppercase tracking-wide text-ink-3">
               <th className="text-left px-2 py-1 border-b border-rule">字段</th>
-              <th className="text-right px-2 py-1 border-b border-rule">A · F1</th>
-              <th className="text-right px-2 py-1 border-b border-rule">B · F1</th>
+              <th className="text-right px-2 py-1 border-b border-rule">A · 准确率</th>
+              <th className="text-right px-2 py-1 border-b border-rule">B · 准确率</th>
               <th className="text-right px-2 py-1 border-b border-rule">Δ</th>
             </tr>
           </thead>

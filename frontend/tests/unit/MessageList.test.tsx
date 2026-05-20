@@ -60,12 +60,14 @@ describe('MessageList integration: ToolStack + hoisted cards', () => {
   })
 
   it('score hoists out: EvalCard renders alongside split ToolStacks', () => {
+    // M12.x — accuracy-shaped score result.
     const scoreResult = JSON.stringify({
-      macro_f1: 0.847,
+      field_accuracy_macro: 0.847,
+      doc_accuracy: 0.8,
       scored_at: 'just now',
       per_field: [
-        { field: 'invoice_number', precision: 0.92, recall: 0.89, f1: 0.905, support: 12 },
-        { field: 'vendor_name', precision: 0.78, recall: 0.70, f1: 0.738, support: 12 },
+        { field: 'invoice_number', accuracy: 0.91, correct: 11, total: 12, n_absent_both: 0, not_applicable: false },
+        { field: 'vendor_name', accuracy: 0.78, correct: 9, total: 12, n_absent_both: 0, not_applicable: false },
       ],
     })
     const events: ChatEvent[] = [
@@ -86,15 +88,15 @@ describe('MessageList integration: ToolStack + hoisted cards', () => {
     const evalCard = screen.getByTestId('eval-card')
     expect(evalCard).toBeInTheDocument()
     expect(screen.getByText('eval result')).toBeInTheDocument()
-    expect(screen.getByText(/0\.847/)).toBeInTheDocument()
+    expect(screen.getByText(/84\.7%/)).toBeInTheDocument()
     expect(screen.getByText('invoice_number')).toBeInTheDocument()
     expect(screen.getByText('vendor_name')).toBeInTheDocument()
   })
 
   it('all-hoisted run: no empty ToolStack blocks emitted', () => {
     const scoreResult = JSON.stringify({
-      macro_f1: 0.9,
-      per_field: [{ field: 'invoice_number', precision: 0.9, recall: 0.9, f1: 0.9, support: 10 }],
+      field_accuracy_macro: 0.9,
+      per_field: [{ field: 'invoice_number', accuracy: 0.9, correct: 9, total: 10, n_absent_both: 0, not_applicable: false }],
     })
     const events: ChatEvent[] = [
       tc('mcp__emerge_tools__score', scoreResult),

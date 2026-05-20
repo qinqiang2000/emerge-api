@@ -89,21 +89,32 @@ describe('JobProgressCard', () => {
 })
 
 describe('formatJobLine', () => {
-  it('shows baseline and delta when a later turn improved', () => {
+  it('shows baseline and delta when a later turn improved (accuracy field preferred)', () => {
     const line = formatJobLine({
-      turns: [{ turn: 0, macro_f1: 0.71, saved: true }, { turn: 4, macro_f1: 0.83, saved: true }],
-      bestTurn: { turn: 4, macro_f1: 0.83, saved: true },
+      turns: [
+        { turn: 0, field_accuracy_macro: 0.71, macro_f1: 0.71, saved: true },
+        { turn: 4, field_accuracy_macro: 0.83, macro_f1: 0.83, saved: true },
+      ],
+      bestTurn: { turn: 4, field_accuracy_macro: 0.83, macro_f1: 0.83, saved: true },
     } as any)
-    expect(line).toContain('best f1 0.83')
+    expect(line).toContain('best acc 0.83')
     expect(line).toContain('turn 4')
     expect(line).toContain('baseline 0.71')
     expect(line).toMatch(/\+0\.12|Δ\s*\+0\.12/)
   })
   it('reads "baseline still best" when turn 0 is best', () => {
     const line = formatJobLine({
-      turns: [{ turn: 0, macro_f1: 0.91, saved: true }],
-      bestTurn: { turn: 0, macro_f1: 0.91, saved: true },
+      turns: [{ turn: 0, field_accuracy_macro: 0.91, macro_f1: 0.91, saved: true }],
+      bestTurn: { turn: 0, field_accuracy_macro: 0.91, macro_f1: 0.91, saved: true },
     } as any)
-    expect(line).toContain('best f1 0.91')
+    expect(line).toContain('best acc 0.91')
+  })
+  it('falls back to legacy macro_f1 when field_accuracy_macro missing', () => {
+    // Replays a pre-M12.x job JSONL — only `macro_f1` present.
+    const line = formatJobLine({
+      turns: [{ turn: 0, macro_f1: 0.6, saved: true }],
+      bestTurn: { turn: 0, macro_f1: 0.6, saved: true },
+    } as any)
+    expect(line).toContain('best acc 0.60')
   })
 })

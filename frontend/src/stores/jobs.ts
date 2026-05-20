@@ -67,7 +67,19 @@ export const useJob = create<State>((set, get) => ({
             const cur = s.byId[jobId]
             if (!cur) return s
             const turns = [...cur.turns, data]
-            const best = data.saved && (!cur.bestTurn || data.macro_f1 > cur.bestTurn.macro_f1) ? data : cur.bestTurn
+            // M12.x — best-turn picker prefers `field_accuracy_macro`. Falls
+            // back to the legacy `macro_f1` for pre-M12.x turn JSONLs (the
+            // backend now emits both with the same accuracy value, so live
+            // jobs always have the new field; the fallback only matters for
+            // resumed jobs whose first turns predate this code).
+            const datumScore = data.field_accuracy_macro ?? data.macro_f1
+            const bestScore = cur.bestTurn
+              ? (cur.bestTurn.field_accuracy_macro ?? cur.bestTurn.macro_f1)
+              : -Infinity
+            const best =
+              data.saved && (!cur.bestTurn || datumScore > bestScore)
+                ? data
+                : cur.bestTurn
             return { byId: { ...s.byId, [jobId]: { ...cur, turns, bestTurn: best } } }
           })
         } else if (data.type === 'paused') {

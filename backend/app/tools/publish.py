@@ -129,12 +129,15 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
     await migrate_project_if_needed(workspace, slug)
     schema = await read_schema(workspace, slug)
     project = json.loads(project_json_path(workspace, slug).read_text(encoding="utf-8"))
-    threshold = float(project.get("publish_min_macro_f1") or 0.7)
+    # M12.x: gate is now field accuracy macro. The project.json key name is
+    # preserved (`publish_min_macro_f1`) for back-compat on older projects;
+    # default reflects the stricter accuracy threshold (0.75 hard, 0.90 soft).
+    threshold = float(project.get("publish_min_macro_f1") or 0.75)
     active_vid = project.get("active_version_id")
 
     checks: list[dict[str, Any]] = []
     soft_warnings: list[dict[str, Any]] = []
-    macro_f1: float | None = None
+    field_accuracy_macro: float | None = None
     per_field: list[Any] = []
 
     checks.append({
@@ -147,15 +150,15 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
     n_reviewed = len(reviewed)
     if n_reviewed < 3:
         checks.append({
-            "key": "reviewed_and_f1",
+            "key": "reviewed_and_accuracy",
             "status": "fail",
             "detail": f"need >=3 reviewed examples; have {n_reviewed}",
         })
     elif not schema:
         checks.append({
-            "key": "reviewed_and_f1",
+            "key": "reviewed_and_accuracy",
             "status": "fail",
-            "detail": "schema empty; cannot compute F1",
+            "detail": "schema empty; cannot compute field accuracy",
         })
     else:
         from app.eval.score import score
@@ -165,22 +168,34 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
             _load_predictions(workspace, slug), reviewed,
         )
         per_field = result.per_field
-        supported = [field_score for field_score in per_field if field_score.support > 0]
-        macro_f1 = (
-            sum(field_score.f1 for field_score in supported) / len(supported)
-            if supported else result.macro_f1
-        )
-        if macro_f1 < threshold:
+        applicable = [
+            field_score for field_score in per_field
+            if not field_score.not_applicable
+        ]
+        if applicable:
+            field_accuracy_macro = (
+                sum((field_score.accuracy or 0.0) for field_score in applicable)
+                / len(applicable)
+            )
+        else:
+            field_accuracy_macro = result.field_accuracy_macro or 0.0
+        if field_accuracy_macro < threshold:
             checks.append({
-                "key": "reviewed_and_f1",
+                "key": "reviewed_and_accuracy",
                 "status": "fail",
-                "detail": f"macro_f1={macro_f1:.3f} < threshold {threshold}",
+                "detail": (
+                    f"field_accuracy_macro={field_accuracy_macro:.3f} "
+                    f"< threshold {threshold}"
+                ),
             })
         else:
             checks.append({
-                "key": "reviewed_and_f1",
+                "key": "reviewed_and_accuracy",
                 "status": "pass",
-                "detail": f"macro_f1={macro_f1:.3f} (threshold {threshold}); n_reviewed={n_reviewed}",
+                "detail": (
+                    f"field_accuracy_macro={field_accuracy_macro:.3f} "
+                    f"(threshold {threshold}); n_reviewed={n_reviewed}"
+                ),
             })
 
     schema_field_names = {field.name for field in schema}
@@ -248,18 +263,27 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
             "detail": "no prior active version (first publish)",
         })
 
-    if macro_f1 is not None and threshold <= macro_f1 < 0.85:
+    # Soft band: [threshold, 0.90) flags "consider /improve". 0.90 is the
+    # M12.x soft cutoff (raised vs F1's 0.85 because accuracy is a stricter
+    # measure — any per-cell disagreement hurts accuracy more than F1).
+    if field_accuracy_macro is not None and threshold <= field_accuracy_macro < 0.90:
         soft_warnings.append({
-            "key": "f1_borderline",
+            "key": "accuracy_borderline",
             "status": "warn",
-            "detail": f"macro_f1={macro_f1:.3f} in [{threshold}, 0.85); consider /improve before publish",
+            "detail": (
+                f"field_accuracy_macro={field_accuracy_macro:.3f} "
+                f"in [{threshold}, 0.90); consider /improve before publish"
+            ),
         })
     for field_score in per_field:
-        if field_score.support == 0:
+        if field_score.not_applicable:
             soft_warnings.append({
-                "key": "field_zero_support",
+                "key": "field_not_applicable",
                 "status": "warn",
-                "detail": f"field '{field_score.field}' has 0 support in reviewed set (untested)",
+                "detail": (
+                    f"field '{field_score.field}' is not exercised by the "
+                    f"reviewed set (untested)"
+                ),
             })
     md = metrics_dir(workspace, slug)
     if md.exists() and schema:
@@ -278,7 +302,13 @@ async def readiness_check(workspace: Path, slug: str) -> dict[str, Any]:
         "checks": checks,
         "soft_warnings": soft_warnings,
         "hard_pass": hard_pass,
-        "macro_f1": macro_f1,
+        # M12.x: `field_accuracy_macro` is the headline. `macro_f1` is mirrored
+        # under its old key with the same value so legacy callers reading the
+        # envelope shape don't 500 — but it's the accuracy number, not F1.
+        # (The new key is the truth source; the old key is a transitional
+        # alias and will be removed in a follow-up.)
+        "field_accuracy_macro": field_accuracy_macro,
+        "macro_f1": field_accuracy_macro,
         "n_reviewed": n_reviewed,
     }
 

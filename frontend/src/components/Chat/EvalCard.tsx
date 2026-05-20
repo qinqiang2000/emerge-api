@@ -1,4 +1,9 @@
 // frontend/src/components/Chat/EvalCard.tsx
+//
+// M12.x — accuracy-first eval card. Headline shows field accuracy + doc
+// accuracy (non-engineer-comprehensible). Per-field table drops P/R columns;
+// each row shows accuracy + the `absent both sides` hint when applicable.
+// `not_applicable` rows render as em-dash (—) instead of red `0%`.
 import { Fragment, useState } from 'react'
 import type { ChatEvent } from '../../types/chat'
 import ToolCall from './ToolCall'
@@ -11,22 +16,23 @@ import { pathForEvalMatrix } from '../../lib/slugUrl'
 export type EvalTone = 'ok' | 'mid' | 'bad'
 
 export interface EvalRow {
-  f: string       // field name
-  p: number       // precision
-  r: number       // recall
-  f1: number
-  n: number       // support count
+  f: string                // field name
+  accuracy: number | null  // M12.x — null when not_applicable
+  correct: number          // M12.x — `accuracy = correct / total` denominator
+  total: number
+  nAbsentBoth: number      // M12.x — UI hint for sparsely-present fields
+  notApplicable: boolean   // M12.x — render `—`, never red 0%
   tone: EvalTone
-  err?: string    // error explanation when expanded
+  err?: string             // error explanation when expanded
 }
 
 export interface EvalCardProps {
   rows: EvalRow[]
-  scoredAt: string    // "just now" or ISO timestamp
-  overall: number     // e.g. 0.914
+  scoredAt: string         // "just now" or ISO timestamp
+  overall: number          // field_accuracy_macro
   /** M12 — when the score result carries `doc_accuracy`, display it
-   *  prominently alongside macro F1. Optional for back-compat with legacy
-   *  results that pre-date M12. */
+   *  prominently alongside field accuracy. Optional for back-compat with
+   *  legacy results that pre-date M12. */
   docAccuracy?: number | null
   /** M12 — when known, render an "open full matrix" link to the dir-form
    *  matrix view. Requires both slug and ts; either missing → omit link. */
@@ -36,23 +42,32 @@ export interface EvalCardProps {
 
 // ── Tone helper ────────────────────────────────────────────────────────────
 
-function toTone(f1: number): EvalTone {
-  if (f1 >= 0.85) return 'ok'
-  if (f1 >= 0.65) return 'mid'
+// M12.x thresholds — accuracy is a stricter measure than F1, so the
+// "ok" cutoff matches the publish-soft threshold (0.90).
+function toTone(accuracy: number): EvalTone {
+  if (accuracy >= 0.90) return 'ok'
+  if (accuracy >= 0.75) return 'mid'
   return 'bad'
 }
 
 // ── Adapter ────────────────────────────────────────────────────────────────
 
 interface ScoreResult {
-  macro_f1: number
+  field_accuracy_macro?: number | null
+  macro_f1?: number | null  // legacy
   doc_accuracy?: number | null
   per_field?: Array<{
     field: string
-    precision: number
-    recall: number
-    f1: number
-    support: number
+    accuracy?: number | null
+    correct?: number
+    total?: number
+    n_absent_both?: number
+    not_applicable?: boolean
+    // legacy fields tolerated on read
+    precision?: number
+    recall?: number
+    f1?: number
+    support?: number
     error_explanation?: string
   }>
   scored_at?: string
@@ -67,7 +82,20 @@ function parseScoreResult(raw: unknown): ScoreResult | null {
   }
   if (!obj || typeof obj !== 'object') return null
   const o = obj as Record<string, unknown>
-  if (typeof o.macro_f1 !== 'number') return null
+  // M12.x — accept either the new headline or the legacy one, or any
+  // per-field accuracy we can synthesize from. Old summaries on disk only
+  // carry `macro_f1`; new writes carry `field_accuracy_macro`; both may be
+  // explicitly null when the per_field row is the truth source.
+  const headlineCandidate =
+    typeof o.field_accuracy_macro === 'number' ||
+    typeof o.macro_f1 === 'number'
+  const hasPerFieldAccuracy =
+    Array.isArray(o.per_field) &&
+    o.per_field.some((f) => {
+      const r = f as Record<string, unknown>
+      return typeof r?.accuracy === 'number' || typeof r?.f1 === 'number'
+    })
+  if (!headlineCandidate && !hasPerFieldAccuracy) return null
   return o as unknown as ScoreResult
 }
 
@@ -83,20 +111,53 @@ export function adaptScoreResult(
   const sr = parseScoreResult(result)
   if (!sr) return null
 
-  const overall = sr.macro_f1
   const perField = Array.isArray(sr.per_field) ? sr.per_field : []
-  const rows: EvalRow[] = perField.map((f: Record<string, unknown>) => {
-    const f1 = typeof f.f1 === 'number' ? f.f1 : 0
+  const rows: EvalRow[] = perField.map((f) => {
+    const accuracy =
+      typeof f.accuracy === 'number'
+        ? f.accuracy
+        : typeof f.f1 === 'number'  // legacy fallback so old runs still render something
+          ? f.f1
+          : null
+    const correct = typeof f.correct === 'number' ? f.correct : 0
+    const total =
+      typeof f.total === 'number'
+        ? f.total
+        : typeof f.support === 'number' ? f.support : 0
+    const nAbsentBoth =
+      typeof f.n_absent_both === 'number' ? f.n_absent_both : 0
+    const notApplicable =
+      f.not_applicable === true || (typeof f.total === 'number' && f.total === 0)
     return {
       f: typeof f.field === 'string' ? f.field : '?',
-      p: typeof f.precision === 'number' ? f.precision : 0,
-      r: typeof f.recall === 'number' ? f.recall : 0,
-      f1,
-      n: typeof f.support === 'number' ? f.support : 0,
-      tone: toTone(f1),
+      accuracy: notApplicable ? null : (accuracy ?? 0),
+      correct,
+      total,
+      nAbsentBoth,
+      notApplicable,
+      tone: notApplicable ? 'mid' : toTone(accuracy ?? 0),
       err: typeof f.error_explanation === 'string' ? f.error_explanation : undefined,
     }
   })
+
+  // M12.x — synthesize the headline if the backend didn't write it (legacy
+  // summary): mean of per-field accuracy over applicable fields. Falls back
+  // to legacy macro_f1 only when no per-field accuracy is present at all.
+  let overall: number
+  if (typeof sr.field_accuracy_macro === 'number') {
+    overall = sr.field_accuracy_macro
+  } else {
+    const applicable = rows.filter((r) => !r.notApplicable && r.accuracy != null)
+    if (applicable.length > 0) {
+      overall =
+        applicable.reduce((a, r) => a + (r.accuracy ?? 0), 0) / applicable.length
+    } else if (typeof sr.macro_f1 === 'number') {
+      overall = sr.macro_f1
+    } else {
+      overall = 0
+    }
+  }
+
   const scoredAt =
     (typeof sr.scored_at === 'string' && sr.scored_at) ||
     (typeof sr.ts === 'string' && sr.ts) ||
@@ -123,22 +184,20 @@ export default function EvalCard({ rows, scoredAt, overall, docAccuracy, slug, t
         <span className="stamp">{scoredAt}</span>
         {docAccuracy != null && (
           <span className="agg">
-            <span className="lbl">doc</span>
+            <span className="lbl">doc acc</span>
             {(docAccuracy * 100).toFixed(1)}%
           </span>
         )}
         <span className="agg">
-          <span className="lbl">F1</span>
-          {overall.toFixed(3)}
+          <span className="lbl">field acc</span>
+          {(overall * 100).toFixed(1)}%
         </span>
       </div>
 
       {/* column header row */}
       <div className="eval-row head">
         <span className="f">field</span>
-        <span className="num">P</span>
-        <span className="num">R</span>
-        <span className="num">F1</span>
+        <span className="num">accuracy</span>
         <span></span>
       </div>
 
@@ -162,40 +221,62 @@ export default function EvalCard({ rows, scoredAt, overall, docAccuracy, slug, t
         </div>
       )}
 
-      {rows.map(r => (
-        <Fragment key={r.f}>
-          <div
-            className="eval-row"
-            onClick={() => r.err && setOpen(o => (o === r.f ? null : r.f))}
-            style={{ cursor: r.err ? 'pointer' : 'default' }}
-          >
-            <span className="f">
-              {r.f}
-              {r.err && (
-                <span style={{ color: 'var(--ochre-2)', marginLeft: 6, fontSize: 10 }}>
-                  ▾ explain
-                </span>
-              )}
-            </span>
-            <span className="num">{r.p.toFixed(2)}</span>
-            <span className="num">{r.r.toFixed(2)}</span>
-            <span className={`num f1 ${r.tone}`}>{r.f1.toFixed(2)}</span>
-            <div className="bar">
-              <i className={r.tone} style={{ width: `${r.f1 * 100}%` }} />
-            </div>
-          </div>
-          {open === r.f && r.err && (
-            <div className="eval-row expand">
-              <span>
-                <b>
-                  {r.f} · {r.f1.toFixed(2)}
-                </b>{' '}
-                — {r.err}
+      {rows.map(r => {
+        // M12.x — accuracy hint: e.g. "21/21 correct · 18 absent both sides".
+        // `not_applicable` rows show no count (total=0).
+        const hint = r.notApplicable
+          ? 'not exercised by reviewed set'
+          : r.nAbsentBoth > 0
+            ? `${r.correct}/${r.total} correct · ${r.nAbsentBoth} absent both sides`
+            : `${r.correct}/${r.total} correct`
+        const accDisplay = r.notApplicable
+          ? '—'
+          : `${((r.accuracy ?? 0) * 100).toFixed(1)}%`
+        return (
+          <Fragment key={r.f}>
+            <div
+              className="eval-row"
+              onClick={() => r.err && setOpen(o => (o === r.f ? null : r.f))}
+              style={{ cursor: r.err ? 'pointer' : 'default' }}
+              title={hint}
+            >
+              <span className="f">
+                {r.f}
+                {r.err && (
+                  <span style={{ color: 'var(--ochre-2)', marginLeft: 6, fontSize: 10 }}>
+                    ▾ explain
+                  </span>
+                )}
               </span>
+              <span
+                className={r.notApplicable
+                  ? 'num'
+                  : `num acc ${r.tone}`}
+                style={r.notApplicable
+                  ? { color: 'var(--ink-4)' }
+                  : undefined}
+              >
+                {accDisplay}
+              </span>
+              <div className="bar">
+                {!r.notApplicable && (
+                  <i className={r.tone} style={{ width: `${(r.accuracy ?? 0) * 100}%` }} />
+                )}
+              </div>
             </div>
-          )}
-        </Fragment>
-      ))}
+            {open === r.f && r.err && (
+              <div className="eval-row expand">
+                <span>
+                  <b>
+                    {r.f} · {accDisplay}
+                  </b>{' '}
+                  — {r.err}
+                </span>
+              </div>
+            )}
+          </Fragment>
+        )
+      })}
     </div>
   )
 }
@@ -220,7 +301,7 @@ export function EvalCardAdapter({ call, slug }: { call: ToolCallEvent; slug?: st
       <>
         <ToolCall name={displayName} args={hint ?? undefined} status={status}>
           <ToolRow glyph="·" label="input" value={JSON.stringify(call.tool_input)} />
-          <ToolRow glyph="↳" label="result" value={`macro_f1=${adapted.overall.toFixed(3)}`} />
+          <ToolRow glyph="↳" label="result" value={`field_accuracy=${adapted.overall.toFixed(3)}`} />
         </ToolCall>
         <EvalCard
           rows={adapted.rows}

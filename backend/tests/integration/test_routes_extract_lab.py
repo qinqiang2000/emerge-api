@@ -254,13 +254,14 @@ async def _seed_for_score(workspace: Path) -> str:
 
 
 async def test_score_returns_perfect_when_pred_eq_reviewed(workspace: Path) -> None:
-    """Reviewed and prediction identical → macro_f1 == 1.0."""
+    """Reviewed and prediction identical → field_accuracy_macro == 1.0."""
     slug = await _seed_for_score(workspace)
     client = TestClient(app)
     r = client.post(f"/lab/projects/{slug}/score")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["macro_f1"] == 1.0
+    # M12.x: headline switched from macro_f1 → field_accuracy_macro.
+    assert body["field_accuracy_macro"] == 1.0
     assert body["n_reviewed"] == 1
     assert isinstance(body["per_field"], list)
 
@@ -318,12 +319,13 @@ async def test_readiness_returns_checklist_when_ready(workspace: Path) -> None:
     body = r.json()
     assert body["hard_pass"] is True
     assert body["n_reviewed"] == 3
-    assert body["macro_f1"] == 1.0
+    # M12.x: readiness gate switched to field_accuracy_macro.
+    assert body["field_accuracy_macro"] == 1.0
     assert all(check["status"] == "pass" for check in body["checks"])
 
 
 async def test_readiness_fails_when_under_threshold(workspace: Path) -> None:
-    """Fewer than 3 reviewed → `reviewed_and_f1` check fails →
+    """Fewer than 3 reviewed → `reviewed_and_accuracy` check fails →
     hard_pass=False (so the body still 200s, but the caller sees the
     failing checks)."""
     slug = (await create_project(workspace, name="thin"))["slug"]
@@ -338,7 +340,8 @@ async def test_readiness_fails_when_under_threshold(workspace: Path) -> None:
     body = r.json()
     assert body["hard_pass"] is False
     keys = {c["key"]: c for c in body["checks"]}
-    assert keys["reviewed_and_f1"]["status"] == "fail"
+    # M12.x: check key renamed `reviewed_and_f1` → `reviewed_and_accuracy`.
+    assert keys["reviewed_and_accuracy"]["status"] == "fail"
 
 
 def test_readiness_404_on_unknown_project() -> None:

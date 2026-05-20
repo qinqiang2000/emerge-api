@@ -6,7 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExperimentEval(BaseModel):
-    """Outcome of one run_experiment_eval call against the reviewed/ ground truth."""
+    """Outcome of one run_experiment_eval call against the reviewed/ ground truth.
+
+    M12.x — `score` now stores `field_accuracy_macro` (was `macro_f1` pre-M12.x);
+    `per_field` values are per-field accuracy; `per_doc` values are per-doc
+    field-accuracy-macro. Old experiments' `score` numbers stay literal —
+    they remain F1-shaped snapshots — but new runs write accuracy.
+    """
     model_config = ConfigDict(extra="forbid", frozen=False)
 
     ran_at: str

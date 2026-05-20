@@ -322,6 +322,7 @@ async def run_experiment_eval(
 
     # 3. Per-doc scores for the legacy `meta.json.eval` blob — the experiment
     #    tab strip and review-mode prediction tabs still read this shape.
+    #    M12.x: per-doc value is the doc's field_accuracy_macro (was macro_f1).
     per_doc: dict[str, float] = {}
     for fn in predictions:
         single, _ = await eval_score(
@@ -332,13 +333,14 @@ async def run_experiment_eval(
             {fn: reviewed_payloads[fn]},
             use_llm_judge=False,
         )
-        per_doc[fn] = single.macro_f1
+        per_doc[fn] = single.field_accuracy_macro or 0.0
 
     now = _now_iso()
     eval_blob = ExperimentEval(
         ran_at=now,
-        score=summary.macro_f1,
-        per_field={fs.field: fs.f1 for fs in summary.per_field},
+        # M12.x: `score` and `per_field` now carry accuracy, not F1.
+        score=summary.field_accuracy_macro or 0.0,
+        per_field={fs.field: (fs.accuracy or 0.0) for fs in summary.per_field},
         per_doc=per_doc,
         run_id=f"r_{int(time.time())}",
         coverage=len(predictions),

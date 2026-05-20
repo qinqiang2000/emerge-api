@@ -221,21 +221,36 @@ export function exportBundleUrl(slug: string, version?: number): string {
   return version ? `${base}?version=${version}` : base
 }
 
+// M12.x — accuracy-first shape. F1 family is legacy/optional; new writes
+// from the backend carry `accuracy` + `correct/total/n_absent_both/
+// not_applicable` and emit `null` for the F1 family.
 export interface FieldScore {
   field: string
-  tp: number
-  fp: number
-  fn: number
-  support: number
-  precision: number
-  recall: number
-  f1: number
+  // M12.x accuracy-first fields — optional so legacy F1-shape summaries
+  // (and old test fixtures) still satisfy the type.
+  accuracy?: number | null
+  correct?: number
+  total?: number
+  n_absent_both?: number
+  not_applicable?: boolean
+  // Legacy F1 family — present on pre-M12.x summaries; null on new writes.
+  tp?: number | null
+  fp?: number | null
+  fn?: number | null
+  support?: number | null
+  precision?: number | null
+  recall?: number | null
+  f1?: number | null
 }
 
 export interface EvalSnapshot {
   n_docs: number
   n_reviewed: number
-  macro_f1: number
+  // M12.x — may be absent on legacy summaries; ContextSurface synthesizes
+  // from per_field as fallback.
+  field_accuracy_macro?: number | null
+  macro_f1: number | null
+  doc_accuracy?: number | null
   per_field: FieldScore[]
   errors: string[]
   ts: string

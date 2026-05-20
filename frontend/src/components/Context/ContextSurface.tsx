@@ -22,9 +22,11 @@ import PanelToggle from '../Shell/PanelToggle'
 
 type MetricTone = 'ok' | 'mid' | 'bad'
 
+// M12.x — accuracy is stricter than F1, so the cutoffs match the publish
+// soft/hard threshold (0.90 ok, 0.75 mid).
 function toneFor(v: number): MetricTone {
-  if (v >= 0.85) return 'ok'
-  if (v >= 0.65) return 'mid'
+  if (v >= 0.90) return 'ok'
+  if (v >= 0.75) return 'mid'
   return 'bad'
 }
 
@@ -34,19 +36,36 @@ interface MetricRow {
   tone: MetricTone
 }
 
+// M12.x — back-compat: synthesize `field_accuracy_macro` from per_field
+// accuracy when a legacy summary is loaded (the field will be null on
+// pre-M12.x summaries).
+function fieldAccuracyMacro(snap: EvalSnapshot): number {
+  if (snap.field_accuracy_macro != null) return snap.field_accuracy_macro
+  const applicable = snap.per_field.filter(
+    (p) => !p.not_applicable && typeof p.accuracy === 'number',
+  )
+  if (applicable.length === 0) {
+    // Legacy fallback: if all we have is the old `macro_f1`, surface it.
+    // Better than showing 0 and worse than the future-state real number.
+    return snap.macro_f1 ?? 0
+  }
+  return applicable.reduce((a, p) => a + (p.accuracy ?? 0), 0) / applicable.length
+}
+
 export function deriveMetrics(snap: EvalSnapshot): { rows: MetricRow[]; hint: string } {
-  const n = snap.per_field.length
-  const macroP = n === 0 ? 0 : snap.per_field.reduce((a, f) => a + f.precision, 0) / n
-  const macroR = n === 0 ? 0 : snap.per_field.reduce((a, f) => a + f.recall, 0) / n
-  const macroF = snap.macro_f1
+  const fieldAcc = fieldAccuracyMacro(snap)
+  const docAcc = snap.doc_accuracy ?? null
   const coverage = snap.n_docs === 0 ? 0 : snap.n_reviewed / snap.n_docs
   const rows: MetricRow[] = [
-    { k: 'precision', v: macroP.toFixed(2), tone: toneFor(macroP) },
-    { k: 'recall',    v: macroR.toFixed(2), tone: toneFor(macroR) },
-    { k: 'f1',        v: macroF.toFixed(2), tone: toneFor(macroF) },
+    { k: 'field accuracy', v: `${(fieldAcc * 100).toFixed(1)}%`, tone: toneFor(fieldAcc) },
+    {
+      k: 'doc accuracy',
+      v: docAcc == null ? '—' : `${(docAcc * 100).toFixed(1)}%`,
+      tone: toneFor(docAcc ?? 0),
+    },
     { k: 'coverage',  v: `${Math.round(coverage * 100)}%`, tone: toneFor(coverage) },
   ]
-  const hint = `macro ${macroF.toFixed(2)} · ${snap.n_reviewed} reviewed`
+  const hint = `${(fieldAcc * 100).toFixed(1)}% · ${snap.n_reviewed} reviewed`
   return { rows, hint }
 }
 

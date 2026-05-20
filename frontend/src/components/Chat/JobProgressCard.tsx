@@ -7,15 +7,26 @@ import { useProjects } from '../../stores/projects'
 
 interface Props { jobId: string }
 
+// M12.x — turn payloads now optimize against `field_accuracy_macro`; the
+// `macro_f1` key still ships (with the same value) for legacy decoder paths.
+// Read the new field with fallback so transcript replays from older job
+// JSONLs still render a sensible line.
+function turnScore(t: { field_accuracy_macro?: number; macro_f1?: number } | null | undefined): number {
+  if (!t) return 0
+  if (typeof t.field_accuracy_macro === 'number') return t.field_accuracy_macro
+  if (typeof t.macro_f1 === 'number') return t.macro_f1
+  return 0
+}
+
 export function formatJobLine(slice: Pick<JobSlice, 'turns' | 'bestTurn'>): string {
   const { turns, bestTurn } = slice
   if (turns.length === 0) return 'starting...'
-  const baseline = turns[0]?.macro_f1 ?? 0
-  const best = bestTurn?.macro_f1 ?? baseline
+  const baseline = turnScore(turns[0])
+  const best = bestTurn ? turnScore(bestTurn) : baseline
   const bestTurnN = bestTurn?.turn ?? 0
   const delta = best - baseline
   const deltaStr = delta === 0 ? '±0.00' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)}`
-  return `turn ${turns.length - 1} · best f1 ${best.toFixed(2)} (turn ${bestTurnN}) · baseline ${baseline.toFixed(2)} (Δ ${deltaStr})`
+  return `turn ${turns.length - 1} · best acc ${best.toFixed(2)} (turn ${bestTurnN}) · baseline ${baseline.toFixed(2)} (Δ ${deltaStr})`
 }
 
 export default function JobProgressCard({ jobId }: Props) {
@@ -60,7 +71,7 @@ export default function JobProgressCard({ jobId }: Props) {
         <div className="flex items-center gap-2 text-ink-4">
           ended ({endedReason})
           {(status === 'done' || status === 'cancelled') && bestTurn && (
-            bestTurn.turn === 0 || (bestTurn.macro_f1 <= (turns[0]?.macro_f1 ?? 0)) ? (
+            bestTurn.turn === 0 || (turnScore(bestTurn) <= turnScore(turns[0])) ? (
               <span className="ml-auto text-[10px] uppercase tracking-wide text-ink-4">
                 baseline still best — schema unchanged
               </span>

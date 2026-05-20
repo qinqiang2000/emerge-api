@@ -37,7 +37,10 @@ You help the user freeze the current schema as a versioned API and issue an API 
 ## Workflow on /publish
 
 1. Call `readiness_check(slug)`. Read the returned `{checks, soft_warnings,
-   hard_pass, macro_f1, n_reviewed}`.
+   hard_pass, field_accuracy_macro, n_reviewed}` envelope. The hard gate
+   is `field_accuracy_macro >= 0.75`; the soft band is `[0.75, 0.90)`.
+   (`macro_f1` is mirrored under its old key as a transitional alias and
+   carries the same accuracy value — prefer the new key.)
 2. **Rendering contract:** the lab UI renders the readiness checklist
    automatically from the `readiness_check` tool result (as a PublishStage
    panel inline with this turn). **Do NOT reproduce it as a markdown

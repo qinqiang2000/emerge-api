@@ -147,7 +147,15 @@ function unsafeToolShortHint(toolName: string, result: unknown): string | null {
     }
     case 'score': {
       const o = asObj(result)
-      return typeof o?.macro_f1 === 'number' ? `macro_f1=${o.macro_f1.toFixed(2)}` : null
+      // M12.x — prefer the accuracy headline; fall back to legacy `macro_f1`
+      // so old `score` tool calls in transcripts still render.
+      if (typeof o?.field_accuracy_macro === 'number') {
+        return `field_acc=${o.field_accuracy_macro.toFixed(2)}`
+      }
+      if (typeof o?.macro_f1 === 'number') {
+        return `macro_f1=${o.macro_f1.toFixed(2)}`
+      }
+      return null
     }
     case 'freeze_version': {
       const o = asObj(result)

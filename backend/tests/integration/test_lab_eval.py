@@ -42,7 +42,8 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
 
     assert r.status_code == 200
     body = r.json()
-    assert body["macro_f1"] == 1.0
+    # M12.x: headline switched to field_accuracy_macro.
+    assert body["field_accuracy_macro"] == 1.0
     assert body["n_reviewed"] == 1
     # M12: dir-form artifact replaces eval_*.json file.
     dirs = [
@@ -51,7 +52,7 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
     ]
     assert len(dirs) == 1
     saved = json.loads((dirs[0] / "summary.json").read_text())
-    assert saved["macro_f1"] == body["macro_f1"]
+    assert saved["field_accuracy_macro"] == body["field_accuracy_macro"]
 
 
 def test_post_eval_404_on_unknown_slug() -> None:
@@ -113,7 +114,8 @@ async def test_get_evals_latest_returns_score(workspace: Path) -> None:
     r1 = client.get(f"/lab/projects/{pid}/evals/latest")
     assert r1.status_code == 200
     body = r1.json()
-    assert body["macro_f1"] == 1.0
+    # M12.x: field_accuracy_macro replaces macro_f1.
+    assert body["field_accuracy_macro"] == 1.0
     assert body["n_reviewed"] == 1
     assert isinstance(body["per_field"], list) and body["per_field"][0]["field"] == "invoice_no"
     assert isinstance(body["ts"], str) and body["ts"].startswith("20")

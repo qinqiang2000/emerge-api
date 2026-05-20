@@ -38,14 +38,19 @@ async def test_score_perfect_match(workspace: Path) -> None:
     predictions = {"d_a": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}]}
     summary, cells = await score(workspace, "p_x", SCHEMA, predictions, reviewed)
     assert summary.n_reviewed == 1
-    assert summary.macro_f1 == 1.0
+    # M12.x: `field_accuracy_macro` replaces `macro_f1` as the headline.
+    assert summary.field_accuracy_macro == 1.0
+    assert summary.macro_f1 is None
     assert summary.doc_accuracy == 1.0
     for fs in summary.per_field:
-        assert fs.tp == 1
-        assert fs.fp == 0
-        assert fs.fn == 0
-        assert fs.f1 == 1.0
+        assert fs.correct == 1
+        assert fs.total == 1
+        assert fs.n_absent_both == 0
+        assert fs.not_applicable is False
         assert fs.accuracy == 1.0
+        # F1 family is null on new writes.
+        assert fs.f1 is None
+        assert fs.tp is None
 
 
 async def test_score_one_wrong_value(workspace: Path) -> None:
@@ -53,10 +58,10 @@ async def test_score_one_wrong_value(workspace: Path) -> None:
     predictions = {"d_a": [{"invoice_no": "INV-1", "buyer_name": "WRONG", "total": 100}]}
     summary, cells = await score(workspace, "p_x", SCHEMA, predictions, reviewed)
     by_field = {fs.field: fs for fs in summary.per_field}
-    assert by_field["invoice_no"].f1 == 1.0
-    assert by_field["buyer_name"].f1 == 0.0
-    assert by_field["total"].f1 == 1.0
-    assert summary.macro_f1 == pytest.approx(2 / 3, rel=0.01)
+    assert by_field["invoice_no"].accuracy == 1.0
+    assert by_field["buyer_name"].accuracy == 0.0
+    assert by_field["total"].accuracy == 1.0
+    assert summary.field_accuracy_macro == pytest.approx(2 / 3, rel=0.01)
     assert summary.doc_accuracy == 0.0  # doc is not fully correct
 
 
@@ -65,7 +70,8 @@ async def test_normalize_makes_number_correct(workspace: Path) -> None:
     predictions = {"d_a": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": "123.1"}]}
     summary, cells = await score(workspace, "p_x", SCHEMA, predictions, reviewed)
     by_field = {fs.field: fs for fs in summary.per_field}
-    assert by_field["total"].tp == 1
+    assert by_field["total"].accuracy == 1.0
+    assert by_field["total"].correct == 1
     assert summary.doc_accuracy == 1.0
     total_cell = next(c for c in cells if c.field == "total")
     assert total_cell.verdict_source == "normalize"
@@ -189,7 +195,9 @@ async def test_run_eval_writes_dir_artifact(workspace: Path) -> None:
 
     result = await run_eval(workspace, slug)
     assert result.n_reviewed == 1
-    assert result.macro_f1 == 1.0
+    # M12.x: headline switched to field_accuracy_macro.
+    assert result.field_accuracy_macro == 1.0
+    assert result.macro_f1 is None
     assert result.doc_accuracy == 1.0
 
     d = eval_dir(workspace, slug, result.ts)
@@ -202,7 +210,7 @@ async def test_run_eval_writes_dir_artifact(workspace: Path) -> None:
     summary_blob = json.loads(
         eval_summary_path(workspace, slug, result.ts).read_text()
     )
-    assert summary_blob["macro_f1"] == 1.0
+    assert summary_blob["field_accuracy_macro"] == 1.0
     assert summary_blob["doc_accuracy"] == 1.0
 
     # cells.jsonl content
@@ -225,9 +233,44 @@ async def test_run_eval_with_no_reviewed_returns_zero(workspace: Path) -> None:
     await write_schema(workspace, slug, SCHEMA, reason="t", allow_structural=True)
     result = await run_eval(workspace, slug)
     assert result.n_reviewed == 0
-    assert result.macro_f1 == 0.0
+    # M12.x: when no fields are applicable (total=0 across all), macro is 0.
+    assert result.field_accuracy_macro == 0.0
     assert result.doc_accuracy == 0.0
     assert metrics_dir(workspace, slug).exists()
+
+
+async def test_accuracy_counts_absent_both(workspace: Path) -> None:
+    """M12.x hard rule: a field where every reviewed cell is `absent_both`
+    (model agreed with ground truth that the value is None) must come out
+    as `accuracy=1.0`, not `0.0`. This is the dogfood landmine that drove
+    M12.x — `invoice_code` on 默沙东_小票 had 21 absent_both cells and the
+    old scorer reported F1=0, dragging the macro by ~5.9pp.
+    """
+    schema = [_f("invoice_code")]
+    # 3 docs × 1 entity, all reviewed=None and pred omits the field
+    # (defaults to None under lenient absent policy).
+    reviewed = {
+        "d_a": [{"invoice_code": None}],
+        "d_b": [{"invoice_code": None}],
+        "d_c": [{"invoice_code": None}],
+    }
+    predictions = {
+        "d_a": [{}],
+        "d_b": [{}],
+        "d_c": [{}],
+    }
+    summary, cells = await score(workspace, "p_x", schema, predictions, reviewed)
+    by_field = {fs.field: fs for fs in summary.per_field}
+    fs = by_field["invoice_code"]
+    assert fs.accuracy == 1.0, "absent_both must count as correct"
+    assert fs.correct == 3
+    assert fs.total == 3
+    assert fs.n_absent_both == 3
+    assert fs.not_applicable is False
+    # Every cell verdict should be absent_both.
+    assert all(c.status == "absent_both" for c in cells)
+    # Macro should be 1.0 since the single applicable field is at 1.0.
+    assert summary.field_accuracy_macro == 1.0
 
 
 async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:

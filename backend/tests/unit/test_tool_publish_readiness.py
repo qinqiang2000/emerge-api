@@ -72,7 +72,7 @@ async def test_no_reviewed_fails(tmp_path: Path) -> None:
     _bootstrap_project(tmp_path, pid)
     out = await readiness_check(tmp_path, pid)
     assert out["hard_pass"] is False
-    assert any(c["key"] == "reviewed_and_f1" and c["status"] == "fail" for c in out["checks"])
+    assert any(c["key"] == "reviewed_and_accuracy" and c["status"] == "fail" for c in out["checks"])
 
 
 @pytest.mark.asyncio
@@ -85,26 +85,29 @@ async def test_passing_minimal_setup(tmp_path: Path) -> None:
         _add_prediction(tmp_path, pid, did, [{"buyer_name": "ACME", "total_amount": 100.0}])
     out = await readiness_check(tmp_path, pid)
     assert out["hard_pass"] is True
-    assert out["macro_f1"] == pytest.approx(1.0)
+    # M12.x: readiness envelope carries `field_accuracy_macro` as the
+    # truth source; `macro_f1` is a transitional alias with the same value.
+    assert out["field_accuracy_macro"] == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio
-async def test_low_f1_fails(tmp_path: Path) -> None:
+async def test_low_accuracy_fails(tmp_path: Path) -> None:
     pid = "p_abc123def456"
-    _bootstrap_project(tmp_path, pid, publish_min_macro_f1=0.7)
+    _bootstrap_project(tmp_path, pid, publish_min_macro_f1=0.75)
     for i in range(3):
         did = f"d_{i:012d}"
         _add_reviewed(tmp_path, pid, did, [{"buyer_name": "ACME", "total_amount": 100.0}])
         _add_prediction(tmp_path, pid, did, [{"buyer_name": "WRONG", "total_amount": 999.0}])
     out = await readiness_check(tmp_path, pid)
     assert out["hard_pass"] is False
-    assert any(c["key"] == "reviewed_and_f1" and c["status"] == "fail" for c in out["checks"])
+    assert any(c["key"] == "reviewed_and_accuracy" and c["status"] == "fail" for c in out["checks"])
 
 
 @pytest.mark.asyncio
-async def test_borderline_f1_warns(tmp_path: Path) -> None:
+async def test_borderline_accuracy_warns(tmp_path: Path) -> None:
     pid = "p_abc123def456"
-    _bootstrap_project(tmp_path, pid, publish_min_macro_f1=0.7)
+    # M12.x: gate is accuracy at 0.75; soft band is [0.75, 0.90).
+    _bootstrap_project(tmp_path, pid, publish_min_macro_f1=0.75)
     docs = [
         ([{"buyer_name": "ACME", "total_amount": 100.0}], [{"buyer_name": "ACME", "total_amount": 100.0}]),
         ([{"buyer_name": "ACME", "total_amount": 100.0}], [{"buyer_name": "ACME", "total_amount": 100.0}]),
@@ -116,9 +119,11 @@ async def test_borderline_f1_warns(tmp_path: Path) -> None:
         _add_reviewed(tmp_path, pid, did, rv)
         _add_prediction(tmp_path, pid, did, pr)
     out = await readiness_check(tmp_path, pid)
-    assert 0.7 <= out["macro_f1"] < 1.0
-    if 0.7 <= out["macro_f1"] < 0.85:
-        assert any(s["key"] == "f1_borderline" for s in out["soft_warnings"])
+    # 4 docs × 2 fields; buyer_name 3/4 right, total_amount 4/4 right →
+    # field_accuracy_macro = (0.75 + 1.0) / 2 = 0.875 (in the soft band).
+    assert 0.75 <= out["field_accuracy_macro"] < 1.0
+    if 0.75 <= out["field_accuracy_macro"] < 0.90:
+        assert any(s["key"] == "accuracy_borderline" for s in out["soft_warnings"])
 
 
 @pytest.mark.asyncio
@@ -190,21 +195,20 @@ async def test_readiness_multi_entity_grades_correctly(tmp_path: Path) -> None:
     fields_check = next(c for c in result["checks"] if c["key"] == "reviewed_fields_in_schema")
     assert fields_check["status"] == "pass", f"orphan check: {fields_check}"
 
-    # Correct multi-entity grading: tp=4, fp=1, fn=1 across 6 entity-rows.
-    # precision = 4/5, recall = 4/5, f1 = 0.8 — wait, let's be explicit:
-    # entity[1] of d_aaaaaaaaaaaa: reviewed="A2", pred="MISMATCH" → fp+1, fn+1
-    # all others: tp.  Totals: tp=4, fp=1, fn=1.
-    # precision=4/5=0.8, recall=4/5=0.8, f1=0.8 ≥ 0.7 → pass.
-    # entity[0]-only would see tp=3, f1=1.0 too — so we just assert macro_f1 < 1.0
-    # to confirm all entity rows were graded.
-    assert result["macro_f1"] is not None
-    assert result["macro_f1"] < 1.0, (
-        "macro_f1 should be < 1.0 because entity[1] of d_a mismatches; "
-        f"got {result['macro_f1']:.3f} — likely only entity[0] was graded"
+    # M12.x accuracy grading: 6 entity-rows total, 5 match, 1 mismatch.
+    # accuracy = 5/6 ≈ 0.833. With threshold 0.75, this should pass.
+    # An entity[0]-only buggy implementation would see all 3 matches and
+    # report accuracy=1.0, so we assert < 1.0 to confirm all rows graded.
+    assert result["field_accuracy_macro"] is not None
+    assert result["field_accuracy_macro"] < 1.0, (
+        "field_accuracy_macro should be < 1.0 because entity[1] of d_a "
+        f"mismatches; got {result['field_accuracy_macro']:.3f} — likely "
+        "only entity[0] was graded"
     )
-    f1_check = next(c for c in result["checks"] if c["key"] == "reviewed_and_f1")
-    assert f1_check["status"] == "pass", (
-        f"macro_f1={result['macro_f1']:.3f} should be >= threshold 0.7 but check failed: {f1_check}"
+    acc_check = next(c for c in result["checks"] if c["key"] == "reviewed_and_accuracy")
+    assert acc_check["status"] == "pass", (
+        f"field_accuracy_macro={result['field_accuracy_macro']:.3f} should "
+        f"be >= threshold 0.75 but check failed: {acc_check}"
     )
 
 

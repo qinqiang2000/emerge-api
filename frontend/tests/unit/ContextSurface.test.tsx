@@ -31,29 +31,39 @@ describe('ContextSurface metrics section', () => {
     expect(screen.queryByText('0.94')).not.toBeInTheDocument()  // placeholder gone
   })
 
-  it('renders macro precision / recall / f1 / coverage from snapshot', () => {
+  it('renders field accuracy / doc accuracy / coverage from snapshot', () => {
     useEval.setState({
       byProject: {
         [SLUG]: {
-          n_docs: 5, n_reviewed: 5, macro_f1: 0.92, errors: [],
+          n_docs: 5, n_reviewed: 5,
+          field_accuracy_macro: 0.9,
+          macro_f1: null,
+          doc_accuracy: 0.8,
+          errors: [],
           ts: '2026-05-11T07-04-00Z', schema_field_count: 2,
           per_field: [
-            { field: 'a', tp: 5, fp: 0, fn: 0, support: 5, precision: 1.0, recall: 1.0, f1: 1.0 },
-            { field: 'b', tp: 4, fp: 1, fn: 1, support: 5, precision: 0.8, recall: 0.8, f1: 0.8 },
+            {
+              field: 'a', accuracy: 1.0, correct: 5, total: 5,
+              n_absent_both: 0, not_applicable: false,
+            },
+            {
+              field: 'b', accuracy: 0.8, correct: 4, total: 5,
+              n_absent_both: 0, not_applicable: false,
+            },
           ],
         },
       },
       loading: {},
     })
     render(<ContextSurface />)
-    // precision row: (1.0 + 0.8) / 2 = 0.90  (recall also 0.90 — same mean)
-    expect(screen.getAllByText('0.90')).toHaveLength(2)
-    // f1: macro_f1 from backend
-    expect(screen.getByText('0.92')).toBeInTheDocument()
+    // field accuracy: 90.0%
+    expect(screen.getByText('90.0%')).toBeInTheDocument()
+    // doc accuracy: 80.0%
+    expect(screen.getByText('80.0%')).toBeInTheDocument()
     // coverage: 5/5 = 100%
     expect(screen.getByText('100%')).toBeInTheDocument()
-    // header hint: "macro 0.92 · 5 reviewed"
-    expect(screen.getByText(/macro 0\.92 · 5 reviewed/i)).toBeInTheDocument()
+    // header hint: "90.0% · 5 reviewed"
+    expect(screen.getByText(/90\.0% · 5 reviewed/i)).toBeInTheDocument()
   })
 
   it('does not log the placeholder-deferred message', () => {

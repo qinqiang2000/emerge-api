@@ -83,8 +83,19 @@ def _aggregate(
     schema: list[SchemaField],
     reviewed: dict[str, list[dict[str, Any]]],
 ) -> tuple[list[FieldScore], float, float, int]:
+    """M12.x — accuracy-first aggregation.
+
+    Per-field `accuracy = (correct + absent_both) / total`. The model nailing
+    "this field has no value" (absent_both) is a correct prediction, not a
+    non-event. F1/precision/recall are no longer computed in the hot path —
+    emitted as `None` so legacy summaries still validate via the demoted
+    optional schema, but new writes don't carry stale F1 numbers.
+
+    `not_applicable=True` when `total==0` (defensive — schema has the field
+    but no entity ever exposed it). Macro accuracy excludes these.
+    """
     counts: dict[str, dict[str, int]] = {
-        f.name: {"tp": 0, "fp": 0, "fn": 0, "support": 0, "correct": 0, "total": 0}
+        f.name: {"correct": 0, "total": 0, "absent_both": 0}
         for f in schema
     }
     for c in cells:
@@ -94,31 +105,34 @@ def _aggregate(
         d["total"] += 1
         if c.status == "correct":
             d["correct"] += 1
-            d["tp"] += 1
-            d["support"] += 1
-        elif c.status == "wrong":
-            d["fp"] += 1
-            d["fn"] += 1
-            d["support"] += 1
-        elif c.status == "missing":
-            d["fn"] += 1
-            d["support"] += 1
-        elif c.status == "spurious":
-            d["fp"] += 1
+        elif c.status == "absent_both":
+            # The hard rule: model agreed there's nothing here, ground truth
+            # agreed there's nothing here — that's a correct prediction.
+            d["correct"] += 1
+            d["absent_both"] += 1
 
     per_field: list[FieldScore] = []
     for f in schema:
         d = counts[f.name]
-        precision = (d["tp"] / (d["tp"] + d["fp"])) if (d["tp"] + d["fp"]) > 0 else 0.0
-        recall = (d["tp"] / (d["tp"] + d["fn"])) if (d["tp"] + d["fn"]) > 0 else 0.0
-        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        not_applicable = d["total"] == 0
         accuracy = (d["correct"] / d["total"]) if d["total"] > 0 else 0.0
         per_field.append(FieldScore(
-            field=f.name, tp=d["tp"], fp=d["fp"], fn=d["fn"], support=d["support"],
-            precision=precision, recall=recall, f1=f1, accuracy=accuracy,
+            field=f.name,
+            correct=d["correct"],
+            total=d["total"],
+            n_absent_both=d["absent_both"],
+            not_applicable=not_applicable,
+            accuracy=accuracy,
+            # F1 family deliberately None on new writes.
+            tp=None, fp=None, fn=None, support=None,
+            precision=None, recall=None, f1=None,
         ))
 
-    macro_f1 = sum(p.f1 for p in per_field) / len(per_field) if per_field else 0.0
+    applicable = [p for p in per_field if not p.not_applicable]
+    field_accuracy_macro = (
+        sum(p.accuracy or 0.0 for p in applicable) / len(applicable)
+        if applicable else 0.0
+    )
 
     docs_seen: dict[str, list[CellVerdict]] = {}
     for c in cells:
@@ -133,7 +147,7 @@ def _aggregate(
             doc_correct += 1
     doc_acc = (doc_correct / n_reviewed_graded) if n_reviewed_graded > 0 else 0.0
 
-    return per_field, macro_f1, doc_acc, n_reviewed_graded
+    return per_field, field_accuracy_macro, doc_acc, n_reviewed_graded
 
 
 async def score(
@@ -250,12 +264,15 @@ async def score(
                     "judge_model": v.model,
                 })
 
-    per_field, macro_f1, doc_acc, n_reviewed = _aggregate(cells, schema, reviewed)
+    per_field, field_accuracy_macro, doc_acc, n_reviewed = _aggregate(
+        cells, schema, reviewed,
+    )
 
     summary = ScoreResultSummary(
         n_docs=len(reviewed) + sum(1 for fn in predictions if fn not in reviewed),
         n_reviewed=n_reviewed,
-        macro_f1=macro_f1,
+        field_accuracy_macro=field_accuracy_macro,
+        macro_f1=None,  # M12.x: F1 demoted; new writes no longer carry it.
         doc_accuracy=doc_acc,
         per_field=per_field,
         errors=errors,

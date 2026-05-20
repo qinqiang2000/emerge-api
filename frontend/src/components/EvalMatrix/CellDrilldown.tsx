@@ -30,6 +30,23 @@ function verdictLabel(c: CellVerdict): string {
 }
 
 
+// M12.x — when a cell value is a JSON array/object (e.g. an `items` field),
+// pretty-print so the drilldown shows readable structure instead of one long
+// line. Falls back to the raw string for plain scalars.
+function prettyValue(v: string | null): string | null {
+  if (v == null) return null
+  const trimmed = v.trimStart()
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return v
+  try {
+    const parsed = JSON.parse(v) as unknown
+    if (typeof parsed === 'object' && parsed !== null) {
+      return JSON.stringify(parsed, null, 2)
+    }
+  } catch { /* fall through */ }
+  return v
+}
+
+
 export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview }: Props) {
   return (
     <aside
@@ -57,16 +74,16 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
 
       <section className="mb-4">
         <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">正确值</div>
-        <div className="font-mono text-sm break-all">
-          {cell.truth ?? <em className="text-ink-4">—</em>}
-        </div>
+        <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
+          {prettyValue(cell.truth) ?? '—'}
+        </pre>
       </section>
 
       <section className="mb-4">
         <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">当前值</div>
-        <div className="font-mono text-sm break-all">
-          {cell.pred ?? <em className="text-ink-4">—</em>}
-        </div>
+        <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
+          {prettyValue(cell.pred) ?? '—'}
+        </pre>
       </section>
 
       <section className="mb-6">

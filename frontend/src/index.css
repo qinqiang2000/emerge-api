@@ -539,11 +539,12 @@ html, body, #root {
 .eval-card .eh .stamp{color:var(--ink-4);font-size:11px}
 .eval-card .eh .agg{margin-left:auto;font-size:18px;font-family:var(--serif);color:var(--ink);font-weight:500}
 .eval-card .eh .agg .lbl{font-family:var(--mono);font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.1em;margin-right:6px;font-weight:400}
-.eval-row{display:grid;grid-template-columns:1fr 60px 60px 60px 110px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--rule-soft);font-size:11.5px}
+/* M12.x — single-accuracy column (was field | P | R | F1 | bar). */
+.eval-row{display:grid;grid-template-columns:1fr 80px 110px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--rule-soft);font-size:11.5px}
 .eval-row:last-child{border-bottom:0}
 .eval-row .f{color:var(--ink-2);font-weight:500}
 .eval-row .num{font-variant-numeric:tabular-nums;color:var(--ink-3);text-align:right}
-.eval-row .num.f1{color:var(--ink);font-weight:500}
+.eval-row .num.acc{color:var(--ink);font-weight:500}
 .eval-row .num.bad{color:var(--rose)}
 .eval-row .num.ok{color:var(--moss)}
 .eval-row .bar{height:4px;background:var(--paper-3);position:relative;border-radius:2px;overflow:hidden;margin-left:14px}

@@ -198,18 +198,30 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
     const rows = evalListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
-    return rows.map((row, i) => ({
-      kind: 'file' as const,
-      name: `eval_${row.ts}`,
-      stamp: row.doc_accuracy != null
-        ? `${(row.doc_accuracy * 100).toFixed(1)}%`
-        : row.macro_f1.toFixed(2),
-      active: i === 0,
-      onClick: () => {
-        window.history.pushState(null, '', pathForEvalMatrix(selectedSlug, row.ts))
-        window.dispatchEvent(new PopStateEvent('popstate'))
-      },
-    }))
+    return rows.map((row, i) => {
+      // M12.x — spine stamp prefers field_accuracy_macro, then doc_accuracy,
+      // then the legacy macro_f1 (which on M12.x writes is null but on older
+      // disk JSON still carries an F1 number).
+      const fieldAcc = row.field_accuracy_macro
+      let stamp = ''
+      if (typeof fieldAcc === 'number') {
+        stamp = `${(fieldAcc * 100).toFixed(1)}%`
+      } else if (row.doc_accuracy != null) {
+        stamp = `${(row.doc_accuracy * 100).toFixed(1)}%`
+      } else if (typeof row.macro_f1 === 'number') {
+        stamp = row.macro_f1.toFixed(2)
+      }
+      return {
+        kind: 'file' as const,
+        name: `eval_${row.ts}`,
+        stamp,
+        active: i === 0,
+        onClick: () => {
+          window.history.pushState(null, '', pathForEvalMatrix(selectedSlug, row.ts))
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        },
+      }
+    })
   }, [selectedSlug, evalListByProject])
 
   // Build experiments leaf nodes

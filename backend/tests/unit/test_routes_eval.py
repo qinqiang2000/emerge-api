@@ -57,7 +57,9 @@ def test_post_eval_creates_dir(client: TestClient, tmp_path: Path) -> None:
     r = client.post(f"/lab/projects/{slug}/eval", json={"use_llm_judge": False})
     assert r.status_code == 200
     blob = r.json()
-    assert blob["macro_f1"] == 1.0
+    # M12.x: field_accuracy_macro is the new headline; macro_f1 is None.
+    assert blob["field_accuracy_macro"] == 1.0
+    assert blob["macro_f1"] is None
     assert blob["doc_accuracy"] == 1.0
     ts = blob["ts"]
     md = metrics_dir(tmp_path, slug)
@@ -78,7 +80,7 @@ def test_list_evals_returns_current_dir(client: TestClient, tmp_path: Path) -> N
     rows = r2.json()
     assert len(rows) == 1
     assert rows[0]["doc_accuracy"] == 1.0
-    assert rows[0]["macro_f1"] == 1.0
+    assert rows[0]["field_accuracy_macro"] == 1.0
 
 
 def test_get_summary_jsonl_matrix(client: TestClient, tmp_path: Path) -> None:
@@ -88,7 +90,7 @@ def test_get_summary_jsonl_matrix(client: TestClient, tmp_path: Path) -> None:
 
     rs = client.get(f"/lab/projects/{slug}/eval/{ts}/summary.json")
     assert rs.status_code == 200
-    assert rs.json()["macro_f1"] == 1.0
+    assert rs.json()["field_accuracy_macro"] == 1.0
 
     rc = client.get(f"/lab/projects/{slug}/eval/{ts}/cells.jsonl")
     assert rc.status_code == 200
@@ -106,7 +108,7 @@ def test_eval_latest_dir_form(client: TestClient, tmp_path: Path) -> None:
     client.post(f"/lab/projects/{slug}/eval")
     r = client.get(f"/lab/projects/{slug}/evals/latest")
     assert r.status_code == 200
-    assert r.json()["macro_f1"] == 1.0
+    assert r.json()["field_accuracy_macro"] == 1.0
 
 
 def test_eval_latest_legacy_only(client: TestClient, tmp_path: Path) -> None:

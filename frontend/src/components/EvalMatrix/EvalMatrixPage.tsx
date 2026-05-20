@@ -6,6 +6,7 @@ import { useEval } from '../../stores/eval'
 import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
 import type { CellVerdict } from '../../types/eval'
+import { synthesizeAccuracyMacro } from '../../types/eval'
 import CellDrilldown from './CellDrilldown'
 import MatrixGrid from './MatrixGrid'
 import { type MatrixFilter, pct } from './filters'
@@ -125,10 +126,10 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
           {summary && (
             <>
               <span>
-                文档准确率 <strong>{pct(summary.doc_accuracy)}</strong>
+                字段准确率 <strong>{pct(synthesizeAccuracyMacro(summary))}</strong>
               </span>
-              <span className="text-ink-3">
-                macro F1 {summary.macro_f1.toFixed(2)}
+              <span>
+                文档准确率 <strong>{pct(summary.doc_accuracy)}</strong>
               </span>
               <span className="text-ink-3">{summary.n_reviewed} docs</span>
               {summary.judge_used > 0 && (

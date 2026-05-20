@@ -105,6 +105,11 @@ async def list_evals(slug: str) -> list[dict]:
                     "ts": ts,
                     "meta": meta,
                     "doc_accuracy": summary.get("doc_accuracy"),
+                    # M12.x — `field_accuracy_macro` is the new headline.
+                    # `macro_f1` stays so legacy readers don't 500; pre-M12.x
+                    # summaries carry it natively, M12.x summaries set it to
+                    # null.
+                    "field_accuracy_macro": summary.get("field_accuracy_macro"),
                     "macro_f1": summary.get("macro_f1"),
                     "n_reviewed": summary.get("n_reviewed"),
                 })
@@ -122,6 +127,7 @@ async def list_evals(slug: str) -> list[dict]:
                     "ts": ts,
                     "meta": {"legacy": True},
                     "doc_accuracy": None,
+                    "field_accuracy_macro": blob.get("field_accuracy_macro"),
                     "macro_f1": blob.get("macro_f1"),
                     "n_reviewed": blob.get("n_reviewed"),
                 })

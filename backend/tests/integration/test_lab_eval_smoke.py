@@ -64,11 +64,17 @@ async def test_eval_full_pipeline(workspace: Path):
     body = response.json()
     assert body["n_reviewed"] == 2
 
+    # M12.x: per-field carries `accuracy/correct/total`; F1 family is None.
     per_field = {field["field"]: field for field in body["per_field"]}
-    assert per_field["invoice_no"]["tp"] == 1
-    assert per_field["invoice_no"]["f1"] == 0.5
-    assert per_field["total"]["tp"] == 2
-    assert per_field["total"]["f1"] == 1.0
+    # invoice_no: 1 correct + 1 wrong = 0.5 accuracy
+    assert per_field["invoice_no"]["correct"] == 1
+    assert per_field["invoice_no"]["total"] == 2
+    assert per_field["invoice_no"]["accuracy"] == 0.5
+    assert per_field["invoice_no"]["f1"] is None
+    # total: 2 correct out of 2
+    assert per_field["total"]["correct"] == 2
+    assert per_field["total"]["total"] == 2
+    assert per_field["total"]["accuracy"] == 1.0
 
     # M12: dir-form artifact replaces eval_*.json file.
     dirs = [
@@ -77,4 +83,4 @@ async def test_eval_full_pipeline(workspace: Path):
     ]
     assert len(dirs) == 1
     saved = json.loads((dirs[0] / "summary.json").read_text())
-    assert saved["macro_f1"] == body["macro_f1"]
+    assert saved["field_accuracy_macro"] == body["field_accuracy_macro"]

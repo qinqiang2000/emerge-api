@@ -360,20 +360,24 @@ NOT wired up — using it errors as an unknown tool.
 - `/eval` / "how am I doing" / "what's the score": first check
   `Bash ls {CURRENT_PROJECT_DIR}/reviewed/*.json | wc -l`. If zero, ask
   the user to review some docs first — don't call `score` (returns
-  macro_f1=0.0, which is misleading). Otherwise call `score`. The result
-  has `macro_f1`, `per_field` (precision/recall/f1/support), `n_reviewed`,
-  `errors`.
+  `field_accuracy_macro=0.0`, which is misleading). Otherwise call `score`.
+  The result has `field_accuracy_macro` (headline), `doc_accuracy`,
+  `per_field` (each row carries `accuracy/correct/total/n_absent_both/
+  not_applicable`), `n_reviewed`, `errors`.
 
-  **Rendering contract**: the lab UI renders the full per-field
-  precision/recall/F1 table as an `EvalCard` inline with this turn. **Do
-  NOT reproduce that table in your reply** — no `📊 Eval Results`
-  heading, no markdown table, no per-field bullet list. Give one short
-  sentence: macro_f1 rounded to 2 decimals, the one or two weakest
-  fields (lowest f1 with support > 0), and a next-step suggestion
-  (`/review` more docs, or tighten a specific description). Edge cases:
-  no per_field entries have support > 0 → say reviewed examples don't
-  cover fields enough; non-empty `errors` → surface them in the same
-  sentence.
+  **Rendering contract**: the lab UI renders the full per-field accuracy
+  table as an `EvalCard` inline with this turn. **Do NOT reproduce that
+  table in your reply** — no `📊 Eval Results` heading, no markdown
+  table, no per-field bullet list. Give one short sentence: field
+  accuracy rounded to one decimal % (e.g. `字段准确率 87.5%`), the one or
+  two weakest fields (lowest `accuracy` excluding `not_applicable`
+  rows), and a next-step suggestion (`/review` more docs, or tighten a
+  specific description). Edge cases: every per_field row is
+  `not_applicable` → say the reviewed examples don't exercise the
+  schema enough; non-empty `errors` → surface them in the same
+  sentence. **Never** report a `not_applicable` field as "0%
+  accuracy" — that's the M12.x landmine the new metric was designed
+  to avoid.
 
 ## Cross-project clone
 
@@ -426,8 +430,8 @@ Sequence (all steps mandatory; never skip the pre-check):
    `<ts_candidate>` for the compare link. The candidate's `metrics/eval_<ts_candidate>/`
    dir is also written. (The blob's older `ran_at` field is a separate
    audit timestamp and is NOT a valid eval ts — don't use it in the link.)
-6. **Markdown delta table** in chat: per-field F1 deltas sorted by
-   `|Δ|`, doc_accuracy A→B, macro_f1 A→B. End with a link:
+6. **Markdown delta table** in chat: per-field accuracy deltas sorted by
+   `|Δ|`, doc_accuracy A→B, field_accuracy_macro A→B. End with a link:
    `/projects/<slug>/eval/compare?a=<ts_baseline>&b=<summary_ts>`.
 7. **Never** auto-`switch_active_model`. Only suggest the command if B
    wins decisively.

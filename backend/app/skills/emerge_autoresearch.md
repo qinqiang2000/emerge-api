@@ -30,8 +30,12 @@ on this turn is to KICK OFF a background job - not to run the loop yourself.
    ```
    The tool returns a `job_id` string.
 3. Tell the user briefly: "Started autoresearch (job <id>). The progress
-   card below streams per-turn F1. You can pause / cancel at any time, and
-   accept the best candidate when you're satisfied."
+   card below streams per-turn field accuracy. You can pause / cancel at
+   any time, and accept the best candidate when you're satisfied."
+
+The loop optimizes against `field_accuracy_macro` (M12.x — was macro_f1
+before; the per-turn events still emit the old key as a transitional
+alias with the same value, so legacy JSONL readers don't break).
 
 Do NOT call extract_one / extract_batch / score yourself in the /improve
 turn - the job loop owns those.
