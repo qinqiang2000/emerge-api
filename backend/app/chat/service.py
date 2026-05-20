@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from claude_agent_sdk import (
+    AgentDefinition,
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -157,7 +158,7 @@ _WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
   experiments/         # autoresearch 实验输出
   versions/            # 冻结的公共 API 版本（v{{n}}.json，从 agent 视角只读）
   reviewed/            # 人工标注 ground truth
-  reviewed/_pending/   # pre_label 产生的待审稿
+  reviewed/_pending/   # label_docs 产生的待审稿
   predictions/_draft/  # 最新提取输出
   chats/               # chat 历史（jsonl）+ chats/<chat_id>/attachments/
   schema.json          # 编辑态 schema — 只能用 write_schema/write_prompt 工具改
@@ -199,7 +200,7 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
             f"You are in an **unbound chat** (no project), chat_id=`{chat_id}`. "
             "Chat history and attachments live under `_chats/`. "
             "Project-scoped tools (`derive_schema`, `write_schema`, "
-            "`extract_batch`, `promote_attachment_to_docs`, `pre_label`, …) "
+            "`extract_batch`, `promote_attachment_to_docs`, `label_docs`, …) "
             "will raise `chat_not_bound` if called from here. "
             "If the user expresses project intent (`/init`, \"build a schema "
             "for these\", \"make this a project\"), ASK for a name first, "
@@ -393,6 +394,7 @@ class ChatService:
         self._extractor_skill = load_skill("emerge_extractor")
         self._autoresearch_skill = load_skill("emerge_autoresearch")
         self._publish_skill = load_skill("emerge_publish")
+        self._pre_label_runner_skill = load_skill("emerge_pre_label_runner")
         self.system_prompt = self._extractor_skill
         self.job_runner = get_runner(
             workspace=workspace, provider=provider, model_id=extract_model,
@@ -467,6 +469,33 @@ class ChatService:
             chat_id=chat_id,
             sse_writer_getter=lambda: current_sse_writer.get(),
         )
+        # `pre_label_runner` is a subagent that loops `label_docs` in small
+        # chunks for batch pre-label runs. Spawning it via the SDK `Agent`
+        # tool gives us native session_id resume, per-batch progress narration,
+        # and cancel semantics without a custom job-runner — see
+        # docs/superpowers/plans/2026-05-20-pre-label-subagent.md.
+        agents: dict[str, AgentDefinition] = {
+            "pre_label_runner": AgentDefinition(
+                description=(
+                    "Use this subagent to pre-label many docs (typically >10 "
+                    "files). It batches in chunks of ~8, narrates progress "
+                    "between batches via short turn-text lines, and "
+                    "soft-fails per doc instead of aborting the run. Pass "
+                    "the project slug and the filename list in the prompt; "
+                    "the subagent returns a single-line summary to the "
+                    "parent on completion. Idempotent: re-invoking after a "
+                    "disconnect resumes from filesystem state."
+                ),
+                prompt=self._pre_label_runner_skill,
+                tools=[
+                    "mcp__emerge_tools__label_docs",
+                    "mcp__emerge_tools__get_labeler_config",
+                    "Glob",
+                ],
+                maxTurns=30,
+                effort="low",
+            ),
+        }
         return ClaudeAgentOptions(
             system_prompt=self._build_system_prompt(
                 user_message, slug=slug, chat_id=chat_id, surface_context=surface_context,
@@ -507,8 +536,25 @@ class ChatService:
             # express the path-dependent rules we need.
             permission_mode="default",
             can_use_tool=gate,
-            allowed_tools=[],
+            # Pre-approve `Agent` here so the gate sees it as "explicitly
+            # allowed in the SDK manifest", separate from the workspace-safety
+            # gate that classifies it as agent bookkeeping. Subagent tool
+            # calls re-enter the gate independently — the parent's allowlist
+            # does NOT propagate to the subagent.
+            #
+            # `mcp__emerge_tools__*` wildcard pre-approves every emerge MCP
+            # tool, telling the SDK to skip the `can_use_tool` callback for
+            # them. The permissions gate still classifies every call (path-
+            # range / network-keyword / hard-block) — pre-approval cuts the
+            # SDK round-trip, not the gate.
+            allowed_tools=["mcp__emerge_tools__*", "Agent"],
             disallowed_tools=_SDK_NEVER_TOOLS,
+            # Strict MCP config — SDK uses only `mcp_servers={...}` passed
+            # here and ignores any MCP-server entries that might appear in
+            # `sdk_settings.json`. Defense in depth against a future settings
+            # edit leaking a third-party server into the agent's tool list.
+            strict_mcp_config=True,
+            agents=agents,
             max_turns=20,
             # Let Claude decide per-turn whether to engage extended thinking,
             # matching claude.ai's default. Cheap turns stay cheap; harder
@@ -747,11 +793,14 @@ class ChatService:
                 async with ClaudeSDKClient(options=opts) as client:
                     await client.query(_make_query_payload())
                     async for message in client.receive_response():
-                        sid = getattr(message, "session_id", None)
-                        if isinstance(message, SystemMessage):
-                            sid = message.data.get("session_id") or sid
-                        if sid:
-                            latest_sid = sid
+                        # `ResultMessage.session_id` is the documented contract
+                        # field — every result carries it (success or error).
+                        # SystemMessage.data["session_id"] is internal init
+                        # event shape, not a stable surface.
+                        if isinstance(message, ResultMessage):
+                            sid = message.session_id
+                            if sid:
+                                latest_sid = sid
                         for etype, payload in _events_from_message(message):
                             redactor.observe(etype, payload)
                             persist_payload = redactor.scrub_for_persist(etype, payload)
@@ -882,26 +931,28 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
     out: list[tuple[str, dict[str, Any]]] = []
 
     if isinstance(message, AssistantMessage):
+        parent_id = getattr(message, "parent_tool_use_id", None)
         for block in message.content:
             if isinstance(block, TextBlock):
-                out.append(("agent_text", {"text": block.text}))
+                payload: dict[str, Any] = {"text": block.text}
+                if parent_id:
+                    payload["parent_tool_use_id"] = parent_id
+                out.append(("agent_text", payload))
             elif isinstance(block, ThinkingBlock):
-                # Drop — model's internal reasoning. Re-enable as `agent_thinking`
-                # behind a UI toggle if we ever want a "show thinking" mode.
+                # Currently dropped — model's internal reasoning, emerge does
+                # not consume it.
                 continue
             elif isinstance(block, ToolUseBlock):
-                out.append(
-                    (
-                        "tool_call",
-                        {
-                            "tool_use_id": block.id,
-                            "tool_name": block.name,
-                            "tool_input": block.input,
-                            "tool_result": None,
-                            "ok": True,
-                        },
-                    )
-                )
+                payload = {
+                    "tool_use_id": block.id,
+                    "tool_name": block.name,
+                    "tool_input": block.input,
+                    "tool_result": None,
+                    "ok": True,
+                }
+                if parent_id:
+                    payload["parent_tool_use_id"] = parent_id
+                out.append(("tool_call", payload))
             elif isinstance(block, ToolResultBlock):
                 # Emit a `tool_result` event paired by tool_use_id. Frontend looks
                 # up the matching `tool_call` card and attaches the result.

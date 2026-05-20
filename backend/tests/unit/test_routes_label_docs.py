@@ -1,5 +1,5 @@
-"""HTTP routes for the Pro Labeler — POST /pre_label, POST /labeler_model,
-GET /pending/{filename}. Symmetry mirror of the MCP tools (M10)."""
+"""HTTP routes for the Pro Labeler — POST /label_docs, POST /labeler_model,
+GET /pending/{filename}. Symmetry mirror of the MCP tools."""
 from __future__ import annotations
 
 import asyncio
@@ -32,11 +32,11 @@ def _create_project(tmp_path: Path) -> str:
     return asyncio.run(create_project(tmp_path, name="x"))["slug"]
 
 
-def test_pre_label_route_returns_400_when_unconfigured(
+def test_label_docs_route_returns_400_when_unconfigured(
     client: TestClient, tmp_path: Path,
 ) -> None:
     slug = _create_project(tmp_path)
-    r = client.post(f"/lab/projects/{slug}/pre_label", json={})
+    r = client.post(f"/lab/projects/{slug}/label_docs", json={})
     assert r.status_code == 400
     detail = r.json()["detail"]
     assert detail["error_code"] == "labeler_model_not_configured"
@@ -88,8 +88,8 @@ def test_labeler_config_route_reports_override(
     assert body["source"] == "override"
 
 
-def test_pre_label_route_404_on_unknown_project(client: TestClient) -> None:
-    r = client.post("/lab/projects/p_doesnotexist1/pre_label", json={})
+def test_label_docs_route_404_on_unknown_project(client: TestClient) -> None:
+    r = client.post("/lab/projects/p_doesnotexist1/label_docs", json={})
     assert r.status_code == 404
 
 

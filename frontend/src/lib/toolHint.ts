@@ -69,7 +69,7 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
     }
     case 'extract_one':
     case 'extract_batch':
-    case 'pre_label':
+    case 'label_docs':
     case 'save_reviewed': {
       const fn = typeof o.filename === 'string' ? o.filename : null
       const fns = Array.isArray(o.filenames) ? `${o.filenames.length} files` : null

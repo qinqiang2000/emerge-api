@@ -22,17 +22,25 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
 
   const flushTools = () => {
     if (toolBuf.length > 0) {
-      out.push({ kind: 'tools', calls: toolBuf })
+      out.push({ kind: 'tools', calls: toolBuf, parent_tool_use_id: toolBufParent })
       toolBuf = []
+      toolBufParent = undefined
     }
   }
 
+  // Track the current toolBuf's parent so subagent-emitted tool calls don't
+  // accidentally merge into a sibling top-level tool stack.
+  let toolBufParent: string | undefined
   for (const e of events) {
     if (e.type === 'tool_call') {
       if (HOISTED_TOOL_NAMES.has(e.tool_name)) {
         flushTools()
         out.push({ kind: 'hoisted_tool', call: e })
       } else {
+        if (toolBuf.length > 0 && toolBufParent !== e.parent_tool_use_id) {
+          flushTools()
+        }
+        if (toolBuf.length === 0) toolBufParent = e.parent_tool_use_id
         toolBuf.push(e)
       }
       continue
@@ -45,11 +53,12 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
       out.push({ kind: 'user', text: e.text, attachments: e.attachments })
     } else if (e.type === 'agent_text') {
       const prev = out[out.length - 1]
-      if (prev && prev.kind === 'agent') {
-        // merge consecutive agent text chunks
+      if (prev && prev.kind === 'agent' && prev.parent_tool_use_id === e.parent_tool_use_id) {
+        // merge consecutive agent text chunks only when they belong to the
+        // same agent (top-level vs same subagent).
         prev.text = prev.text + e.text
       } else {
-        out.push({ kind: 'agent', text: e.text })
+        out.push({ kind: 'agent', text: e.text, parent_tool_use_id: e.parent_tool_use_id })
       }
     } else if (e.type === 'error') {
       out.push({

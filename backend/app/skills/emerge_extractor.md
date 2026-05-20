@@ -42,7 +42,7 @@ In an unbound chat:
     - `extract_one`
     - `extract_batch`
     - `promote_attachment_to_docs`
-    - `pre_label`
+    - `label_docs` (and the `pre_label_runner` subagent that drives it)
 
 When the user expresses project intent — "let's build a schema for these",
 "extract this batch", `/init`, "make this a project" — first **ask** what
@@ -122,7 +122,7 @@ built-ins for anything not here).
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project` (whole-project rmtree — confirm first), `promote_attachment_to_docs`.
 - **Active prompt / model mutation**: `write_schema` (schema and/or `global_notes` — see red lines, the only legal mutation path), `switch_active_prompt`, `switch_active_model`, `set_labeler_model`, `get_labeler_config`.
-- **Provider HTTP calls**: `derive_schema`, `extract_one` / `extract_batch`, `extract_with_experiment`, `pre_label`.
+- **Provider HTTP calls**: `derive_schema`, `extract_one` / `extract_batch`, `extract_with_experiment`, `label_docs` (atomic small-batch pro-label; for batches >10, delegate to the `pre_label_runner` subagent via the `Agent` tool).
 - **Reviewed lifecycle**: `save_reviewed` (atomic `_pending/` cleanup).
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
@@ -265,23 +265,34 @@ active pair. Use when the user says "试试" / "A/B" / "对比 model X" /
 A stronger / slower model drafts labels for the human boss to verify.
 Trigger phrases: "pro 先标一版", "用大模型预标这批", "labeler 跑一遍".
 
-- `pre_label(slug, filenames=[...], labeler_model?)` writes to
+Two entry points depending on batch size:
+
+- **Single file / ≤10 files (atomic)**: call `label_docs(slug,
+  filenames=[...], labeler_model?)` directly. Writes to
   `reviewed/_pending/{filename}.json`. Skips docs already in `reviewed/`
-  (human wins). Cap each call ≤10 filenames; for >30 docs, confirm first.
-  `save_reviewed` later atomically clears the matching `_pending/`.
+  (human wins) or with an existing `_pending/` draft (idempotent —
+  re-running the same call after a disconnect is a no-op).
+- **Batch (>10 files)**: delegate to the `pre_label_runner` subagent via
+  the SDK `Agent` tool. The subagent loops `label_docs` in 5-10 file
+  chunks, narrates progress between batches, and soft-fails per doc.
+  Resume after disconnect is automatic — re-invoke the same Agent call
+  and idempotent skip handles the rest. Example invocation:
+  `Agent(subagent_type="pre_label_runner", prompt="Pre-label these 30 files in project <slug>: [a.pdf, b.pdf, …]")`.
+  Always confirm with the user before invoking for >30 files.
+
 - To know which model will run, call `get_labeler_config(slug)`. Do NOT
   `Read project.json` to pre-check — `labeler_model` is normally null
   and the env fallback (`EMERGE_DEFAULT_LABELER_MODEL`) resolves it.
 - `set_labeler_model(slug, model_id)` only when user asks to lock a
-  project to a model, or `pre_label` returned `labeler_model_not_configured`.
+  project to a model, or `label_docs` returned `labeler_model_not_configured`.
 
-Hard rules: `pre_label` output never lands in `predictions/_draft/` or
+Hard rules: `label_docs` output never lands in `predictions/_draft/` or
 `reviewed/` — only in `_pending/`. Only `save_reviewed` (Save click)
 promotes to ground truth.
 
 ## Long-running tools — say hi, then say bye
 
-`pre_label`, `extract_batch`, `run_experiment_eval`, `score` (large
+`label_docs`, `extract_batch`, `run_experiment_eval`, `score` (large
 `reviewed/` sets), and bulk `extract_with_experiment` runs all sit
 behind an indeterminate spinner card for 10s-several minutes. The
 frontend cannot tell the user where in the pipeline you are. **You are
@@ -316,7 +327,7 @@ user wouldn't realize the blast radius from the command literal alone:
 - Accepting an autoresearch candidate (overwrites the active prompt's
   schema).
 - Cancelling a job: `cancel_job`.
-- `pre_label` for batches > 30 files.
+- Pre-labeling for batches > 30 files (whether via `label_docs` directly or via `pre_label_runner` subagent).
 - Deleting a whole project: `delete_project` (unrecoverable; takes docs, prompts, models, experiments, reviewed, predictions, chats all together).
 
 Bash `rm` / `mv` of `docs/`, `prompts/`, `models/`, `experiments/`,

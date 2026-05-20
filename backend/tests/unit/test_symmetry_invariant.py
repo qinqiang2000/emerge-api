@@ -76,7 +76,7 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "promote_chat_to_project":    ("POST",   r"^/lab/chats/\{chat_id\}/promote$"),
     "promote_attachment_to_docs": ("POST",   r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/promote$"),
     # Pro labeler
-    "pre_label":          ("POST", r"^/lab/projects/\{slug\}/pre_label$"),
+    "label_docs":         ("POST", r"^/lab/projects/\{slug\}/label_docs$"),
     "set_labeler_model":  ("POST", r"^/lab/projects/\{slug\}/labeler_model$"),
     "get_labeler_config": ("GET",  r"^/lab/projects/\{slug\}/labeler_config$"),
     # Doc vision — both tools surface through the shared docs by-name page

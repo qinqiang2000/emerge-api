@@ -1244,13 +1244,13 @@ function handleToolResult(
       t === 'mcp__emerge_tools__save_reviewed' ||
       t === 'mcp__emerge_tools__extract_batch' ||
       t === 'mcp__emerge_tools__extract_one' ||
-      // pre_label writes reviewed/_pending/ drafts. Doc-list badges don't
+      // label_docs writes reviewed/_pending/ drafts. Doc-list badges don't
       // change (pending status is independent of has_prediction/has_reviewed),
       // but if a review tab is open on a freshly pre-labeled doc the banner
       // needs the pending payload — re-fetching docs is the simplest cache
       // bump that propagates to the FSSpine list. The banner itself loads
       // lazily on useReview.open().
-      t === 'mcp__emerge_tools__pre_label'
+      t === 'mcp__emerge_tools__label_docs'
     ) {
       void useDocs.getState().refresh(projectId)
     }
@@ -1382,9 +1382,12 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
         out.push(ev)
         break
       }
-      case 'agent_text':
-        out.push({ type: 'agent_text', text: String(o.text ?? '') })
+      case 'agent_text': {
+        const ev: ChatEvent = { type: 'agent_text', text: String(o.text ?? '') }
+        if (typeof o.parent_tool_use_id === 'string') ev.parent_tool_use_id = o.parent_tool_use_id
+        out.push(ev)
         break
+      }
       case 'error':
         out.push({
           type: 'error',
@@ -1392,16 +1395,19 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
           error_message_en: String(o.error_message_en ?? ''),
         })
         break
-      case 'tool_call':
-        out.push({
+      case 'tool_call': {
+        const ev: ChatEvent = {
           type: 'tool_call',
           tool_use_id: typeof o.tool_use_id === 'string' ? o.tool_use_id : undefined,
           tool_name: String(o.tool_name ?? ''),
           tool_input: o.tool_input,
           tool_result: null,
           ok: typeof o.ok === 'boolean' ? o.ok : true,
-        })
+        }
+        if (typeof o.parent_tool_use_id === 'string') ev.parent_tool_use_id = o.parent_tool_use_id
+        out.push(ev)
         break
+      }
       case 'tool_result': {
         const tuid = o.tool_use_id
         if (typeof tuid !== 'string') break
@@ -1434,10 +1440,15 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
 export const _testUtils = { handleToolResult, reduceEvents, chatIdFor }
 
 function mapSse(event: string, data: unknown): ChatEvent | null {
-  if (event === 'agent_text') return { type: 'agent_text', text: (data as { text: string }).text }
+  if (event === 'agent_text') {
+    const d = data as { text: string; parent_tool_use_id?: string }
+    const ev: ChatEvent = { type: 'agent_text', text: d.text }
+    if (typeof d.parent_tool_use_id === 'string') ev.parent_tool_use_id = d.parent_tool_use_id
+    return ev
+  }
   if (event === 'tool_call') {
-    const d = data as { tool_use_id?: string; tool_name: string; tool_input: unknown; tool_result: unknown; ok?: boolean }
-    return {
+    const d = data as { tool_use_id?: string; tool_name: string; tool_input: unknown; tool_result: unknown; ok?: boolean; parent_tool_use_id?: string }
+    const ev: ChatEvent = {
       type: 'tool_call',
       tool_use_id: d.tool_use_id,
       tool_name: d.tool_name,
@@ -1445,6 +1456,8 @@ function mapSse(event: string, data: unknown): ChatEvent | null {
       tool_result: d.tool_result,
       ok: d.ok ?? true,
     }
+    if (typeof d.parent_tool_use_id === 'string') ev.parent_tool_use_id = d.parent_tool_use_id
+    return ev
   }
   if (event === 'error') {
     const d = data as { error_code: string; error_message_en: string }

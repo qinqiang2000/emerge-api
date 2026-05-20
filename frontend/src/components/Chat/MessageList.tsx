@@ -253,8 +253,27 @@ function PlumbingToolCard({ call }: { call: ToolCallEvent }) {
   )
 }
 
+// Map each `parent_tool_use_id` to the subagent_type string the parent Agent
+// tool was invoked with, so subagent-emitted items can render a "via X" tag.
+// Top-level items (no parent) are not represented here.
+function buildSubagentNameMap(events: ChatEvent[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const e of events) {
+    if (e.type !== 'tool_call' || e.tool_name !== 'Agent') continue
+    const id = e.tool_use_id
+    if (!id) continue
+    const input = e.tool_input as Record<string, unknown> | null
+    const t = input && typeof input === 'object' && typeof input.subagent_type === 'string'
+      ? input.subagent_type
+      : null
+    if (t) map.set(id, t)
+  }
+  return map
+}
+
 export default function MessageList({ events, busy }: Props) {
   const items = groupChatEvents(events)
+  const subagentNames = buildSubagentNameMap(events)
   // Pre-pass: map each user-item position → its 0-indexed ordinal among user
   // items. UserMessage passes this back to rewindAndSend so retry/edit can
   // target any user bubble, not just the latest.
@@ -294,6 +313,19 @@ export default function MessageList({ events, busy }: Props) {
           )
         }
         if (item.kind === 'agent') {
+          const subagentTag = item.parent_tool_use_id ? subagentNames.get(item.parent_tool_use_id) : null
+          if (subagentTag) {
+            return (
+              <div key={i} className="border-l-2 border-rule-soft ml-2 pl-3">
+                <div className="text-[10px] uppercase tracking-wide text-ink-4 font-mono mb-0.5">
+                  via {subagentTag}
+                </div>
+                <Turn who="agent" ts="just now">
+                  <AgentMessage text={item.text} />
+                </Turn>
+              </div>
+            )
+          }
           return (
             <Turn key={i} who="agent" ts="just now">
               <AgentMessage text={item.text} />
@@ -301,6 +333,23 @@ export default function MessageList({ events, busy }: Props) {
           )
         }
         if (item.kind === 'tools') {
+          const subagentTag = item.parent_tool_use_id ? subagentNames.get(item.parent_tool_use_id) : null
+          if (subagentTag) {
+            return (
+              <div key={i} className="border-l-2 border-rule-soft ml-2 pl-3">
+                <div className="text-[10px] uppercase tracking-wide text-ink-4 font-mono mb-0.5">
+                  via {subagentTag}
+                </div>
+                <div className="pl-2">
+                  <ToolStack>
+                    {item.calls.map((call, j) => (
+                      <PlumbingToolCard key={j} call={call} />
+                    ))}
+                  </ToolStack>
+                </div>
+              </div>
+            )
+          }
           return (
             <div key={i} className="pl-2">
               <ToolStack>

@@ -158,21 +158,25 @@ def test_fork_in_emerge_tool_names() -> None:
     assert "import_prompt" not in _EMERGE_TOOL_NAMES
 
 
-async def test_pre_label_tools_are_registered(
+async def test_label_docs_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
-    """Pro Labeler kept `pre_label` + `set_labeler_model` (provider HTTP +
-    project.json mutation). `get_pending` was cut — `Read reviewed/_pending/<f>.json`
-    via SDK Read covers it."""
+    """Pro Labeler ships `label_docs` (atomic small-batch — what
+    `pre_label_runner` subagent loops over) + `set_labeler_model` (provider
+    HTTP + project.json mutation). `get_pending` was cut — `Read
+    reviewed/_pending/<f>.json` via SDK Read covers it."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert {"pre_label", "set_labeler_model"}.issubset(names), names
+    assert {"label_docs", "set_labeler_model"}.issubset(names), names
+    # Legacy `pre_label` must be gone — no deprecated alias.
+    assert "pre_label" not in names, names
     canonical = _emerge_tool_names()
-    for n in ("pre_label", "set_labeler_model"):
+    for n in ("label_docs", "set_labeler_model"):
         assert n in canonical, f"missing {n!r} in _EMERGE_TOOL_NAMES"
+    assert "pre_label" not in canonical
 
 
 async def test_read_doc_image_registered(

@@ -1,9 +1,14 @@
-"""Pro Labeler — pre-label drafts produced by a stronger LLM.
+"""Pro Labeler — `label_docs` writes pre-label drafts produced by a stronger LLM.
 
 The "pro old-timer" model (e.g. `gemini-pro-latest`) drafts labels into
 `reviewed/_pending/{filename}.json`. The human boss then verifies in Review
 mode and saves; `save_reviewed` atomically deletes the matching pending file
 inside the same `project_lock`.
+
+`label_docs` is an *atomic small-batch* tool. The `pre_label_runner` subagent
+(see `app/skills/emerge_pre_label_runner.md`) loops over `label_docs` calls
+in chunks of ≤10, narrating progress between batches; idempotent
+`_pending/` skip makes the loop safely resumable after a disconnect or cancel.
 
 Hard rule: pending files are **opaque** to `score()`, `/improve`,
 `/publish`, `readiness_check` — those paths glob `reviewed/*.json` and the
@@ -14,6 +19,9 @@ Pre-label is NOT a substitute for `extract` — its output is awaiting human
 verification, not "what production would emit". Pre-label is NOT a promoter
 either — only `save_reviewed` (i.e. the boss clicking Save) promotes a draft
 to ground truth.
+
+Module is named `pre_label.py` for historical reasons; the public entrypoint
+is `label_docs`.
 """
 from __future__ import annotations
 
@@ -66,14 +74,14 @@ def _read_project_labeler_override(workspace: Path, slug: str) -> str | None:
 
 
 async def get_labeler_config(workspace: Path, slug: str) -> dict[str, Any]:
-    """Project-level labeler config snapshot — what `pre_label` will resolve to.
+    """Project-level labeler config snapshot — what `label_docs` will resolve to.
 
     Exists so the agent can answer "what labeler will run?" without `Read`ing
     `project.json` and missing the env fallback. Returns:
 
         override:    project.json.labeler_model (None if unset)
         env_default: EMERGE_DEFAULT_LABELER_MODEL (None if unset)
-        resolved:    what pre_label will actually call (None = unconfigured)
+        resolved:    what label_docs will actually call (None = unconfigured)
         source:      "override" | "env_default" | "unconfigured"
 
     See [[feedback_ai_native_api_symmetry]] — every lab decision the UI exposes
@@ -116,7 +124,7 @@ async def _resolve_labeler_model(
     raise LabelerNotConfiguredError("labeler_model not configured")
 
 
-async def pre_label(
+async def label_docs(
     workspace: Path,
     slug: str,
     *,
@@ -127,7 +135,11 @@ async def pre_label(
     """Pro-labeler synchronous batch.
 
     - Skips docs that already have `reviewed/` (human-verified ground truth wins).
-    - Overwrites existing pending (re-run with a different labeler model OK).
+    - **Idempotent skip**: also skips docs whose `_pending/` draft already
+      exists. This is what makes the subagent runner safely resumable — a
+      fresh tool call after a SDK disconnect / cancel sees prior batches'
+      pending files and no-ops them, so a re-issued chunk doesn't re-spend
+      LLM tokens.
     - `filenames=None` defaults to all docs without a `reviewed/` entry.
 
     Returns `{processed, skipped, errors, labeler_model}`. Errors per doc are
@@ -164,6 +176,9 @@ async def pre_label(
         if reviewed_path(workspace, slug, fn).exists():
             skipped.append({"filename": fn, "reason": "already_reviewed"})
             continue
+        if pending_reviewed_path(workspace, slug, fn).exists():
+            skipped.append({"filename": fn, "reason": "already_pending"})
+            continue
         try:
             doc_block = await _doc_to_block(workspace, slug, fn)
             user_blocks: list[ContentBlock] = (
@@ -190,7 +205,7 @@ async def pre_label(
         except Exception as e:  # noqa: BLE001
             errors.append({
                 "filename": fn,
-                "error_code": "pre_label_failed",
+                "error_code": "label_docs_failed",
                 "error_message_en": str(e),
             })
 

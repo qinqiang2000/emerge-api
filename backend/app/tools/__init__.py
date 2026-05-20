@@ -122,7 +122,13 @@ def build_emerge_mcp(
         "log writer's gate trips even on in-flight events from the same turn. "
         "For sub-paths (docs/, prompts/, experiments/, individual files) keep "
         "using Bash rm — only whole-project delete needs this tool.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_delete_project(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -173,7 +179,15 @@ def build_emerge_mcp(
         "Use this ONLY after the user explicitly confirms they want the file "
         "added to the project's samples — paste/drop defaults to "
         "conversational scratch. Returns `{final_name}`.",
-        {"slug": str, "chat_id": str, "filename": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "chat_id": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["slug", "chat_id", "filename"],
+        },
     )
     async def t_promote_attachment_to_docs(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
@@ -186,18 +200,18 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
-        "pre_label",
-        "Pro-labeler batch draft. Calls the project's `labeler_model` (a "
-        "stronger LLM, e.g. `gemini-pro-latest`) on each filename and writes "
-        "a draft to `reviewed/_pending/{filename}.json` for the human boss "
-        "to verify in Review mode. Skips docs that already have `reviewed/`. "
-        "Overwrites existing pending (re-run with a different model OK). "
-        "Pass empty filenames=[] (or omit) to label every unreviewed doc. "
-        "Cap each call at ≤10 filenames — batch larger sets across multiple "
-        "calls so chat feedback stays responsive. Returns "
-        "{processed, skipped, errors, labeler_model}. This is NOT a "
-        "substitute for extract — output goes to reviewed/_pending/, never "
-        "predictions/_draft/ or reviewed/.",
+        "label_docs",
+        "Atomic small-batch pro-label. Calls the project's `labeler_model` (a "
+        "stronger LLM, e.g. `gemini-pro-latest`) on each filename and writes a "
+        "draft to `reviewed/_pending/{filename}.json` for the human boss to "
+        "verify. Skips docs that already have `reviewed/` (human wins) or an "
+        "existing `_pending/` draft (idempotent — re-running with the same "
+        "filenames after a disconnect is a no-op, not a re-spend). Pass "
+        "filenames=[] (or omit) to label every unreviewed doc. The upstream "
+        "caller (main agent / CLI / `pre_label_runner` subagent) chunks large "
+        "sets in batches of ≤10 — this tool does no chunking itself. Returns "
+        "{processed, skipped, errors, labeler_model}. Output goes to "
+        "reviewed/_pending/, never predictions/_draft/ or reviewed/.",
         {
             "type": "object",
             "properties": {
@@ -208,13 +222,13 @@ def build_emerge_mcp(
             "required": ["slug"],
         },
     )
-    async def t_pre_label(args: dict[str, Any]) -> dict[str, Any]:
+    async def t_label_docs(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
             return {"content": [{"type": "text", "text": _json.dumps(
-                _chat_not_bound_error("pre_label")
+                _chat_not_bound_error("label_docs")
             )}]}
         try:
-            out = await pre_label_mod.pre_label(
+            out = await pre_label_mod.label_docs(
                 workspace, args["slug"],
                 filenames=args.get("filenames") or None,
                 labeler_model=args.get("labeler_model") or None,
@@ -236,10 +250,17 @@ def build_emerge_mcp(
         "names a model for this project (\"换 pro 模型\" / \"this project "
         "should use X as labeler\"). DO NOT call this just because "
         "project.json.labeler_model is null — that's the normal state and "
-        "means pre_label falls through to EMERGE_DEFAULT_LABELER_MODEL. To "
-        "check what pre_label would actually run, call `get_labeler_config` "
+        "means label_docs falls through to EMERGE_DEFAULT_LABELER_MODEL. To "
+        "check what label_docs would actually run, call `get_labeler_config` "
         "first. No risk gate; the override is recoverable.",
-        {"slug": str, "model_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "model_id": {"type": "string"},
+            },
+            "required": ["slug", "model_id"],
+        },
     )
     async def t_set_labeler_model(args: dict[str, Any]) -> dict[str, Any]:
         await pre_label_mod.set_labeler_model(
@@ -253,12 +274,18 @@ def build_emerge_mcp(
         "{override, env_default, resolved, source}: `override` is "
         "project.json.labeler_model (usually null = no project-specific "
         "override), `env_default` is EMERGE_DEFAULT_LABELER_MODEL, `resolved` "
-        "is what pre_label will actually call, and `source` is "
+        "is what label_docs will actually call, and `source` is "
         "'override'|'env_default'|'unconfigured'. Call this whenever you "
         "would otherwise inspect project.json directly to decide if the "
         "labeler is configured — Reading project.json misses the env "
         "fallback and leads to false \"还没配\" claims.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_get_labeler_config(args: dict[str, Any]) -> dict[str, Any]:
         out = await pre_label_mod.get_labeler_config(workspace, args["slug"])
@@ -271,7 +298,15 @@ def build_emerge_mcp(
     @tool(
         "pdf_render_page",
         "Render a PDF page as PNG; returns the path.",
-        {"slug": str, "filename": str, "page": int},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "page": {"type": "integer"},
+            },
+            "required": ["slug", "filename", "page"],
+        },
     )
     async def t_pdf_render_page(args: dict[str, Any]) -> dict[str, Any]:
         p = await docs_mod.pdf_render_page(
@@ -321,7 +356,15 @@ def build_emerge_mcp(
     @tool(
         "derive_schema",
         "Propose a schema from sample documents and a user intent.",
-        {"slug": str, "sample_filenames": list, "intent": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "sample_filenames": {"type": "array", "items": {"type": "string"}},
+                "intent": {"type": "string"},
+            },
+            "required": ["slug", "sample_filenames", "intent"],
+        },
     )
     async def t_derive_schema(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
@@ -380,7 +423,14 @@ def build_emerge_mcp(
         "switch_active_prompt",
         "Set the project's active prompt to the given prompt_id. Affects all "
         "subsequent reads of the active prompt (extract, freeze, etc).",
-        {"slug": str, "prompt_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "prompt_id": {"type": "string"},
+            },
+            "required": ["slug", "prompt_id"],
+        },
     )
     async def t_switch_active_prompt(args: dict[str, Any]) -> dict[str, Any]:
         await prompt_mod.switch_active_prompt(
@@ -392,7 +442,14 @@ def build_emerge_mcp(
         "switch_active_model",
         "Set the project's active model to the given model_id. Affects all "
         "subsequent extract calls when model_id arg is not explicitly provided.",
-        {"slug": str, "model_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "model_id": {"type": "string"},
+            },
+            "required": ["slug", "model_id"],
+        },
     )
     async def t_switch_active_model(args: dict[str, Any]) -> dict[str, Any]:
         await model_mod.switch_active_model(
@@ -428,7 +485,15 @@ def build_emerge_mcp(
         "extract_with_experiment",
         "Run an experiment's (prompt, model) pair on a single doc; writes "
         "experiments/{experiment_id}/predictions/{filename}.json. Returns the payload.",
-        {"slug": str, "experiment_id": str, "filename": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["slug", "experiment_id", "filename"],
+        },
     )
     async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:
         ex = await experiment_mod.read_experiment(
@@ -452,7 +517,14 @@ def build_emerge_mcp(
         "Loop reviewed/ docs through the experiment's (prompt, model); writes "
         "per-doc extracts and computes overall + per-field + per-doc scores. "
         "Returns the eval dict and sets status='ran'.",
-        {"slug": str, "experiment_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "experiment_id": {"type": "string"},
+            },
+            "required": ["slug", "experiment_id"],
+        },
     )
     async def t_run_experiment_eval(args: dict[str, Any]) -> dict[str, Any]:
         ex = await experiment_mod.read_experiment(
@@ -476,7 +548,14 @@ def build_emerge_mcp(
         "Set the experiment's (prompt_id, model_id) as the project's active pair; "
         "clear predictions/_draft/ and re-seed from the experiment's extracts. "
         "Marks experiment status='promoted' (audit trail).",
-        {"slug": str, "experiment_id": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "experiment_id": {"type": "string"},
+            },
+            "required": ["slug", "experiment_id"],
+        },
     )
     async def t_promote_experiment(args: dict[str, Any]) -> dict[str, Any]:
         await experiment_mod.promote_experiment(
@@ -514,7 +593,14 @@ def build_emerge_mcp(
         "extract_one",
         "Extract from a single document. `filename` is the doc handle (the "
         "on-disk filename, e.g. `2025VP00413.pdf`).",
-        {"slug": str, "filename": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["slug", "filename"],
+        },
     )
     async def t_extract_one(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
@@ -530,7 +616,14 @@ def build_emerge_mcp(
         "extract_batch",
         "Extract over a list of documents (foreground). `filenames` is a list "
         "of on-disk filenames (the doc handles).",
-        {"slug": str, "filenames": list},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filenames": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["slug", "filenames"],
+        },
     )
     async def t_extract_batch(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
@@ -590,7 +683,13 @@ def build_emerge_mcp(
     @tool(
         "score",
         "Compute precision/recall/F1 by comparing draft predictions against reviewed examples. Persists a metrics snapshot under metrics/eval_{ts}.json. Returns ScoreResult.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
         result = await score_mod.run_eval(workspace, args["slug"])
@@ -599,7 +698,13 @@ def build_emerge_mcp(
     @tool(
         "readiness_check",
         "Run the publish readiness checklist for a project.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_readiness_check(args: dict[str, Any]) -> dict[str, Any]:
         out = await publish_mod.readiness_check(workspace, args["slug"])
@@ -608,7 +713,13 @@ def build_emerge_mcp(
     @tool(
         "contract_diff",
         "Diff current schema against the active version's frozen schema.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_contract_diff(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.schema import read_schema
@@ -641,7 +752,13 @@ def build_emerge_mcp(
         "Freeze the current schema. Writes both versions/v{n}.json (lab lineage) "
         "and _published/{pub_xxx}.json (frozen artifact servable by POST /v1/extract). "
         "Returns {version_id, published_id}. GATED — readiness checks must pass.",
-        {"slug": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
     )
     async def t_freeze_version(args: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -697,22 +814,62 @@ def build_emerge_mcp(
         )
         return {"content": [{"type": "text", "text": jid}]}
 
-    @tool("get_job", "Get current job status (latest turn, best F1 so far).", {"job_id": str})
+    @tool(
+        "get_job",
+        "Get current job status (latest turn, best F1 so far).",
+        {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    )
     async def t_get_job(args: dict[str, Any]) -> dict[str, Any]:
         info = await jobs_mod.get_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": str(info)}]}
 
-    @tool("pause_job", "Pause a running job at the next turn boundary.", {"job_id": str})
+    @tool(
+        "pause_job",
+        "Pause a running job at the next turn boundary.",
+        {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    )
     async def t_pause_job(args: dict[str, Any]) -> dict[str, Any]:
         await jobs_mod.pause_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": "paused"}]}
 
-    @tool("resume_job", "Resume a paused job.", {"job_id": str})
+    @tool(
+        "resume_job",
+        "Resume a paused job.",
+        {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    )
     async def t_resume_job(args: dict[str, Any]) -> dict[str, Any]:
         await jobs_mod.resume_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": "resumed"}]}
 
-    @tool("cancel_job", "Cancel a running or paused job. Discards remaining turns.", {"job_id": str})
+    @tool(
+        "cancel_job",
+        "Cancel a running or paused job. Discards remaining turns.",
+        {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    )
     async def t_cancel_job(args: dict[str, Any]) -> dict[str, Any]:
         await jobs_mod.cancel_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": "cancelled"}]}
@@ -755,7 +912,15 @@ def build_emerge_mcp(
         "ui_goto_page",
         "Navigate the review viewer to page N (1-indexed). Pure navigation; "
         "no disk side-effect. Errors if called outside an active chat turn.",
-        {"slug": str, "filename": str, "page": int},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "page": {"type": "integer"},
+            },
+            "required": ["slug", "filename", "page"],
+        },
     )
     async def t_ui_goto_page(args: dict[str, Any]) -> dict[str, Any]:
         out = await ui_actions_mod.ui_goto_page(
@@ -768,7 +933,15 @@ def build_emerge_mcp(
         "Focus a specific field row in the review editor. `path` is the "
         "field identifier the editor uses (e.g. `buyer_name` or "
         "`line_items[0].amount`). Pure navigation; no disk side-effect.",
-        {"slug": str, "filename": str, "path": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": ["slug", "filename", "path"],
+        },
     )
     async def t_ui_set_active_field(args: dict[str, Any]) -> dict[str, Any]:
         out = await ui_actions_mod.ui_set_active_field(
@@ -781,7 +954,15 @@ def build_emerge_mcp(
         "Switch the review tab strip. `tab_key='active'` selects the saved "
         "annotation; any other value is treated as an experiment_id. Pure "
         "navigation; no disk side-effect.",
-        {"slug": str, "filename": str, "tab_key": str},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "tab_key": {"type": "string"},
+            },
+            "required": ["slug", "filename", "tab_key"],
+        },
     )
     async def t_ui_set_active_tab(args: dict[str, Any]) -> dict[str, Any]:
         out = await ui_actions_mod.ui_set_active_tab(
@@ -802,7 +983,13 @@ def build_emerge_mcp(
         "buttons (and 1/2/3 keyboard shortcuts) so the user picks without "
         "having to type. DO NOT call the SDK built-in `AskUserQuestion` — it "
         "is not wired in emerge; use this tool.",
-        {"questions": list},
+        {
+            "type": "object",
+            "properties": {
+                "questions": {"type": "array"},
+            },
+            "required": ["questions"],
+        },
     )
     async def t_ask_user(args: dict[str, Any]) -> dict[str, Any]:
         out = await ask_user_mod.ask_user(args.get("questions") or [])
@@ -812,7 +999,15 @@ def build_emerge_mcp(
         "ui_set_active_entity",
         "Switch the entity tab in a multi-entity doc. `idx` is 0-indexed. "
         "Pure navigation; no disk side-effect.",
-        {"slug": str, "filename": str, "idx": int},
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "idx": {"type": "integer"},
+            },
+            "required": ["slug", "filename", "idx"],
+        },
     )
     async def t_ui_set_active_entity(args: dict[str, Any]) -> dict[str, Any]:
         out = await ui_actions_mod.ui_set_active_entity(
@@ -828,7 +1023,7 @@ def build_emerge_mcp(
             t_delete_project,
             t_promote_chat_to_project,
             t_promote_attachment_to_docs,
-            t_pre_label,
+            t_label_docs,
             t_set_labeler_model,
             t_get_labeler_config,
             t_pdf_render_page,
@@ -870,7 +1065,7 @@ _EMERGE_TOOL_NAMES = (
     "delete_project",
     "promote_chat_to_project",
     "promote_attachment_to_docs",
-    "pre_label", "set_labeler_model", "get_labeler_config",
+    "label_docs", "set_labeler_model", "get_labeler_config",
     "pdf_render_page", "read_doc_image",
     "derive_schema", "write_schema",
     "switch_active_prompt", "switch_active_model",

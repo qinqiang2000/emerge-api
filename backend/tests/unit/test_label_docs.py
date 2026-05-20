@@ -1,4 +1,11 @@
-"""Tests for `pre_label` — the Pro Labeler batch draft tool."""
+"""Tests for `label_docs` — the Pro Labeler atomic small-batch tool.
+
+`label_docs` is what the `pre_label_runner` subagent loops over in chunks.
+The contract here is the foundation that makes the subagent loop safely
+resumable: idempotent skip for both `reviewed/` (human won) and
+`reviewed/_pending/` (a previous batch already drafted) means re-invoking
+the same call after a disconnect is a no-op, not a re-spend.
+"""
 from __future__ import annotations
 
 import json
@@ -13,7 +20,7 @@ from app.tools.docs import upload_doc
 from app.tools.pre_label import (
     LabelerNotConfiguredError,
     get_labeler_config,
-    pre_label,
+    label_docs,
     set_labeler_model,
 )
 from app.tools.projects import create_project
@@ -23,7 +30,6 @@ from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import (
     pending_reviewed_path,
     project_json_path,
-    reviewed_path,
 )
 from tests.conftest import make_provider_result
 
@@ -49,7 +55,7 @@ async def _seed(workspace: Path, n_docs: int = 1) -> tuple[str, list[str]]:
     return pid, fns
 
 
-async def test_pre_label_writes_pending_with_metadata(
+async def test_label_docs_writes_pending_with_metadata(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
     slug, [fn] = await _seed(workspace, n_docs=1)
@@ -57,7 +63,7 @@ async def test_pre_label_writes_pending_with_metadata(
         {"entities": [{"invoice_no": "INV-1", "total_amount": 99.5}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug,
         filenames=[fn],
         labeler_model="gemini-pro-latest",
@@ -77,7 +83,7 @@ async def test_pre_label_writes_pending_with_metadata(
     assert "source" not in blob
 
 
-async def test_pre_label_skips_already_reviewed(
+async def test_label_docs_skips_already_reviewed(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
     slug, [fn] = await _seed(workspace, n_docs=1)
@@ -86,7 +92,7 @@ async def test_pre_label_skips_already_reviewed(
         entities=[{"invoice_no": "INV-0"}],
         source=ReviewedSource.MANUAL,
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug, filenames=[fn],
         labeler_model="gemini-pro-latest", provider=stub_provider,
     )
@@ -96,34 +102,39 @@ async def test_pre_label_skips_already_reviewed(
     assert stub_provider.extract.await_count == 0
 
 
-async def test_pre_label_overwrites_existing_pending(
+async def test_label_docs_idempotent_pending_skip(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
+    """Second call with the same filenames must skip (not re-extract).
+
+    This is what makes the `pre_label_runner` subagent safe to resume after
+    a disconnect: filesystem state is the dedup ground truth, no in-memory
+    batch tracker needed.
+    """
     slug, [fn] = await _seed(workspace, n_docs=1)
-    # First run with model A
     stub_provider.extract.return_value = make_provider_result(
-        {"entities": [{"invoice_no": "OLD", "total_amount": 1.0}],
+        {"entities": [{"invoice_no": "INV-1", "total_amount": 1.0}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    await pre_label(
+    # First call writes the pending draft.
+    first = await label_docs(
         workspace, slug, filenames=[fn],
-        labeler_model="model-a", provider=stub_provider,
+        labeler_model="m", provider=stub_provider,
     )
-    # Second run with model B — should overwrite
-    stub_provider.extract.return_value = make_provider_result(
-        {"entities": [{"invoice_no": "NEW", "total_amount": 2.0}],
-         "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
-    )
-    await pre_label(
+    assert first["processed"] == [fn]
+    assert stub_provider.extract.await_count == 1
+
+    # Second call with the same filename → skip, no further provider call.
+    second = await label_docs(
         workspace, slug, filenames=[fn],
-        labeler_model="model-b", provider=stub_provider,
+        labeler_model="m", provider=stub_provider,
     )
-    blob = json.loads(pending_reviewed_path(workspace, slug, fn).read_text())
-    assert blob["entities"][0]["invoice_no"] == "NEW"
-    assert blob["labeler_model"] == "model-b"
+    assert second["processed"] == []
+    assert second["skipped"] == [{"filename": fn, "reason": "already_pending"}]
+    assert stub_provider.extract.await_count == 1
 
 
-async def test_pre_label_resolves_labeler_priority_arg_over_project(
+async def test_label_docs_resolves_labeler_priority_arg_over_project(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
     slug, [fn] = await _seed(workspace, n_docs=1)
@@ -137,14 +148,14 @@ async def test_pre_label_resolves_labeler_priority_arg_over_project(
         {"entities": [{"invoice_no": "x", "total_amount": 1.0}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug, filenames=[fn],
         labeler_model="override-model", provider=stub_provider,
     )
     assert out["labeler_model"] == "override-model"
 
 
-async def test_pre_label_resolves_project_over_env(
+async def test_label_docs_resolves_project_over_env(
     workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     slug, [fn] = await _seed(workspace, n_docs=1)
@@ -158,13 +169,13 @@ async def test_pre_label_resolves_project_over_env(
         {"entities": [{"invoice_no": "x", "total_amount": 1.0}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug, filenames=[fn], provider=stub_provider,
     )
     assert out["labeler_model"] == "project-default"
 
 
-async def test_pre_label_falls_back_to_env_default(
+async def test_label_docs_falls_back_to_env_default(
     workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     slug, [fn] = await _seed(workspace, n_docs=1)
@@ -173,28 +184,29 @@ async def test_pre_label_falls_back_to_env_default(
         {"entities": [{"invoice_no": "x", "total_amount": 1.0}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug, filenames=[fn], provider=stub_provider,
     )
     assert out["labeler_model"] == "env-default"
 
 
-async def test_pre_label_raises_when_unconfigured(
+async def test_label_docs_raises_when_unconfigured(
     workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("EMERGE_DEFAULT_LABELER_MODEL", raising=False)
     slug, [fn] = await _seed(workspace, n_docs=1)
     with pytest.raises(LabelerNotConfiguredError):
-        await pre_label(
+        await label_docs(
             workspace, slug, filenames=[fn], provider=stub_provider,
         )
 
 
-async def test_pre_label_defaults_filenames_to_all_unreviewed(
+async def test_label_docs_filenames_none_defaults_to_all_unreviewed(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
+    """filenames=None expands to every unreviewed doc."""
     slug, fns = await _seed(workspace, n_docs=3)
-    # Mark one as already reviewed — pre_label must skip it.
+    # Mark one as already reviewed — label_docs must skip it.
     await save_reviewed(
         workspace, slug, fns[0],
         entities=[{}], source=ReviewedSource.MANUAL,
@@ -203,12 +215,28 @@ async def test_pre_label_defaults_filenames_to_all_unreviewed(
         {"entities": [{"invoice_no": "x", "total_amount": 1.0}],
          "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
     )
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug,
         labeler_model="model-x", provider=stub_provider,
     )
     assert set(out["processed"]) == {fns[1], fns[2]}
     assert out["skipped"] == [{"filename": fns[0], "reason": "already_reviewed"}]
+
+
+async def test_label_docs_filenames_empty_list_same_as_none(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """filenames=[] is treated identically to filenames=None (= all unreviewed)."""
+    slug, fns = await _seed(workspace, n_docs=2)
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"invoice_no": "x", "total_amount": 1.0}],
+         "_evidence": [{"invoice_no": 1, "total_amount": 1}]},
+    )
+    out = await label_docs(
+        workspace, slug, filenames=[],
+        labeler_model="m", provider=stub_provider,
+    )
+    assert set(out["processed"]) == set(fns)
 
 
 async def test_set_labeler_model_persists_to_project_json(workspace: Path) -> None:
@@ -275,7 +303,7 @@ async def test_get_labeler_config_source_unconfigured(
     }
 
 
-async def test_pre_label_collects_per_doc_errors(
+async def test_label_docs_collects_per_doc_errors(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
     slug, fns = await _seed(workspace, n_docs=2)
@@ -287,13 +315,13 @@ async def test_pre_label_collects_per_doc_errors(
         ),
         RuntimeError("provider 503"),
     ]
-    out = await pre_label(
+    out = await label_docs(
         workspace, slug, filenames=fns,
         labeler_model="m", provider=stub_provider,
     )
     assert out["processed"] == [fns[0]]
     assert out["errors"] == [{
         "filename": fns[1],
-        "error_code": "pre_label_failed",
+        "error_code": "label_docs_failed",
         "error_message_en": "provider 503",
     }]

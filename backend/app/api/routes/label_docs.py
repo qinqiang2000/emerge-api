@@ -1,6 +1,6 @@
 """HTTP routes for the Pro Labeler.
 
-Mirrors the MCP tool surface (`pre_label`, `set_labeler_model`,
+Thin-delegate mirror of the MCP tools (`label_docs`, `set_labeler_model`,
 `get_labeler_config`) so a CLI agent or non-Claude client can drive the same
 pre-label flow over plain HTTP.
 """
@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.tools.pre_label import (
     LabelerNotConfiguredError,
     get_labeler_config,
-    pre_label,
+    label_docs,
     set_labeler_model,
 )
 from app.workspace.paths import project_json_path
@@ -36,14 +36,14 @@ def _project_or_404(slug: str) -> Path:
     return settings.workspace_root
 
 
-class _PreLabelBody(BaseModel):
+class _LabelDocsBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     filenames: Optional[list[str]] = None
     labeler_model: Optional[str] = None
 
 
-@router.post("/lab/projects/{slug}/pre_label")
-async def post_pre_label(slug: str, body: _PreLabelBody) -> dict:
+@router.post("/lab/projects/{slug}/label_docs")
+async def post_label_docs(slug: str, body: _LabelDocsBody) -> dict:
     """Run the Pro-labeler synchronously over `filenames` (or all unreviewed
     docs when omitted). Returns the standard `{processed, skipped, errors,
     labeler_model}` envelope. Maps `LabelerNotConfiguredError → 400` with
@@ -51,7 +51,7 @@ async def post_pre_label(slug: str, body: _PreLabelBody) -> dict:
     clear "configure a labeler first" affordance."""
     workspace = _project_or_404(slug)
     try:
-        return await pre_label(
+        return await label_docs(
             workspace, slug,
             filenames=body.filenames,
             labeler_model=body.labeler_model,
@@ -81,7 +81,7 @@ async def post_labeler_model(slug: str, body: _LabelerModelBody) -> dict:
 @router.get("/lab/projects/{slug}/labeler_config")
 async def get_labeler_config_route(slug: str) -> dict:
     """Report `{override, env_default, resolved, source}` so a CLI agent (or
-    a curl-based debug session) can see what `pre_label` will actually call
+    a curl-based debug session) can see what `label_docs` will actually call
     without parsing `project.json` and missing the env fallback."""
     workspace = _project_or_404(slug)
     return await get_labeler_config(workspace, slug)

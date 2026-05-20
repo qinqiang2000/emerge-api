@@ -62,7 +62,10 @@ _SECRET_LITERAL_PATTERNS = (
     re.compile(r"\bprovider_key\b", re.IGNORECASE),
     re.compile(r"\bapi[_-]?key\b", re.IGNORECASE),
     re.compile(r"\bsecret(?:_key)?\b", re.IGNORECASE),
-    re.compile(r"\btoken\b", re.IGNORECASE),
+    # Bare `\btoken\b` was too broad: legit identifiers like `pagination_token`
+    # / `cancel_token` / `csrf_token` tripped it. Anchor to credential-shaped
+    # prefixes only, mirroring the `api_key` style above.
+    re.compile(r"\b(?:api|access|auth|bearer)[_-]?token\b", re.IGNORECASE),
 )
 
 # Hard-block path globs (anchor against absolute paths). `~/.ssh/*`,
@@ -368,10 +371,14 @@ def classify(
         return GateDecision("ask", f"{name} → {url}")
 
     # 6. Task orchestration / TodoWrite / Monitor / Cron* — allow. These are
-    # pure agent-side bookkeeping and don't touch the host.
+    # pure agent-side bookkeeping and don't touch the host. ``Agent`` is the
+    # SDK built-in that spawns a sub-agent (e.g. ``pre_label_runner``); the
+    # subagent's own tool calls re-enter this gate with their own decisions,
+    # so allowing ``Agent`` itself is just permitting the dispatch, not a
+    # blanket subagent allowlist.
     if name in (
         "Task", "TaskCreate", "TaskUpdate", "TaskList", "TaskStop",
-        "TodoWrite", "ExitPlanMode", "Monitor",
+        "TodoWrite", "ExitPlanMode", "Monitor", "Agent",
     ) or name.startswith("Cron"):
         return GateDecision("allow", f"{name} (agent bookkeeping)")
 
