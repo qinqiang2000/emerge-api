@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Empty by default; set in deploy env to whitelist e.g. a shared scan drop.
     ingest_local_extra_roots: str = ""
 
+    llm_judge_model: str = "gemini-flash-lite-latest"
+    llm_judge_budget_per_eval: int = 200
+
     def ingest_allowlist(self) -> tuple[Path, ...]:
         """Resolve the combined ingest-local allowlist (defaults + env extras).
 

@@ -237,6 +237,34 @@ def metrics_path(workspace: Path, slug: str, name: str) -> Path:
     return metrics_dir(workspace, slug) / f"{name}.json"
 
 
+def eval_dir(workspace: Path, slug: str, ts: str) -> Path:
+    return metrics_dir(workspace, slug) / f"eval_{ts}"
+
+
+def eval_summary_path(workspace: Path, slug: str, ts: str) -> Path:
+    return eval_dir(workspace, slug, ts) / "summary.json"
+
+
+def eval_cells_path(workspace: Path, slug: str, ts: str) -> Path:
+    return eval_dir(workspace, slug, ts) / "cells.jsonl"
+
+
+def eval_matrix_path(workspace: Path, slug: str, ts: str) -> Path:
+    return eval_dir(workspace, slug, ts) / "matrix.csv"
+
+
+def eval_meta_path(workspace: Path, slug: str, ts: str) -> Path:
+    return eval_dir(workspace, slug, ts) / "meta.json"
+
+
+def eval_judge_cache_dir(workspace: Path, slug: str) -> Path:
+    return project_dir(workspace, slug) / ".eval_judge_cache"
+
+
+def eval_judge_cache_path(workspace: Path, slug: str, sha256_hex: str) -> Path:
+    return eval_judge_cache_dir(workspace, slug) / f"{sha256_hex}.json"
+
+
 def jobs_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "jobs"
 
