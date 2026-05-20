@@ -148,17 +148,15 @@ async def extract_one(
         raise ValueError("project has empty schema; nothing to extract")
     if model_id is None:
         mc = await read_active_model(workspace, project_id)
-        mid = mc.provider_model_id
-        if provider is None:
-            from app.provider import get_provider_for_model
-
-            provider = get_provider_for_model(mid, provider=mc.provider)
     else:
-        mid = model_id
+        from app.tools.model import read_model
+
+        mc = await read_model(workspace, project_id, model_id)
+    mid = mc.provider_model_id
     if provider is None:
         from app.provider import get_provider_for_model
 
-        provider = get_provider_for_model(mid)
+        provider = get_provider_for_model(mid, provider=mc.provider)
 
     doc_block = await _doc_to_block(workspace, project_id, filename)
     user_blocks: list[ContentBlock] = (

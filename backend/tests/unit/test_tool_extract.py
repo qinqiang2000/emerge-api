@@ -42,6 +42,34 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
     assert pred == out
 
 
+async def test_extract_one_model_override_resolves_project_model_id(
+    workspace: Path, stub_provider: AsyncMock
+) -> None:
+    """`model_id="m_xxx"` (project-level id) was being passed straight to
+    `get_provider_for_model`, which only prefix-matches `gemini|claude|anthropic`
+    and 400'd on the `m_` prefix. The override path must resolve the project
+    model_config first, then use its provider_model_id."""
+    from app.tools.model import create_model
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+    mid = await create_model(
+        workspace, pid,
+        label="Alt", provider="google", provider_model_id="gemini-3.5-flash",
+    )
+    stub_provider.extract.return_value = make_provider_result(
+        {"entities": [{"invoice_no": "OVR", "total_amount": 1.0}],
+         "_evidence": [{"invoice_no": 1, "total_amount": 1}]}
+    )
+
+    out = await extract_one(workspace, pid, did, provider=stub_provider, model_id=mid)
+
+    assert out["entities"][0]["invoice_no"] == "OVR"
+    # Provider received the underlying provider_model_id, not the project m_* id.
+    assert stub_provider.extract.await_args.kwargs["model_id"] == "gemini-3.5-flash"
+
+
 async def test_extract_one_invalid_json_returns_error(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
