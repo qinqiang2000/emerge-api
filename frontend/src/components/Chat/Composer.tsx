@@ -143,6 +143,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   // closed for that token until the user types a fresh `@` elsewhere (which
   // produces a different `tokenStart`) or the token disappears entirely.
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
+  // Same idea for the slash menu: Esc inside the slash menu dismisses it
+  // without touching the textarea (so pasting `/Users/...` and pressing Esc
+  // doesn't wipe the path). Reopen requires the user to clear back to a
+  // command-looking shape (`/word`).
+  const [slashDismissed, setSlashDismissed] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const plusWrapRef = useRef<HTMLDivElement>(null)
@@ -154,7 +159,31 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   // menu closes and plain Enter inserts a newline like a normal textarea —
   // only ⌘/Ctrl+Enter submits, matching the footer hint.
   const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
-  const showSlash = text.startsWith('/') && !completedCommand
+  // Path-vs-command disambiguation: if the user types/pastes a path like
+  // `/Users/...`, a second `/` appears in the first whitespace-delimited
+  // segment. Treat that as a path and keep the menu closed — none of our
+  // commands contain a `/` after the leading one. `firstSegment` is the run
+  // up to the first whitespace (or end-of-string).
+  const firstSegment = useMemo(() => {
+    const ws = text.search(/\s/)
+    return ws === -1 ? text : text.slice(0, ws)
+  }, [text])
+  const looksLikePath = firstSegment.length > 1 && firstSegment.indexOf('/', 1) !== -1
+  // Prefix-filter commands by the first segment so the menu hides entirely when
+  // nothing matches — mirrors Claude Code CLI where `/abc达到` shows no popup.
+  // Note: this depends only on `text` (not `showSlash`) to keep the wiring acyclic;
+  // `showSlash` consumes it below.
+  const slashMatches = useMemo(() => {
+    if (!text.startsWith('/')) return []
+    const q = firstSegment.toLowerCase()
+    return COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(q))
+  }, [text, firstSegment])
+  const showSlash =
+    text.startsWith('/') &&
+    !completedCommand &&
+    !looksLikePath &&
+    !slashDismissed &&
+    slashMatches.length > 0
 
   // `@` mention state is derived from the textarea content + caret position.
   // The mention menu opens whenever the slash menu is closed (the two are
@@ -174,6 +203,14 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     if (dismissedAt === null) return
     if (!mentionToken || mentionToken.tokenStart !== dismissedAt) setDismissedAt(null)
   }, [mentionToken, dismissedAt])
+  // Clear the slash-menu dismissal once the input is no longer command-shaped
+  // (empty, doesn't start with `/`, or has decayed back to a non-path single
+  // segment that the user is clearly re-editing). Reopening requires a fresh
+  // start so an accidentally re-opened menu doesn't surprise the user mid-edit.
+  useEffect(() => {
+    if (!slashDismissed) return
+    if (!text.startsWith('/')) setSlashDismissed(false)
+  }, [text, slashDismissed])
   const showMention =
     mentionToken !== null && mentionToken.tokenStart !== dismissedAt
 
@@ -339,13 +376,6 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     return () => window.removeEventListener('keydown', handler)
   }, [disabled])
 
-  const slashMatches = useMemo(() => {
-    if (!showSlash) return COMMANDS
-    const q = text.trim().toLowerCase()
-    const filtered = COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(q))
-    return filtered.length ? filtered : COMMANDS
-  }, [showSlash, text])
-
   function pickSlash(cmd: string) {
     const next = cmd + ' '
     setText(next)
@@ -466,6 +496,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
         // position so the menu stays closed for this token but reopens if the
         // user starts a new one elsewhere.
         e.preventDefault()
+        e.stopPropagation()
         if (mentionToken) setDismissedAt(mentionToken.tokenStart)
         return
       }
@@ -492,10 +523,14 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
         if (pick) pickSlash(pick.cmd)
         return
       }
-      // Esc clears text
+      // Esc closes ONLY the slash menu — textarea content stays intact. Without
+      // stopPropagation any window-level Esc handler (e.g. the in-flight Stop
+      // shortcut) could still fire; explicit here because users may have just
+      // pasted a path starting with `/` and pressed Esc to dismiss the menu.
       if (e.key === 'Escape') {
         e.preventDefault()
-        setText('')
+        e.stopPropagation()
+        setSlashDismissed(true)
         return
       }
     } else {

@@ -88,4 +88,62 @@ describe('Composer', () => {
     await userEvent.keyboard('{Control>}{Enter}{/Control}')
     expect(onSubmit).toHaveBeenCalledWith('/ev')
   })
+
+  it('typing a path like /Users/... closes the slash menu (treated as a path, not a command)', async () => {
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    // Two gates collaborate here: (a) no command starts with `/u` → no-match
+    // gate closes immediately; (b) the second `/` would also trigger the
+    // path-shape gate. Either way the user never sees a popup for a path.
+    await userEvent.type(input, '/Users/qinqiang02/file.json')
+    expect(container.querySelector('.slashmenu')).toBeNull()
+    expect(input.value).toBe('/Users/qinqiang02/file.json')
+  })
+
+  it('Esc inside the slash menu closes the menu but leaves text intact', async () => {
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    await userEvent.type(input, '/ev')
+    expect(container.querySelector('.slashmenu')).not.toBeNull()
+    await userEvent.keyboard('{Escape}')
+    expect(container.querySelector('.slashmenu')).toBeNull()
+    // Text preserved (regression: previously cleared to '').
+    expect(input.value).toBe('/ev')
+  })
+
+  it('typing a slash prefix with no command match auto-closes the menu (Claude Code CLI behavior)', async () => {
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    // `/i` still has matches (/init, /improve) → menu open.
+    await userEvent.type(input, '/i')
+    expect(container.querySelector('.slashmenu')).not.toBeNull()
+    // `/ix` has no command prefix match → menu closes, no all-commands fallback.
+    await userEvent.type(input, 'x')
+    expect(container.querySelector('.slashmenu')).toBeNull()
+    expect(input.value).toBe('/ix')
+    // CJK / non-matching prefix also auto-closes (e.g. /ac大法师).
+    await userEvent.clear(input)
+    await userEvent.type(input, '/ac大法师')
+    expect(container.querySelector('.slashmenu')).toBeNull()
+    expect(input.value).toBe('/ac大法师')
+  })
+
+  it('Esc on a path-shaped input does not wipe the textarea', async () => {
+    const { container } = render(
+      <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={() => {}} />,
+    )
+    const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    await userEvent.type(input, '/Users/qinqiang02/file.json')
+    // Menu already closed because of the second `/`.
+    expect(container.querySelector('.slashmenu')).toBeNull()
+    // Esc on a textarea with focus runs the "no menu" branch (blur), text intact.
+    await userEvent.keyboard('{Escape}')
+    expect(input.value).toBe('/Users/qinqiang02/file.json')
+  })
 })

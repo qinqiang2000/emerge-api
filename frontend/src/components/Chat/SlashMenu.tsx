@@ -19,10 +19,12 @@ interface Props {
 }
 
 export default function SlashMenu({ query, activeIdx, onPick, onHover }: Props) {
-  const filtered = query.trim().length > 1
-    ? COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(query.trim().toLowerCase()))
+  // Composer already gates rendering on `slashMatches.length > 0`, so a zero-match
+  // case shouldn't reach here. Filter (no fallback) as defense in depth.
+  const q = query.trim().toLowerCase()
+  const list = q.length > 1
+    ? COMMANDS.filter(s => s.cmd.toLowerCase().startsWith(q))
     : COMMANDS
-  const list = filtered.length ? filtered : COMMANDS
 
   return (
     <div className="slashmenu">
