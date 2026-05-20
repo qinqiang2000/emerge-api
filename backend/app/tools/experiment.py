@@ -237,6 +237,7 @@ async def run_experiment_eval(
     experiment_id: str,
     *,
     provider,
+    use_llm_judge: bool = False,
 ) -> dict:
     """Foreground loop: for each doc in reviewed/, ensure
     experiments/{exp_id}/predictions/{doc}.json exists (extract if missing),
@@ -308,13 +309,19 @@ async def run_experiment_eval(
         reviewed_payloads[filename] = reviewed_entities
 
     # overall score
-    overall = score(prompt.schema, predictions, reviewed_payloads)
+    overall, _cells = await score(
+        workspace, project_id, prompt.schema, predictions, reviewed_payloads,
+        use_llm_judge=use_llm_judge,
+    )
     # per-doc: re-score one doc at a time (cheap; in-memory)
     for fn in predictions:
-        single = score(
+        single, _ = await score(
+            workspace,
+            project_id,
             prompt.schema,
             {fn: predictions[fn]},
             {fn: reviewed_payloads[fn]},
+            use_llm_judge=use_llm_judge,
         )
         per_doc[fn] = single.macro_f1
 

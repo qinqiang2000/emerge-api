@@ -292,7 +292,7 @@ async def score_with_schema(
         )
         predictions[filename] = out.get("entities", [])
 
-    result = score(schema, predictions, reviewed)
+    result, _cells = await score(workspace, project_id, schema, predictions, reviewed)
     return result, predictions
 
 
