@@ -27,8 +27,10 @@ async def test_eval_full_pipeline(workspace: Path):
         allow_structural=True,
     )
 
-    d1 = await upload_doc(workspace, pid, b"%PDF-1.4\n%%EOF\n", "d1.pdf")
-    d2 = await upload_doc(workspace, pid, b"%PDF-1.4\n%%EOF\n", "d2.pdf")
+    d1_meta = await upload_doc(workspace, pid, b"%PDF-1.4\n%%EOF\n", "d1.pdf")
+    d2_meta = await upload_doc(workspace, pid, b"%PDF-1.4\n%%EOF\n", "d2.pdf")
+    d1 = d1_meta["filename"]
+    d2 = d2_meta["filename"]
 
     pdir = predictions_draft_dir(workspace, pid)
     atomic_write_json(
@@ -68,7 +70,11 @@ async def test_eval_full_pipeline(workspace: Path):
     assert per_field["total"]["tp"] == 2
     assert per_field["total"]["f1"] == 1.0
 
-    files = list(metrics_dir(workspace, pid).glob("eval_*.json"))
-    assert len(files) == 1
-    saved = json.loads(files[0].read_text())
+    # M12: dir-form artifact replaces eval_*.json file.
+    dirs = [
+        p for p in metrics_dir(workspace, pid).iterdir()
+        if p.is_dir() and p.name.startswith("eval_")
+    ]
+    assert len(dirs) == 1
+    saved = json.loads((dirs[0] / "summary.json").read_text())
     assert saved["macro_f1"] == body["macro_f1"]

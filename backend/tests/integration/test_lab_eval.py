@@ -44,9 +44,13 @@ async def test_post_eval_returns_score(workspace: Path) -> None:
     body = r.json()
     assert body["macro_f1"] == 1.0
     assert body["n_reviewed"] == 1
-    files = list(metrics_dir(workspace, pid).glob("eval_*.json"))
-    assert len(files) == 1
-    saved = json.loads(files[0].read_text())
+    # M12: dir-form artifact replaces eval_*.json file.
+    dirs = [
+        p for p in metrics_dir(workspace, pid).iterdir()
+        if p.is_dir() and p.name.startswith("eval_")
+    ]
+    assert len(dirs) == 1
+    saved = json.loads((dirs[0] / "summary.json").read_text())
     assert saved["macro_f1"] == body["macro_f1"]
 
 

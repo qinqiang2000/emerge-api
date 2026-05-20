@@ -163,10 +163,11 @@ async def post_create_experiment(slug: str, body: _CreateExperimentBody) -> dict
 
 
 class _RunEvalBody(BaseModel):
-    """No body args today — `run_experiment_eval` walks all `reviewed/` docs.
-    `filenames` is reserved for a future scoped-eval variant and ignored if
-    the tool doesn't accept it yet. Empty body is valid."""
+    """`run_experiment_eval` walks all `reviewed/` docs. `filenames` is
+    reserved for a future scoped-eval variant. `use_llm_judge` opts in the
+    L2 LLM-as-judge layer. Empty body is valid."""
     filenames: list[str] | None = None
+    use_llm_judge: bool = False
 
 
 @router.post("/lab/projects/{slug}/experiments/{experiment_id}/eval")
@@ -199,6 +200,7 @@ async def post_run_experiment_eval(
     try:
         ev = await run_experiment_eval(
             workspace, slug, experiment_id, provider=provider,
+            use_llm_judge=(body.use_llm_judge if body is not None else False),
         )
     except ExperimentInUseError as exc:
         raise HTTPException(
