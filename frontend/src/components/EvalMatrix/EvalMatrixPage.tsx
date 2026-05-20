@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { evalMatrixCsvUrl } from '../../lib/api'
-import { pathForEvalCompare, pathForSlug } from '../../lib/slugUrl'
+import { evalMatrixCsvUrl, getLatestEval } from '../../lib/api'
+import { pathForEvalCompare, pathForEvalMatrix, pathForSlug } from '../../lib/slugUrl'
 import { useEval } from '../../stores/eval'
 import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
@@ -23,8 +23,42 @@ interface Props {
 
 
 export default function EvalMatrixPage({ slug, ts }: Props) {
-  const summary = useEval((s) => s.summary[`${slug}|${ts}`])
-  const cells = useEval((s) => s.cells[`${slug}|${ts}`])
+  // ts="latest" is a virtual alias — resolve to the actual most-recent ts via
+  // GET /lab/projects/{slug}/evals/latest, then replaceState so the address
+  // bar pins to a canonical, bookmarkable URL. resolvedTs is null while
+  // resolving; we render a Loading state and skip store loads in that window.
+  const [resolvedTs, setResolvedTs] = useState<string | null>(
+    ts === 'latest' ? null : ts,
+  )
+  const [latestMissing, setLatestMissing] = useState(false)
+
+  useEffect(() => {
+    if (ts !== 'latest') {
+      setResolvedTs(ts)
+      setLatestMissing(false)
+      return
+    }
+    let cancelled = false
+    setResolvedTs(null)
+    setLatestMissing(false)
+    getLatestEval(slug)
+      .then((blob) => {
+        if (cancelled) return
+        if (!blob || !blob.ts) {
+          setLatestMissing(true)
+          return
+        }
+        setResolvedTs(blob.ts)
+        window.history.replaceState(null, '', pathForEvalMatrix(slug, blob.ts))
+      })
+      .catch(() => {
+        if (!cancelled) setLatestMissing(true)
+      })
+    return () => { cancelled = true }
+  }, [slug, ts])
+
+  const summary = useEval((s) => (resolvedTs ? s.summary[`${slug}|${resolvedTs}`] : undefined))
+  const cells = useEval((s) => (resolvedTs ? s.cells[`${slug}|${resolvedTs}`] : undefined))
   const list = useEval((s) => s.list[slug])
   const loadSummary = useEval((s) => s.loadSummary)
   const loadCells = useEval((s) => s.loadCells)
@@ -33,11 +67,12 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
   const loadSchema = useSchema((s) => s.load)
 
   useEffect(() => {
-    loadSummary(slug, ts)
-    loadCells(slug, ts)
+    if (!resolvedTs) return
+    loadSummary(slug, resolvedTs)
+    loadCells(slug, resolvedTs)
     loadList(slug)
     if (!schemaFields) loadSchema(slug)
-  }, [slug, ts, loadSummary, loadCells, loadList, loadSchema, schemaFields])
+  }, [slug, resolvedTs, loadSummary, loadCells, loadList, loadSchema, schemaFields])
 
   const [filter, setFilter] = useState<MatrixFilter>('errors_only')
   const [drilldown, setDrilldown] = useState<CellVerdict | null>(null)
@@ -56,10 +91,23 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
 
   // Compare-link target: latest ts that isn't this one (if any).
   const compareTargetA = useMemo(() => {
-    if (!list || list.length === 0) return null
-    const other = list.find((row) => row.ts !== ts)
+    if (!list || list.length === 0 || !resolvedTs) return null
+    const other = list.find((row) => row.ts !== resolvedTs)
     return other?.ts ?? null
-  }, [list, ts])
+  }, [list, resolvedTs])
+
+  if (latestMissing) {
+    return (
+      <div className="min-h-screen bg-paper text-ink p-6">
+        <a href={pathForSlug(slug)} className="text-ink-3 hover:text-ink-2 text-sm">
+          ← {slug}
+        </a>
+        <div className="mt-8 text-ink-3 text-sm">
+          这个项目还没有任何 eval 快照。从 chat 跑 <code>/eval</code> 后再来。
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-paper text-ink p-6">
@@ -71,7 +119,7 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
           >
             ← {slug}
           </a>
-          <h1 className="text-xl font-semibold mt-1">eval · {ts}</h1>
+          <h1 className="text-xl font-semibold mt-1">eval · {resolvedTs ?? '…'}</h1>
         </div>
         <div className="flex items-center gap-4 text-sm">
           {summary && (
@@ -104,16 +152,18 @@ export default function EvalMatrixPage({ slug, ts }: Props) {
           />
           只看错误
         </label>
-        <a
-          href={evalMatrixCsvUrl(slug, ts)}
-          download
-          className="text-ochre hover:underline"
-        >
-          下载 CSV
-        </a>
-        {compareTargetA && (
+        {resolvedTs && (
           <a
-            href={pathForEvalCompare(slug, compareTargetA, ts)}
+            href={evalMatrixCsvUrl(slug, resolvedTs)}
+            download
+            className="text-ochre hover:underline"
+          >
+            下载 CSV
+          </a>
+        )}
+        {resolvedTs && compareTargetA && (
+          <a
+            href={pathForEvalCompare(slug, compareTargetA, resolvedTs)}
             className="text-ochre hover:underline"
           >
             对比 {compareTargetA}
