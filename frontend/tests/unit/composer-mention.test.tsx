@@ -51,19 +51,22 @@ describe('Composer @ mention', () => {
     expect(screen.getByText(/docs/)).toBeInTheDocument()
   })
 
-  it('typing @s filters to schema.json and Enter inserts "@schema.json "', async () => {
+  it('typing @sc filters to schema.json and Enter inserts "@schema.json "', async () => {
     const { container } = render(
       <Composer disabled={false} pending={[]} projectId="p_abc" onAttach={() => {}} onSubmit={() => {}} />,
     )
     const input = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
-    await userEvent.type(input, '@s')
+    // Root-mode mention search is substring-on-path (recursive fuzzy, CC parity),
+    // so a single 's' would still match `versions`/`docs`. Use 'sc' to uniquely
+    // pin schema.json without changing what the test is really exercising.
+    await userEvent.type(input, '@sc')
     await waitFor(() => {
       expect(container.querySelector('.mentionmenu')).not.toBeNull()
     })
     await waitFor(() => {
       expect(screen.getByText(/schema\.json/)).toBeInTheDocument()
     })
-    // versions starts with 'v' so it must be filtered out; only schema.json remains.
+    // 'sc' doesn't appear in versions/ or docs/ — only schema.json remains.
     expect(screen.queryByText(/versions/)).toBeNull()
 
     await userEvent.keyboard('{Enter}')

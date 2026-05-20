@@ -18,7 +18,9 @@ describe('PromptTab', () => {
     useSchema.setState({ byProject: { p_test: [] } })
     render(<PromptTab target={{ kind: 'prompt', pid: 'p_test' }} />)
     expect(screen.getByText(/仅 notes 也能工作/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /\+ add fields/i })).toBeInTheDocument()
+    // Empty-state CTA was compacted from "+ add fields" to just "+" with
+    // aria-label="add field"; the visible glyph lives in the title/aria-label now.
+    expect(screen.getByRole('button', { name: /add field/i })).toBeInTheDocument()
   })
 
   it('shows loading state when byProject has no entry for the pid yet (deep-link safety net)', async () => {
