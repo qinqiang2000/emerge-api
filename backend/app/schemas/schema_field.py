@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -64,6 +64,7 @@ class SchemaField(BaseModel):
     enum: Optional[list[str]] = None
     properties: Optional[list["SchemaField"]] = None
     items: Optional["SchemaField"] = None
+    absent_policy: Optional[Literal["lenient", "strict"]] = None
 
     @model_validator(mode="before")
     @classmethod
