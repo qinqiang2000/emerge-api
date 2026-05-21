@@ -1,4 +1,22 @@
 // frontend/src/types/review.ts
+
+/** M14 — `_run` envelope mirroring `backend/app/schemas/run.py::RunStamp`.
+ *  Every prediction blob (baseline `_draft`, experiment, pre-label `_pending`)
+ *  self-stamps so the review tabstrip / matrix UI / score anchor read
+ *  identity from the blob, not from project.json at consume time. */
+export type RunKind = 'baseline' | 'experiment' | 'pre_label'
+
+export interface RunStamp {
+  run_id: string
+  ts: string
+  model_id?: string | null
+  extract_model?: string | null
+  model_label?: string | null
+  prompt_id?: string | null
+  prompt_label?: string | null
+  kind: RunKind
+}
+
 export type DocStatus = 'reviewed' | 'draft' | 'pending'
 
 export interface DocSummary {
@@ -19,6 +37,10 @@ export interface DocSummary {
 export interface PredictionPayload {
   entities: Record<string, unknown>[]
   _evidence?: Record<string, number | null>[]
+  /** M14 — self-identifying envelope (model, prompt, kind). Optional so
+   *  pre-M14 blobs still load; consumers gate the "baseline" tab on its
+   *  presence. */
+  _run?: RunStamp | null
 }
 
 export interface ReviewedPayload {
@@ -37,6 +59,8 @@ export interface PendingPayload {
   _evidence?: Record<string, number | null>[]
   labeler_model?: string
   created_at?: string
+  /** M14 — same envelope as PredictionPayload, with `kind: 'pre_label'`. */
+  _run?: RunStamp | null
 }
 
 export function docStatus(d: DocSummary): DocStatus {

@@ -40,6 +40,13 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
 
     pred = json.loads((workspace / pid / "predictions" / "_draft" / f"{did}.json").read_text())
     assert pred == out
+    # M14 — every baseline write self-stamps. The stub provider runs the
+    # default seeded model (Default · gemini-2.5-flash) and active prompt;
+    # the blob must carry those identities under `_run`.
+    assert "_run" in pred
+    assert pred["_run"]["kind"] == "baseline"
+    assert pred["_run"]["extract_model"] == "gemini-2.5-flash"
+    assert pred["_run"]["run_id"].startswith("r_")
 
 
 async def test_extract_one_model_override_resolves_project_model_id(
@@ -102,6 +109,13 @@ async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: Async
     # entities now bubble up so agent can summarize without re-calling extract_one
     assert summary["per_doc"][d1]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
     assert summary["per_doc"][d2]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
+    # M14 — each per-doc blob self-stamps with `_run` (kind=baseline).
+    for did in (d1, d2):
+        blob = json.loads(
+            (workspace / pid / "predictions" / "_draft" / f"{did}.json").read_text()
+        )
+        assert blob["_run"]["kind"] == "baseline"
+        assert blob["_run"]["extract_model"] == "gemini-2.5-flash"
 
 
 async def test_extract_batch_records_per_doc_errors(workspace: Path, stub_provider: AsyncMock) -> None:

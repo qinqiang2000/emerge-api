@@ -55,6 +55,12 @@ export default function ReviewOverlay({
     activeEntityIdx,
     isPending,
     labelerModel,
+    draftRun,
+    draftEntities,
+    draftEvidence,
+    pendingRun,
+    pendingEntities,
+    pendingEvidence,
   } = useReview()
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
@@ -75,12 +81,23 @@ export default function ReviewOverlay({
     [modelList],
   )
 
+  // M14 — `_draft` / `_pending` are synthetic tab keys (not experiment ids);
+  // their entities/evidence live on the store from the initial `open()` fetch.
+  // Everything except 'active' is readonly — only the ✏ annotation tab edits.
   const displayEntities = activeTabKey === 'active'
     ? entities
-    : (predictionsByExp[activeTabKey]?.entities ?? [])
+    : activeTabKey === '_draft'
+      ? (draftEntities ?? [])
+      : activeTabKey === '_pending'
+        ? (pendingEntities ?? [])
+        : (predictionsByExp[activeTabKey]?.entities ?? [])
   const displayEvidence = activeTabKey === 'active'
     ? evidence
-    : (predictionsByExp[activeTabKey]?._evidence ?? null)
+    : activeTabKey === '_draft'
+      ? (draftEvidence ?? null)
+      : activeTabKey === '_pending'
+        ? (pendingEvidence ?? null)
+        : (predictionsByExp[activeTabKey]?._evidence ?? null)
   const readOnly = activeTabKey !== 'active'
 
   const handleAdoptAll = readOnly
@@ -324,6 +341,8 @@ export default function ReviewOverlay({
         availableExperiments={experimentList}
         onSwitchTab={setActiveTab}
         modelLabels={modelLabels}
+        baselineRun={draftRun}
+        pendingRun={pendingRun}
         leftHidden={leftHidden}
         rightHidden={rightHidden}
         onToggleLeft={onToggleLeft}

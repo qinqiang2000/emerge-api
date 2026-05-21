@@ -317,3 +317,69 @@ async def test_doc_accuracy_strict_legacy(workspace: Path) -> None:
 async def test_run_eval_rejects_invalid_project_id(workspace: Path) -> None:
     with pytest.raises(ValueError, match="invalid project_id"):
         await run_eval(workspace, "../outside")
+
+
+async def test_score_anchor_from_blob_overrides_project_active(
+    workspace: Path,
+) -> None:
+    """M14 bug-fix lever: when prediction blob carries `_run`, the score
+    summary's `(prompt, model)` anchor must come from the blob (the model
+    that *produced* the prediction), NOT from project.json's `active_*`
+    at score time.
+
+    Repro: extract under model A → flip `active_model_id` to model B →
+    score. Pre-M14, the summary mis-attributed metrics to B. Post-M14 it
+    attributes to A.
+    """
+    from app.tools.docs import upload_doc
+    from app.tools.model import create_model
+    from app.tools.projects import create_project, update_project
+
+    slug = (await create_project(workspace, name="anchor-from-blob"))["slug"]
+    await write_schema(workspace, slug, SCHEMA, reason="t", allow_structural=True)
+    meta = await upload_doc(workspace, slug, b"\x89PNG\r\n\x1a\nstub", "x.png")
+    filename = meta["filename"]
+
+    # Mint a second model so we can flip active_model_id between extract
+    # and score. The blob carries model A's `_run`; project.json says B.
+    new_mid = await create_model(
+        workspace, slug,
+        label="Pro", provider="google", provider_model_id="gemini-pro-latest",
+    )
+
+    # Write the prediction blob with `_run` referencing model A (the
+    # "producing" model). We don't go through extract_one here because we
+    # want to control the stamp's extract_model + prompt independently of
+    # project active.
+    atomic_write_json(
+        predictions_draft_dir(workspace, slug) / f"{filename}.json",
+        {
+            "entities": [{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
+            "_run": {
+                "run_id": "r_old_gemini-2.5-flash_pr_baseline",
+                "ts": "2026-05-21T00-00-00Z",
+                "model_id": "m_default",
+                "extract_model": "gemini-2.5-flash",  # the producing model
+                "model_label": "Default",
+                "prompt_id": "pr_baseline",
+                "prompt_label": "Baseline",
+                "kind": "baseline",
+            },
+        },
+    )
+    await save_reviewed(
+        workspace, slug, filename,
+        entities=[{"invoice_no": "INV-1", "buyer_name": "ACME", "total": 100}],
+        source=ReviewedSource.MANUAL,
+    )
+
+    # FLIP active_model_id between extract and score. Pre-M14 the anchor
+    # came from project.json so this flip would mis-attribute. Post-M14 the
+    # anchor must still be `gemini-2.5-flash` because that's what the blob
+    # records under `_run`.
+    await update_project(workspace, slug, {"active_model_id": new_mid})
+
+    summary = await run_eval(workspace, slug)
+    assert summary.extract_model == "gemini-2.5-flash"  # NOT gemini-pro-latest
+    assert summary.prompt_label == "Baseline"
+    assert summary.model_id == "m_default"

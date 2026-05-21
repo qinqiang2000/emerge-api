@@ -303,8 +303,25 @@ function MatrixLegend() {
 
 function SummaryStrip({ summary }: { summary: ScoreResultSummary | undefined }) {
   if (!summary) return null
+  // M12.x.d — anchor chip: which (model, prompt) produced these metrics.
+  // We prefer the resolved labels (e.g. `gemini-2.5-flash · baseline`) so
+  // users address runs by the semantic name they already use in chat, not
+  // by hash IDs. Falls back to IDs only when labels are missing (e.g. a
+  // legacy summary that pre-dates this anchor).
+  const modelChip = summary.extract_model ?? summary.model_id ?? null
+  const promptChip = summary.prompt_label ?? summary.prompt_id ?? null
   return (
     <div className="flex items-center gap-4 text-sm">
+      {(modelChip || promptChip) && (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-rule bg-paper-2 text-ink-2 font-mono text-xs"
+          title={`prompt_id=${summary.prompt_id ?? '?'} · model_id=${summary.model_id ?? '?'}`}
+        >
+          {modelChip && <span>{modelChip}</span>}
+          {modelChip && promptChip && <span className="text-ink-4">·</span>}
+          {promptChip && <span>{promptChip}</span>}
+        </span>
+      )}
       <span>
         字段准确率 <strong>{pct(synthesizeAccuracyMacro(summary))}</strong>
       </span>

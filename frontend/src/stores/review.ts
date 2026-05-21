@@ -9,7 +9,7 @@ import {
   runExperimentPrediction,
   saveReviewed,
 } from '../lib/api'
-import type { ExperimentPredictionPayload, ReviewedPayload } from '../types/review'
+import type { ExperimentPredictionPayload, ReviewedPayload, RunStamp } from '../types/review'
 import { useDocs } from './docs'
 import { useProjects } from './projects'
 
@@ -42,8 +42,24 @@ interface State {
   isPending: boolean
   /** Model that produced the pending draft. Shown in the banner copy. */
   labelerModel: string | null
+  // ── M14: run envelopes from draft + pending blobs ────────────────
+  /** `_run` from the active-baseline draft (`predictions/_draft/{f}.json`).
+   *  null when the blob doesn't exist or pre-dates M14. Drives the
+   *  "baseline" tab in ExperimentTabStrip and seeds the readonly view when
+   *  the user clicks it. */
+  draftRun: RunStamp | null
+  /** Cached draft entities/evidence for the `_draft` tab's readonly view —
+   *  surfaced alongside `draftRun` so the overlay can switch view without
+   *  re-fetching. */
+  draftEntities: FieldsValue[] | null
+  draftEvidence: Record<string, number | null>[] | null
+  /** `_run` from the pre-label pending blob; powers the "pre-label" tab. */
+  pendingRun: RunStamp | null
+  /** Cached pending entities/evidence for the `_pending` tab's readonly view. */
+  pendingEntities: FieldsValue[] | null
+  pendingEvidence: Record<string, number | null>[] | null
   // ── experiment-tab state ─────────────────────────────────────────
-  activeTabKey: 'active' | string  // 'active' or experiment_id
+  activeTabKey: 'active' | '_draft' | '_pending' | string  // 'active' / '_draft' / '_pending' / experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
   // ── methods ──────────────────────────────────────────────────────
   open: (projectId: string, filename: string) => Promise<void>
@@ -58,7 +74,7 @@ interface State {
   goPage: (page: number) => void
   setPageCount: (n: number) => void
   save: () => Promise<void>
-  setActiveTab: (key: 'active' | string) => void
+  setActiveTab: (key: 'active' | '_draft' | '_pending' | string) => void
   loadExperimentPrediction: (experimentId: string) => Promise<void>
   runExperimentPrediction: (experimentId: string) => Promise<void>
   // ── adopt-from-prediction (label-studio-style) ───────────────────
@@ -91,6 +107,12 @@ export const useReview = create<State>((set, get) => ({
   predictionsByExp: {},
   isPending: false,
   labelerModel: null,
+  draftRun: null,
+  draftEntities: null,
+  draftEvidence: null,
+  pendingRun: null,
+  pendingEntities: null,
+  pendingEvidence: null,
   open: async (projectId, filename) => {
     // Re-anchor the spine to the review's project. Covers the case where the
     // user clicked another project in the spine after entering review: prev /
@@ -117,6 +139,12 @@ export const useReview = create<State>((set, get) => ({
       // ── tab state reset ──
       activeTabKey: 'active',
       predictionsByExp: {},
+      draftRun: null,
+      draftEntities: null,
+      draftEvidence: null,
+      pendingRun: null,
+      pendingEntities: null,
+      pendingEvidence: null,
     })
     try {
       // Layered fetch: reviewed (human-verified) > pending (Pro-labeler draft)
@@ -150,13 +178,21 @@ export const useReview = create<State>((set, get) => ({
         notes: reviewed?._notes ?? {},
         isPending: !reviewed && !!pending,
         labelerModel: !reviewed && pending ? pending.labeler_model ?? null : null,
+        // M14 — cache the draft/pending payloads (entities + evidence + _run)
+        // so the tabstrip can offer them as readonly tabs without re-fetching.
+        draftRun: pred?._run ?? null,
+        draftEntities: pred?.entities ?? null,
+        draftEvidence: pred?._evidence ?? null,
+        pendingRun: pending?._run ?? null,
+        pendingEntities: pending?.entities ?? null,
+        pendingEvidence: pending?._evidence ?? null,
         loading: false,
       })
     } catch (e: unknown) {
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}

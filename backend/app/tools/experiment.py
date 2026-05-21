@@ -220,6 +220,13 @@ async def extract_with_experiment(
         model_id=model.provider_model_id,
         params=model.params or None,
     )
+    # M14 — same blob shape as `run_experiment_eval`'s write path: stamp the
+    # experiment-write payload so review tabstrip / score anchor read (model,
+    # prompt) from the blob.
+    from app.eval.run_stamp import build_stamp
+
+    stamp = build_stamp("experiment", model, prompt)
+    payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
     async with project_lock(workspace, project_id):
         experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
             parents=True, exist_ok=True,
@@ -303,6 +310,14 @@ async def run_experiment_eval(
                 model_id=model.provider_model_id,
                 params=model.params or None,
             )
+            # M14 — stamp the experiment write with kind="experiment" so the
+            # review tabstrip / score anchor reads (model, prompt) from the
+            # blob, not from project.json at consume time. `prompt` + `model`
+            # already loaded above; minting the stamp is one dict ctor.
+            from app.eval.run_stamp import build_stamp
+
+            stamp = build_stamp("experiment", model, prompt)
+            payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
             experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
                 parents=True, exist_ok=True,
             )

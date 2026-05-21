@@ -1,7 +1,7 @@
 // frontend/src/components/ReviewMode/ReviewBar.tsx
 import { ArrowLeft, MessageSquare, Trash2 } from 'lucide-react'
 
-import type { DocSummary, ExperimentSummary } from '../../types/review'
+import type { DocSummary, ExperimentSummary, RunStamp } from '../../types/review'
 import { docStatus } from '../../types/review'
 import ExperimentTabStrip from './ExperimentTabStrip'
 import PanelToggle from '../Shell/PanelToggle'
@@ -28,10 +28,14 @@ type Props = {
    *  second call (within 3 s) confirms. Parent owns the timer + side effect. */
   onDeleteTrigger: () => void
   // ── inline tab strip ──
-  activeTabKey: 'active' | string
+  activeTabKey: 'active' | '_draft' | '_pending' | string
   availableExperiments: ExperimentSummary[]
-  onSwitchTab: (key: 'active' | string) => void
+  onSwitchTab: (key: 'active' | '_draft' | '_pending' | string) => void
   modelLabels: Record<string, string>
+  /** M14 — `_run` envelopes from already-loaded draft + pending blobs; the
+   *  tab strip surfaces each as a readonly tab when present. */
+  baselineRun?: RunStamp | null
+  pendingRun?: RunStamp | null
   // ── panel peek toggles (review mode owns chrome; floating buttons would
   //     overlap back/save, so they live inline in this bar instead) ──
   leftHidden?: boolean
@@ -60,6 +64,8 @@ export default function ReviewBar({
   availableExperiments,
   onSwitchTab,
   modelLabels,
+  baselineRun,
+  pendingRun,
   leftHidden,
   rightHidden,
   onToggleLeft,
@@ -120,12 +126,16 @@ export default function ReviewBar({
         </div>
       )}
 
-      {availableExperiments.some((e) => e.status !== 'archived') ? (
+      {(availableExperiments.some((e) => e.status !== 'archived') ||
+        baselineRun ||
+        pendingRun) ? (
         <ExperimentTabStrip
           activeTabKey={activeTabKey}
           availableExperiments={availableExperiments}
           onSwitch={onSwitchTab}
           modelLabels={modelLabels}
+          baselineRun={baselineRun}
+          pendingRun={pendingRun}
         />
       ) : (
         <div className="spacer" />

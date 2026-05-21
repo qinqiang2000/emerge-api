@@ -262,6 +262,11 @@ async def test_extract_with_experiment_writes_to_predictions_dir(
         experiment_prediction_path(workspace, pid, eid, filename).read_text(),
     )
     assert on_disk == payload
+    # M14 — experiment writes self-stamp with kind="experiment". The seeded
+    # experiment is (pr_baseline × m_default → gemini-2.5-flash).
+    assert on_disk["_run"]["kind"] == "experiment"
+    assert on_disk["_run"]["extract_model"] == "gemini-2.5-flash"
+    assert on_disk["_run"]["prompt_id"] == "pr_baseline"
 
 
 async def test_extract_with_experiment_uses_experiment_prompt_not_active(

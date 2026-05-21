@@ -194,6 +194,18 @@ async def label_docs(
             payload = output.model_dump(by_alias=True, exclude_none=True)
             payload["labeler_model"] = mid
             payload["created_at"] = datetime.now(timezone.utc).isoformat()
+            # M14 — stamp the pending blob with kind="pre_label". The prompt
+            # axis is the active prompt (used to build label instructions);
+            # the model axis is the resolved labeler model (`mid`), passed via
+            # `extract_model_override` since there's no project ModelConfig
+            # behind the labeler — it resolves from env / project override
+            # without going through models/{m_*}.json.
+            from app.eval.run_stamp import build_stamp
+
+            stamp = build_stamp(
+                "pre_label", None, pv, extract_model_override=mid,
+            )
+            payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
             async with project_lock(workspace, slug):
                 pending_reviewed_dir(workspace, slug).mkdir(
                     parents=True, exist_ok=True,

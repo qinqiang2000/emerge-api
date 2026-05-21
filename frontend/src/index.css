@@ -771,6 +771,16 @@ html, body, #root {
 .rev-tab-popover-item{background:transparent;border:1px solid transparent;border-radius:4px}
 .rev-tab-popover-item:hover{background:var(--paper-2)}
 .rev-tab-popover-item.on{background:var(--ochre-soft);border-color:var(--ochre)}
+/* M14 — baseline (active prod run) gets moss treatment so users see at a
+   glance which tab is the "this matches active" lane; pre_label keeps ochre
+   (already paired with PreLabelNotice) and adds a small "pre-label" badge.
+   Order matters: these come after `.rev-tab-card.on` so kind-specific .on
+   rules win by source order without bumping specificity. */
+.rev-tab-baseline .rev-tab-ico{background:var(--moss-soft);color:var(--moss-2);border-color:var(--moss-edge)}
+.rev-tab-baseline.on{background:var(--moss-soft);color:var(--ink);border-color:var(--moss)}
+.rev-tab-baseline.on .rev-tab-ico{background:var(--paper);color:var(--moss-2);border-color:var(--moss-edge)}
+.rev-tab-baseline.on .rev-tab-prompt{color:var(--moss-2)}
+.rev-tab-pre_label .rev-tab-badge{display:inline-block;margin-left:6px;font-size:9px;font-weight:600;padding:0 5px;border-radius:3px;background:var(--ochre-soft);color:var(--ochre-2);letter-spacing:.02em;border:1px solid var(--ochre-edge);line-height:1.4;vertical-align:middle}
 
 /* ── adopt-from-prediction affordances ──────────────────────────── */
 /* These are *annotation* actions — they live on prediction tabs but push

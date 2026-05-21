@@ -8,32 +8,78 @@
 // Overflow handling: a ResizeObserver compares each tab's bounding rect
 // against the inner container; clipped tabs collapse behind a » N dropdown.
 // The annotation tab is always pinned visible (visibleN >= 1).
-import { FlaskConical, Pencil } from 'lucide-react'
+import { Beaker, FlaskConical, Pencil, Sparkles } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import type { ExperimentSummary } from '../../types/review'
+import type { ExperimentSummary, RunStamp } from '../../types/review'
 
 type Props = {
-  activeTabKey: 'active' | string
+  activeTabKey: 'active' | '_draft' | '_pending' | string
   availableExperiments: ExperimentSummary[]
-  onSwitch: (key: 'active' | string) => void
+  onSwitch: (key: 'active' | '_draft' | '_pending' | string) => void
   modelLabels: Record<string, string>
+  /** M14 — `_run` envelopes from the already-loaded draft + pending blobs.
+   *  When present, surface them as readonly tabs alongside experiments so
+   *  the user sees every Run that produced a prediction for this doc in
+   *  one strip. null when the blob is absent or pre-M14. */
+  baselineRun?: RunStamp | null
+  pendingRun?: RunStamp | null
 }
 
 type TabSpec =
   | { kind: 'annotation'; key: 'active' }
+  | { kind: 'baseline'; key: '_draft'; model: string; prompt: string; title: string }
+  | { kind: 'pre_label'; key: '_pending'; model: string; prompt: string; title: string }
   | { kind: 'prediction'; key: string; model: string; prompt: string; title: string }
 
 const GAP = 4
+
+function _runTitle(run: RunStamp, kindLabel: string): string {
+  const model = run.extract_model ?? run.model_id ?? '?'
+  const prompt = run.prompt_label ?? run.prompt_id ?? '?'
+  const line1 = `${model} · ${prompt}${kindLabel ? ` (${kindLabel})` : ''}`
+  const id = run.run_id ? `run: ${run.run_id}` : null
+  const ts = run.ts ? run.ts : null
+  return [line1, id, ts].filter(Boolean).join('\n')
+}
 
 export default function ExperimentTabStrip({
   activeTabKey,
   availableExperiments,
   onSwitch,
   modelLabels,
+  baselineRun,
+  pendingRun,
 }: Props) {
+  // M14 — order matters: ✏ reviewed first, then baseline (active prod run),
+  // then pre-label (Pro draft awaiting verification), then experiments. Each
+  // tab is gated on its `_run` being present; pre-M14 blobs render no tab.
+  // Tooltip composition: line 1 = primary identity (model · prompt), line 2
+  // = run_id (disambiguates re-runs of the same model+prompt at different
+  // times), line 3 = ts. Power-user hover surface; visible label stays
+  // compact.
+  const baselineTab: TabSpec | null = baselineRun
+    ? {
+        kind: 'baseline',
+        key: '_draft',
+        model: baselineRun.extract_model ?? baselineRun.model_id ?? 'unknown',
+        prompt: baselineRun.prompt_label ?? baselineRun.prompt_id ?? 'baseline',
+        title: _runTitle(baselineRun, 'baseline'),
+      }
+    : null
+  const pendingTab: TabSpec | null = pendingRun
+    ? {
+        kind: 'pre_label',
+        key: '_pending',
+        model: pendingRun.extract_model ?? pendingRun.model_id ?? 'unknown',
+        prompt: pendingRun.prompt_label ?? pendingRun.prompt_id ?? 'pre-label',
+        title: _runTitle(pendingRun, 'pre-label'),
+      }
+    : null
   const tabs: TabSpec[] = [
     { kind: 'annotation', key: 'active' },
+    ...(baselineTab ? [baselineTab] : []),
+    ...(pendingTab ? [pendingTab] : []),
     ...availableExperiments
       .filter((e) => e.status !== 'archived')
       .map<TabSpec>((e) => {
@@ -57,7 +103,11 @@ export default function ExperimentTabStrip({
   const [popoverOpen, setPopoverOpen] = useState(false)
 
   const tabsKey = tabs
-    .map((t) => (t.kind === 'annotation' ? 'annot' : `p:${t.key}|${t.model}|${t.prompt}`))
+    .map((t) =>
+      t.kind === 'annotation'
+        ? 'annot'
+        : `${t.kind}:${t.key}|${t.model}|${t.prompt}`,
+    )
     .join('::')
 
   useLayoutEffect(() => {
@@ -151,23 +201,39 @@ export default function ExperimentTabStrip({
         </button>
       )
     }
+    // baseline / pre_label / experiment share the same 2-line card shell;
+    // only the icon (and an optional "pre-label" badge) differ.
+    const icon =
+      t.kind === 'baseline' ? (
+        <Beaker size={12} strokeWidth={1.6} />
+      ) : t.kind === 'pre_label' ? (
+        <Sparkles size={12} strokeWidth={1.6} />
+      ) : (
+        <FlaskConical size={12} strokeWidth={1.6} />
+      )
     return (
       <button
         {...commonProps}
         key={t.key}
         className={
           'rev-tab rev-tab-card' +
+          ` rev-tab-${t.kind}` +
           (isOn ? ' on' : '') +
           (isPopover ? ' rev-tab-popover-item' : '')
         }
         title={t.title}
       >
         <span className="rev-tab-ico" aria-hidden="true">
-          <FlaskConical size={12} strokeWidth={1.6} />
+          {icon}
         </span>
         <span className="rev-tab-text">
           <span className="rev-tab-model">{t.model}</span>
-          <span className="rev-tab-prompt">{t.prompt}</span>
+          <span className="rev-tab-prompt">
+            {t.prompt}
+            {t.kind === 'pre_label' && (
+              <span className="rev-tab-badge" aria-hidden="true">pre-label</span>
+            )}
+          </span>
         </span>
       </button>
     )

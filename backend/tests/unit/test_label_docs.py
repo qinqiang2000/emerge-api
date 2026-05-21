@@ -81,6 +81,13 @@ async def test_label_docs_writes_pending_with_metadata(
     assert "created_at" in blob
     # pending is NOT reviewed — must not have source/notes/notes_consumed
     assert "source" not in blob
+    # M14 — pending blobs self-stamp with kind="pre_label"; extract_model is
+    # the resolved labeler, prompt comes from the active prompt used to
+    # build label instructions.
+    assert blob["_run"]["kind"] == "pre_label"
+    assert blob["_run"]["extract_model"] == "gemini-pro-latest"
+    assert blob["_run"]["prompt_id"]  # active prompt resolved
+    assert blob["_run"]["model_id"] is None  # labeler isn't a project model
 
 
 async def test_label_docs_skips_already_reviewed(

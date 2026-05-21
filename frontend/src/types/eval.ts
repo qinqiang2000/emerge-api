@@ -44,6 +44,13 @@ export interface ScoreResultSummary {
   schema_field_count: number
   judge_used: number
   judge_skipped_budget: number
+  // M12.x.d — (prompt, model) anchor so headline UIs can show "this 82%
+  // was gemini-2.5-flash + baseline". Optional so legacy summaries that
+  // pre-date the anchor still load.
+  prompt_id?: string | null
+  prompt_label?: string | null
+  model_id?: string | null
+  extract_model?: string | null
 }
 
 export type CellStatus =
@@ -72,7 +79,9 @@ export interface EvalListEntry {
   ts: string
   meta: {
     prompt_id?: string | null
+    prompt_label?: string | null
     model_id?: string | null
+    extract_model?: string | null
     experiment_id?: string | null
     legacy?: boolean
   }

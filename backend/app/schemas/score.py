@@ -66,6 +66,15 @@ class ScoreResultSummary(BaseModel):
     schema_field_count: int
     judge_used: int = 0
     judge_skipped_budget: int = 0
+    # M12.x.d — (prompt, model) anchor so the chat headline narrates which
+    # configuration produced these metrics. Resolved labels (`prompt_label`
+    # = user-facing variant name, `extract_model` = provider_model_id like
+    # `gemini-2.5-flash`) are filled by `run_eval`; Optional so legacy disk
+    # summaries that pre-date these fields still validate.
+    prompt_id: Optional[str] = None
+    prompt_label: Optional[str] = None
+    model_id: Optional[str] = None
+    extract_model: Optional[str] = None
 
 
 # Back-compat alias: existing imports of ScoreResult keep working

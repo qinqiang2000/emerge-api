@@ -353,13 +353,15 @@ def _write_meta(
     summary: ScoreResultSummary,
     experiment_id: Optional[str],
 ) -> None:
-    try:
-        blob = json.loads(project_json_path(workspace, project_id).read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        blob = {}
+    # M12.x.d — the anchor (prompt_id/model_id + resolved labels) lives on
+    # `summary`; copy it through so meta.json carries the same identity the
+    # summary does. Eval listing surfaces (the chip in matrix list) read
+    # from meta.json without loading the full summary.
     meta = {
-        "prompt_id": blob.get("active_prompt_id"),
-        "model_id": blob.get("active_model_id"),
+        "prompt_id": summary.prompt_id,
+        "prompt_label": summary.prompt_label,
+        "model_id": summary.model_id,
+        "extract_model": summary.extract_model,
         "experiment_id": experiment_id,
         "judge_used": summary.judge_used,
         "judge_skipped_budget": summary.judge_skipped_budget,
@@ -368,6 +370,88 @@ def _write_meta(
         "n_reviewed": summary.n_reviewed,
     }
     atomic_write_json(path, meta)
+
+
+async def _resolve_run_anchor(
+    workspace: Path, project_id: str, experiment_id: Optional[str],
+) -> dict[str, Optional[str]]:
+    """Resolve (prompt_id, prompt_label, model_id, extract_model) for this run.
+
+    M14: anchor comes from the prediction blobs we're grading. If they carry
+    `_run` (M14+), use it — that attributes metrics to the model that
+    *produced* the blob, even after the project's `active_model_id` has been
+    re-pointed between extract and score. Fall back to the legacy resolver
+    (experiment meta / project.json active) only when blobs are pre-M14 or
+    don't exist.
+    """
+    from app.workspace.paths import experiment_predictions_dir
+
+    # ── M14 fast path: read the stamp off the first valid blob. We use the
+    # first stamp we find since every prediction blob in the same dir was
+    # written by the same (model, prompt) configuration. If any blob is
+    # legacy / mid-write / unparseable, skip it and try the next one.
+    pd_path = (
+        experiment_predictions_dir(workspace, project_id, experiment_id)
+        if experiment_id
+        else predictions_draft_dir(workspace, project_id)
+    )
+    if pd_path.exists():
+        for p in sorted(pd_path.glob("*.json")):
+            try:
+                blob = json.loads(p.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            run = blob.get("_run")
+            if isinstance(run, dict):
+                return {
+                    "prompt_id": run.get("prompt_id"),
+                    "prompt_label": run.get("prompt_label"),
+                    "model_id": run.get("model_id"),
+                    "extract_model": run.get("extract_model"),
+                }
+
+    # ── Legacy fallback: pre-M14 blobs (or empty dir). Read the experiment
+    # meta or project.json active_* and resolve labels by reading the
+    # referenced prompt / model. Same logic as before M14.
+    pid: Optional[str] = None
+    mid: Optional[str] = None
+    if experiment_id:
+        try:
+            from app.tools.experiment import read_experiment
+            ex = await read_experiment(workspace, project_id, experiment_id)
+            pid, mid = ex.prompt_id, ex.model_id
+        except Exception:
+            pass
+    if not pid or not mid:
+        try:
+            blob = json.loads(project_json_path(workspace, project_id).read_text())
+            pid = pid or blob.get("active_prompt_id")
+            mid = mid or blob.get("active_model_id")
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    prompt_label: Optional[str] = None
+    extract_model: Optional[str] = None
+    if pid:
+        try:
+            from app.tools.prompt import read_prompt
+            pv = await read_prompt(workspace, project_id, pid)
+            prompt_label = pv.label
+        except Exception:
+            pass
+    if mid:
+        try:
+            from app.tools.model import read_model
+            mc = await read_model(workspace, project_id, mid)
+            extract_model = mc.provider_model_id
+        except Exception:
+            pass
+    return {
+        "prompt_id": pid,
+        "prompt_label": prompt_label,
+        "model_id": mid,
+        "extract_model": extract_model,
+    }
 
 
 async def run_eval(
@@ -396,6 +480,9 @@ async def run_eval(
         workspace, project_id, schema, predictions, reviewed,
         use_llm_judge=use_llm_judge,
     )
+
+    anchor = await _resolve_run_anchor(workspace, project_id, experiment_id)
+    summary = summary.model_copy(update=anchor)
 
     async with project_lock(workspace, project_id):
         d = eval_dir(workspace, project_id, summary.ts)
