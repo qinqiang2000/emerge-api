@@ -58,16 +58,12 @@ export function pathForChatId(chatId: string | null, search: string = '', hash: 
 // M12 — eval matrix routes ────────────────────────────────────────────────
 //
 // Address shapes:
-//   `/projects/<slug>/eval/<ts>`       → single eval matrix
-//   `/projects/<slug>/eval/latest`     → resolves to the most-recent ts
+//   `/p/<slug>?eval=<ts>`              → single eval matrix (modal overlay)
+//   `/p/<slug>?eval=latest`            → resolves to the most-recent ts
 //   `/projects/<slug>/eval/compare`    → side-by-side (?a=<ts1>&b=<ts2>)
-
-
-export interface EvalMatrixRoute {
-  kind: 'eval'
-  slug: string
-  ts: string
-}
+//
+// Legacy `/projects/<slug>/eval/<ts>` paths are redirected to the new
+// query-param form on mount so bookmarks keep working.
 
 
 export interface EvalCompareRoute {
@@ -78,8 +74,14 @@ export interface EvalCompareRoute {
 }
 
 
-/** Parse an eval-matrix path. Returns `null` if the path isn't an eval route. */
-export function readEvalRouteFromUrl(pathname: string, search: string): EvalMatrixRoute | EvalCompareRoute | null {
+export interface EvalLegacyMatrixPath {
+  slug: string
+  ts: string
+}
+
+
+/** Parse the eval-compare path. Returns `null` if the path isn't a compare route. */
+export function readEvalRouteFromUrl(pathname: string, search: string): EvalCompareRoute | null {
   const compare = pathname.match(/^\/projects\/([^/]+)\/eval\/compare\/?$/)
   if (compare) {
     let slug: string
@@ -96,22 +98,38 @@ export function readEvalRouteFromUrl(pathname: string, search: string): EvalMatr
       b: params.get('b'),
     }
   }
+  return null
+}
+
+
+/** Parse the legacy `/projects/<slug>/eval/<ts>` path. Returns null when it's
+ *  the compare route or anything else. Callers use this to issue a redirect
+ *  to the new `?eval=<ts>` query-param form. */
+export function readLegacyEvalMatrixPath(pathname: string): EvalLegacyMatrixPath | null {
+  // Avoid catching the compare route — it's parsed by readEvalRouteFromUrl.
+  if (/^\/projects\/[^/]+\/eval\/compare\/?$/.test(pathname)) return null
   const m = pathname.match(/^\/projects\/([^/]+)\/eval\/([^/]+)\/?$/)
   if (!m) return null
-  let slug: string
-  let ts: string
   try {
-    slug = decodeURIComponent(m[1])
-    ts = decodeURIComponent(m[2])
+    return { slug: decodeURIComponent(m[1]), ts: decodeURIComponent(m[2]) }
   } catch {
     return null
   }
-  return { kind: 'eval', slug, ts }
+}
+
+
+/** Read `?eval=<ts>` from a URL search string. Returns the decoded ts or null
+ *  when the param is absent / empty. Used by App.tsx to decide whether to
+ *  render the EvalMatrixModal on top of the project shell. */
+export function readEvalTsFromSearch(search: string): string | null {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const ts = params.get('eval')
+  return ts && ts.length > 0 ? ts : null
 }
 
 
 export function pathForEvalMatrix(slug: string, ts: string): string {
-  return `/projects/${encodeURIComponent(slug)}/eval/${encodeURIComponent(ts)}`
+  return `/p/${encodeURIComponent(slug)}?eval=${encodeURIComponent(ts)}`
 }
 
 

@@ -6,6 +6,7 @@ import { attachToChat, promoteChat, stageUpload } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat, UNBOUND_SLUG, type SurfaceContext } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
+import { useEvalSurface } from '../../stores/evalSurface'
 import { useReview } from '../../stores/review'
 import { useSchema } from '../../stores/schema'
 import { useJob } from '../../stores/jobs'
@@ -52,9 +53,13 @@ interface ChatPanelProps {
    *  shell when you exit review) and swaps EmptyHero for a one-line placeholder
    *  since the hero's hero-text wouldn't survive a 360px-wide column. */
   compact?: boolean
+  /** Override the composer placeholder. Plumbed straight to <Composer />.
+   *  Useful for surfaces with limited width (drilldown) where the default
+   *  copy would wrap. */
+  composerPlaceholder?: string
 }
 
-export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
+export default function ChatPanel({ compact = false, composerPlaceholder }: ChatPanelProps = {}) {
   const { selectedSlug, projects } = useProjects()
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
@@ -382,6 +387,7 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
         projectId={selectedSlug ?? undefined}
         unbound={!selectedSlug}
         onPromote={isUnbound ? handlePromote : undefined}
+        placeholder={composerPlaceholder}
         onAttach={(files: File[]) => { void attach(files) }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onRetry={(i) => { void retry(i) }}
@@ -400,33 +406,56 @@ export default function ChatPanel({ compact = false }: ChatPanelProps = {}) {
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
             }))
           // In compact mode we are rendered inside the review overlay's chat
-          // column — snapshot the active surface state BEFORE awaiting send
-          // so the agent's tool calls bind to what the user was looking at
-          // when they hit Enter, not to whatever they navigate to mid-
-          // response. Reading via `useReview.getState()` here (rather than
-          // hook-derived values) is intentional — the hook would have
-          // closed over render-time state.
+          // column OR inside the EvalMatrix drilldown's inline composer —
+          // snapshot the active surface state BEFORE awaiting send so the
+          // agent's tool calls bind to what the user was looking at when
+          // they hit Enter, not to whatever they navigate to mid-response.
+          // Reading via `getState()` here (rather than hook-derived values)
+          // is intentional — the hook would have closed over render-time
+          // state.
+          //
+          // Priority: eval_cell drilldown wins over review. When the user has
+          // a drilldown open they are specifically looking at one cell; the
+          // review surface may also be populated underneath, but the cell is
+          // the more specific anchor for "why is this prediction wrong?"
+          // style questions.
           let surfaceContext: SurfaceContext | undefined
           if (compact) {
-            const rev = useReview.getState()
-            if (rev.activeFilename) {
-              const idx = rev.activeEntityIdx ?? 0
-              const entity = rev.entities[idx] ?? {}
-              const currentValue = rev.activeField
-                ? (entity as Record<string, unknown>)[rev.activeField] ?? null
-                : null
-              const tabKey = rev.activeTabKey
+            const ev = useEvalSurface.getState()
+            if (ev.activeCell && ev.activeTs) {
+              const c = ev.activeCell
               surfaceContext = {
-                surface: 'review',
-                filename: rev.activeFilename,
-                field: rev.activeField ?? null,
-                current_value: currentValue,
-                entity_index: idx,
-                page: rev.page,
-                page_count: rev.pageCount,
-                entity_count: rev.entities.length,
-                active_tab_key: tabKey,
-                experiment_id: tabKey && tabKey !== 'active' ? tabKey : null,
+                surface: 'eval_cell',
+                filename: c.filename,
+                field: c.field,
+                eval_ts: ev.activeTs,
+                truth: c.truth,
+                pred: c.pred,
+                status: c.status,
+                verdict_reason: c.judge_reason ?? null,
+                entity_idx: c.entity_idx,
+              }
+            } else {
+              const rev = useReview.getState()
+              if (rev.activeFilename) {
+                const idx = rev.activeEntityIdx ?? 0
+                const entity = rev.entities[idx] ?? {}
+                const currentValue = rev.activeField
+                  ? (entity as Record<string, unknown>)[rev.activeField] ?? null
+                  : null
+                const tabKey = rev.activeTabKey
+                surfaceContext = {
+                  surface: 'review',
+                  filename: rev.activeFilename,
+                  field: rev.activeField ?? null,
+                  current_value: currentValue,
+                  entity_index: idx,
+                  page: rev.page,
+                  page_count: rev.pageCount,
+                  entity_count: rev.entities.length,
+                  active_tab_key: tabKey,
+                  experiment_id: tabKey && tabKey !== 'active' ? tabKey : null,
+                }
               }
             }
           }

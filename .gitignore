@@ -54,3 +54,7 @@ frontend/tests/dogfood-out/
 
 # Ad-hoc scratch (screenshots, debug dumps)
 .tmp/
+
+
+# Claude Code session state
+.claude/

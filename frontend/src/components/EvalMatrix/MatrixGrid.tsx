@@ -9,6 +9,11 @@ interface Props {
   fields: string[]
   filter: MatrixFilter
   onCellClick: (cell: CellVerdict) => void
+  /** When the drilldown is open, this is `${filename}|${field}|${entity_idx}`
+   *  of the focused cell. The matching `<td>` gets an `ochre` ring overlay so
+   *  the user has a clear visual link between the drilldown sidebar and the
+   *  cell that opened it. Undefined → no ring. */
+  selectedKey?: string
 }
 
 
@@ -74,7 +79,7 @@ function truncateForCell(v: string | null): { display: string; truncated: boolea
 }
 
 
-export default function MatrixGrid({ cells, fields, filter, onCellClick }: Props) {
+export default function MatrixGrid({ cells, fields, filter, onCellClick, selectedKey }: Props) {
   const rows = useMemo(() => applyFilter(cells, filter), [cells, filter])
   // Total rows for "empty-state" message (errors-only with all correct).
   const totalRows = useMemo(() => groupCellsIntoRows(cells).size, [cells])
@@ -92,13 +97,13 @@ export default function MatrixGrid({ cells, fields, filter, onCellClick }: Props
   const sortedKeys = Array.from(rows.keys()).sort()
 
   return (
-    <div className="overflow-auto">
+    <div>
       {/* M12.x — table-layout:fixed pins column widths so any single cell
           can't push the entire row wider. Combined with cell `max-height`
           + overflow:hidden, this keeps the page readable when one cell
           carries a 50-row JSON array. */}
       <table
-        className="text-sm border-collapse"
+        className="text-sm border-separate border-spacing-0"
         style={{ tableLayout: 'fixed', minWidth: '100%' }}
       >
         <colgroup>
@@ -110,14 +115,20 @@ export default function MatrixGrid({ cells, fields, filter, onCellClick }: Props
           ))}
         </colgroup>
         <thead>
-          <tr className="bg-paper-2 text-xs uppercase tracking-wide text-ink-3 sticky top-0">
-            <th className="text-left px-3 py-2 border-b border-rule sticky left-0 bg-paper-2 z-10">
+          <tr className="text-xs uppercase tracking-wide text-ink-3">
+            {/* Each <th> carries its own sticky + bg + z-index. `sticky` on
+                the <tr> alone doesn't paint a background, so scrolled body
+                rows show through the gaps between cells when the modal's
+                inner overflow-auto starts scrolling. The top-left "文件" th
+                is both-axis sticky and bumped to z-20 so the column header
+                row stays above the per-row left-sticky filename cells. */}
+            <th className="text-left px-3 py-2 border-b border-rule sticky top-0 left-0 bg-paper-2 z-20">
               文件
             </th>
             {fields.map((f) => (
               <th
                 key={f}
-                className="text-left px-3 py-2 border-b border-rule font-mono normal-case truncate"
+                className="text-left px-3 py-2 border-b border-rule font-mono normal-case truncate sticky top-0 bg-paper-2 z-10"
                 title={f}
               >
                 {f}
@@ -149,10 +160,11 @@ export default function MatrixGrid({ cells, fields, filter, onCellClick }: Props
                   const truth = truncateForCell(c.truth)
                   const pred =
                     c.pred !== c.truth ? truncateForCell(c.pred) : null
+                  const isSelected = selectedKey === `${c.filename}|${c.field}|${c.entity_idx}`
                   return (
                     <td
                       key={f}
-                      className={`px-3 py-2 ${statusBgClass(c.status)} cursor-pointer hover:opacity-80 align-top`}
+                      className={`px-3 py-2 ${statusBgClass(c.status)} cursor-pointer hover:opacity-80 align-top${isSelected ? ' ring-2 ring-ochre ring-inset' : ''}`}
                       onClick={() => onCellClick(c)}
                       title="click to see full content"
                     >

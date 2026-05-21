@@ -225,6 +225,16 @@ export default function EvalCard({
             href={pathForEvalMatrix(slug, ts)}
             className="f"
             style={{ color: 'var(--ochre-2)', textDecoration: 'underline' }}
+            onClick={(e) => {
+              // Plain click → open as modal overlay (keeps chat composer
+              // mounted underneath). Ctrl/Cmd/middle/shift fall through to
+              // the default <a href> behavior so power users can still open
+              // the matrix in a new tab.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+              e.preventDefault()
+              window.history.pushState(null, '', pathForEvalMatrix(slug, ts))
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }}
           >
             ↗ open full matrix
           </a>

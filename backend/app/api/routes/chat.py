@@ -40,15 +40,18 @@ class SurfaceContext(BaseModel):
     The chat service appends a `## Surface context` block to the system prompt
     so the agent knows what the user is looking at.
 
-    Phase 1 only `surface='review'` exists. `filename` is the only field
-    required for review; the rest are optional ambient signals the snapshotter
-    fills in when they are known.
+    Surfaces are discriminated by ``surface``. ``review`` is the original;
+    ``eval_cell`` is the peer used by EvalMatrix's drilldown inline composer.
+    Both share the ``filename`` / ``field`` identity fields; the rest are
+    surface-specific and filled in opportunistically when the snapshotter
+    has them.
     """
 
-    # Phase 1: only 'review' is meaningful. Future surfaces ('home', 'schema',
-    # 'docs', 'experiments', 'publish') get added here.
+    # 'review' (review overlay chat column) or 'eval_cell' (drilldown
+    # inline composer). Future surfaces ('home', 'schema', 'docs',
+    # 'experiments', 'publish') get added here.
     surface: str = "review"
-    # ── review surface fields ─────────────────────────────────────────
+    # ── identity (both surfaces) ──────────────────────────────────────
     filename: str
     field: str | None = None
     current_value: Any = None
@@ -59,6 +62,19 @@ class SurfaceContext(BaseModel):
     entity_count: int | None = None
     active_tab_key: str | None = None
     experiment_id: str | None = None
+    # ── eval_cell-only ────────────────────────────────────────────────
+    # `eval_ts` is the score-run timestamp the drilldown is anchored to.
+    # `truth` / `pred` carry the raw cell values; `status` mirrors
+    # CellVerdict.status; `verdict_reason` echoes the judge_reason when
+    # the verdict came from the LLM judge. `entity_idx` is the per-doc
+    # entity index (a peer of `entity_index` — kept distinct to mirror
+    # the frontend's CellVerdict shape exactly).
+    eval_ts: str | None = None
+    truth: Any = None
+    pred: Any = None
+    status: str | None = None
+    verdict_reason: str | None = None
+    entity_idx: int | None = None
 
 
 def _get_chat_service() -> ChatService:

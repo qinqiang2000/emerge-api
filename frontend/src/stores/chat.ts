@@ -110,12 +110,14 @@ function _clearTurnId(chatId: string): void {
  *  agent's tool calls must bind to what they were looking at when they hit
  *  Enter.
  *
- *  Phase 1 only `surface: 'review'` exists; ambient navigation fields (page,
- *  page_count, etc.) are filled in opportunistically when the snapshotter has
- *  them. */
+ *  Surfaces are discriminated by `surface`. Review is the original; `eval_cell`
+ *  is the peer used by EvalMatrix's drilldown inline composer — both flavors
+ *  share the `filename` / `field` identity fields, plus surface-specific
+ *  ambient state. Ambient fields are filled in opportunistically when the
+ *  snapshotter has them. */
 export interface SurfaceContext {
-  surface: 'review'  // phase 2 will add 'home' | 'schema' | ...
-  // ── review identity ──
+  surface: 'review' | 'eval_cell'
+  // ── identity ──
   filename: string
   field?: string | null
   current_value?: unknown
@@ -128,6 +130,13 @@ export interface SurfaceContext {
   active_tab_key?: string
   /** Non-null iff `active_tab_key !== 'active'`. */
   experiment_id?: string | null
+  // ── eval_cell-only ──
+  eval_ts?: string
+  truth?: unknown
+  pred?: unknown
+  status?: 'correct' | 'wrong' | 'missing' | 'spurious' | 'absent_both'
+  verdict_reason?: string | null
+  entity_idx?: number
 }
 
 interface State {

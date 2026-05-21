@@ -6,16 +6,19 @@ import ContextSurface from './components/Context/ContextSurface'
 import ReviewOverlay from './components/ReviewMode/ReviewOverlay'
 import PromptQuickLook from './components/QuickLook/PromptQuickLook'
 import PanelToggle from './components/Shell/PanelToggle'
-import EvalMatrixPage from './components/EvalMatrix/EvalMatrixPage'
+import EvalMatrixModal from './components/EvalMatrix/EvalMatrixModal'
 import EvalCompare from './components/EvalMatrix/EvalCompare'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
 import {
   pathForChatId,
+  pathForEvalMatrix,
   pathForSlug,
   readChatIdFromPathname,
   readEvalRouteFromUrl,
+  readEvalTsFromSearch,
+  readLegacyEvalMatrixPath,
   readSlugFromPathname,
 } from './lib/slugUrl'
 
@@ -51,17 +54,34 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
 }
 
 export default function App() {
-  // M12 — eval matrix / compare are standalone pages that bypass the chat
-  // shell entirely. Read the URL on every render so popstate from the matrix
-  // back-link does the right thing without wiring react-router yet.
-  const [evalRoute, setEvalRoute] = useState(() =>
-    readEvalRouteFromUrl(window.location.pathname, window.location.search),
+  // M-modal — eval matrix is now an overlay on top of the chat shell.
+  //   - compare route is still a full-page replacement (out of scope here).
+  //   - legacy `/projects/<slug>/eval/<ts>` paths are redirected on mount to
+  //     the new `/p/<slug>?eval=<ts>` shape so bookmarks keep working.
+  //   - the modal itself reads `?eval=<ts>` from the location search and
+  //     mounts on top of the project shell without unmounting ChatPanel.
+  //
+  // Read the URL on every render so popstate keeps both legs in sync (back
+  // button after close → modal disappears; back button into the matrix →
+  // modal reappears).
+  // Initializers fire once. Apply the legacy redirect here so that all
+  // downstream readers (evalRoute, evalTs, store hydration) read the new URL.
+  const [evalRoute, setEvalRoute] = useState(() => {
+    const legacy = readLegacyEvalMatrixPath(window.location.pathname)
+    if (legacy) {
+      window.history.replaceState(null, '', pathForEvalMatrix(legacy.slug, legacy.ts))
+    }
+    return readEvalRouteFromUrl(window.location.pathname, window.location.search)
+  })
+  const [evalTs, setEvalTs] = useState<string | null>(() =>
+    readEvalTsFromSearch(window.location.search),
   )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
         readEvalRouteFromUrl(window.location.pathname, window.location.search),
       )
+      setEvalTs(readEvalTsFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -71,9 +91,6 @@ export default function App() {
   const { selectedSlug } = useProjects()
   const loadedUnboundChatId = useChat(s => s.loadedUnboundChatId)
 
-  if (evalRoute && evalRoute.kind === 'eval') {
-    return <EvalMatrixPage slug={evalRoute.slug} ts={evalRoute.ts} />
-  }
   if (evalRoute && evalRoute.kind === 'compare') {
     return <EvalCompare slug={evalRoute.slug} a={evalRoute.a} b={evalRoute.b} />
   }
@@ -273,6 +290,15 @@ export default function App() {
         />
       )}
       <PromptQuickLook />
+
+      {/* M-modal — eval matrix overlay. Renders on top of the shell when
+          `?eval=<ts>` is present AND a project is selected. Gating on
+          `selectedSlug` avoids a misalignment if `?eval=` ever appears at
+          the root URL (which shouldn't happen, but the modal needs a slug
+          to render anyway). */}
+      {evalTs && selectedSlug && (
+        <EvalMatrixModal slug={selectedSlug} ts={evalTs} />
+      )}
     </>
   )
 }

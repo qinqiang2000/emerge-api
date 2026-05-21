@@ -260,10 +260,81 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     return "\n".join(lines)
 
 
+def _format_cell_value(v: Any) -> str:
+    """Compact stringify for a cell `truth` / `pred` value going into the
+    Surface context block. Mirrors the review-surface ``current_value``
+    repr: quote strings, json-encode complex shapes, em-dash for null/empty.
+    Kept short — the agent only needs the value to anchor the message.
+    """
+    if v is None:
+        return "—"
+    if isinstance(v, str):
+        if v == "":
+            return "—"
+        return repr(v)
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    try:
+        return json.dumps(v, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _build_eval_cell_surface_block(surface_context: dict[str, Any]) -> str:
+    """Render the ``surface: 'eval_cell'`` flavour of the Surface context
+    block. Used when the user submits from the EvalMatrix drilldown's
+    inline composer — the chat envelope carries the cell's truth / pred /
+    status / verdict so the agent can ground questions like "why is the
+    prediction X instead of Y?" without round-tripping through a tool call.
+
+    Layout mirrors the review block (header line + identity line + ambient
+    facts) so the agent's system prompt looks structurally consistent
+    across both surfaces.
+    """
+    filename = str(surface_context.get("filename") or "")
+    field = surface_context.get("field")
+    eval_ts = surface_context.get("eval_ts")
+    status = surface_context.get("status")
+    entity_idx_raw = surface_context.get("entity_idx")
+    truth = surface_context.get("truth")
+    pred = surface_context.get("pred")
+    verdict_reason = surface_context.get("verdict_reason")
+
+    lines = [
+        "## Surface context",
+        "",
+        (
+            f"The user is reviewing an eval cell in **{filename}** "
+            f"from eval `{eval_ts}`." if eval_ts
+            else f"The user is reviewing an eval cell in **{filename}**."
+        ),
+    ]
+    if field:
+        lines.append(f"- field: `{field}`")
+    if isinstance(entity_idx_raw, int) and entity_idx_raw > 0:
+        lines.append(f"- entity_idx: {entity_idx_raw}")
+    if status:
+        lines.append(f"- status: {status}")
+    lines.append(f"- truth: {_format_cell_value(truth)}")
+    lines.append(f"- pred:  {_format_cell_value(pred)}")
+    if verdict_reason:
+        lines.append(f"- verdict_reason: {verdict_reason}")
+    lines.append("")
+    lines.append(
+        "Treat the user's message as feedback about this specific cell "
+        "(filename + field + entity_idx) — they are asking about why the "
+        "prediction differs from the truth, or how to make the model do "
+        "better on this case. Do NOT call `save_reviewed` from this surface "
+        "unless the user explicitly requests it — eval cells are read-only "
+        "from the agent's POV; corrections belong in description / "
+        "global_notes (see review surface for the save flow)."
+    )
+    return "\n".join(lines)
+
+
 def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
     """Render the "## Surface context" block that gets appended to the system
-    prompt for any turn submitted from a surface that snapshots state
-    (currently only review).
+    prompt for any turn submitted from a surface that snapshots state.
 
     The signal here is load-bearing: without it the default extractor skill
     routes feedback messages through its intent classifier, which for an
@@ -271,12 +342,18 @@ def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
     intent and call `rename_project` instead of `save_reviewed`. See plan
     `/Users/qinqiang02/.claude/plans/1-human-snazzy-hare.md` motivating bug.
 
-    Phase 1 only handles `surface == 'review'`. Ambient navigation state
-    (page, page_count, entity_count, active_tab_key, experiment_id) is
-    appended whenever the frontend has it — those let the agent answer
-    "what am I looking at" without round-tripping through `get_surface_state`.
+    Two surfaces today: ``review`` (the review overlay's chat column) and
+    ``eval_cell`` (the EvalMatrix drilldown's inline composer). Both share
+    the filename + field identity; ``review`` carries ambient navigation
+    state (page, page_count, entity_count, active_tab_key, experiment_id)
+    so the agent can answer "what am I looking at" without round-tripping
+    through ``get_surface_state``; ``eval_cell`` carries the truth/pred
+    diff + verdict so the agent can answer "why is this prediction wrong?"
+    without re-fetching the eval cell.
     """
     surface = str(surface_context.get("surface") or "review")
+    if surface == "eval_cell":
+        return _build_eval_cell_surface_block(surface_context)
     if surface != "review":
         # Forward-compat: render an empty block rather than crash if a future
         # frontend sends an unknown surface.

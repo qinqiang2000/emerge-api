@@ -88,6 +88,11 @@ interface Props {
    *  When omitted, `/init <name>` falls through to the agent (legacy
    *  behaviour). */
   onPromote?: (name: string) => Promise<void> | void
+  /** Override the textarea placeholder. Default keeps the main-shell copy
+   *  ("say something to the agent, or type / for a command…"). Compact
+   *  surfaces (drilldown, review side-chat) pass shorter copy so a long
+   *  default doesn't wrap into a second line when width is narrow. */
+  placeholder?: string
 }
 
 // Per-chip status indicator. Lives next to the filename so the row reads
@@ -127,7 +132,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote }: Props) {
+export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -671,7 +676,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
               onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
               onKeyDown={handleKey}
               onPaste={handlePaste}
-              placeholder="say something to the agent, or type / for a command…"
+              placeholder={placeholder ?? "say something to the agent, or type / for a command…"}
             />
           </div>
 
