@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './spine.css'
 
+import { navigateToReview } from '../../lib/slugUrl'
 import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
@@ -105,7 +106,9 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
   const openVersion = useQuickLook(s => s.openVersion)
   const openPrompt = useQuickLook(s => s.openPrompt)
-  const openReview = useReview(s => s.open)
+  // Spine doc clicks navigate via the URL — App.tsx then drives
+  // `useReview.open()` from the URL change. Keeps a single source of truth
+  // for "am I in review" so browser back / "← back" both work uniformly.
   // Selection marker for the docs/ list: only when review mode is open on
   // this project. The doc id is the on-disk filename — same handle the
   // ReviewBar prev/next arrows drive — so → / ← in review keep the spine
@@ -250,13 +253,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           modelItems,
           experimentItems,
           metricsItems,
-          (slug, filename) => { void openReview(slug, filename) },
+          (slug, filename) => navigateToReview(slug, filename),
           docsVisible,
           loadMoreDocs,
           selectedDocFilename,
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, openReview, docsVisible, loadMoreDocs, selectedDocFilename],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename],
   )
 
   // When review ← / → steps past the visible page boundary, bump

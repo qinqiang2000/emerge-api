@@ -19,6 +19,7 @@ import {
   readEvalRouteFromUrl,
   readEvalTsFromSearch,
   readLegacyEvalMatrixPath,
+  readReviewFilenameFromSearch,
   readSlugFromPathname,
 } from './lib/slugUrl'
 
@@ -76,12 +77,20 @@ export default function App() {
   const [evalTs, setEvalTs] = useState<string | null>(() =>
     readEvalTsFromSearch(window.location.search),
   )
+  // Review filename now lives in the URL (`?review=<filename>`) — same shape
+  // as `?eval=<ts>`. App is the single point that translates URL → useReview
+  // store state, so the browser back/forward button + the in-app "← back"
+  // (which just calls history.back) both go through the same path.
+  const [reviewFilename, setReviewFilename] = useState<string | null>(() =>
+    readReviewFilenameFromSearch(window.location.search),
+  )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
         readEvalRouteFromUrl(window.location.pathname, window.location.search),
       )
       setEvalTs(readEvalTsFromSearch(window.location.search))
+      setReviewFilename(readReviewFilenameFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -160,6 +169,25 @@ export default function App() {
       window.history.pushState(null, '', target)
     }
   }, [selectedSlug, loadedUnboundChatId])
+
+  // URL → useReview store sync. App is the only side that mutates `useReview`'s
+  // open/close — everywhere else either calls `navigateToReview(slug, filename)`
+  // (which pushes the URL) or `window.history.back()` (lets the browser pop
+  // history). This effect translates the resulting URL state into the store
+  // so the rest of the tree (ReviewOverlay etc.) can keep reading the store.
+  useEffect(() => {
+    const cur = useReview.getState()
+    if (reviewFilename && selectedSlug) {
+      // Idempotent: skip the (async) fetch when the store already reflects the
+      // URL — popstate fires for any history nav (including the matrix close
+      // path that doesn't touch ?review), so unrelated nav events shouldn't
+      // re-fetch the active doc.
+      if (cur.activeFilename === reviewFilename && cur.activeProjectId === selectedSlug) return
+      void useReview.getState().open(selectedSlug, reviewFilename)
+    } else if (cur.activeFilename) {
+      useReview.getState().close()
+    }
+  }, [reviewFilename, selectedSlug])
 
   const [leftHiddenChat,    setLeftHiddenChatState]    = useState<boolean>(() => readBool(KEY_LEFT_CHAT))
   const [rightHiddenChat,   setRightHiddenChatState]   = useState<boolean>(() => readBool(KEY_RIGHT_CHAT))
@@ -252,7 +280,7 @@ export default function App() {
         left={<FSSpine onToggleLeft={onToggleLeft} />}
         center={inReview
           ? <ReviewOverlay
-              onBack={() => useReview.getState().close()}
+              onBack={() => window.history.back()}
               leftHidden={leftHidden}
               rightHidden={reviewChatHidden}
               onToggleLeft={onToggleLeft}

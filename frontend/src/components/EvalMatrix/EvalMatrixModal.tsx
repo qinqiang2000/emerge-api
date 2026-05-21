@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 
-import { pathForSlug } from '../../lib/slugUrl'
+import { searchWithoutParam } from '../../lib/slugUrl'
 import EvalMatrixBody from './EvalMatrixBody'
 
 
@@ -28,10 +28,13 @@ export default function EvalMatrixModal({ slug, ts }: Props) {
   const [maximized, setMaximized] = useState(false)
 
   const close = useCallback(() => {
-    // Pop the ?eval=<ts> param so App.tsx unmounts the modal. We use
-    // pushState (not replaceState) so the browser back button can re-open the
-    // matrix the way the user expects.
-    window.history.pushState(null, '', pathForSlug(slug))
+    // Drop only `?eval=<ts>` — preserve any sibling params (e.g. `?review=`
+    // if the user opened matrix on top of a review surface) so closing
+    // matrix doesn't accidentally evict review. pushState (not replaceState)
+    // so browser back can re-open the matrix.
+    const rest = searchWithoutParam(window.location.search, 'eval')
+    const target = `/p/${encodeURIComponent(slug)}${rest}${window.location.hash}`
+    window.history.pushState(null, '', target)
     window.dispatchEvent(new PopStateEvent('popstate'))
   }, [slug])
 

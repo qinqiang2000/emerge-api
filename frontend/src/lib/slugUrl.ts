@@ -133,6 +133,47 @@ export function pathForEvalMatrix(slug: string, ts: string): string {
 }
 
 
+// Review surface URL — `?review=<filename>` query param so back-button history
+// works the same way as ?eval=<ts>. Centralised here so the open/close call
+// sites (FSSpine, EvalMatrixBody, the modal close handler) all agree on the
+// URL shape and App.tsx is the single point that drives `useReview` from it.
+
+/** Read `?review=<filename>` from a URL search string. */
+export function readReviewFilenameFromSearch(search: string): string | null {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const f = params.get('review')
+  return f && f.length > 0 ? f : null
+}
+
+
+/** Push a URL that opens review mode for `filename`. Drops `?eval=<ts>` (matrix
+ *  and review are mutually exclusive surfaces). Other query params + hash are
+ *  preserved so any future per-surface state survives the navigation. */
+export function navigateToReview(slug: string, filename: string): void {
+  const sp = new URLSearchParams(window.location.search.startsWith('?')
+    ? window.location.search.slice(1)
+    : window.location.search,
+  )
+  sp.delete('eval')
+  sp.set('review', filename)
+  const target = `/p/${encodeURIComponent(slug)}?${sp.toString()}${window.location.hash}`
+  if (target === window.location.pathname + window.location.search + window.location.hash) return
+  window.history.pushState(null, '', target)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
+
+/** Drop one query-param key, returning the resulting `?…` string (or '' if
+ *  no params remain). Used by EvalMatrixModal.close so closing the matrix
+ *  doesn't accidentally evict a coexisting `?review=<f>`. */
+export function searchWithoutParam(search: string, key: string): string {
+  const sp = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  sp.delete(key)
+  const rest = sp.toString()
+  return rest ? `?${rest}` : ''
+}
+
+
 export function pathForEvalCompare(slug: string, a?: string, b?: string): string {
   const base = `/projects/${encodeURIComponent(slug)}/eval/compare`
   const qs: string[] = []

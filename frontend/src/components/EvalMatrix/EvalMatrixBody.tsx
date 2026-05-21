@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { evalMatrixCsvUrl, getLatestEval } from '../../lib/api'
-import { pathForEvalCompare, pathForEvalMatrix, pathForSlug } from '../../lib/slugUrl'
+import { navigateToReview, pathForEvalCompare, pathForEvalMatrix } from '../../lib/slugUrl'
 import { useEval } from '../../stores/eval'
 import { useEvalSurface } from '../../stores/evalSurface'
 import { useReview } from '../../stores/review'
@@ -136,17 +136,21 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
 
   const onOpenReview = () => {
     if (!drilldown) return
-    useReview.getState().open(slug, drilldown.filename)
-    useReview.setState({ activeField: drilldown.field })
+    const field = drilldown.field
     closeDrilldown()
-    if (inModal) {
-      // Let the modal host close itself + drop the ?eval=<ts> query so the
-      // chat shell re-mounts behind review mode cleanly.
-      onAfterOpenReview?.()
-    } else {
-      window.history.pushState(null, '', pathForSlug(slug))
-    }
+    // navigateToReview pushes `?review=<filename>` (and drops `?eval=`),
+    // App's URL → useReview sync picks it up and calls open(). The modal
+    // unmounts via the same popstate cycle because ?eval is gone. No need
+    // to call onAfterOpenReview anymore — the URL is the source of truth.
+    navigateToReview(slug, drilldown.filename)
+    // activeField is a secondary review-store field (not in URL); set after
+    // the navigation so the URL→store open path doesn't reset it.
+    useReview.setState({ activeField: field })
   }
+  // Keep `inModal` and `onAfterOpenReview` referenced so the lint/tsc layer
+  // doesn't warn about unused params; both remain part of the public surface
+  // for callers that may still wire a close-when-review-opens hook.
+  void inModal; void onAfterOpenReview;
 
   // Selection ring: pass a stable key to MatrixGrid so the currently-open
   // drilldown's cell gets `ring-2 ring-ochre` highlighting. Format matches
