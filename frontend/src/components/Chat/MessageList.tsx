@@ -16,6 +16,7 @@ import AskUserCard from './AskUserCard'
 import PermissionCard from './PermissionCard'
 import SaveReviewedAdapter from './SaveReviewedAdapter'
 import TaskChecklist from './TaskChecklist'
+import { ThinkingIcon } from './ThinkingIcon'
 import ToolCall, { type ToolStatus } from './ToolCall'
 import ToolRow from './ToolRow'
 import ToolStack from './ToolStack'
@@ -415,9 +416,13 @@ export default function MessageList({ events, busy }: Props) {
           && latest.ok !== false
         const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
         return (
-          <div className="text-ink-4 italic flex items-center gap-2 px-1 mt-4" aria-live="polite">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink-4 animate-pulse"></span>
-            {name ? `calling ${name}...` : 'agent is thinking...'}
+          <div
+            className="text-ink-4 italic flex items-center gap-2 px-1 mt-4"
+            aria-live="polite"
+            aria-label={name ? `calling ${name}` : 'agent is thinking'}
+          >
+            <ThinkingIcon size={name ? 20 : 26} />
+            {name && <span className="text-xs">calling {name}...</span>}
           </div>
         )
       })()}

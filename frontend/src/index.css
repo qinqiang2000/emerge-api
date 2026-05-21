@@ -143,6 +143,15 @@ html, body, #root {
 .tool .t-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ochre);transition:width .4s ease}
 .tool .t-bar.indet i{width:30%;animation:indet 1.6s ease-in-out infinite}
 @keyframes indet{0%{left:-30%}100%{left:100%}}
+/* thinking butterfly — inspired by 金蝶/Kingdee brand metaphor (golden-butterfly),
+   re-imagined as an emerge ochre-tinted resting-flap. Wings pivot at the body axis
+   so each side collapses inward, mimicking a real wing-stroke rather than a CSS pulse. */
+.thinking-bf{display:inline-block;vertical-align:-2px;color:#D97757}
+.thinking-bf .bf-wing{transform-box:fill-box;transform-origin:right center;animation:bfFlap 1.05s cubic-bezier(.5,0,.5,1) infinite}
+.thinking-bf .bf-wing.bf-r{transform-origin:left center;animation-delay:-.02s}
+.thinking-bf line,.thinking-bf circle{opacity:.85}
+@keyframes bfFlap{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.42)}}
+@media (prefers-reduced-motion:reduce){.thinking-bf .bf-wing{animation:bfBreath 2s ease-in-out infinite}@keyframes bfBreath{0%,100%{opacity:.85}50%{opacity:.45}}}
 .tool .t-foot{padding:8px 12px;display:flex;gap:8px;background:var(--paper);border-top:1px solid var(--rule-soft)}
 .tool .t-btn{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border:1px solid var(--rule);border-radius:4px;color:var(--ink-2);background:var(--paper)}
 .tool .t-btn:hover{background:var(--paper-2)}
