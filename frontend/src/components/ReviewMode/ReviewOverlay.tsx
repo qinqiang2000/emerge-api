@@ -190,11 +190,6 @@ export default function ReviewOverlay({
     }
   }, [activeProjectId, activeFilename, experimentList, loadExperimentPrediction])
 
-  // `activeFilename` is the on-disk filename now; the lookup is essentially an
-  // existence check (and lets the field renderer show "(deleted)" if the doc
-  // dropped out of the project's docs list while open).
-  const filename = docs.find(d => d.filename === activeFilename)?.filename
-
   // ── neighbor + delete + key-nav helpers ──
   // Centralized so the trash button and the ← / → key handler share one
   // navigation rule: prefer the next doc, fall back to prev, otherwise close.
@@ -400,7 +395,6 @@ export default function ReviewOverlay({
               view={view}
               forceOpen={forceOpen}
               readOnly={readOnly}
-              filename={filename}
               onAdopt={handleAdoptAll}
               onAdoptField={handleAdoptField}
             />

@@ -32,8 +32,6 @@ interface Props {
   forceOpen?: boolean | null
   /** When true, all fields are read-only (experiment tabs) */
   readOnly?: boolean
-  /** Document filename — rendered next to entity count for context */
-  filename?: string
   /** Bulk-copy the current display (a prediction) into the annotation and
    *  switch to the annotation tab. Only shown when readOnly. */
   onAdopt?: () => void
@@ -54,7 +52,6 @@ export default function FieldEditor({
   view = 'form',
   forceOpen = null,
   readOnly = false,
-  filename,
   onAdopt,
   onAdoptField,
 }: Props) {
@@ -138,12 +135,6 @@ export default function FieldEditor({
         ) : (
           <span className="font-mono text-xs text-ink-4">
             {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
-          </span>
-        )}
-        {filename && (
-          <span className="font-mono text-xs text-ink-4 truncate min-w-0" title={filename}>
-            <span className="text-ink-5 mx-1.5">·</span>
-            {filename}
           </span>
         )}
         {!readOnly && (
