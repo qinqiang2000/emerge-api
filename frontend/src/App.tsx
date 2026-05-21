@@ -21,7 +21,17 @@ import {
   readLegacyEvalMatrixPath,
   readReviewFilenameFromSearch,
   readSlugFromPathname,
+  searchWithoutParam,
 } from './lib/slugUrl'
+
+// `?review` and `?eval` are scoped to a specific project. When the URL
+// transitions across project boundaries (root → /p/A, /p/A → /p/B), carrying
+// them over would land the new project's review surface on a doc that may
+// not even exist there. Within a single project they are preserved so the
+// matrix → review → matrix back-button loop keeps state.
+function stripProjectScopedParams(search: string): string {
+  return searchWithoutParam(searchWithoutParam(search, 'review'), 'eval')
+}
 
 const KEY_LEFT_CHAT    = 'emerge.panel.leftHidden.chat'
 const KEY_RIGHT_CHAT   = 'emerge.panel.rightHidden.chat'
@@ -156,17 +166,32 @@ export default function App() {
     // Project route wins when both stores claim a binding — `selectedSlug` is
     // set by the promote-flow before the unbound id clears, so checking it
     // first keeps the URL stable through the `/c/<cid>` → `/p/<slug>` swap.
+    const currentPathSlug = readSlugFromPathname(window.location.pathname)
     let target: string
     if (selectedSlug) {
-      target = pathForSlug(selectedSlug, window.location.search, window.location.hash)
+      // Same-slug effect reruns (e.g. initial URL hydrate) keep the search so
+      // the matrix↔review back-button loop survives. Crossing into a different
+      // slug means review/eval were left over from the previous project and
+      // must be dropped — see `stripProjectScopedParams` above.
+      const search = selectedSlug === currentPathSlug
+        ? window.location.search
+        : stripProjectScopedParams(window.location.search)
+      target = pathForSlug(selectedSlug, search, window.location.hash)
     } else if (loadedUnboundChatId) {
       target = pathForChatId(loadedUnboundChatId, window.location.search, window.location.hash)
     } else {
-      target = pathForSlug(null, window.location.search, window.location.hash)
+      target = pathForSlug(null, stripProjectScopedParams(window.location.search), window.location.hash)
     }
     const current = window.location.pathname + window.location.search + window.location.hash
     if (target !== current) {
       window.history.pushState(null, '', target)
+      // `pushState` doesn't fire popstate, so the project-scoped state mirrors
+      // (reviewFilename, evalTs) must be refreshed from the post-strip URL.
+      // Without this, switching projects keeps the stale review/eval values
+      // in React state and the URL→useReview effect below would still try to
+      // open the previous project's doc.
+      setReviewFilename(readReviewFilenameFromSearch(window.location.search))
+      setEvalTs(readEvalTsFromSearch(window.location.search))
     }
   }, [selectedSlug, loadedUnboundChatId])
 
