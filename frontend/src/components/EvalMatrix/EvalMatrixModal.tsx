@@ -8,6 +8,13 @@ import EvalMatrixBody from './EvalMatrixBody'
 interface Props {
   slug: string
   ts: string
+  /** When true the modal stays in the DOM (so its internal state — scroll
+   *  position, filter toggle, maximized flag, drilldown — survives) but is
+   *  visually hidden via display:none. App passes `hidden` when review mode
+   *  is layered on top (URL: `?eval=<ts>&review=<f>`). ESC / backdrop /
+   *  drilldown ESC handlers all stand down while hidden so review owns the
+   *  keyboard. */
+  hidden?: boolean
 }
 
 
@@ -21,7 +28,7 @@ interface Props {
  *  Close behaviors: X click, ESC key, click on backdrop (NOT inside card).
  *  All three drop the `?eval=` param via pushState + popstate, so back-button
  *  history works naturally. */
-export default function EvalMatrixModal({ slug, ts }: Props) {
+export default function EvalMatrixModal({ slug, ts, hidden = false }: Props) {
   // Maximize is intentionally NOT persisted — SSU: one less preference for
   // the user to discover / unlearn. Resets per open. Toggling animates via
   // the `transition-all duration-300 ease-out` on the card classes.
@@ -45,6 +52,10 @@ export default function EvalMatrixModal({ slug, ts }: Props) {
   // overlay → back to chat" which works fine even when the drilldown is open
   // (the body unmounts the drilldown with the modal).
   useEffect(() => {
+    // When review is layered on top (hidden=true), ESC must close review,
+    // not matrix. Skip the listener while hidden so review's own back path
+    // (history.back via "← back to chat") owns the key.
+    if (hidden) return
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -53,7 +64,7 @@ export default function EvalMatrixModal({ slug, ts }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [close])
+  }, [close, hidden])
 
   return (
     <div
@@ -61,11 +72,15 @@ export default function EvalMatrixModal({ slug, ts }: Props) {
       // `--ink` is hex in tokens.css so `bg-ink/30` can't decompose to rgba.
       // Inline rgba derived from --ink (#1B1A16) at 35% so the chat shell
       // behind the modal stays legibly dimmed.
-      style={{ background: 'rgba(27, 26, 22, 0.35)' }}
+      // display:none when hidden keeps the React tree mounted (state intact)
+      // but yanks the backdrop + card out of layout / event flow so review
+      // (rendered behind by Shell) takes the keyboard + clicks cleanly.
+      style={{ background: 'rgba(27, 26, 22, 0.35)', display: hidden ? 'none' : undefined }}
       onClick={close}
       role="dialog"
       aria-label="eval-matrix"
       aria-modal="true"
+      aria-hidden={hidden}
     >
       <div
         className={

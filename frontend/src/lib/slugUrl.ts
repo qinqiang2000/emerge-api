@@ -146,15 +146,17 @@ export function readReviewFilenameFromSearch(search: string): string | null {
 }
 
 
-/** Push a URL that opens review mode for `filename`. Drops `?eval=<ts>` (matrix
- *  and review are mutually exclusive surfaces). Other query params + hash are
- *  preserved so any future per-surface state survives the navigation. */
+/** Push a URL that opens review mode for `filename`. **Preserves** `?eval=<ts>`
+ *  if present — matrix + review coexist in the URL (review layers on top).
+ *  Without this, dropping `?eval` would unmount the EvalMatrixModal and the
+ *  user would lose scroll position / filter / drilldown / maximized state on
+ *  the way back. App.tsx renders the modal `hidden` (display:none) when
+ *  reviewFilename is set, so the matrix stays mounted but invisible. */
 export function navigateToReview(slug: string, filename: string): void {
   const sp = new URLSearchParams(window.location.search.startsWith('?')
     ? window.location.search.slice(1)
     : window.location.search,
   )
-  sp.delete('eval')
   sp.set('review', filename)
   const target = `/p/${encodeURIComponent(slug)}?${sp.toString()}${window.location.hash}`
   if (target === window.location.pathname + window.location.search + window.location.hash) return

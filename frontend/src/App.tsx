@@ -320,12 +320,13 @@ export default function App() {
       <PromptQuickLook />
 
       {/* M-modal — eval matrix overlay. Renders on top of the shell when
-          `?eval=<ts>` is present AND a project is selected. Gating on
-          `selectedSlug` avoids a misalignment if `?eval=` ever appears at
-          the root URL (which shouldn't happen, but the modal needs a slug
-          to render anyway). */}
+          `?eval=<ts>` is present AND a project is selected. When review is
+          ALSO active (`?eval=<ts>&review=<f>`), the modal stays mounted but
+          hidden so review can layer on top without us losing matrix state
+          (scroll/filter/drilldown/maximized) on the way back. The user
+          dropping `?review` reveals the matrix exactly where they left it. */}
       {evalTs && selectedSlug && (
-        <EvalMatrixModal slug={selectedSlug} ts={evalTs} />
+        <EvalMatrixModal slug={selectedSlug} ts={evalTs} hidden={!!reviewFilename} />
       )}
     </>
   )
