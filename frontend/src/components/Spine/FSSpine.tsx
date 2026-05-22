@@ -34,6 +34,13 @@ const STATUS_DOT: Record<string, string> = {
   empty: 'var(--ink-5)',
 }
 
+type StampLabels = {
+  new: string
+  pending: string
+  reviewed: string
+  frozen: string
+}
+
 function buildTree(
   slug: string,
   docs: import('../../types/review').DocSummary[],
@@ -47,6 +54,7 @@ function buildTree(
   onLoadMoreDocs: () => void,
   selectedDocFilename: string | null,
   versionsEmptyLabel: string,
+  stampLabels: StampLabels,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -55,9 +63,9 @@ function buildTree(
   const visible = docs.slice(0, docsVisible)
   for (const doc of visible) {
     let stamp: string
-    if (doc.has_reviewed) stamp = 'reviewed'
-    else if (doc.has_prediction) stamp = 'pending'
-    else stamp = 'new'
+    if (doc.has_reviewed) stamp = stampLabels.reviewed
+    else if (doc.has_prediction) stamp = stampLabels.pending
+    else stamp = stampLabels.new
     docsItems.push({
       kind: 'file',
       name: doc.filename,
@@ -71,7 +79,7 @@ function buildTree(
 
   // ── versions/ ──────────────────────────────────────────────────────────
   const versionItems: LeafNode[] = activeVersionId
-    ? [{ kind: 'file', name: activeVersionId, stamp: 'frozen' }]
+    ? [{ kind: 'file', name: activeVersionId, stamp: stampLabels.frozen }]
     : [{ kind: 'ghost', name: versionsEmptyLabel }]
 
   // ── trailing root files ────────────────────────────────────────────────
@@ -263,6 +271,12 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           loadMoreDocs,
           selectedDocFilename,
           t('spine.versions.empty'),
+          {
+            new: t('spine.stamp.new'),
+            pending: t('spine.stamp.pending'),
+            reviewed: t('spine.stamp.reviewed'),
+            frozen: t('spine.stamp.frozen'),
+          },
         )
       : null,
     [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename, locale, t],

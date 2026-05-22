@@ -11,6 +11,7 @@
 import { Beaker, FlaskConical, Pencil, Sparkles } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { useT } from '../../i18n'
 import type { ExperimentSummary, RunStamp } from '../../types/review'
 
 type Props = {
@@ -51,6 +52,7 @@ export default function ExperimentTabStrip({
   baselineRun,
   pendingRun,
 }: Props) {
+  const t = useT()
   // M14 — order matters: ✏ reviewed first, then baseline (active prod run),
   // then pre-label (Pro draft awaiting verification), then experiments. Each
   // tab is gated on its `_run` being present; pre-M14 blobs render no tab.
@@ -197,7 +199,7 @@ export default function ExperimentTabStrip({
           title="✏ editable ground truth — the reviewed copy"
         >
           <Pencil size={12} strokeWidth={1.7} aria-hidden="true" />
-          <span>reviewed</span>
+          <span>{t('review.tab.reviewed')}</span>
         </button>
       )
     }

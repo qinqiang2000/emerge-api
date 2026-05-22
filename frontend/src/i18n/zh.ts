@@ -24,6 +24,10 @@ const zh: Dict = {
   'spine.none.yet': '（暂无）',
   'spine.versions.empty': '（暂无版本）',
   'spine.more': '还有 {n} 个',
+  'spine.stamp.new': '新',
+  'spine.stamp.pending': '待审',
+  'spine.stamp.reviewed': '已审',
+  'spine.stamp.frozen': '冻结',
 
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': '对 agent 说点什么，或输入 / 调出命令…',
@@ -157,6 +161,7 @@ const zh: Dict = {
   'review.openChat.aria': '打开对话',
   'review.openChat.title': '打开对话 (⌘⇧.)',
   'review.reviewing': '正在 review',
+  'review.tab.reviewed': '已审',
   'review.view.form': 'form',
   'review.view.json': 'json',
   'review.save': '保存',

@@ -24,6 +24,10 @@ const en: Dict = {
   'spine.none.yet': '(none yet)',
   'spine.versions.empty': '(no versions yet)',
   'spine.more': '{n} more',
+  'spine.stamp.new': 'new',
+  'spine.stamp.pending': 'pending',
+  'spine.stamp.reviewed': 'reviewed',
+  'spine.stamp.frozen': 'frozen',
 
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': 'say something to the agent, or type / for a command…',
@@ -157,6 +161,7 @@ const en: Dict = {
   'review.openChat.aria': 'open chat',
   'review.openChat.title': 'open chat (⌘⇧.)',
   'review.reviewing': 'reviewing',
+  'review.tab.reviewed': 'reviewed',
   'review.view.form': 'form',
   'review.view.json': 'json',
   'review.save': 'save',
