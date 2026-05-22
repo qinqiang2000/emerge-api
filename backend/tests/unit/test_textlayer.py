@@ -266,7 +266,9 @@ async def test_extract_textlayer_image_doc_invokes_ocr(
     span = result["spans"][0]
     assert span["bbox"] == [20.0, 10.0, 40.0, 30.0]
     assert span["text"] == "Hello PNG"
-    assert span["font_size"] == 12.0
+    # font_size is derived from bbox HEIGHT × 0.85 (see textlayer.py
+    # `_ocr_extract_spans`); for a 20px-tall bbox that's 17.0px.
+    assert span["font_size"] == pytest.approx(20.0 * 0.85)
 
     # Exactly one OCR call.
     assert stub.extract.await_count == 1

@@ -191,14 +191,19 @@ async def _ocr_extract_spans(
         y0 = (y0_n / 1000.0) * page_h
         x1 = (x1_n / 1000.0) * page_w
         y1 = (y1_n / 1000.0) * page_h
+        # font_size derives from bbox HEIGHT × shrink factor — Gemini doesn't
+        # surface real font metrics, but the bbox already tracks the visual
+        # extent of the inked characters. Without this, the frontend
+        # text-layer would render text-glyphs at a fixed ~12pt while the
+        # underlying raster has glyphs 30px+ tall — the ::selection
+        # highlight would shrink to a tiny stripe inside the bbox instead of
+        # covering the visible characters. 0.85 leaves a hair of headroom
+        # so descenders / accents don't bleed out of the span.
+        bbox_h = max(1.0, float(y1 - y0))
         spans.append({
             "bbox": [float(x0), float(y0), float(x1), float(y1)],
             "text": text,
-            # font_size is approximate; the frontend overlay scales by
-            # bbox HEIGHT (cqh math) so this is mostly informational. We
-            # don't get a meaningful per-line font size out of OCR — 12pt
-            # is a reasonable middle-ground default.
-            "font_size": 12.0,
+            "font_size": bbox_h * 0.85,
         })
     return spans
 
