@@ -47,6 +47,12 @@ export default function PdfViewer() {
   // — subscribe so the button reflects state changes from either path.
   const translateMode = useTranslate((s) => s.mode)
   const translateByKey = useTranslate((s) => s.byKey)
+  // Textlayer state — the translate-button spinner doubles as a generic
+  // "this page is still being processed by the backend" indicator. The
+  // /textlayer endpoint runs OCR (5e02a42) and takes seconds the first
+  // time a page is opened; without this the user sees a static button
+  // and has no idea text-selection isn't ready yet.
+  const textlayerByKey = useTextlayer((s) => s.byKey)
 
   const [visiblePage, setVisiblePage] = useState(1)
   const [zoom, setZoom] = useState(1)
@@ -232,6 +238,17 @@ export default function PdfViewer() {
     if (anyLoading) translateBtnState = 'loading'
     else if (anyReady) translateBtnState = 'ready'
     else if (anyError) { translateBtnState = 'error'; translateBtnError = lastError }
+  }
+  // Overload: if translate mode is off (or its state is idle/ready), and
+  // the visible page's textlayer is still being fetched (OCR running),
+  // surface that as the same `loading` spinner. The button thus acts as
+  // a single "page-still-processing" indicator — translate mode itself
+  // doesn't change, just the visual state.
+  if (translateBtnState !== 'loading' && docKeyPrefix) {
+    const visibleKey = `${docKeyPrefix}${visiblePage}`
+    if (textlayerByKey[visibleKey]?.kind === 'loading') {
+      translateBtnState = 'loading'
+    }
   }
 
   function onToggleTranslate() {

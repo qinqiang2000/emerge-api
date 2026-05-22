@@ -198,9 +198,11 @@ export async function fetchTextlayer(
   slug: string,
   filename: string,
   page: number,
+  signal?: AbortSignal,
 ): Promise<TextlayerPayload> {
   const r = await fetch(
     `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/textlayer?page=${page}`,
+    { signal },
   )
   if (!r.ok) throw new Error(`fetchTextlayer ${r.status}`)
   return r.json()
@@ -237,12 +239,12 @@ export async function translatePage(
   slug: string,
   filename: string,
   page: number,
-  opts?: { lang?: string; force?: boolean },
+  opts?: { lang?: string; force?: boolean; signal?: AbortSignal },
 ): Promise<TranslatePayload> {
   const lang = opts?.lang ?? 'zh'
   const force = opts?.force ? 'true' : 'false'
   const url = `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/translate?page=${page}&lang=${encodeURIComponent(lang)}&force=${force}`
-  const r = await fetch(url, { method: 'POST' })
+  const r = await fetch(url, { method: 'POST', signal: opts?.signal })
   if (!r.ok) {
     let detail = `${r.status}`
     try {

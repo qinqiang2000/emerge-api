@@ -15,6 +15,11 @@
 //
 // Caching note: backend has its own sidecar cache keyed by (filename,
 // page, lang, mode, model). `force: true` skips both caches end-to-end.
+//
+// Abort semantics: mirrors `useTextlayer` — when ensure() is called for a
+// new (project, filename), abort every still-inflight fetch for the prior
+// doc so the per-origin HTTP/1.1 connection pool doesn't get tied up by
+// stale multi-second translate calls when the user fast-steps with ←/→.
 import { create } from 'zustand'
 
 import { translatePage, type TranslatePayload } from '../lib/api'
@@ -51,6 +56,10 @@ function makeKey(projectId: string, filename: string, page: number): string {
   return `${projectId}::${filename}::${page}`
 }
 
+// Module-scoped abort bookkeeping; see textlayer.ts for the same pattern.
+const inflight: Map<string, AbortController> = new Map()
+let lastDocKey: string | null = null
+
 export const useTranslate = create<State>((set, get) => ({
   mode: 'off',
   byKey: {},
@@ -62,26 +71,76 @@ export const useTranslate = create<State>((set, get) => ({
     // explicitly flips mode away from off, then loops ensure() over
     // loadedPages — never the other way around.
     if (get().mode === 'off') return
+
+    // Doc-switch abort — same shape as useTextlayer.
+    const docKey = `${projectId}::${filename}`
+    if (lastDocKey && lastDocKey !== docKey) {
+      const prefix = `${lastDocKey}::`
+      const aborted: string[] = []
+      for (const [k, ac] of inflight) {
+        if (k.startsWith(prefix)) {
+          ac.abort()
+          aborted.push(k)
+        }
+      }
+      for (const k of aborted) inflight.delete(k)
+      if (aborted.length > 0) {
+        set((s) => {
+          const next = { ...s.byKey }
+          for (const k of aborted) {
+            if (next[k]?.kind === 'loading') next[k] = { kind: 'idle' }
+          }
+          return { byKey: next }
+        })
+      }
+    }
+    lastDocKey = docKey
+
     const key = makeKey(projectId, filename, page)
     const current = get().byKey[key]
     if (!opts?.force && current && (current.kind === 'loading' || current.kind === 'ready')) {
       return
     }
+
+    // `force: true` re-fetches; if a previous attempt is still inflight
+    // for this exact key, cancel it so we don't double-write the result.
+    const prior = inflight.get(key)
+    if (prior) {
+      prior.abort()
+      inflight.delete(key)
+    }
+
+    const ac = new AbortController()
+    inflight.set(key, ac)
     set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'loading' } } }))
-    translatePage(projectId, filename, page, { force: opts?.force }).then(
-      (payload) => set((s) => ({
-        byKey: { ...s.byKey, [key]: { kind: 'ready', payload } },
-      })),
-      (err: unknown) => set((s) => ({
-        byKey: {
-          ...s.byKey,
-          [key]: { kind: 'error', message: err instanceof Error ? err.message : String(err) },
-        },
-      })),
+    translatePage(projectId, filename, page, { force: opts?.force, signal: ac.signal }).then(
+      (payload) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'ready', payload } } }))
+      },
+      (err: unknown) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({
+          byKey: {
+            ...s.byKey,
+            [key]: { kind: 'error', message: err instanceof Error ? err.message : String(err) },
+          },
+        }))
+      },
     )
   },
   clearProject: (projectId) => {
     const prefix = `${projectId}::`
+    const aborted: string[] = []
+    for (const [k, ac] of inflight) {
+      if (k.startsWith(prefix)) {
+        ac.abort()
+        aborted.push(k)
+      }
+    }
+    for (const k of aborted) inflight.delete(k)
     set((s) => {
       const next: Record<string, PageState> = {}
       for (const [k, v] of Object.entries(s.byKey)) {
