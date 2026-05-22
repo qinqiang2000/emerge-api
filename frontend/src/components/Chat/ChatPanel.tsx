@@ -57,12 +57,26 @@ interface ChatPanelProps {
    *  Useful for surfaces with limited width (drilldown) where the default
    *  copy would wrap. */
   composerPlaceholder?: string
+  /** Slice the events stream at this offset before rendering. Surfaces that
+   *  share the project chat but want a focused, in-context view (e.g. the
+   *  EvalMatrix CellDrilldown) pass the events.length they captured at mount
+   *  time so the drilldown opens on an empty surface instead of the main
+   *  chat's full history. New turns sent from this surface still land in the
+   *  shared chat — they just become the only thing this view renders. */
+  historyOffset?: number
 }
 
-export default function ChatPanel({ compact = false, composerPlaceholder }: ChatPanelProps = {}) {
+export default function ChatPanel({ compact = false, composerPlaceholder, historyOffset }: ChatPanelProps = {}) {
   const t = useT()
   const { selectedSlug, projects } = useProjects()
-  const events = useChat(s => s.events)
+  const allEvents = useChat(s => s.events)
+  // Drilldown / focused-surface callers pass historyOffset to hide the
+  // project-wide chat history that predates them. The shared chat store is
+  // untouched — sliced view only, so submit() still appends to the same
+  // events.jsonl. Clamp defensively in case the offset outlives a rewind.
+  const events = historyOffset != null
+    ? allEvents.slice(Math.min(historyOffset, allEvents.length))
+    : allEvents
   const send = useChat(s => s.send)
   const busy = useChat(s => s.busy)
   const chatId = useChat(s => s.chatId)
@@ -130,7 +144,13 @@ export default function ChatPanel({ compact = false, composerPlaceholder }: Chat
   // `hasContent` flips `.conv-scroll` (and `.conv-inner`) into the tree —
   // the scroll handler + ResizeObserver have to (re)attach when that happens,
   // not just at first mount.
-  const hasContent = events.length > 0 || docCount > 0 || fieldCount > 0
+  //
+  // When `historyOffset` is set (drilldown), only the sliced events count —
+  // a project with docs/fields but no new turns from this cell should still
+  // show the compact placeholder, not an empty conv-scroll.
+  const hasContent = historyOffset != null
+    ? events.length > 0
+    : events.length > 0 || docCount > 0 || fieldCount > 0
 
   useEffect(() => {
     if (!hasContent) return

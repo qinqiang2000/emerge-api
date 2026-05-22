@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { useChat } from '../../stores/chat'
 import type { CellVerdict } from '../../types/eval'
 import ChatPanel from '../Chat/ChatPanel'
 import { useT } from '../../i18n'
@@ -20,6 +21,20 @@ function statusLabel(status: CellVerdict['status'], t: (k: string) => string): s
     case 'missing': return t('eval.verdict.missing')
     case 'spurious': return t('eval.verdict.spurious')
     case 'absent_both': return t('eval.verdict.absentBoth')
+  }
+}
+
+
+// Predicted-value tone follows the cell status — green when the prediction
+// matched ground truth, rose when it diverged, muted when one side is empty.
+// Truth is always shown in moss since it's the reference value by definition.
+function predToneClass(status: CellVerdict['status']): string {
+  switch (status) {
+    case 'correct': return 'text-moss'
+    case 'wrong': return 'text-rose'
+    case 'spurious': return 'text-rose'
+    case 'missing': return 'text-ink-3'
+    case 'absent_both': return 'text-ink-3'
   }
 }
 
@@ -56,7 +71,7 @@ function prettyValue(v: string | null): string | null {
 // matrix stays visible behind the drilldown.
 const MIN_WIDTH = 320
 const MAX_WIDTH = 1000
-const DEFAULT_WIDTH = 480
+const DEFAULT_WIDTH = 560
 
 export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview }: Props) {
   const t = useT()
@@ -64,6 +79,20 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
   // for the user to manage; they can re-drag if a wider matrix needs it.
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const draggingRef = useRef(false)
+
+  // History clipping: capture the chat events length when this drilldown
+  // opens (and again when the user clicks into a different cell) so the
+  // embedded ChatPanel shows an empty surface focused on this cell, not the
+  // project's accumulated main-chat history. New turns sent from here append
+  // to the shared chat as usual and become visible because they sit past the
+  // captured baseline.
+  const cellKey = `${cell.filename}::${cell.field}::${cell.entity_idx}`
+  const [historyOffset, setHistoryOffset] = useState<number>(
+    () => useChat.getState().events.length,
+  )
+  useEffect(() => {
+    setHistoryOffset(useChat.getState().events.length)
+  }, [cellKey])
 
   // Drag-to-resize: mousedown on the left-edge handle attaches window-level
   // listeners until mouseup. We compute width from `window.innerWidth - clientX`
@@ -102,11 +131,13 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
         onMouseDown={startResize}
         aria-hidden="true"
       />
-      {/* Cell content scrolls independently from the inline composer below.
-          The composer owns its own scroll region; min-h-0 + overflow-auto
-          here keeps the truth/pred blocks reachable when the composer is
-          tall (it can grow with focus + multiline input). */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-5">
+      {/* Cell content sits on top, sized to its content with a hard ceiling
+          so the chat area below always claims the rest of the panel. Without
+          the ceiling a long pred JSON would still leave the composer in a
+          40vh sliver; with `flex-shrink-0` + `max-h-[60%]` short cells
+          collapse and let chat breathe (the common case), long cells cap
+          at 60% and scroll internally. */}
+      <div className="shrink-0 overflow-y-auto p-5 max-h-[60%]">
         <header className="flex items-baseline justify-between mb-4">
           <h3 className="text-base font-semibold">
             {cell.filename}
@@ -125,28 +156,37 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
           <span className="ml-2">· {statusLabel(cell.status, t)}</span>
         </div>
 
-        <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.truth')}</div>
-          <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
-            {prettyValue(cell.truth) ?? '—'}
-          </pre>
-        </section>
-
-        <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.current')}</div>
-          <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
-            {prettyValue(cell.pred) ?? '—'}
-          </pre>
-        </section>
-
-        <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.basis')}</div>
-          <div className="text-sm">
-            {verdictLabel(cell, t)}
-            {cell.judge_reason && (
-              <div className="text-xs text-ink-3 mt-1">{cell.judge_reason}</div>
-            )}
+        {/* Side-by-side compare. For short scalars (the common case —
+            amounts, dates, IDs) this halves the vertical real estate the
+            cell card takes, leaving more room for chat below. The inner
+            `min-w-0` is needed so `break-all` actually wraps inside a grid
+            cell instead of pushing the column wider. */}
+        <section className="mb-4 grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.truth')}</div>
+            <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto text-moss">
+              {prettyValue(cell.truth) ?? '—'}
+            </pre>
           </div>
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.current')}</div>
+            <pre className={`font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto ${predToneClass(cell.status)}`}>
+              {prettyValue(cell.pred) ?? '—'}
+            </pre>
+          </div>
+        </section>
+
+        {/* Basis line is inline: label + verdict on one row. The optional
+            judge reason drops to a second row in muted small text so the
+            primary verdict stays scannable. */}
+        <section className="mb-4 text-sm">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs uppercase tracking-wide text-ink-3 shrink-0">{t('eval.cell.basis')}</span>
+            <span className="min-w-0 break-words">{verdictLabel(cell, t)}</span>
+          </div>
+          {cell.judge_reason && (
+            <div className="text-xs text-ink-3 mt-1">{cell.judge_reason}</div>
+          )}
         </section>
 
         <button
@@ -163,9 +203,17 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
           useEvalSurface). The user's draft and the agent's reply both land
           in the main chat shell behind the modal; the drilldown only
           provides the input surface so they can ask "why is this prediction
-          wrong?" without losing sight of the cell. */}
-      <div className="border-t border-rule p-3 max-h-[40vh] overflow-hidden flex flex-col">
-        <ChatPanel compact composerPlaceholder={t('eval.askAgent.placeholder')} />
+          wrong?" without losing sight of the cell.
+
+          `flex-1 min-h-0` lets this region claim every remaining pixel below
+          the cell card so the conversation has room to render — the cell
+          card above is the bounded one, not the chat. */}
+      <div className="border-t border-rule p-3 flex-1 min-h-0 overflow-hidden flex flex-col">
+        <ChatPanel
+          compact
+          composerPlaceholder={t('eval.askAgent.placeholder')}
+          historyOffset={historyOffset}
+        />
       </div>
     </aside>
   )
