@@ -828,15 +828,15 @@ html, body, #root {
    The popover itself renders in document.body via portal so it
    escapes the .dv-pagewrap rotate/zoom transform. */
 .translate-ghost-layer{position:absolute;inset:0;pointer-events:none;z-index:2;container-type:size}
-.translate-ghost-span{position:absolute;pointer-events:none;user-select:none;line-height:1.15;font-weight:400;font-family:var(--serif);padding:0;display:flex;align-items:center}
-/* Subtle = annotation; the original raster remains the primary surface.
-   nowrap + ellipsis keeps the navigator on a single visual line per row. */
-.translate-ghost-layer.is-subtle .translate-ghost-span{color:rgba(31,27,20,.48);background:transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 2px rgba(250,250,247,.92),0 0 2px rgba(250,250,247,.92),0 0 3px rgba(250,250,247,.6)}
+.translate-ghost-span{position:absolute;pointer-events:none;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1;font-weight:400;font-family:var(--serif);padding:0;display:flex;align-items:center}
+/* Subtle = annotation; the original raster remains the primary surface. */
+.translate-ghost-layer.is-subtle .translate-ghost-span{color:rgba(31,27,20,.48);background:transparent;text-shadow:0 0 2px rgba(250,250,247,.92),0 0 2px rgba(250,250,247,.92),0 0 3px rgba(250,250,247,.6)}
 /* Cover = Chrome / WeChat reading mode; opaque paper background visually
    replaces the original raster while textlayer at z=1 keeps original copy
-   selection working underneath. Allow wrap so longer Chinese phrases bleed
-   downward into inter-line space rather than truncating mid-character. */
-.translate-ghost-layer.is-cover .translate-ghost-span{color:var(--ink);background:rgba(250,250,247,.96);white-space:normal;overflow:visible;word-break:break-word;text-shadow:none;border-radius:2px;padding:0 2px;box-shadow:0 0 0 1px rgba(250,250,247,.96)}
+   selection working underneath. Font sized in JS via text-fit-to-bbox so
+   long Chinese translations shrink horizontally instead of wrapping into
+   the next line's territory. */
+.translate-ghost-layer.is-cover .translate-ghost-span{color:var(--ink);background:rgba(250,250,247,.96);text-shadow:none;border-radius:2px;padding:0 2px;box-shadow:0 0 0 1px rgba(250,250,247,.96)}
 
 /* Spinner state for the toolbar button while at least one page is
    loading. CSS-only — no extra deps. */

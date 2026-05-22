@@ -47,9 +47,18 @@ interface GhostProps {
 // Per-view font sizing tables. Cover mode wants Chinese to read at roughly
 // the visual weight of the original character; subtle mode wants the
 // opposite — small annotation that yields to the raster underneath.
+//
+// Sizing is fit-to-bbox: font-size is the SMALLER of two budgets — height
+// (so tall headings can grow) and width (so long translations don't
+// truncate). With nowrap + ellipsis as a hard fallback, the user almost
+// never sees clipped text but the font shrinks gracefully on dense lines.
 const GHOST_SIZING = {
-  subtle: { minPx: 8, maxPx: 11, shrink: 0.5 },
-  cover:  { minPx: 11, maxPx: 24, shrink: 0.85 },
+  // navigator — keep tiny regardless of bbox so the underlying raster
+  // stays primary.
+  subtle: { minPx: 7, maxPx: 11, heightShrink: 0.5, widthCharFactor: 0.55 },
+  // reading mode — match original visual weight, but never let a long
+  // address force ellipsis.
+  cover:  { minPx: 8, maxPx: 22, heightShrink: 0.85, widthCharFactor: 0.62 },
 } as const
 
 export function TranslateGhost({ lines, pageW, pageH, view = 'subtle' }: GhostProps) {
@@ -61,16 +70,19 @@ export function TranslateGhost({ lines, pageW, pageH, view = 'subtle' }: GhostPr
         const [x0, y0, x1, y1] = line.bbox
         const left = (x0 / pageW) * 100
         const top = (y0 / pageH) * 100
-        const width = ((x1 - x0) / pageW) * 100
-        const height = ((y1 - y0) / pageH) * 100
-        // Same `cqh` trick as the text layer so font scales with the
-        // rendered page. We use the bbox HEIGHT as the font reference so
-        // tall/short lines pick proportional sizes; clamp() then enforces
-        // the px caps. cqh on the wrapper (set by .translate-ghost-layer
-        // container-type:size) resolves to "% of layer height".
-        const fontSizeCqh = ((y1 - y0) / pageH) * 100 * sizing.shrink
+        const widthPct = ((x1 - x0) / pageW) * 100
+        const heightPct = ((y1 - y0) / pageH) * 100
+        // Two budgets:
+        //   heightCqh = bbox height × shrink, expressed as "% of layer height" → cqh
+        //   widthCqw  = bbox width / (char count × char-width factor), "% of layer width" → cqw
+        // Container queries (container-type: size on .translate-ghost-layer)
+        // resolve cqh / cqw against the wrapper, which is the rendered page,
+        // so the result tracks rotation + zoom for free.
+        const heightCqh = heightPct * sizing.heightShrink
+        const charCount = Math.max(1, line.translated.length)
+        const widthCqw = widthPct / (charCount * sizing.widthCharFactor)
         const fontSize =
-          `clamp(${sizing.minPx}px, ${fontSizeCqh}cqh, ${sizing.maxPx}px)`
+          `clamp(${sizing.minPx}px, min(${heightCqh}cqh, ${widthCqw}cqw), ${sizing.maxPx}px)`
         return (
           <span
             key={i}
@@ -79,8 +91,8 @@ export function TranslateGhost({ lines, pageW, pageH, view = 'subtle' }: GhostPr
             style={{
               left: `${left}%`,
               top: `${top}%`,
-              width: `${width}%`,
-              height: `${height}%`,
+              width: `${widthPct}%`,
+              height: `${heightPct}%`,
               fontSize,
             }}
           >
