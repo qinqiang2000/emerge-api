@@ -8,6 +8,7 @@ import { useTextlayer } from '../../stores/textlayer'
 import { useTranslate } from '../../stores/translate'
 import TextLayer, { type SelectableSpan } from './TextLayer'
 import { TranslateGhost, TranslatePopover } from './TranslateOverlay'
+import { useT } from '../../i18n'
 
 // Toolbar tooltip: native `title=` has a ~500–1500ms OS-level delay that
 // makes the dv-toolbar feel sluggish. Radix tooltip with a short delay
@@ -41,6 +42,7 @@ type PopoverState = {
 }
 
 export default function PdfViewer() {
+  const t = useT()
   const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
   const { byProject } = useDocs()
   // Translate mode is driven by both the toolbar button and the `T` key
@@ -370,7 +372,7 @@ export default function PdfViewer() {
     <>
       <TooltipPrimitive.Provider delayDuration={TOOLBAR_TIP_DELAY_MS} skipDelayDuration={0}>
         <div className="dv-toolbar">
-          <Tip label="previous page">
+          <Tip label={t('pdf.prevPage')}>
             <button className="dv-btn"
               disabled={visiblePage <= 1 || pageCount <= 1}
               onClick={() => jumpToPage(Math.max(1, visiblePage - 1))}>
@@ -389,7 +391,7 @@ export default function PdfViewer() {
             <span className="of">/</span>
             <span className="tot">{pageCount}</span>
           </span>
-          <Tip label="next page">
+          <Tip label={t('pdf.nextPage')}>
             <button className="dv-btn"
               disabled={visiblePage >= pageCount || pageCount <= 1}
               onClick={() => jumpToPage(Math.min(pageCount, visiblePage + 1))}>
@@ -400,15 +402,15 @@ export default function PdfViewer() {
           <span className="dv-sep" />
 
           <div className="dv-zoom">
-            <Tip label="zoom out">
+            <Tip label={t('pdf.zoomOut')}>
               <button onClick={() => bumpZoom(-0.1)}>−</button>
             </Tip>
             <span className="lvl">{Math.round(effZoom * 100)}%</span>
-            <Tip label="zoom in">
+            <Tip label={t('pdf.zoomIn')}>
               <button onClick={() => bumpZoom(+0.1)}>+</button>
             </Tip>
           </div>
-          <Tip label={fit ? 'fit to width (on)' : 'fit to width'}>
+          <Tip label={fit ? t('pdf.fitToWidth.on') : t('pdf.fitToWidth')}>
             <button
               className={'dv-btn' + (!fit ? ' on' : '')}
               onClick={() => { if (fit) { setZoom(fitZoom); setFit(false) } else { setFit(true) } }}>
@@ -423,7 +425,7 @@ export default function PdfViewer() {
 
           <span className="dv-sep" />
 
-          <Tip label="rotate left 90°">
+          <Tip label={t('pdf.rotateLeft')}>
             <button className="dv-btn" onClick={() => rotate(-1)}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7a4 4 0 1 1 1.2 2.85"/>
@@ -431,7 +433,7 @@ export default function PdfViewer() {
               </svg>
             </button>
           </Tip>
-          <Tip label="rotate right 90°">
+          <Tip label={t('pdf.rotateRight')}>
             <button className="dv-btn" onClick={() => rotate(+1)}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11 7a4 4 0 1 0 -1.2 2.85"/>
@@ -445,10 +447,10 @@ export default function PdfViewer() {
           <Tip
             label={
               translateBtnState === 'error' && translateBtnError
-                ? `翻译失败: ${translateBtnError} (T)`
+                ? t('pdf.translate.title.failed', { error: translateBtnError })
                 : translateMode === 'cover'
-                  ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
-                  : '翻译此 doc (T)'
+                  ? t('pdf.translate.title.on')
+                  : t('pdf.translate.title')
             }
           >
             <button

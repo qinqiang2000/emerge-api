@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 
 import type { CellVerdict } from '../../types/eval'
 import ChatPanel from '../Chat/ChatPanel'
+import { useT } from '../../i18n'
 
 
 interface Props {
@@ -12,24 +13,24 @@ interface Props {
 }
 
 
-function statusLabel(status: CellVerdict['status']): string {
+function statusLabel(status: CellVerdict['status'], t: (k: string) => string): string {
   switch (status) {
-    case 'correct': return '正确'
-    case 'wrong': return '错误'
-    case 'missing': return '漏抽'
-    case 'spurious': return '多抽'
-    case 'absent_both': return '双方留空'
+    case 'correct': return t('eval.verdict.correct')
+    case 'wrong': return t('eval.verdict.wrong')
+    case 'missing': return t('eval.verdict.missing')
+    case 'spurious': return t('eval.verdict.spurious')
+    case 'absent_both': return t('eval.verdict.absentBoth')
   }
 }
 
 
-function verdictLabel(c: CellVerdict): string {
-  if (c.verdict_source === 'exact') return '字面相等'
+function verdictLabel(c: CellVerdict, t: (k: string, vars?: Record<string, string | number>) => string): string {
+  if (c.verdict_source === 'exact') return t('eval.source.exact')
   if (c.verdict_source === 'normalize') {
-    return c.normalizer ? `归一化命中 (${c.normalizer})` : '归一化判定'
+    return c.normalizer ? t('eval.source.normalizedWith', { normalizer: c.normalizer }) : t('eval.source.normalized')
   }
-  if (c.verdict_source === 'llm_judge') return `LLM 判定 (${c.judge_model ?? ''})`
-  return '存在性判定'
+  if (c.verdict_source === 'llm_judge') return t('eval.source.llmJudge', { model: c.judge_model ?? '' })
+  return t('eval.source.presence')
 }
 
 
@@ -58,6 +59,7 @@ const MAX_WIDTH = 1000
 const DEFAULT_WIDTH = 480
 
 export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview }: Props) {
+  const t = useT()
   // Width is local + ephemeral — not persisted. Per SSU, one less preference
   // for the user to manage; they can re-drag if a wider matrix needs it.
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -114,33 +116,33 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
             className="text-ink-3 hover:text-ink-2 text-sm"
             onClick={onClose}
           >
-            关闭
+            {t('eval.cell.close')}
           </button>
         </header>
         <div className="text-xs text-ink-3 mb-4">
           <span className="font-mono">{cell.field}</span>
-          {cell.entity_idx > 0 && <span className="ml-2">· 实体 #{cell.entity_idx}</span>}
-          <span className="ml-2">· {statusLabel(cell.status)}</span>
+          {cell.entity_idx > 0 && <span className="ml-2">· {t('eval.cell.entity', { idx: cell.entity_idx })}</span>}
+          <span className="ml-2">· {statusLabel(cell.status, t)}</span>
         </div>
 
         <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">正确值</div>
+          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.truth')}</div>
           <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
             {prettyValue(cell.truth) ?? '—'}
           </pre>
         </section>
 
         <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">当前值</div>
+          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.current')}</div>
           <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
             {prettyValue(cell.pred) ?? '—'}
           </pre>
         </section>
 
         <section className="mb-4">
-          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">判定依据</div>
+          <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.basis')}</div>
           <div className="text-sm">
-            {verdictLabel(cell)}
+            {verdictLabel(cell, t)}
             {cell.judge_reason && (
               <div className="text-xs text-ink-3 mt-1">{cell.judge_reason}</div>
             )}
@@ -152,7 +154,7 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
           className="w-full bg-paper-3 hover:bg-paper-2 text-ink text-sm py-2 rounded border border-rule"
           onClick={onOpenReview}
         >
-          查看 doc →
+          {t('eval.cell.openDoc')}
         </button>
       </div>
 
@@ -163,7 +165,7 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
           provides the input surface so they can ask "why is this prediction
           wrong?" without losing sight of the cell. */}
       <div className="border-t border-rule p-3 max-h-[40vh] overflow-hidden flex flex-col">
-        <ChatPanel compact composerPlaceholder="问 agent…" />
+        <ChatPanel compact composerPlaceholder={t('eval.askAgent.placeholder')} />
       </div>
     </aside>
   )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, CornerDownLeft, MessageSquare } from 'lucide-react'
 
 import { useChat } from '../../stores/chat'
+import { useT } from '../../i18n'
 import type { AskUserRequestEvent } from '../../types/chat'
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
  *  Lifecycle is pending-only — a reload during the prompt drops the card
  *  and the agent's await releases via cancel_pending_ask_user. */
 export default function AskUserCard({ event }: Props) {
+  const t = useT()
   const resolveAskUser = useChat(s => s.resolveAskUser)
   const resolved = event.resolution
 
@@ -126,7 +128,7 @@ export default function AskUserCard({ event }: Props) {
               <span className="text-ink-3 truncate min-w-0">{q.question}</span>
               <span className="text-ink-4">→</span>
               <span className={cancelled ? 'text-ink-3 italic' : 'text-ink'}>
-                {cancelled ? 'redirected' : (labels || '(no answer)')}
+                {cancelled ? t('ask.redirected') : (labels || t('ask.noAnswer'))}
               </span>
             </div>
           )
@@ -139,16 +141,16 @@ export default function AskUserCard({ event }: Props) {
     <div
       className="border border-ochre-edge bg-ochre-soft rounded-lg px-3 py-3 flex flex-col gap-3"
       role="dialog"
-      aria-label="Question from agent"
+      aria-label={t('ask.aria')}
       data-testid="ask-user-card"
     >
       <div className="flex items-baseline gap-2">
         <MessageSquare size={14} className="text-ochre-2 self-center" />
         <span className="font-mono text-xs uppercase tracking-wider text-ochre-2">
-          question
+          {t('ask.questionLabel')}
         </span>
         {hasMultiSelect && (
-          <span className="font-mono text-[10.5px] text-ink-4">(multi-select)</span>
+          <span className="font-mono text-[10.5px] text-ink-4">{t('ask.multiSelectHint')}</span>
         )}
       </div>
 
@@ -214,7 +216,7 @@ export default function AskUserCard({ event }: Props) {
             onClick={handleSubmit}
             className="font-mono text-xs px-3 py-1.5 rounded border border-ochre bg-paper text-ochre-2 hover:bg-ochre-soft transition-colors"
           >
-            submit
+            {t('ask.submit')}
           </button>
         </div>
       )}

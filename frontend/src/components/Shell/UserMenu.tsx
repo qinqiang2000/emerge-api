@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { Check, ChevronRight } from 'lucide-react'
 import './usermenu.css'
 
+import { useI18n, useT, type Locale } from '../../i18n'
+
 // Heroicons outline `globe-alt` — claude.ai uses this exact icon for the
 // Language row. Lucide's `Globe` has a different meridian geometry; inlining
 // the heroicons path lets us match pixel-for-pixel.
@@ -30,35 +32,19 @@ function GlobeAlt({ size = 16, className }: { size?: number; className?: string 
 // (Multi-user auth lives downstream; spec asks for a placeholder.)
 const USER_EMAIL = 'docai@piaozone.com'
 
-const LANG_KEY = 'emerge.ui.lang'
-type Lang = 'en' | 'zh'
 // Single-label rows, claude.ai-style: native script + optional region in parens.
 // The sub-popover does NOT carry a second muted "English/Simplified Chinese"
 // hint column — that produced cramped two-column rows and "中..." truncation.
-const LANG_OPTIONS: { value: Lang; label: string }[] = [
-  { value: 'en', label: 'English' },
-  { value: 'zh', label: '中文（简体）' },
+// Labels are looked up via i18n so each language displays its native script.
+const LANG_OPTIONS: { value: Locale; labelKey: string; shortKey: string }[] = [
+  { value: 'en', labelKey: 'usermenu.lang.en', shortKey: 'usermenu.lang.short.en' },
+  { value: 'zh', labelKey: 'usermenu.lang.zh', shortKey: 'usermenu.lang.short.zh' },
 ]
-
-function readLang(): Lang {
-  try {
-    const v = localStorage.getItem(LANG_KEY)
-    if (v === 'en' || v === 'zh') return v
-  } catch { /* ignore */ }
-  return 'en'
-}
 
 function initialsFromEmail(email: string): string {
   const local = email.split('@')[0] ?? ''
   const ch = local.replace(/[^a-zA-Z0-9]/g, '')[0] ?? '?'
   return ch.toUpperCase()
-}
-
-// Short label for the main popover's "Language → English" hint column.
-// Strips the parenthetical region — keeps the row trim.
-function labelForLang(l: Lang): string {
-  if (l === 'zh') return '中文'
-  return 'English'
 }
 
 type Variant = 'expanded' | 'rail'
@@ -85,9 +71,11 @@ const SUB_W = 200
  * with the actual language options. Mirrors claude.ai's submenu pattern.
  */
 export default function UserMenu({ variant = 'expanded' }: Props) {
+  const t = useT()
+  const lang = useI18n(s => s.locale)
+  const setLocale = useI18n(s => s.setLocale)
   const [open, setOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
-  const [lang, setLang] = useState<Lang>(() => readLang())
   const [popPos, setPopPos] = useState<Coord | null>(null)
   const [subPos, setSubPos] = useState<Coord | null>(null)
 
@@ -165,14 +153,12 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
     }
   }, [open, subOpen])
 
-  const pickLang = useCallback((next: Lang) => {
-    setLang(next)
-    try { localStorage.setItem(LANG_KEY, next) } catch { /* ignore */ }
-    try { window.dispatchEvent(new CustomEvent('emerge:lang', { detail: next })) } catch { /* ignore */ }
+  const pickLang = useCallback((next: Locale) => {
+    setLocale(next)
     cancelSubClose()
     setSubOpen(false)
     setOpen(false)
-  }, [cancelSubClose])
+  }, [cancelSubClose, setLocale])
 
   // Tear down any pending sub-close timer when the main popover closes.
   useEffect(() => { if (!open) cancelSubClose() }, [open, cancelSubClose])
@@ -206,8 +192,8 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
           onMouseLeave={scheduleSubClose}
         >
           <GlobeAlt size={16} className="up-row-ic" />
-          <span className="up-row-label">Language</span>
-          <span className="up-row-hint">{labelForLang(lang)}</span>
+          <span className="up-row-label">{t('usermenu.language')}</span>
+          <span className="up-row-hint">{t(`usermenu.lang.short.${lang}`)}</span>
           <ChevronRight size={14} strokeWidth={1.75} className="up-row-chev" />
         </button>
       </div>
@@ -236,7 +222,7 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
             className={'up-row' + (lang === opt.value ? ' on' : '')}
             onClick={() => pickLang(opt.value)}
           >
-            <span className="up-row-label">{opt.label}</span>
+            <span className="up-row-label">{t(opt.labelKey)}</span>
             {lang === opt.value && <Check size={14} strokeWidth={2} className="up-row-check" />}
           </button>
         ))}
@@ -251,7 +237,7 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
         type="button"
         className={'user-btn' + (open ? ' on' : '')}
         onClick={() => { setSubOpen(false); setOpen(o => !o) }}
-        aria-label="Account menu"
+        aria-label={t('usermenu.accountMenu')}
         aria-haspopup="menu"
         aria-expanded={open}
         title={USER_EMAIL}

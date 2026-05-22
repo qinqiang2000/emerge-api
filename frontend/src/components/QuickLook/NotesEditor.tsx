@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSchema, type SchemaField, type SaveError } from '../../stores/schema'
 import { usePrompts } from '../../stores/prompts'
 import { Reminder } from '../Reminder'
+import { useT } from '../../i18n'
 
 interface Props {
   slug: string
@@ -9,8 +10,6 @@ interface Props {
   schema: SchemaField[]
   readOnly?: boolean
 }
-
-const PLACEHOLDER = '给模型的整体说明 — 角色、输入约束、任务描述、注意事项…'
 
 // Long enough that the human eye can register the confirmation, short enough
 // that it doesn't linger past the next interaction. Matches PublishStage's
@@ -20,6 +19,7 @@ const SAVED_HOLD_MS = 1500
 type Status = 'idle' | 'saving' | 'saved' | 'error'
 
 export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
+  const t = useT()
   const [local, setLocal] = useState(value)
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<SaveError | null>(null)
@@ -61,7 +61,9 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
   }, [local, collapsed, readOnly])
 
   const lineCount = local.length === 0 ? 0 : local.split('\n').length
-  const summary = local.length === 0 ? 'empty' : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
+  const summary = local.length === 0
+    ? t('ql.notes.empty')
+    : (lineCount === 1 ? t('ql.notes.line.one') : t('ql.notes.line.many', { n: lineCount }))
 
   if (readOnly) {
     return (
@@ -72,7 +74,7 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
             className="ql-notes-toggle"
             onClick={() => setCollapsed(v => !v)}
             aria-expanded={!collapsed}
-            title={collapsed ? 'expand' : 'collapse'}
+            title={collapsed ? t('ql.notes.expand') : t('ql.notes.collapse')}
           >
             {collapsed ? '▸' : '▾'} notes
           </button>
@@ -81,7 +83,7 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
         {!collapsed && (
           local.length > 0
             ? <pre className="ql-notes-ro">{local}</pre>
-            : <div className="ql-notes-ro ql-notes-ro--empty">{'(no notes)'}</div>
+            : <div className="ql-notes-ro ql-notes-ro--empty">{t('ql.notes.none')}</div>
         )}
       </div>
     )
@@ -136,10 +138,10 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
         </button>
         {collapsed && <span className="ql-notes-count">· {summary}</span>}
         {status === 'saving' && (
-          <Reminder form="inline" intent="note">saving…</Reminder>
+          <Reminder form="inline" intent="note">{t('ql.notes.saving')}</Reminder>
         )}
         {status === 'saved' && (
-          <Reminder form="inline" intent="tip">saved</Reminder>
+          <Reminder form="inline" intent="tip">{t('ql.notes.saved')}</Reminder>
         )}
       </div>
       {!collapsed && (
@@ -147,7 +149,7 @@ export default function NotesEditor({ slug, value, schema, readOnly }: Props) {
           ref={taRef}
           className="ql-notes-ta"
           value={local}
-          placeholder={PLACEHOLDER}
+          placeholder={t('ql.notes.placeholder')}
           spellCheck={false}
           onChange={(e) => setLocal(e.target.value)}
           onBlur={() => { void commit() }}

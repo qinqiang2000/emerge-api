@@ -13,10 +13,10 @@ import { useJob } from '../../stores/jobs'
 import Composer from './Composer'
 import ConvHeader from './ConvHeader'
 import ChatErrorBoundary from './ChatErrorBoundary'
-import { openChatPopover } from './ChatHistoryActions'
 import MessageList from './MessageList'
 import EmptyHero from '../Empty/EmptyHero'
 import ImproveBanner from '../Improve/ImproveBanner'
+import { useT } from '../../i18n'
 
 /**
  * One pending attachment as the user sees it before the chat turn fires.
@@ -60,6 +60,7 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ compact = false, composerPlaceholder }: ChatPanelProps = {}) {
+  const t = useT()
   const { selectedSlug, projects } = useProjects()
   const events = useChat(s => s.events)
   const send = useChat(s => s.send)
@@ -365,19 +366,13 @@ export default function ChatPanel({ compact = false, composerPlaceholder }: Chat
         </div>
       ) : compact ? (
         <div className="chat-compact-empty" role="status">
-          <span>start by asking about a field…</span>
+          <span>{t('composer.placeholder.askField')}</span>
         </div>
       ) : (
         <EmptyHero
           projectName={projectName}
           onAttach={(files: File[]) => { void attach(files) }}
           onStarter={(text) => { void handleStarter(text) }}
-          recentConversations={!selectedSlug ? chatsUnbound : undefined}
-          onOpenConversation={(cid) => useChat.getState().enterUnboundChat(cid)}
-          onSeeAllConversations={() => {
-            void useChat.getState().listUnbound()
-            openChatPopover()
-          }}
         />
       )}
       <Composer

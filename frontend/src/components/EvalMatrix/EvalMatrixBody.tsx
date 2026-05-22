@@ -11,6 +11,7 @@ import { synthesizeAccuracyMacro } from '../../types/eval'
 import CellDrilldown from './CellDrilldown'
 import MatrixGrid from './MatrixGrid'
 import { type MatrixFilter, pct } from './filters'
+import { useT } from '../../i18n'
 
 
 function flattenFieldNames(fields: Array<{ name: string | null }>): string[] {
@@ -36,6 +37,7 @@ interface Props {
  *  `latest`-resolution, summary/cells/list loads, filter toggle, and drilldown
  *  state. The wrapping host decides chrome (modal card vs. min-h-screen). */
 export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenReview }: Props) {
+  const t = useT()
   // ts="latest" is a virtual alias — resolve to the actual most-recent ts via
   // GET /lab/projects/{slug}/evals/latest, then replaceState so the address
   // bar pins to a canonical, bookmarkable URL. resolvedTs is null while
@@ -169,7 +171,7 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
   if (latestMissing) {
     return (
       <div className="text-ink-3 text-sm">
-        这个项目还没有任何 eval 快照。从 chat 跑 <code>/eval</code> 后再来。
+        {t('eval.empty')}
       </div>
     )
   }
@@ -211,7 +213,7 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
               setFilter(e.target.checked ? 'errors_only' : 'all')
             }
           />
-          只看错误
+          {t('eval.errorsOnly')}
         </label>
         {resolvedTs && (
           <a
@@ -219,7 +221,7 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
             download
             className="text-ochre hover:underline"
           >
-            下载 CSV
+            {t('eval.downloadCsv')}
           </a>
         )}
         {resolvedTs && compareTargetA && (
@@ -227,13 +229,13 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
             href={pathForEvalCompare(slug, compareTargetA, resolvedTs)}
             className="text-ochre hover:underline"
           >
-            对比 {compareTargetA}
+            {t('eval.compareTo', { ts: compareTargetA })}
           </a>
         )}
         <MatrixLegend />
       </div>
 
-      {!summary && <div className="text-ink-3 text-sm">Loading…</div>}
+      {!summary && <div className="text-ink-3 text-sm">{t('publish.loading')}</div>}
 
       {/* `relative` anchors the click-catcher overlay below — using
           `absolute inset-0` (inside this container) keeps the catcher
@@ -282,19 +284,20 @@ export default function EvalMatrixBody({ slug, ts, inModal = false, onAfterOpenR
 // `ml-auto` so it floats opposite "只看错误" / "下载 CSV" without consuming
 // space when the row is narrow.
 function MatrixLegend() {
+  const t = useT()
   return (
     <div className="ml-auto flex items-center gap-3 text-xs text-ink-3">
       <span className="flex items-center gap-1">
         <span className="inline-block w-3 h-3 rounded-sm bg-moss-soft border border-rule" />
-        正确
+        {t('eval.legend.correct')}
       </span>
       <span className="flex items-center gap-1">
         <span className="inline-block w-3 h-3 rounded-sm bg-rose-soft border border-rule" />
-        错误
+        {t('eval.legend.wrong')}
       </span>
       <span className="flex items-center gap-1">
         <span className="inline-block w-3 h-3 rounded-sm bg-ochre-soft border border-rule" />
-        漏/多
+        {t('eval.legend.miss')}
       </span>
     </div>
   )
@@ -302,6 +305,7 @@ function MatrixLegend() {
 
 
 function SummaryStrip({ summary }: { summary: ScoreResultSummary | undefined }) {
+  const t = useT()
   if (!summary) return null
   // M12.x.d — anchor chip: which (model, prompt) produced these metrics.
   // We prefer the resolved labels (e.g. `gemini-2.5-flash · baseline`) so
@@ -323,14 +327,14 @@ function SummaryStrip({ summary }: { summary: ScoreResultSummary | undefined }) 
         </span>
       )}
       <span>
-        字段准确率 <strong>{pct(synthesizeAccuracyMacro(summary))}</strong>
+        {t('eval.fieldAccuracy')} <strong>{pct(synthesizeAccuracyMacro(summary))}</strong>
       </span>
       <span>
-        文档准确率 <strong>{pct(summary.doc_accuracy)}</strong>
+        {t('eval.docAccuracy')} <strong>{pct(summary.doc_accuracy)}</strong>
       </span>
-      <span className="text-ink-3">{summary.n_reviewed} docs</span>
+      <span className="text-ink-3">{t('eval.nDocs', { n: summary.n_reviewed })}</span>
       {summary.judge_used > 0 && (
-        <span className="text-ochre">LLM judged: {summary.judge_used}</span>
+        <span className="text-ochre">{t('eval.judged', { n: summary.judge_used })}</span>
       )}
     </div>
   )

@@ -17,7 +17,7 @@ describe('PromptTab', () => {
   it('renders editor empty state with add affordance when project has no fields (active prompt)', () => {
     useSchema.setState({ byProject: { p_test: [] } })
     render(<PromptTab target={{ kind: 'prompt', pid: 'p_test' }} />)
-    expect(screen.getByText(/仅 notes 也能工作/i)).toBeInTheDocument()
+    expect(screen.getByText(/Notes-only also works/i)).toBeInTheDocument()
     // Empty-state CTA was compacted from "+ add fields" to just "+" with
     // aria-label="add field"; the visible glyph lives in the title/aria-label now.
     expect(screen.getByRole('button', { name: /add field/i })).toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('PromptTab', () => {
     expect(screen.getByText('frozen notes')).toBeInTheDocument()
     expect(fetchSpy).toHaveBeenCalledWith('/lab/projects/p_test/prompts/pr_alt')
     // No editable textarea in read-only mode
-    expect(screen.queryByPlaceholderText(/给模型的整体说明/)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/Overall instructions/i)).not.toBeInTheDocument()
     fetchSpy.mockRestore()
   })
 })

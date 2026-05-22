@@ -8,6 +8,7 @@ import { sampleCurl } from '../../lib/api'
 import { useApiKey } from '../../stores/apiKey'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
+import { useT } from '../../i18n'
 
 import AgentMessage from './AgentMessage'
 import { EvalCardAdapter } from './EvalCard'
@@ -274,6 +275,7 @@ function buildSubagentNameMap(events: ChatEvent[]): Map<string, string> {
 }
 
 export default function MessageList({ events, busy }: Props) {
+  const t = useT()
   const items = groupChatEvents(events)
   const subagentNames = buildSubagentNameMap(events)
   // Pre-pass: map each user-item position → its 0-indexed ordinal among user
@@ -419,10 +421,10 @@ export default function MessageList({ events, busy }: Props) {
           <div
             className="text-ink-4 italic flex items-center gap-2 px-1 mt-4"
             aria-live="polite"
-            aria-label={name ? `calling ${name}` : 'agent is thinking'}
+            aria-label={name ? t('tool.calling.aria', { name }) : t('tool.thinking.aria')}
           >
             <ThinkingIcon size={name ? 20 : 26} />
-            {name && <span className="text-xs">calling {name}...</span>}
+            {name && <span className="text-xs">{t('tool.calling.aria', { name })}...</span>}
           </div>
         )
       })()}

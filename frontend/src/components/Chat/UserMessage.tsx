@@ -4,6 +4,7 @@ import { Check, Copy, FileText, Info, Pencil, RotateCcw } from 'lucide-react'
 import { chatAttachmentUrl, pdfPageUrl } from '../../lib/api'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
+import { useT } from '../../i18n'
 import type { ChatAttachment } from '../../types/chat'
 
 interface Props {
@@ -31,6 +32,7 @@ function _isImage(filename: string): boolean {
  *  same range — then re-sends `text`. Available on any user bubble while the
  *  chat is idle. Truncation is destructive (no branching). */
 export default function UserMessage({ text, userIndex, attachments }: Props) {
+  const t = useT()
   const busy = useChat(s => s.busy)
   const chatId = useChat(s => s.chatId)
   const selectedSlug = useProjects(s => s.selectedSlug)
@@ -115,12 +117,12 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
         <div className="row">
           <span className="hint">
             <Info size={14} aria-hidden />
-            <span>编辑会丢弃下方的 agent 回复。</span>
+            <span>{t('msg.edit.discardWarning')}</span>
           </span>
           <div className="btns">
-            <button type="button" className="cancel" onClick={cancel}>Cancel</button>
+            <button type="button" className="cancel" onClick={cancel}>{t('msg.edit.cancel')}</button>
             <button type="button" className="save" onClick={() => void save()} disabled={!canSave}>
-              Save
+              {t('msg.edit.save')}
             </button>
           </div>
         </div>
@@ -132,7 +134,7 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
   return (
     <div className="umsg flex flex-col items-end w-full">
       {renderAttachments && (
-        <div className="att-tray" role="group" aria-label="Attachments">
+        <div className="att-tray" role="group" aria-label={t('msg.attachments.aria')}>
           {attachments!.map((a, i) => {
             // Dispatch URL on `source`:
             //  - "chat" (paste/drop scratch) → chat-attachment endpoint
@@ -177,18 +179,18 @@ export default function UserMessage({ text, userIndex, attachments }: Props) {
       )}
       {text && <div className="msg user">{text}</div>}
       {showActions && (
-        <div className="msg-actions" role="group" aria-label="Message actions">
-          <button type="button" onClick={() => void retry()} title="Retry" aria-label="Retry">
+        <div className="msg-actions" role="group" aria-label={t('msg.actions.aria')}>
+          <button type="button" onClick={() => void retry()} title={t('msg.retry')} aria-label={t('msg.retry')}>
             <RotateCcw size={16} aria-hidden />
           </button>
-          <button type="button" onClick={() => setEditing(true)} title="Edit" aria-label="Edit">
+          <button type="button" onClick={() => setEditing(true)} title={t('msg.edit')} aria-label={t('msg.edit')}>
             <Pencil size={16} aria-hidden />
           </button>
           <button
             type="button"
             onClick={() => void copy()}
-            title={copied ? 'Copied' : 'Copy'}
-            aria-label="Copy"
+            title={copied ? t('msg.copied') : t('msg.copy')}
+            aria-label={t('msg.copy')}
             className={copied ? 'copied' : undefined}
           >
             {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}

@@ -3,9 +3,12 @@ import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { useT } from '../../i18n'
+
 interface Props { text: string }
 
 export default function AgentMessage({ text }: Props) {
+  const t = useT()
   const [copied, setCopied] = useState(false)
 
   async function copy() {
@@ -75,12 +78,12 @@ export default function AgentMessage({ text }: Props) {
           {text}
         </ReactMarkdown>
       </div>
-      <div className="msg-actions" role="group" aria-label="Message actions">
+      <div className="msg-actions" role="group" aria-label={t('msg.actions.aria')}>
         <button
           type="button"
           onClick={() => void copy()}
-          title={copied ? 'Copied' : 'Copy'}
-          aria-label="Copy"
+          title={copied ? t('msg.copied') : t('msg.copy')}
+          aria-label={t('msg.copy')}
           className={copied ? 'copied' : undefined}
         >
           {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}

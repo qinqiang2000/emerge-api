@@ -96,7 +96,7 @@ describe('SchemaFieldEditor save feedback (lifted to QuickLookHeader)', () => {
   it('renders fields label in empty state', () => {
     useSchema.setState({ byProject: {}, saveStatus: {}, saveError: {} })
     render(<SchemaFieldEditor pid={PID} fields={[]} />)
-    expect(screen.getByText(/仅 notes 也能工作/i)).toBeInTheDocument()
+    expect(screen.getByText(/Notes-only also works/i)).toBeInTheDocument()
     // Empty-state CTA was compacted from "+ add fields" to just "+" with
     // aria-label="add field"; the visible glyph lives in the title/aria-label now.
     expect(screen.getByRole('button', { name: /add field/i })).toBeInTheDocument()

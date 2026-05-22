@@ -18,6 +18,7 @@ import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useChat, type SurfaceContext } from '../../stores/chat'
+import { t as tImperative, useT } from '../../i18n'
 import type { ChatEvent } from '../../types/chat'
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
@@ -60,6 +61,7 @@ function _surfaceContext(filename: string | null, field: string | null): Surface
 }
 
 export default function SaveReviewedAdapter({ call }: Props) {
+  const t = useT()
   const [dismissed, setDismissed] = useState(false)
   const send = useChat(useShallow(s => s.send))
 
@@ -73,11 +75,11 @@ export default function SaveReviewedAdapter({ call }: Props) {
   const ctx = _surfaceContext(filename, field)
 
   function escalateToDescription() {
-    if (!slug) return
-    const hint = noteText ? `（笔记原文: ${noteText}）` : ''
+    if (!slug || !field) return
+    const hint = noteText ? tImperative('saveReviewed.prompt.hint', { note: noteText }) : ''
     void send(
       slug,
-      `把刚才那条笔记落实到 \`${field}\` 的 description 里${hint}`,
+      tImperative('saveReviewed.prompt.toDescription', { field, hint }),
       undefined,
       ctx,
     )
@@ -85,11 +87,11 @@ export default function SaveReviewedAdapter({ call }: Props) {
   }
 
   function escalateToGlobalNotes() {
-    if (!slug) return
-    const hint = noteText ? `（笔记原文: ${noteText}）` : ''
+    if (!slug || !field) return
+    const hint = noteText ? tImperative('saveReviewed.prompt.hint', { note: noteText }) : ''
     void send(
       slug,
-      `把刚才那条 \`${field}\` 笔记合并到 global_notes 里作为项目级规则${hint}`,
+      tImperative('saveReviewed.prompt.toGlobal', { field, hint }),
       undefined,
       ctx,
     )
@@ -98,32 +100,32 @@ export default function SaveReviewedAdapter({ call }: Props) {
 
   return (
     <div className="rev-chat-chips" data-testid="save-reviewed-adapter">
-      <span className="rev-chat-chips-badge" title={`${field} of ${filename}`}>
-        已记下: <code>{field}</code> of <code>{filename}</code>
+      <span className="rev-chat-chips-badge" title={t('saveReviewed.badge.title', { field, filename })}>
+        {t('saveReviewed.noted.prefix')}<code>{field}</code>{t('saveReviewed.noted.of')}<code>{filename}</code>
       </span>
       <button
         type="button"
         className="rev-chat-chip"
         onClick={escalateToDescription}
-        aria-label="upgrade note to description"
+        aria-label={t('saveReviewed.toDescription.aria')}
       >
-        升级到 description
+        {t('saveReviewed.toDescription')}
       </button>
       <button
         type="button"
         className="rev-chat-chip"
         onClick={escalateToGlobalNotes}
-        aria-label="upgrade note to global_notes"
+        aria-label={t('saveReviewed.toGlobal.aria')}
       >
-        升级到 global_notes
+        {t('saveReviewed.toGlobal')}
       </button>
       <button
         type="button"
         className="rev-chat-chip rev-chat-chip-muted"
         onClick={() => setDismissed(true)}
-        aria-label="dismiss escalation chips"
+        aria-label={t('saveReviewed.dismiss.aria')}
       >
-        忽略
+        {t('saveReviewed.dismiss')}
       </button>
     </div>
   )

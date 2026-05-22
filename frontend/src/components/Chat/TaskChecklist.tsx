@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { CheckCircle2, Circle, CircleDot } from 'lucide-react'
 
 import { useChat } from '../../stores/chat'
+import { useT } from '../../i18n'
 import type { ChatEvent, TaskEntry, TaskStatus } from '../../types/chat'
 
 // ── deriveTasks ──────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ function StatusIcon({ status }: { status: TaskStatus }) {
  *  block: simple bullet list, status icon left, completed items strike-
  *  through + dimmed. */
 export default function TaskChecklist() {
+  const t = useT()
   // Select the raw events array (referential equality preserved by the chat
   // store across unrelated state updates), then derive tasks via useMemo —
   // calling `deriveTasks` inside the selector would build a fresh array on
@@ -169,13 +171,13 @@ export default function TaskChecklist() {
   const tasks = useMemo(() => deriveTasks(events), [events])
   if (tasks.length === 0) return null
 
-  const completed = tasks.filter(t => t.status === 'completed').length
+  const completed = tasks.filter(task => task.status === 'completed').length
 
   return (
     <aside
       className="border border-rule-soft bg-paper-2 rounded-lg p-3 mb-4"
       role="region"
-      aria-label="Agent task list"
+      aria-label={t('task.list.aria')}
       data-testid="task-checklist"
     >
       <div className="flex items-baseline gap-2 mb-2">
@@ -187,20 +189,20 @@ export default function TaskChecklist() {
         </span>
       </div>
       <ul className="flex flex-col gap-1">
-        {tasks.map((t, i) => {
-          const isDone = t.status === 'completed'
-          const isLive = t.status === 'in_progress'
-          const label = isLive && t.activeForm ? t.activeForm : t.content
+        {tasks.map((task, i) => {
+          const isDone = task.status === 'completed'
+          const isLive = task.status === 'in_progress'
+          const label = isLive && task.activeForm ? task.activeForm : task.content
           return (
             <li
-              key={t.id ?? i}
+              key={task.id ?? i}
               className={`flex items-start gap-2 font-sans text-[13px] leading-snug ${
                 isDone ? 'text-ink-4 line-through' : 'text-ink'
               }`}
               data-testid="task-checklist-item"
-              data-status={t.status}
+              data-status={task.status}
             >
-              <span className="pt-0.5"><StatusIcon status={t.status} /></span>
+              <span className="pt-0.5"><StatusIcon status={task.status} /></span>
               <span className="min-w-0 break-words">{label}</span>
             </li>
           )

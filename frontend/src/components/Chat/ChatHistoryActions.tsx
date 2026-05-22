@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react'
 import type { ChatSummary } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat } from '../../stores/chat'
+import { useI18n, useT } from '../../i18n'
 
 const IS_MAC =
   typeof navigator !== 'undefined' &&
@@ -66,19 +67,19 @@ interface Props {
   scope?: 'project' | 'unbound'
 }
 
-function formatChatTs(iso: string): string {
+function formatChatTs(iso: string, t: (k: string) => string, locale: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const now = new Date()
   const sameDay = d.toDateString() === now.toDateString()
   if (sameDay) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+    return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })
   }
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  if (d.toDateString() === yesterday.toDateString()) return t('chathistory.yesterday')
   const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString([], sameYear ? { month: 'short', day: '2-digit' } : { year: 'numeric', month: 'short', day: '2-digit' })
+  return d.toLocaleDateString(locale, sameYear ? { month: 'short', day: '2-digit' } : { year: 'numeric', month: 'short', day: '2-digit' })
 }
 
 export default function ChatHistoryActions({
@@ -91,6 +92,8 @@ export default function ChatHistoryActions({
   variant = 'full',
   scope = 'project',
 }: Props) {
+  const t = useT()
+  const locale = useI18n(s => s.locale)
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
 
@@ -122,13 +125,13 @@ export default function ChatHistoryActions({
   useEffect(() => {
     if (!open) return
     function onClick(e: MouseEvent) {
-      const t = e.target as Element | null
+      const target = e.target as Element | null
       // Match either variant's wrapper so click-outside fires correctly inside
       // the review overlay too (`.rev-chat-hd-actions`).
       if (
-        !t?.closest('.hist-pop') &&
-        !t?.closest('.conv-hd .hist-btn') &&
-        !t?.closest('.rev-chat-hd-actions .hist-btn')
+        !target?.closest('.hist-pop') &&
+        !target?.closest('.conv-hd .hist-btn') &&
+        !target?.closest('.rev-chat-hd-actions .hist-btn')
       ) setOpen(false)
     }
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
@@ -190,11 +193,11 @@ export default function ChatHistoryActions({
 
   // Scope label shown in the popover header. Single uppercase word, no
   // decorations — matches the visual weight of the existing "history" label.
-  const scopeLabel = scope === 'project' ? 'in project' : 'unbound'
+  const scopeLabel = scope === 'project' ? t('chathistory.inProject') : t('chathistory.unbound')
   // Right-hand scope hint: project name for project scope, intentionally
   // blank for unbound (the "UNBOUND" label is already the disambiguator).
   const scopeHint = scope === 'project' ? activeProject : ''
-  const emptyHint = scope === 'project' ? 'No sessions yet.' : 'No conversations yet.'
+  const emptyHint = scope === 'project' ? t('chathistory.empty.project') : t('chathistory.empty.unbound')
 
   const popover = open ? (
     <div className="hist-pop" onClick={e => e.stopPropagation()}>
@@ -214,7 +217,7 @@ export default function ChatHistoryActions({
             >
               <span className="kind">{c.kind}</span>
               <span className="lbl">{c.label}</span>
-              <span className="ts">{formatChatTs(c.ts_iso)}</span>
+              <span className="ts">{formatChatTs(c.ts_iso, t, locale)}</span>
             </div>
           ))}
         </div>
@@ -229,26 +232,26 @@ export default function ChatHistoryActions({
           type="button"
           className={chipBase + 'hist-btn ' + (open ? 'on' : '')}
           onClick={toggleOpen}
-          aria-label="Chat history"
+          aria-label={t('chathistory.aria')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="8" cy="8" r="5.5" />
             <polyline points="8,4.5 8,8 10.5,9.5" />
           </svg>
-          {!compact && <span className="tip">Chat history <span className="kbd">{HISTORY_SHORTCUT}</span></span>}
+          {!compact && <span className="tip">{t('chathistory.aria')} <span className="kbd">{HISTORY_SHORTCUT}</span></span>}
         </button>
         <button
           type="button"
           className={chipBase.trim()}
           onClick={onNew}
-          aria-label="New chat"
+          aria-label={t('chathistory.newChat')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="8" y1="3" x2="8" y2="13" />
             <line x1="3" y1="8" x2="13" y2="8" />
           </svg>
           {!compact && (
-            <span className="tip">New chat <span className="kbd">{NEW_CHAT_SHORTCUT}</span></span>
+            <span className="tip">{t('chathistory.newChat')} <span className="kbd">{NEW_CHAT_SHORTCUT}</span></span>
           )}
         </button>
         {/* compact variant: popover lives INSIDE the cluster so its absolute

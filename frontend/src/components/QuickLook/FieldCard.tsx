@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './styles.css'
 import type { SchemaField } from '../../stores/schema'
+import { useT } from '../../i18n'
 
 interface Props {
   field: SchemaField
@@ -29,6 +30,7 @@ function _typeLabel(field: SchemaField): string {
 }
 
 export default function FieldCard({ field, defaultExpanded = false }: Props) {
+  const t = useT()
   const [expanded, setExpanded] = useState(defaultExpanded)
   const kids = _children(field)
   const hasChildren = kids !== null
@@ -38,15 +40,15 @@ export default function FieldCard({ field, defaultExpanded = false }: Props) {
       <div className="ql-field-head">
         <span className="ql-field-name">{field.name}</span>
         <span className="ql-field-type">{_typeLabel(field)}</span>
-        {field.required && <span className="ql-field-required">REQUIRED</span>}
+        {field.required && <span className="ql-field-required">{t('ql.field.required')}</span>}
       </div>
 
       <div className={`ql-field-desc${field.description ? '' : ' ql-field-desc--empty'}`}>
-        {field.description || '(no description)'}
+        {field.description || t('ql.field.noDescription')}
       </div>
 
       {Array.isArray(field.enum) && field.enum.length > 0 && (
-        <div className="ql-field-enum">enum · {field.enum.join(', ')}</div>
+        <div className="ql-field-enum">{t('ql.field.enum')} · {field.enum.join(', ')}</div>
       )}
 
       <div className="ql-field-notes" data-testid="field-notes-hint">—</div>
@@ -56,11 +58,11 @@ export default function FieldCard({ field, defaultExpanded = false }: Props) {
           <button
             type="button"
             className="ql-field-disclosure"
-            aria-label={`${expanded ? 'collapse' : 'expand'} ${field.name}`}
+            aria-label={t(expanded ? 'ql.field.collapse' : 'ql.field.expand', { name: field.name ?? '' })}
             onClick={() => setExpanded(v => !v)}
           >
             {expanded ? '▾' : '▸'}{' '}
-            <span>{`children: ${kids.length}`}</span>
+            <span>{t('ql.field.children', { n: kids.length })}</span>
           </button>
           {expanded && (
             <div className="ql-field-children">

@@ -15,6 +15,7 @@ import { useMemo } from 'react'
 import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
 import { useReview } from '../../stores/review'
+import { useT } from '../../i18n'
 import type { SchemaField } from '../../stores/schema'
 
 interface Props {
@@ -55,6 +56,7 @@ export default function FieldEditor({
   onAdopt,
   onAdoptField,
 }: Props) {
+  const t = useT()
   // Active field + entity selection live in the review store now so the chat
   // column can read them without prop-drilling.
   const activeField = useReview(s => s.activeField)
@@ -99,7 +101,7 @@ export default function FieldEditor({
           <>
             <button
               type="button"
-              aria-label="previous entity"
+              aria-label={t('field.entity.prev')}
               disabled={safeIdx === 0}
               onClick={() => setEntityIdx(Math.max(0, safeIdx - 1))}
               className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
@@ -107,11 +109,11 @@ export default function FieldEditor({
               ‹
             </button>
             <span className="font-mono text-xs text-ink-4">
-              entity {safeIdx + 1} of {entities.length}
+              {t('field.entity.position', { idx: safeIdx + 1, total: entities.length })}
             </span>
             <button
               type="button"
-              aria-label="next entity"
+              aria-label={t('field.entity.next')}
               disabled={safeIdx === entities.length - 1}
               onClick={() => setEntityIdx(Math.min(entities.length - 1, safeIdx + 1))}
               className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 disabled:opacity-30"
@@ -121,42 +123,42 @@ export default function FieldEditor({
             {!readOnly && (
               <button
                 type="button"
-                aria-label={`remove entity ${safeIdx + 1}`}
+                aria-label={t('field.entity.removeIdx', { idx: safeIdx + 1 })}
                 onClick={() => {
                   onRemoveEntity(safeIdx)
                   setEntityIdx(Math.max(0, safeIdx - 1))
                 }}
                 className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2 text-rose ml-1"
               >
-                − remove
+                {t('field.entity.removeLabel')}
               </button>
             )}
           </>
         ) : (
           <span className="font-mono text-xs text-ink-4">
-            {entities.length} {entities.length === 1 ? 'entity' : 'entities'}
+            {entities.length === 1 ? t('field.entity.count.one') : t('field.entity.count.many', { n: entities.length })}
           </span>
         )}
         {!readOnly && (
           <button
             type="button"
-            aria-label="add entity"
+            aria-label={t('field.entity.add')}
             onClick={onAddEntity}
             className="ml-auto font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
           >
-            + entity
+            {t('field.entity.addLabel')}
           </button>
         )}
         {readOnly && onAdopt && (
           <button
             type="button"
-            aria-label="adopt this prediction as reviewed"
+            aria-label={t('field.adopt.aria')}
             onClick={onAdopt}
-            title="overwrite the reviewed copy with these values and switch to it"
+            title={t('field.adopt.title')}
             className="ml-auto adopt-all-btn"
           >
             <ArrowLeftToLine size={11} strokeWidth={1.7} />
-            <span>adopt as reviewed</span>
+            <span>{t('field.adopt.label')}</span>
           </button>
         )}
       </header>

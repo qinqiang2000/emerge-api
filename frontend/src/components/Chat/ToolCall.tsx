@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react'
 
+import { useT } from '../../i18n'
+
 export type ToolStatus = 'done' | 'run' | 'err' | 'cand'
 
 interface Props {
@@ -35,6 +37,7 @@ export default function ToolCall({
   footer,
   children,
 }: Props) {
+  const t = useT()
   const [open, setOpen] = useState(defaultOpen)
 
   return (
@@ -50,7 +53,7 @@ export default function ToolCall({
         <span className="t-name">{name}</span>
         {args && <span className="t-args">({args})</span>}
         {status === 'run' && (
-          <span className="t-status run" role="status" aria-label="running">
+          <span className="t-status run" role="status" aria-label={t('tool.running.aria')}>
             <span className="inline-block animate-spin mr-1" style={{ display: 'inline-block' }}>↻</span>
             run
           </span>

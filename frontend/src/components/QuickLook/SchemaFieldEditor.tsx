@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useSchema, type SchemaField, type SaveError } from '../../stores/schema'
+import { useT } from '../../i18n'
 
 // `date / date-time / time` are virtual: selecting one patches the field to
 // {type:'string', format:'…'}. Internally we keep type=='string' and lift the
@@ -108,6 +109,7 @@ interface Props {
 }
 
 export default function SchemaFieldEditor({ pid, fields }: Props) {
+  const t = useT()
   // Save state lives in the store now so the QuickLookHeader can render a
   // pinned status pill that stays visible while this list scrolls. The
   // ErrorBanner inside the list still reads error_code + message from the
@@ -163,9 +165,9 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
   if (fields.length === 0) {
     return (
       <div>
-        <div className="ql-fields-lab">fields</div>
+        <div className="ql-fields-lab">{t('ql.schema.fieldsLabel')}</div>
         <div className="ql-edit-empty">
-          还没字段。仅 notes 也能工作（适用于分类、匹配等无须结构化输出的任务）。需要结构化输出时点 + 添加。
+          {t('ql.schema.empty.short')}
         </div>
         <FooterAdd onAdd={handleAdd} disabled={status === 'saving'} />
         {status === 'error' && error && <ErrorBanner err={error} />}
@@ -175,7 +177,7 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
 
   return (
     <div className="ql-edit-list">
-      <div className="ql-fields-lab">fields</div>
+      <div className="ql-fields-lab">{t('ql.schema.fieldsLabel')}</div>
       {fields.map((f, idx) => (
         <SchemaCardEditor
           key={`${f.name ?? '_'}-${idx}`}
@@ -193,6 +195,7 @@ export default function SchemaFieldEditor({ pid, fields }: Props) {
 }
 
 function FooterAdd({ onAdd, disabled }: { onAdd: () => void; disabled?: boolean }) {
+  const t = useT()
   return (
     <div className="ql-edit-foot">
       <button
@@ -200,8 +203,8 @@ function FooterAdd({ onAdd, disabled }: { onAdd: () => void; disabled?: boolean 
         className="ql-edit-add"
         onClick={onAdd}
         disabled={disabled}
-        aria-label="add field"
-        title="add field"
+        aria-label={t('ql.schema.addField')}
+        title={t('ql.schema.addField')}
       >+</button>
     </div>
   )

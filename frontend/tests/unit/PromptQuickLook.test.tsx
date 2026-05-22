@@ -95,7 +95,7 @@ describe('PromptQuickLook', () => {
     })
     useQuickLook.getState().openPrompt('p_test')
     render(<PromptQuickLook />)
-    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    const ta = screen.getByPlaceholderText(/Overall instructions/i) as HTMLTextAreaElement
     expect(ta.value).toBe('be terse')
   })
 
@@ -103,7 +103,7 @@ describe('PromptQuickLook', () => {
     const saveSpy = vi.spyOn(useSchema.getState(), 'saveActive').mockResolvedValue(null)
     useQuickLook.getState().openPrompt('p_test')
     render(<PromptQuickLook />)
-    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    const ta = screen.getByPlaceholderText(/Overall instructions/i) as HTMLTextAreaElement
     await userEvent.click(ta)
     await userEvent.type(ta, 'new notes')
     ta.blur()

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Check, Copy, KeyRound, X } from 'lucide-react'
 
+import { useT } from '../../i18n'
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface CheckItem {
@@ -84,6 +86,7 @@ curl https://api.emerge.run/v1/extract \\
 // ─── Copy button (M6 inline pattern) ─────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
+  const t = useT()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -99,13 +102,13 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       type="button"
-      aria-label="copy api key"
-      title={copied ? 'Copied' : 'Copy'}
+      aria-label={t('publish.copyApiKey')}
+      title={copied ? t('publish.copied') : t('publish.copy')}
       onClick={handleCopy}
       className="pub-key-copy-btn"
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
-      <span className="copy-label">{copied ? 'Copied' : 'Copy'}</span>
+      <span className="copy-label">{copied ? t('publish.copied') : t('publish.copy')}</span>
     </button>
   )
 }
@@ -113,23 +116,21 @@ function CopyButton({ text }: { text: string }) {
 // ─── Stage: check ─────────────────────────────────────────────────────────────
 
 function CheckStage({ projectName, checklist, onAdvance, onClose }: CheckProps) {
+  const t = useT()
   const allOk = checklist.every(c => c.ok)
 
   return (
     <div className="pub-card">
       <div className="pub-eyebrow">
-        READINESS · {projectName}
+        {t('publish.eyebrow.readiness', { project: projectName })}
         <span className="ln" />
       </div>
 
       <h2 className="pub-h">
-        Ready to mint a <em>key?</em>
+        {t('publish.headline.ready')} <em>{t('publish.headline.ready.em')}</em>
       </h2>
 
-      <p className="pub-sub">
-        We ran a quick check against your project. Review the results below before
-        issuing a new API key.
-      </p>
+      <p className="pub-sub">{t('publish.sub.check')}</p>
 
       <div className="pub-checks">
         {checklist.map(item => (
@@ -142,7 +143,7 @@ function CheckStage({ projectName, checklist, onAdvance, onClose }: CheckProps) 
         {checklist.length === 0 && (
           <div className="pub-check ok">
             <span className="mk">✓</span>
-            <span className="lab">no checks required</span>
+            <span className="lab">{t('publish.checks.noRequired')}</span>
           </div>
         )}
       </div>
@@ -153,16 +154,16 @@ function CheckStage({ projectName, checklist, onAdvance, onClose }: CheckProps) 
           onClick={onAdvance}
           className="pub-btn-primary"
           disabled={!allOk}
-          title={allOk ? undefined : 'Fix warnings before minting a key'}
+          title={allOk ? undefined : t('publish.fixWarnings')}
         >
-          mint key →
+          {t('publish.mint')}
         </button>
         <button
           type="button"
           onClick={onClose}
           className="pub-btn-ghost"
         >
-          cancel
+          {t('publish.cancel')}
         </button>
       </div>
     </div>
@@ -172,26 +173,24 @@ function CheckStage({ projectName, checklist, onAdvance, onClose }: CheckProps) 
 // ─── Stage: key ───────────────────────────────────────────────────────────────
 
 function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix, createdAt, sampleSnippet, publishedId, onClose }: KeyProps) {
+  const t = useT()
   return (
     <div className="pub-card">
       <div className="pub-eyebrow">
-        KEY MINTED · {projectName}/{versionLabel}
+        {t('publish.eyebrow.minted', { project: projectName, version: versionLabel })}
         <span className="ln" />
       </div>
 
       <h2 className="pub-h">
-        Your API is <em>live.</em>
+        {t('publish.headline.live')} <em>{t('publish.headline.live.em')}</em>
       </h2>
 
-      <p className="pub-sub">
-        This is the only time this key will be shown. Copy it to a secure location
-        before closing.
-      </p>
+      <p className="pub-sub">{t('publish.sub.key')}</p>
 
       <div className="pub-key">
         <div className="lab2">
-          <span>API key — {projectName} · {versionLabel}</span>
-          <span className="warn">⚠ shown once · {keyPrefix}…{keyHash.slice(-6)}</span>
+          <span>{t('publish.keyLabel', { project: projectName, version: versionLabel })}</span>
+          <span className="warn">{t('publish.shownOnce', { prefix: keyPrefix, tail: keyHash.slice(-6) })}</span>
         </div>
         <div className="key">
           <KeyRound size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
@@ -201,9 +200,9 @@ function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix,
           <CopyButton text={keyPlaintext} />
         </div>
         <div className="one">
-          This key will not be shown again. After you close, only the prefix{' '}
-          <strong>{keyPrefix}</strong> and a short hash will remain.
-          &nbsp;·&nbsp; created {createdAt}
+          {t('publish.notShownAgain.before')}{' '}
+          <strong>{keyPrefix}</strong> {t('publish.notShownAgain.after')}
+          &nbsp;·&nbsp; {t('publish.created', { ts: createdAt })}
         </div>
       </div>
 
@@ -228,18 +227,18 @@ function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix,
 
       {publishedId && (
         <p className="pub-sub" style={{ marginTop: 8 }}>
-          Sync <code style={{ fontSize: '12px', background: 'var(--ink-soft)', padding: '0 4px' }}>{publishedId}</code> to your production deployment to use the same frozen artifact.
+          {t('publish.syncHint.before')} <code style={{ fontSize: '12px', background: 'var(--ink-soft)', padding: '0 4px' }}>{publishedId}</code> {t('publish.syncHint.after')}
         </p>
       )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button
           type="button"
-          aria-label="I've saved this key — close"
+          aria-label={t('publish.saved.aria')}
           onClick={onClose}
           className="pub-btn-primary"
         >
-          I've saved this key — close
+          {t('publish.saved.button')}
         </button>
       </div>
     </div>
@@ -249,11 +248,12 @@ function KeyStage({ projectName, versionLabel, keyPlaintext, keyHash, keyPrefix,
 // ─── PublishStage (main export) ───────────────────────────────────────────────
 
 export default function PublishStage(props: PublishStageProps) {
+  const t = useT()
   return (
-    <div className="pub-stage inline" role={props.stage === 'check' ? 'region' : 'region'} aria-label="Publish">
+    <div className="pub-stage inline" role={props.stage === 'check' ? 'region' : 'region'} aria-label={t('publish.title')}>
       <button
         type="button"
-        aria-label="close publish panel"
+        aria-label={t('publish.close.aria')}
         onClick={props.onClose}
         style={{
           position: 'absolute',

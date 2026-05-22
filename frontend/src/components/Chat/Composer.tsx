@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEve
 
 import { listProjectTree, type TreeEntry } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
+import { useT } from '../../i18n'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
 import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
 
@@ -133,6 +134,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
 }
 
 export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
+  const t = useT()
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -604,7 +606,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
             loading={mentionLoading}
             hasProject={hasProject}
             flat={mentionToken.dir === '' && mentionToken.query !== ''}
-            emptyHint={mentionMissing ? 'no such directory' : (mentionToken.query ? 'no match' : 'empty')}
+            emptyHint={mentionMissing ? t('menu.mention.noDir') : (mentionToken.query ? t('menu.mention.noMatch') : t('menu.mention.empty'))}
             onPick={pickMention}
             onHover={setActiveIdx}
           />
@@ -627,7 +629,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                   <span
                     key={i}
                     className={'att-chip' + (failed ? ' att-chip-failed' : '')}
-                    title={failed ? (a.error || 'upload failed') : a.filename}
+                    title={failed ? (a.error || t('composer.uploadFailed')) : a.filename}
                   >
                     <span className="att-status" aria-hidden>
                       {inFlight ? <SpinnerIcon /> : failed ? null : <CheckIcon />}
@@ -638,8 +640,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                         type="button"
                         className="att-retry"
                         onClick={() => onRetry(i)}
-                        aria-label={`Retry ${a.filename}`}
-                        title={a.error ? `Retry — ${a.error}` : 'Retry'}
+                        aria-label={t('composer.retryName', { name: a.filename })}
+                        title={a.error ? t('composer.retryWithError', { error: a.error }) : t('composer.retry')}
                       >
                         <RetryIcon />
                       </button>
@@ -649,8 +651,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                         type="button"
                         className="att-x"
                         onClick={() => onRemove(i)}
-                        aria-label={`Remove ${a.filename}`}
-                        title="Remove"
+                        aria-label={t('composer.removeName', { name: a.filename })}
+                        title={t('composer.remove')}
                       >
                         <XIcon />
                       </button>
@@ -676,7 +678,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
               onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
               onKeyDown={handleKey}
               onPaste={handlePaste}
-              placeholder={placeholder ?? "say something to the agent, or type / for a command…"}
+              placeholder={placeholder ?? t('composer.placeholder.default')}
             />
           </div>
 
@@ -696,8 +698,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                   className="iconbtn ghost"
                   onClick={() => setPlusOpen(o => !o)}
                   disabled={disabled}
-                  title={`Add files (${UPLOAD_SHORTCUT_LABEL})`}
-                  aria-label="Add files"
+                  title={t('composer.addFiles.title', { shortcut: UPLOAD_SHORTCUT_LABEL })}
+                  aria-label={t('composer.addFiles')}
                   aria-haspopup="menu"
                   aria-expanded={plusOpen}
                 >
@@ -712,7 +714,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                     >
                       <span className="mi-left">
                         <span className="ic"><PaperclipIcon /></span>
-                        <span className="label">Add files or photos</span>
+                        <span className="label">{t('composer.addFilesOrPhotos')}</span>
                       </span>
                       <span className="shortcut">{UPLOAD_SHORTCUT_LABEL}</span>
                     </button>
@@ -726,8 +728,8 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                   type="button"
                   className="iconbtn stop"
                   onClick={onCancel}
-                  title="Stop response  Esc"
-                  aria-label="Stop response"
+                  title={t('composer.stopResponse.title')}
+                  aria-label={t('composer.stopResponse')}
                 >
                   <StopIcon />
                 </button>
@@ -740,9 +742,9 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                     onClick={submit}
                     disabled={!text.trim() || hasInFlight}
                     title={hasInFlight
-                      ? 'Waiting for uploads to finish…'
-                      : `Send  ${IS_MAC ? '⌘' : 'Ctrl'}↵`}
-                    aria-label="Send message"
+                      ? t('composer.sendMessage.titleWaiting')
+                      : t('composer.sendMessage.title', { shortcut: `${IS_MAC ? '⌘' : 'Ctrl'}↵` })}
+                    aria-label={t('composer.sendMessage')}
                   >
                     <SendIcon />
                   </button>

@@ -18,6 +18,7 @@ import ChatPanel from '../Chat/ChatPanel'
 import ChatHistoryActions from '../Chat/ChatHistoryActions'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
+import { useT } from '../../i18n'
 
 export const REV_CHAT_WIDTH_KEY = 'emerge.revChatW'
 export const REV_CHAT_DEFAULT_W = 360
@@ -112,6 +113,7 @@ export default function ReviewChatColumn({
   // skill auto-routes corrections into durable artifacts (per-doc _notes,
   // global_notes, schema descriptions) — see plan
   // image-1-chat-velvety-duckling.md.
+  const t = useT()
   const { selectedSlug, projects } = useProjects()
   const chatId = useChat(s => s.chatId)
   const chatsByProject = useChat(s => s.chatsByProject)
@@ -125,12 +127,12 @@ export default function ReviewChatColumn({
         className={'rev-chat-split-v' + (drag ? ' active' : '')}
         onMouseDown={startDrag}
         onTouchStart={startDrag}
-        title="Drag to resize"
+        title={t('reviewchat.resize.title')}
         role="separator"
         aria-orientation="vertical"
-        aria-label="resize chat column"
+        aria-label={t('reviewchat.resize.aria')}
       />
-      <aside className="rev-chat-col" aria-label="review chat">
+      <aside className="rev-chat-col" aria-label={t('reviewchat.aria')}>
         <header className="rev-chat-hd">
           <MessageSquare size={13} strokeWidth={1.75} className="rev-chat-hd-icon" />
           {filename ? (
@@ -150,7 +152,7 @@ export default function ReviewChatColumn({
               )}
             </span>
           ) : (
-            <span className="rev-chat-hd-chip muted">no doc selected</span>
+            <span className="rev-chat-hd-chip muted">{t('reviewchat.noDoc')}</span>
           )}
           {showHistoryActions && selectedSlug && (
             <ChatHistoryActions
@@ -167,8 +169,8 @@ export default function ReviewChatColumn({
             type="button"
             className="rev-chat-hd-close"
             onClick={onClose}
-            aria-label="close chat"
-            title="close chat (⌘⇧.)"
+            aria-label={t('reviewchat.close.aria')}
+            title={t('reviewchat.close.title')}
           >
             <X size={13} strokeWidth={1.75} />
           </button>

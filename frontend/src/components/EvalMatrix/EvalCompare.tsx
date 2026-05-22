@@ -6,6 +6,7 @@ import { useSchema } from '../../stores/schema'
 import type { CellStatus, CellVerdict, FieldScoreSummary } from '../../types/eval'
 import { synthesizeAccuracyMacro } from '../../types/eval'
 import { pct } from './filters'
+import { useT } from '../../i18n'
 
 
 interface Props {
@@ -90,6 +91,7 @@ function buildFieldDeltas(
 
 
 export default function EvalCompare({ slug, a, b }: Props) {
+  const t = useT()
   const summaryA = useEval((s) => (a ? s.summary[`${slug}|${a}`] : undefined))
   const summaryB = useEval((s) => (b ? s.summary[`${slug}|${b}`] : undefined))
   const cellsA = useEval((s) => (a ? s.cells[`${slug}|${a}`] : undefined))
@@ -133,12 +135,12 @@ export default function EvalCompare({ slug, a, b }: Props) {
   if (!a || !b) {
     return (
       <div className="min-h-screen bg-paper text-ink p-6">
-        <h1 className="text-xl font-semibold">eval compare</h1>
+        <h1 className="text-xl font-semibold">{t('eval.compare.title')}</h1>
         <div className="text-ink-3 text-sm mt-4">
-          需要 ?a=&lt;ts1&gt;&amp;b=&lt;ts2&gt; 查询参数。
+          {t('eval.compare.needParams')}
         </div>
         <a className="text-ochre hover:underline" href={pathForSlug(slug)}>
-          ← 返回项目
+          {t('eval.compare.backToProject')}
         </a>
       </div>
     )
@@ -150,7 +152,7 @@ export default function EvalCompare({ slug, a, b }: Props) {
         <a href={pathForSlug(slug)} className="text-ink-3 hover:text-ink-2 text-sm">
           ← {slug}
         </a>
-        <h1 className="text-xl font-semibold mt-1">eval compare</h1>
+        <h1 className="text-xl font-semibold mt-1">{t('eval.compare.title')}</h1>
         <div className="text-sm text-ink-3 mt-1">
           <a className="font-mono hover:underline" href={pathForEvalMatrix(slug, a)}>
             A · {a}
@@ -165,25 +167,25 @@ export default function EvalCompare({ slug, a, b }: Props) {
       <section className="mb-6 grid grid-cols-2 gap-4">
         <div className="border border-rule rounded p-3 text-sm">
           <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">A</div>
-          <div>字段准确率 {pct(summaryA ? synthesizeAccuracyMacro(summaryA) : null)}</div>
-          <div>文档准确率 {pct(summaryA?.doc_accuracy)}</div>
+          <div>{t('eval.fieldAccuracy')} {pct(summaryA ? synthesizeAccuracyMacro(summaryA) : null)}</div>
+          <div>{t('eval.docAccuracy')} {pct(summaryA?.doc_accuracy)}</div>
         </div>
         <div className="border border-rule rounded p-3 text-sm">
           <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">B</div>
-          <div>字段准确率 {pct(summaryB ? synthesizeAccuracyMacro(summaryB) : null)}</div>
-          <div>文档准确率 {pct(summaryB?.doc_accuracy)}</div>
+          <div>{t('eval.fieldAccuracy')} {pct(summaryB ? synthesizeAccuracyMacro(summaryB) : null)}</div>
+          <div>{t('eval.docAccuracy')} {pct(summaryB?.doc_accuracy)}</div>
         </div>
       </section>
 
       <section className="mb-6">
-        <h2 className="text-sm font-semibold mb-2">per-field 变化</h2>
+        <h2 className="text-sm font-semibold mb-2">{t('eval.compare.perField')}</h2>
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-ink-3">
-              <th className="text-left px-2 py-1 border-b border-rule">字段</th>
-              <th className="text-right px-2 py-1 border-b border-rule">A · 准确率</th>
-              <th className="text-right px-2 py-1 border-b border-rule">B · 准确率</th>
-              <th className="text-right px-2 py-1 border-b border-rule">Δ</th>
+              <th className="text-left px-2 py-1 border-b border-rule">{t('eval.compare.col.field')}</th>
+              <th className="text-right px-2 py-1 border-b border-rule">{t('eval.compare.col.accA')}</th>
+              <th className="text-right px-2 py-1 border-b border-rule">{t('eval.compare.col.accB')}</th>
+              <th className="text-right px-2 py-1 border-b border-rule">{t('eval.compare.col.delta')}</th>
             </tr>
           </thead>
           <tbody>
@@ -211,12 +213,12 @@ export default function EvalCompare({ slug, a, b }: Props) {
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold mb-2">cell-level diff</h2>
+        <h2 className="text-sm font-semibold mb-2">{t('eval.compare.cellDiff')}</h2>
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-ink-3 bg-paper-2">
               <th className="text-left px-3 py-2 border-b border-rule sticky left-0 bg-paper-2">
-                文件
+                {t('eval.compare.col.files')}
               </th>
               {fields.map((f) => (
                 <th

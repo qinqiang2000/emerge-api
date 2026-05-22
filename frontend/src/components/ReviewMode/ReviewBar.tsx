@@ -5,6 +5,7 @@ import type { DocSummary, ExperimentSummary, RunStamp } from '../../types/review
 import { docStatus } from '../../types/review'
 import ExperimentTabStrip from './ExperimentTabStrip'
 import PanelToggle from '../Shell/PanelToggle'
+import { useT } from '../../i18n'
 
 type Props = {
   saving: boolean
@@ -71,6 +72,7 @@ export default function ReviewBar({
   onToggleLeft,
   onToggleRight,
 }: Props) {
+  const t = useT()
   const idx = docs.findIndex((d) => d.filename === activeFilename)
   const total = docs.length
   const hasPrev = idx > 0
@@ -92,7 +94,7 @@ export default function ReviewBar({
 
   return (
     <div className="rev-bar">
-      <button className="back back-icon" onClick={onBack} type="button" aria-label="back to chat (Esc)" title="back to chat · Esc">
+      <button className="back back-icon" onClick={onBack} type="button" aria-label={t('review.back.aria')} title={t('review.back.title')}>
         <ArrowLeft size={16} strokeWidth={1.75} />
       </button>
       {leftHidden && onToggleLeft && (
@@ -107,7 +109,7 @@ export default function ReviewBar({
 
       {activeFilename && (
         <div className="title" title={activeFilename}>
-          reviewing
+          {t('review.reviewing')}
           <span className="doc">{activeFilename}</span>
           {status && <span className={`status ${status}`}>{status}</span>}
           <span className="title-actions">
@@ -116,11 +118,11 @@ export default function ReviewBar({
               className={'trash' + (armedDelete ? ' armed' : '')}
               onClick={onDeleteTrigger}
               disabled={deletingDoc}
-              aria-label={armedDelete ? '⌫ again to confirm delete, Esc to cancel' : 'delete this file (⌫)'}
-              title={armedDelete ? "⌫ again to confirm · Esc cancel" : 'delete this file · ⌫'}
+              aria-label={armedDelete ? t('review.delete.aria.armed') : t('review.delete.aria.normal')}
+              title={armedDelete ? t('review.delete.title.armed') : t('review.delete.title.normal')}
             >
               <Trash2 size={13} strokeWidth={1.75} />
-              {armedDelete && <span className="trash-confirm">⌫ again to confirm · Esc cancel</span>}
+              {armedDelete && <span className="trash-confirm">{t('review.delete.confirm.inline')}</span>}
             </button>
           </span>
         </div>
@@ -148,21 +150,21 @@ export default function ReviewBar({
             onClick={() => onSetView('form')}
             type="button"
           >
-            form
+            {t('review.view.form')}
           </button>
           <button
             className={view === 'json' ? 'on' : ''}
             onClick={() => onSetView('json')}
             type="button"
           >
-            json
+            {t('review.view.json')}
           </button>
         </div>
         <button
           className="ghostbtn"
           onClick={onToggleExpand}
-          title={allExpanded ? 'collapse all' : 'expand all'}
-          aria-label={allExpanded ? 'collapse all' : 'expand all'}
+          title={allExpanded ? t('review.collapseAll') : t('review.expandAll')}
+          aria-label={allExpanded ? t('review.collapseAll') : t('review.expandAll')}
           type="button"
           style={{ padding: '4px 7px', fontSize: 12 }}
         >
@@ -175,12 +177,12 @@ export default function ReviewBar({
           className="arrow"
           onClick={handlePrev}
           disabled={!hasPrev}
-          aria-label="previous doc (left arrow)"
-          title="previous doc · ←"
+          aria-label={t('review.prevDoc.aria')}
+          title={t('review.prevDoc.title')}
           type="button"
         >‹</button>
         {idx >= 0 && total > 0 && (
-          <span className="navcount" title="use ← / → to step through docs">
+          <span className="navcount" title={t('review.nav.kbdHint')}>
             {idx + 1} / {total}
             <span className="kbd" aria-hidden>← →</span>
           </span>
@@ -189,8 +191,8 @@ export default function ReviewBar({
           className="arrow"
           onClick={handleNext}
           disabled={!hasNext}
-          aria-label="next doc (right arrow)"
-          title="next doc · →"
+          aria-label={t('review.nextDoc.aria')}
+          title={t('review.nextDoc.title')}
           type="button"
         >›</button>
       </div>
@@ -200,9 +202,9 @@ export default function ReviewBar({
         onClick={onSave}
         disabled={saving || !canSave}
         type="button"
-        title={!canSave ? 'save only persists on the ✏ reviewed tab — switch to it, or use "adopt as reviewed"' : undefined}
+        title={!canSave ? t('review.save.notReviewedTabHint') : undefined}
       >
-        {saving ? 'saving…' : 'save'}
+        {saving ? t('review.save.saving') : t('review.save')}
       </button>
       {rightHidden && onToggleRight && (
         // Review-mode right peek: in review, the right "panel" is the chat
@@ -212,8 +214,8 @@ export default function ReviewBar({
           type="button"
           className="spinepeek icon"
           onClick={onToggleRight}
-          aria-label="open chat"
-          title="open chat (⌘⇧.)"
+          aria-label={t('review.openChat.aria')}
+          title={t('review.openChat.title')}
         >
           <MessageSquare size={14} strokeWidth={1.75} />
         </button>

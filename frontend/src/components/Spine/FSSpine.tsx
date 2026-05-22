@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './spine.css'
 
+import { useI18n, useT } from '../../i18n'
 import { navigateToReview } from '../../lib/slugUrl'
 import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
@@ -45,6 +46,7 @@ function buildTree(
   docsVisible: number,
   onLoadMoreDocs: () => void,
   selectedDocFilename: string | null,
+  versionsEmptyLabel: string,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -70,7 +72,7 @@ function buildTree(
   // ── versions/ ──────────────────────────────────────────────────────────
   const versionItems: LeafNode[] = activeVersionId
     ? [{ kind: 'file', name: activeVersionId, stamp: 'frozen' }]
-    : [{ kind: 'ghost', name: '(no versions yet)' }]
+    : [{ kind: 'ghost', name: versionsEmptyLabel }]
 
   // ── trailing root files ────────────────────────────────────────────────
   const rootFiles: FileNode[] = [
@@ -95,6 +97,8 @@ type FSSpineProps = {
 }
 
 export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
+  const t = useT()
+  const locale = useI18n(s => s.locale)
   const projects = useProjects(s => s.projects)
   const selectedSlug = useProjects(s => s.selectedSlug)
 
@@ -168,9 +172,9 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
   // Build prompts leaf nodes
   const promptItems: LeafNode[] = useMemo(() => {
-    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = promptListByProject[selectedSlug]
-    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     return rows.map(row => ({
       kind: 'file' as const,
       name: row.label,
@@ -180,13 +184,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         ? () => openPrompt(selectedSlug)
         : () => openPrompt(selectedSlug, row.prompt_id),
     }))
-  }, [selectedSlug, promptListByProject, openPrompt])
+  }, [selectedSlug, promptListByProject, openPrompt, locale, t])
 
   // Build models leaf nodes
   const modelItems: LeafNode[] = useMemo(() => {
-    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = modelListByProject[selectedSlug]
-    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     return rows.map(row => ({
       kind: 'file' as const,
       name: row.provider_model_id,
@@ -194,14 +198,14 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       active: row.is_active,
       onClick: undefined,
     }))
-  }, [selectedSlug, modelListByProject])
+  }, [selectedSlug, modelListByProject, locale, t])
 
   // Build metrics/ leaf nodes from the eval list. Each entry routes to the
   // matrix page for that ts; the most recent ts gets the active marker.
   const metricsItems: LeafNode[] = useMemo(() => {
-    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = evalListByProject[selectedSlug]
-    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     return rows.map((row, i) => {
       // M12.x — spine stamp prefers field_accuracy_macro, then doc_accuracy,
       // then the legacy macro_f1 (which on M12.x writes is null but on older
@@ -226,13 +230,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         },
       }
     })
-  }, [selectedSlug, evalListByProject])
+  }, [selectedSlug, evalListByProject, locale, t])
 
   // Build experiments leaf nodes
   const experimentItems: LeafNode[] = useMemo(() => {
-    if (!selectedSlug) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = experimentListByProject[selectedSlug]
-    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: '(none yet)' }]
+    if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     return rows.map(row => ({
       kind: 'file' as const,
       name: row.label,
@@ -242,7 +246,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       active: false,
       onClick: undefined,
     }))
-  }, [selectedSlug, experimentListByProject])
+  }, [selectedSlug, experimentListByProject, locale, t])
 
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
@@ -258,9 +262,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           docsVisible,
           loadMoreDocs,
           selectedDocFilename,
+          t('spine.versions.empty'),
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename, locale, t],
   )
 
   // When review ← / → steps past the visible page boundary, bump
@@ -347,7 +352,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
       {/* ── project rows ──────────────────────────────────────────────── */}
       {projects.length === 0 && (
-        <div className="ghost" style={{ padding: '4px 16px' }}>no projects yet</div>
+        <div className="ghost" style={{ padding: '4px 16px' }}>{t('spine.projects.empty')}</div>
       )}
       {projects.map(p => {
         // React `key` and selection state are keyed on slug (the disk-truth
@@ -380,7 +385,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}
       >
         <span className="glyph">+</span>
-        <span>new project…</span>
+        <span>{t('spine.project.new')}</span>
       </div>
 
       {/* ── active project tree ───────────────────────────────────────── */}
@@ -388,7 +393,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         <>
           <hr />
           <div className="fs-head">
-            {activeProject.name}/ <span className="small">ls</span>
+            {activeProject.name}/ <span className="small">{t('spine.tree.ls')}</span>
           </div>
           <div className="tree">
             {tree.groups.map(g => {
@@ -414,7 +419,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.onClick() } }}
                         >
                           <span style={{ color: 'var(--ink-5)' }}>…</span>
-                          <span>{n.remaining} more</span>
+                          <span>{t('spine.more', { n: n.remaining })}</span>
                         </div>
                       )
                     }

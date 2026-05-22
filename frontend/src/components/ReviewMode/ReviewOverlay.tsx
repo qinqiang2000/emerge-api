@@ -14,6 +14,7 @@ import PdfViewer from './PdfViewer'
 import PreLabelNotice from './PreLabelNotice'
 import ReviewBar from './ReviewBar'
 import ReviewChatColumn, { readRevChatWidth, writeRevChatWidth } from './ReviewChatColumn'
+import { useT } from '../../i18n'
 
 type Props = {
   onBack: () => void
@@ -30,6 +31,7 @@ export default function ReviewOverlay({
   onToggleLeft,
   onToggleRight,
 }: Props) {
+  const t = useT()
   const {
     activeProjectId,
     activeFilename,
@@ -375,12 +377,12 @@ export default function ReviewOverlay({
           onMouseDown={startSplitDrag}
           onTouchStart={startSplitDrag}
           onDoubleClick={() => setSplitPct(52)}
-          title="Drag to resize · double-click to reset"
+          title={t('review.overlay.resize')}
         />
         <div style={{ minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           {loading ? (
             <div style={{ padding: '16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-5)' }}>
-              loading…
+              {t('review.loading')}
             </div>
           ) : (
             <FieldEditor

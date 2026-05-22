@@ -1,6 +1,7 @@
 import { Check, ShieldAlert, X } from 'lucide-react'
 
 import { useChat } from '../../stores/chat'
+import { useT } from '../../i18n'
 import type { PermissionRequestEvent } from '../../types/chat'
 
 interface Props {
@@ -98,6 +99,7 @@ function summarizeInput(toolName: string, input: unknown): string | null {
 }
 
 export default function PermissionCard({ event }: Props) {
+  const t = useT()
   const resolvePermission = useChat(s => s.resolvePermission)
   const resolved = event.resolution
   const summary = summarizeInput(event.tool_name, event.tool_input)
@@ -114,8 +116,8 @@ export default function PermissionCard({ event }: Props) {
   if (resolved) {
     const isApproved = resolved.decision === 'approve'
     const label = isApproved
-      ? (resolved.scope === 'always' ? 'approved (always)' : 'approved')
-      : 'denied'
+      ? (resolved.scope === 'always' ? t('perm.resolved.approvedAlways') : t('perm.resolved.approved'))
+      : t('perm.resolved.denied')
     const accent = isApproved ? 'text-moss' : 'text-rose'
     return (
       <div
@@ -125,7 +127,7 @@ export default function PermissionCard({ event }: Props) {
         {isApproved
           ? <Check size={14} className="text-moss" />
           : <X size={14} className="text-rose" />}
-        <span className="text-ink-3">permission</span>
+        <span className="text-ink-3">{t('perm.resolved.label')}</span>
         <span className="text-ink-4">·</span>
         <span className="text-ink">{event.tool_name}</span>
         {summary && (
@@ -144,13 +146,13 @@ export default function PermissionCard({ event }: Props) {
     <div
       className="border border-ochre-edge bg-ochre-soft rounded-lg px-3 py-3 flex flex-col gap-2"
       role="dialog"
-      aria-label="Tool permission required"
+      aria-label={t('perm.aria')}
       data-testid="permission-card"
     >
       <div className="flex items-baseline gap-2">
         <ShieldAlert size={14} className="text-ochre-2 self-center" />
         <span className="font-mono text-xs uppercase tracking-wider text-ochre-2">
-          permission needed
+          {t('perm.needed')}
         </span>
         <span className="font-mono text-sm text-ink ml-2 truncate min-w-0">
           {event.tool_name}
@@ -174,7 +176,7 @@ export default function PermissionCard({ event }: Props) {
                   {q.question}
                 </span>
                 {q.multiSelect && (
-                  <span className="font-mono text-[10.5px] text-ink-4">(multi-select)</span>
+                  <span className="font-mono text-[10.5px] text-ink-4">{t('ask.multiSelectHint')}</span>
                 )}
               </div>
               <ul className="flex flex-col gap-1.5 pl-1">
@@ -217,22 +219,22 @@ export default function PermissionCard({ event }: Props) {
           onClick={onApprove}
           className="font-mono text-xs px-3 py-1.5 rounded border border-ochre bg-paper text-ochre-2 hover:bg-ochre-soft transition-colors"
         >
-          approve
+          {t('perm.approve')}
         </button>
         <button
           type="button"
           onClick={onAlways}
           className="font-mono text-xs px-3 py-1.5 rounded border border-rule bg-paper text-ink-2 hover:bg-paper-2 transition-colors"
-          title="Approve every call to this tool for the rest of this chat"
+          title={t('perm.alwaysHint')}
         >
-          always allow
+          {t('perm.always')}
         </button>
         <button
           type="button"
           onClick={onDeny}
           className="font-mono text-xs px-3 py-1.5 rounded border border-rule bg-paper text-ink-3 hover:bg-paper-2 transition-colors ml-auto"
         >
-          deny
+          {t('perm.deny')}
         </button>
       </div>
     </div>

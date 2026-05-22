@@ -1,6 +1,7 @@
 import { Children, isValidElement, useState, type ReactElement, type ReactNode } from 'react'
 
 import type { ToolStatus } from './ToolCall'
+import { useT } from '../../i18n'
 
 interface Props {
   children: ReactNode
@@ -15,6 +16,7 @@ const NODE_STATE: Record<ToolStatus, 'done' | 'run' | 'err'> = {
 }
 
 export default function ToolStack({ children, defaultOpen = false }: Props) {
+  const t = useT()
   const [open, setOpen] = useState(defaultOpen)
   const kids = Children.toArray(children).filter(isValidElement) as ReactElement<{ status?: ToolStatus }>[]
   const count = kids.length
@@ -30,9 +32,9 @@ export default function ToolStack({ children, defaultOpen = false }: Props) {
         onClick={() => setOpen(o => !o)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setOpen(o => !o) }}
       >
-        <span>Ran</span>
+        <span>{t('tool.ran')}</span>
         <span className="cnt">{count}</span>
-        <span>{count === 1 ? 'tool' : 'tools'}</span>
+        <span>{count === 1 ? t('tool.tool') : t('tool.tools')}</span>
         <span className="chev">›</span>
       </div>
       <div className="ts-tree" aria-hidden={!open}>

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import type { CellVerdict } from '../../types/eval'
 import { applyFilter, groupCellsIntoRows, type MatrixFilter } from './filters'
+import { useT } from '../../i18n'
 
 
 interface Props {
@@ -80,6 +81,7 @@ function truncateForCell(v: string | null): { display: string; truncated: boolea
 
 
 export default function MatrixGrid({ cells, fields, filter, onCellClick, selectedKey }: Props) {
+  const t = useT()
   const rows = useMemo(() => applyFilter(cells, filter), [cells, filter])
   // Total rows for "empty-state" message (errors-only with all correct).
   const totalRows = useMemo(() => groupCellsIntoRows(cells).size, [cells])
@@ -88,8 +90,8 @@ export default function MatrixGrid({ cells, fields, filter, onCellClick, selecte
     return (
       <div className="p-8 text-center text-ink-3 text-sm">
         {filter === 'errors_only' && totalRows > 0
-          ? '没有错误 — 全部命中'
-          : '尚无评测数据'}
+          ? t('eval.matrix.empty.allHit')
+          : t('eval.matrix.empty.none')}
       </div>
     )
   }
@@ -123,7 +125,7 @@ export default function MatrixGrid({ cells, fields, filter, onCellClick, selecte
                 is both-axis sticky and bumped to z-20 so the column header
                 row stays above the per-row left-sticky filename cells. */}
             <th className="text-left px-3 py-2 border-b border-rule sticky top-0 left-0 bg-paper-2 z-20">
-              文件
+              {t('eval.matrix.col.file')}
             </th>
             {fields.map((f) => (
               <th

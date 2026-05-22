@@ -28,6 +28,7 @@ import { createPortal } from 'react-dom'
 import { Copy, Check } from 'lucide-react'
 
 import type { TranslateLine } from '../../lib/api'
+import { useT } from '../../i18n'
 
 // ── Ghost layer (inline translated text, decorative only) ───────────────────
 
@@ -104,6 +105,7 @@ export function TranslatePopover({
   onMouseEnter,
   onMouseLeave,
 }: PopoverProps) {
+  const t = useT()
   const popRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const [copiedKey, setCopiedKey] = useState<null | 'original' | 'translated'>(null)
@@ -196,35 +198,35 @@ export function TranslatePopover({
       ref={popRef}
       className="translate-pop"
       role="dialog"
-      aria-label="原文与翻译"
+      aria-label={t('translate.aria.pair')}
       style={style}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
       {showSeparateOriginal && (
-        <div className="translate-pop-original-main" title="原文">{line.original}</div>
+        <div className="translate-pop-original-main" title={t('translate.original')}>{line.original}</div>
       )}
       {showTranslation && (
-        <div className="translate-pop-translated-sub" title="译文">{line.translated}</div>
+        <div className="translate-pop-translated-sub" title={t('translate.translated')}>{line.translated}</div>
       )}
       <div className="translate-pop-actions">
         <button
           type="button"
           className="translate-pop-copy primary"
           onClick={() => copyText('original')}
-          title="复制原文"
+          title={t('translate.copy.original')}
           disabled={!line.original}
         >
           {copiedKey === 'original' ? (
             <>
               <Check size={12} aria-hidden="true" />
-              <span>已复制</span>
+              <span>{t('translate.copied')}</span>
             </>
           ) : (
             <>
               <Copy size={12} aria-hidden="true" />
-              <span>复制原文</span>
+              <span>{t('translate.copy.original')}</span>
             </>
           )}
         </button>
@@ -233,8 +235,8 @@ export function TranslatePopover({
             type="button"
             className="translate-pop-copy secondary"
             onClick={() => copyText('translated')}
-            title="复制译文"
-            aria-label="复制译文"
+            title={t('translate.copy.translated')}
+            aria-label={t('translate.copy.translated')}
           >
             {copiedKey === 'translated' ? (
               <Check size={11} aria-hidden="true" />

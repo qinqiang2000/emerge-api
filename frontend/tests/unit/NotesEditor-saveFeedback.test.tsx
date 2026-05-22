@@ -41,7 +41,7 @@ describe('NotesEditor save feedback', () => {
       .mockResolvedValue(null)
 
     render(<NotesEditor slug={PID} value="" schema={[]} />)
-    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    const ta = screen.getByPlaceholderText(/Overall instructions/i) as HTMLTextAreaElement
 
     // Edit + blur to trigger commit
     fireEvent.change(ta, { target: { value: 'hello' } })
@@ -72,7 +72,7 @@ describe('NotesEditor save feedback', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     render(<NotesEditor slug={PID} value="" schema={[]} />)
-    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    const ta = screen.getByPlaceholderText(/Overall instructions/i) as HTMLTextAreaElement
     fireEvent.change(ta, { target: { value: 'x' } })
     await act(async () => {
       fireEvent.blur(ta)
@@ -89,7 +89,7 @@ describe('NotesEditor save feedback', () => {
     seedActivePrompt('old')
 
     render(<NotesEditor slug={PID} value="old" schema={[]} />)
-    const ta = screen.getByPlaceholderText(/给模型的整体说明/) as HTMLTextAreaElement
+    const ta = screen.getByPlaceholderText(/Overall instructions/i) as HTMLTextAreaElement
     fireEvent.change(ta, { target: { value: 'new' } })
     await act(async () => {
       fireEvent.blur(ta)

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react'
 import './shell.css'
 
+import { useT } from '../../i18n'
+
 type ShellProps = {
   left: ReactNode
   center: ReactNode
@@ -41,6 +43,7 @@ function readStored(key: string, fallback: number, min: number, max: number): nu
 }
 
 export default function Shell({ left, center, leftHidden = false, leftCollapseToRail = false, rightHidden = false }: ShellProps) {
+  const t = useT()
   const [leftW, setLeftWState] = useState<number>(() => readStored(LEFT_W_KEY, LEFT_DEFAULT, LEFT_MIN, LEFT_MAX))
   const [drag, setDrag] = useState<boolean>(false)
   const dragStartX = useRef<number>(0)
@@ -112,7 +115,7 @@ export default function Shell({ left, center, leftHidden = false, leftCollapseTo
 
       <div
         className={`resizer left${drag ? ' active' : ''}`}
-        title="Drag to resize"
+        title={t('shell.resize.title')}
         onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientX) }}
         onTouchStart={(e) => { if (e.touches.length > 0) startDrag(e.touches[0].clientX) }}
       />

@@ -5,6 +5,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 
+import { useT } from '../../i18n'
+
 interface Props {
   path: string
   name: string
@@ -17,6 +19,7 @@ interface Props {
 }
 
 export default function ObjectField({ path, name, value, active, forceOpen, readOnly = false, onChange, onClick }: Props) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
 
@@ -51,9 +54,9 @@ export default function ObjectField({ path, name, value, active, forceOpen, read
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
       >
         {/* Confidence dot — hard-coded to 'high' per design-decisions.md */}
-        <span className="cdot" title="confidence: high" />
+        <span className="cdot" title={t('field.confidence.high')} />
         <span className="name">{name}</span>
-        <span className="ty">object · {keyCount} keys</span>
+        <span className="ty">{t('field.object.keys', { n: keyCount })}</span>
         {summary && !open && (
           <span className="objsum" title={summary}>{summary}</span>
         )}

@@ -14,6 +14,8 @@
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+import { useT } from '../../i18n'
+
 export type PanelSide = 'left' | 'right'
 
 type Props = {
@@ -36,9 +38,9 @@ const ICONS: Record<PanelSide, { open: LucideIcon; close: LucideIcon }> = {
   right: { open: PanelRightOpen, close: PanelRightClose },
 }
 
-const DEFAULT_LABELS: Record<PanelSide, { show: string; hide: string; key: string }> = {
-  left:  { show: 'Show projects',  hide: 'Hide projects',  key: '⌘.'  },
-  right: { show: 'Show context',   hide: 'Hide context',   key: '⌘⇧.' },
+const SHORTCUT: Record<PanelSide, string> = {
+  left:  '⌘.',
+  right: '⌘⇧.',
 }
 
 export default function PanelToggle({
@@ -50,10 +52,10 @@ export default function PanelToggle({
   title,
   ariaLabel,
 }: Props) {
+  const t = useT()
   const Icon = hidden ? ICONS[side].open : ICONS[side].close
-  const labels = DEFAULT_LABELS[side]
-  const action = hidden ? labels.show : labels.hide
-  const resolvedTitle = title ?? `${action} (${labels.key})`
+  const action = t(`panel.${side}.${hidden ? 'show' : 'hide'}`)
+  const resolvedTitle = title ?? `${action} (${SHORTCUT[side]})`
   const resolvedAria  = ariaLabel ?? action
   return (
     <button

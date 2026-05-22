@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react'
 import type { SchemaField } from '../../stores/schema'
+import { useT } from '../../i18n'
 
 interface ArrayEntry {
   value: unknown
@@ -194,6 +195,7 @@ export default function ArrayField({
   onChange,
   onClick,
 }: Props) {
+  const t = useT()
   const [open, setOpen] = useState(true)
 
   useEffect(() => {
@@ -238,13 +240,13 @@ export default function ArrayField({
       onClick={() => onClick(path)}
     >
       <div className="arrhead" onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}>
-        <span className="cdot" title="confidence: high" />
+        <span className="cdot" title={t('field.confidence.high')} />
         <span className="name">{name}</span>
-        <span className="ty">array · {entries.length} rows</span>
+        <span className="ty">{t('field.array.rows', { n: entries.length })}</span>
         {!readOnly && (
           <div className="actions" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="rowbtn" onClick={handleAddRow} aria-label="add row">
-              + row
+            <button type="button" className="rowbtn" onClick={handleAddRow} aria-label={t('field.row.add')}>
+              {t('field.row.add.label')}
             </button>
           </div>
         )}
@@ -253,7 +255,7 @@ export default function ArrayField({
       {open && (
         <div className="arrlist">
           {entries.length === 0 && (
-            <div className="rev-arr-empty">no items</div>
+            <div className="rev-arr-empty">{t('field.row.empty')}</div>
           )}
           {entries.map((entry, idx) => (
             <div key={idx} className="rev-arr-rowwrap">
@@ -270,18 +272,18 @@ export default function ArrayField({
                   <button
                     type="button"
                     className="rowbtn"
-                    aria-label={`duplicate row ${idx + 1}`}
+                    aria-label={t('field.row.duplicate', { idx: idx + 1 })}
                     onClick={(e) => handleDuplicateRow(e, idx)}
                   >
-                    duplicate
+                    {t('field.row.duplicate.label')}
                   </button>
                   <button
                     type="button"
                     className="rowbtn danger"
-                    aria-label={`delete row ${idx + 1}`}
+                    aria-label={t('field.row.delete', { idx: idx + 1 })}
                     onClick={(e) => handleDeleteRow(e, idx)}
                   >
-                    delete row
+                    {t('field.row.delete.label')}
                   </button>
                 </div>
               )}
