@@ -1,7 +1,30 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronRight, Globe } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import './usermenu.css'
+
+// Heroicons outline `globe-alt` — claude.ai uses this exact icon for the
+// Language row. Lucide's `Globe` has a different meridian geometry; inlining
+// the heroicons path lets us match pixel-for-pixel.
+function GlobeAlt({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
+    </svg>
+  )
+}
 
 // Fixed identity for now — wired into the popover header.
 // (Multi-user auth lives downstream; spec asks for a placeholder.)
@@ -9,9 +32,12 @@ const USER_EMAIL = 'docai@piaozone.com'
 
 const LANG_KEY = 'emerge.ui.lang'
 type Lang = 'en' | 'zh'
-const LANG_OPTIONS: { value: Lang; label: string; hint: string }[] = [
-  { value: 'en', label: 'English',  hint: 'English' },
-  { value: 'zh', label: '中文',      hint: 'Simplified Chinese' },
+// Single-label rows, claude.ai-style: native script + optional region in parens.
+// The sub-popover does NOT carry a second muted "English/Simplified Chinese"
+// hint column — that produced cramped two-column rows and "中..." truncation.
+const LANG_OPTIONS: { value: Lang; label: string }[] = [
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文（简体）' },
 ]
 
 function readLang(): Lang {
@@ -28,8 +54,11 @@ function initialsFromEmail(email: string): string {
   return ch.toUpperCase()
 }
 
+// Short label for the main popover's "Language → English" hint column.
+// Strips the parenthetical region — keeps the row trim.
 function labelForLang(l: Lang): string {
-  return LANG_OPTIONS.find(o => o.value === l)?.label ?? 'English'
+  if (l === 'zh') return '中文'
+  return 'English'
 }
 
 type Variant = 'expanded' | 'rail'
@@ -38,7 +67,7 @@ type Coord = { top: number; left: number }
 type Props = { variant?: Variant }
 
 const POP_W = 260
-const SUB_W = 180
+const SUB_W = 200
 
 /**
  * Avatar button (bottom-left of the sidebar / rail) + two-level popover.
@@ -179,7 +208,7 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
           onMouseEnter={openSubNow}
           onMouseLeave={scheduleSubClose}
         >
-          <Globe size={16} strokeWidth={1.75} className="up-row-ic" />
+          <GlobeAlt size={16} className="up-row-ic" />
           <span className="up-row-label">Language</span>
           <span className="up-row-hint">{labelForLang(lang)}</span>
           <ChevronRight size={14} strokeWidth={1.75} className="up-row-chev" />
@@ -211,7 +240,6 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
             onClick={() => pickLang(opt.value)}
           >
             <span className="up-row-label">{opt.label}</span>
-            <span className="up-row-hint">{opt.hint}</span>
             {lang === opt.value && <Check size={14} strokeWidth={2} className="up-row-check" />}
           </button>
         ))}

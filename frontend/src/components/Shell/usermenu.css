@@ -48,6 +48,9 @@
   font-family:var(--sans);
 }
 .user-pop-sub{padding:4px}
+/* Sub-popover rows are single-label (claude.ai pattern), so give them a hair
+   more vertical breathing room than the dual-column rows in the main popover. */
+.user-pop-sub .up-row{padding:8px 10px;font-size:13.5px}
 @keyframes userPopIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 
 /* Email row — plain muted text at the top, separator below.
@@ -73,8 +76,8 @@
 }
 .user-pop .up-row:hover{background:var(--paper-2);color:var(--ink)}
 .user-pop .up-row.on{background:var(--paper-2);color:var(--ink)}
-.user-pop .up-row .up-row-ic{color:var(--ink-4);flex-shrink:0}
-.user-pop .up-row:hover .up-row-ic,.user-pop .up-row.on .up-row-ic{color:var(--ink-2)}
+.user-pop .up-row .up-row-ic{color:var(--ink-2);flex-shrink:0}
+.user-pop .up-row:hover .up-row-ic,.user-pop .up-row.on .up-row-ic{color:var(--ink)}
 .user-pop .up-row .up-row-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .user-pop .up-row .up-row-hint{font-size:11px;color:var(--ink-5);font-family:var(--mono);flex-shrink:0;letter-spacing:.02em}
 .user-pop .up-row.sub-trigger .up-row-hint{font-family:var(--sans);font-size:12px;color:var(--ink-3)}
