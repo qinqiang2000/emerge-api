@@ -1,4 +1,5 @@
 .fs{border-right:1px solid var(--rule-soft);background:var(--paper);overflow-y:auto;padding:0 0 60px;display:flex;flex-direction:column;gap:2px;min-height:0}
+.fs > *{flex-shrink:0}
 .fs .fs-brand-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 18px;border-bottom:1px solid var(--rule-soft);margin-bottom:6px}
 .fs .fs-brand{font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.005em;color:var(--ink);font-weight:500;display:flex;align-items:baseline;gap:8px}
 .fs .fs-brand .dot{width:7px;height:7px;border-radius:50%;background:var(--ochre);display:inline-block;transform:translateY(-2px)}
