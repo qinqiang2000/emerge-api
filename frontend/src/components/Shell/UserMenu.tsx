@@ -118,13 +118,10 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
     const b = btnRef.current?.getBoundingClientRect()
     if (!b) return
     const popH = popRef.current?.getBoundingClientRect().height ?? 180
-    if (variant === 'rail') {
-      // Right of the 52px rail, bottom-aligned with the avatar.
-      setPopPos({ top: Math.max(8, b.bottom - popH), left: b.right + 6 })
-    } else {
-      // Above the avatar row, left-aligned. Clamp to viewport top.
-      setPopPos({ top: Math.max(8, b.top - popH - 6), left: b.left })
-    }
+    // Both variants: pop ABOVE the trigger, left-aligned with it (claude.ai-style).
+    // Clamp left so the popover doesn't get clipped at the viewport left edge.
+    const left = Math.max(8, Math.min(b.left, window.innerWidth - POP_W - 8))
+    setPopPos({ top: Math.max(8, b.top - popH - 6), left })
   }, [open, variant])
 
   // Sub-popover position keyed off the Language row.
