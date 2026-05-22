@@ -5,6 +5,11 @@ type ShellProps = {
   left: ReactNode
   center: ReactNode
   leftHidden?: boolean
+  /** When true together with `leftHidden`, the left column collapses to a
+   *  narrow 52px rail (icons only) instead of fully disappearing. The `left`
+   *  slot is expected to render `<CollapsedRail />` in that mode. App passes
+   *  this in chat mode; review mode keeps the truly-hidden (0px) behavior. */
+  leftCollapseToRail?: boolean
   /** When true, the right column collapses to 0 width. The right slot itself
    *  is always an empty spacer — the visible context panel is a fixed overlay
    *  rendered outside Shell (see App.tsx / .ctx in index.css). The spacer
@@ -16,6 +21,7 @@ const LEFT_W_KEY = 'emerge.leftW'
 const LEFT_DEFAULT = 248
 const LEFT_MIN = 180
 const LEFT_MAX = 460
+const LEFT_RAIL_W = 52
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val))
@@ -34,7 +40,7 @@ function readStored(key: string, fallback: number, min: number, max: number): nu
   return fallback
 }
 
-export default function Shell({ left, center, leftHidden = false, rightHidden = false }: ShellProps) {
+export default function Shell({ left, center, leftHidden = false, leftCollapseToRail = false, rightHidden = false }: ShellProps) {
   const [leftW, setLeftWState] = useState<number>(() => readStored(LEFT_W_KEY, LEFT_DEFAULT, LEFT_MIN, LEFT_MAX))
   const [drag, setDrag] = useState<boolean>(false)
   const dragStartX = useRef<number>(0)
@@ -78,15 +84,20 @@ export default function Shell({ left, center, leftHidden = false, rightHidden = 
     setDrag(true)
   }
 
+  const railMode = leftHidden && leftCollapseToRail
   const shellClass = [
     'shell',
     leftHidden ? 'no-left' : '',
+    railMode ? 'left-rail' : '',
     rightHidden ? 'no-right' : '',
     drag ? 'dragging' : '',
   ].filter(Boolean).join(' ')
 
+  const leftWidth = leftHidden
+    ? (leftCollapseToRail ? `${LEFT_RAIL_W}px` : '0px')
+    : `${leftW}px`
   const shellStyle: CSSProperties = {
-    '--left-w': leftHidden ? '0px' : `${leftW}px`,
+    '--left-w': leftWidth,
   } as CSSProperties
 
   return (

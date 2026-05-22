@@ -1,0 +1,83 @@
+/* ── pinned bottom row inside the expanded spine ─────────────────────── */
+.fs-foot{border-top:1px solid var(--rule-soft);padding:8px 10px;background:var(--paper);position:relative}
+
+/* ── 52px icon rail (collapsed sidebar) ──────────────────────────────── */
+.fs-rail{height:100%;display:flex;flex-direction:column;align-items:center;padding:8px 0 10px;border-right:1px solid var(--rule-soft);background:var(--paper);overflow:hidden}
+.fs-rail-top{display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px}
+.fs-rail-spacer{flex:1}
+.fs-rail-bot{display:flex;flex-direction:column;align-items:center;padding-bottom:2px;position:relative}
+.fs-rail-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--ink-3);cursor:default;transition:background .15s, color .15s, border-color .15s}
+.fs-rail-btn:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule-soft)}
+
+/* ── user menu (avatar button + popover), shared across rail + expanded ── */
+.user-menu{position:relative;font-family:var(--sans)}
+.user-menu .user-btn{
+  display:flex;align-items:center;gap:10px;
+  border:1px solid transparent;background:transparent;border-radius:8px;
+  cursor:default;color:var(--ink-2);
+  transition:background .12s, border-color .12s, color .12s;
+}
+.user-menu .user-btn:hover{background:var(--paper-2);border-color:var(--rule-soft);color:var(--ink)}
+.user-menu .user-btn.on{background:var(--paper-3);border-color:var(--rule);color:var(--ink)}
+
+.user-menu.expanded .user-btn{padding:6px 8px;width:100%;justify-content:flex-start;font-size:12.5px}
+.user-menu.rail .user-btn{padding:4px;width:36px;height:36px;justify-content:center}
+
+.user-menu .avatar{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:50%;
+  background:var(--ochre);color:#FFFFFF;
+  font-family:var(--sans);font-weight:600;font-size:12.5px;letter-spacing:.01em;
+  flex-shrink:0;line-height:1;
+}
+.user-menu.rail .avatar{width:28px;height:28px}
+.user-menu .email{
+  font-family:var(--sans);font-size:12.5px;color:var(--ink-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+  letter-spacing:.005em;
+}
+
+/* ── popover ────────────────────────────────────────────────────────── */
+/* Rendered into a portal on document.body — position:fixed is set inline
+   from the trigger's bounding rect, so we don't hardcode top/left here. */
+.user-pop{
+  background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;
+  box-shadow:0 12px 32px rgba(31,27,20,.12);
+  z-index:60;display:flex;flex-direction:column;padding:6px;
+  animation:userPopIn .14s ease-out;
+  font-family:var(--sans);
+}
+.user-pop-sub{padding:4px}
+@keyframes userPopIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+/* Email row — plain muted text at the top, separator below.
+   Matches the claude.ai menu pattern: no pill background, 13px / weight 500 /
+   line-height 16px / 4px 12px padding, with a hairline rule after it. */
+.user-pop .up-email-pill{
+  background:transparent;border:0;border-radius:0;
+  padding:4px 12px;margin:2px 0 4px;
+  font-family:var(--sans);font-size:13px;font-weight:500;line-height:16px;
+  color:var(--ink-4);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.user-pop .up-email-pill + .up-section{border-top:1px solid var(--rule-soft);padding-top:4px;margin-top:4px}
+
+.user-pop .up-section{display:flex;flex-direction:column;gap:1px}
+
+.user-pop .up-row{
+  display:flex;align-items:center;gap:8px;
+  width:100%;padding:7px 8px;border:0;background:transparent;border-radius:6px;
+  text-align:left;cursor:default;color:var(--ink-2);
+  font-family:var(--sans);font-size:13px;
+  transition:background .12s, color .12s;
+}
+.user-pop .up-row:hover{background:var(--paper-2);color:var(--ink)}
+.user-pop .up-row.on{background:var(--paper-2);color:var(--ink)}
+.user-pop .up-row .up-row-ic{color:var(--ink-4);flex-shrink:0}
+.user-pop .up-row:hover .up-row-ic,.user-pop .up-row.on .up-row-ic{color:var(--ink-2)}
+.user-pop .up-row .up-row-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-pop .up-row .up-row-hint{font-size:11px;color:var(--ink-5);font-family:var(--mono);flex-shrink:0;letter-spacing:.02em}
+.user-pop .up-row.sub-trigger .up-row-hint{font-family:var(--sans);font-size:12px;color:var(--ink-3)}
+.user-pop .up-row .up-row-chev{color:var(--ink-5);flex-shrink:0;margin-left:-2px}
+.user-pop .up-row.on .up-row-chev{color:var(--ink-3)}
+.user-pop .up-row .up-row-check{color:var(--ochre);flex-shrink:0}

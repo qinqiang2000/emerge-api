@@ -14,6 +14,7 @@ import { useExperiments } from '../../stores/experiments'
 import { useEval } from '../../stores/eval'
 import { pathForEvalMatrix } from '../../lib/slugUrl'
 import PanelToggle from '../Shell/PanelToggle'
+import UserMenu from '../Shell/UserMenu'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; selected?: boolean; onClick?: () => void }
@@ -336,6 +337,9 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         )}
       </div>
 
+      {/* ── scrollable middle (project list + tree) ─────────────────── */}
+      <div className="fs-scroll">
+
       {/* ── ~/projects header ─────────────────────────────────────────── */}
       <div className="fs-head">
         ~/projects <span className="small">{projects.length}</span>
@@ -454,6 +458,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
           </div>
         </>
       )}
+
+      </div>{/* /fs-scroll */}
+
+      {/* ── pinned bottom: user identity + menu ──────────────────────── */}
+      <div className="fs-foot">
+        <UserMenu variant="expanded" />
+      </div>
     </div>
   )
 }

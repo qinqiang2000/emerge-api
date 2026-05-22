@@ -17,7 +17,9 @@
    Leave room for the fixed .edge-toggle.right (28px wide at right:10px) so the
    chat toolbar (.conv-hd, anchored at right:14px of .conv) doesn't collide with it. */
 .shell.no-right .conv-hd{right:52px}
-.shell.no-left .fs{opacity:0;pointer-events:none;transform:translateX(-20px);transition:opacity .2s, transform .25s}
+.shell.no-left:not(.left-rail) .fs{opacity:0;pointer-events:none;transform:translateX(-20px);transition:opacity .2s, transform .25s}
+/* Rail mode: 52px wide column carrying CollapsedRail. Stays fully visible. */
+.shell.left-rail{--left-w:52px}
 
 /* drag handle */
 .resizer{position:absolute;top:0;bottom:0;width:8px;cursor:col-resize;z-index:6;display:flex;align-items:center;justify-content:center;transition:background .15s}
@@ -27,6 +29,7 @@
 .resizer:hover::after,.resizer.active::after{background:var(--ochre);transform:scaleY(1.05)}
 .resizer.left{left:calc(var(--left-w) - 4px)}
 .shell.no-left .resizer.left{display:none}
+.shell.left-rail .resizer.left{display:none}
 
 /* Responsive: when viewport can't fit panels + comfortable center,
    collapse the secondary panels. Center has priority — at any width

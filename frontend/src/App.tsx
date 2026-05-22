@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Shell from './components/Shell/Shell'
+import CollapsedRail from './components/Shell/CollapsedRail'
 import FSSpine from './components/Spine/FSSpine'
 import ChatPanel from './components/Chat/ChatPanel'
 import ContextSurface from './components/Context/ContextSurface'
@@ -299,10 +300,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [selectedSlug, loadedUnboundChatId, onToggleLeft, onToggleRight])
 
+  // Chat mode → collapsed sidebar shows as a 52px rail (claude.ai pattern).
+  // Review mode → collapsed sidebar fully hides (review needs the width).
+  const leftCollapseToRail = !inReview
+  const showRail = leftHidden && leftCollapseToRail
+  const leftSlot = showRail
+    ? <CollapsedRail onToggleLeft={onToggleLeft} />
+    : <FSSpine onToggleLeft={onToggleLeft} />
+
   return (
     <>
       <Shell
-        left={<FSSpine onToggleLeft={onToggleLeft} />}
+        left={leftSlot}
         center={inReview
           ? <ReviewOverlay
               onBack={() => window.history.back()}
@@ -313,6 +322,7 @@ export default function App() {
             />
           : <ChatPanel />}
         leftHidden={leftHidden}
+        leftCollapseToRail={leftCollapseToRail}
         rightHidden={shellRightHidden}
       />
 
@@ -325,15 +335,9 @@ export default function App() {
         </aside>
       )}
 
-      {/* Edge toggles: left shows in chat mode; right shows when panel hidden */}
-      {!inReview && leftHidden && (
-        <PanelToggle
-          side="left"
-          hidden={true}
-          onClick={onToggleLeft}
-          className="edge-toggle left"
-        />
-      )}
+      {/* Edge toggles: right shows when panel hidden. Left no longer needs a
+          floating toggle in chat mode — `<CollapsedRail />` carries its own
+          PanelToggle at the top of the 52px rail. */}
       {!inReview && shellRightHidden && rightToggleEnabled && (
         <PanelToggle
           side="right"
