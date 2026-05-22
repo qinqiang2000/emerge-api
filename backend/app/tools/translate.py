@@ -2,14 +2,18 @@
 
 Two branches share one return shape:
 
-- **textlayer mode** — electronic PDFs whose `extract_textlayer` sidecar has
-  vector spans. We send the originals as a JSON array (text-only, no image)
-  to a cheap translator LLM and pair each translation with the bbox we
-  already have. No vision call, no OCR — fast + cheap.
-- **vision mode** — scanned PDFs / image docs. We ask the LLM to OCR + locate
-  + translate in one shot, returning `[y0,x0,y1,x1]` normalised to 0–1000
-  which we convert back to PDF-page units so the frontend renderer can treat
-  both modes uniformly.
+- **textlayer mode** — any sidecar with `spans>0`, regardless of `scanned`.
+  Covers electronic PDFs (fitz vector spans) AND scanned / raster docs
+  whose textlayer OCR fallback succeeded (`text_source="ocr"`). We send
+  the originals as a JSON array (text-only, no image) to a cheap
+  translator LLM and pair each translation with the bbox we already have.
+  No second vision call here — reusing the OCR'd spans means we pay for
+  page OCR once (inside `extract_textlayer`) rather than twice.
+- **vision mode** — fallback when the sidecar has zero spans (OCR was
+  skipped or returned nothing usable). We ask the LLM to OCR + locate +
+  translate in one shot, returning `[y0,x0,y1,x1]` normalised to 0–1000
+  which we convert back to PDF-page units so the frontend renderer can
+  treat both modes uniformly.
 
 Hard rules respected:
 - Translate is its own provider call path. It does NOT recurse into the
@@ -229,10 +233,7 @@ async def translate_page(
     image_w = int(sidecar_for_textlayer["image_w"])
     image_h = int(sidecar_for_textlayer["image_h"])
     spans = sidecar_for_textlayer.get("spans") or []
-    use_textlayer = (
-        not sidecar_for_textlayer.get("scanned", True)
-        and len(spans) > 0
-    )
+    use_textlayer = len(spans) > 0
     mode = "textlayer" if use_textlayer else "vision"
 
     cache = doc_translate_path(

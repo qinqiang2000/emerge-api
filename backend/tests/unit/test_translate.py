@@ -130,6 +130,12 @@ async def test_translate_page_vision_mode(
     png_bytes = _build_png(w=100, h=100)
     fname = (await upload_doc(workspace, pid, png_bytes, "scan.png"))["filename"]
 
+    # Vision mode is now the no-spans fallback: it only fires when the
+    # textlayer sidecar comes back empty. We force that by stubbing
+    # textlayer's OCR provider (resolved via `app.provider.get_provider_for_model`
+    # — see test_textlayer.py:_install_provider) to return zero lines.
+    # Then translate's own provider stub handles the vision call.
+    #
     # Gemini returns normalised [y0, x0, y1, x1] in 0–1000. For a 100×100
     # image:
     #   y0=100 / 1000 * page_h(100) = 10.0  → pdf_y0
@@ -137,6 +143,14 @@ async def test_translate_page_vision_mode(
     #   y1=300 / 1000 * page_h(100) = 30.0  → pdf_y1
     #   x1=400 / 1000 * page_w(100) = 40.0  → pdf_x1
     # `_denormalise_bbox` returns `[x0, y0, x1, y1]` → [20, 10, 40, 30].
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
     stub = _install_provider(
         monkeypatch,
         return_value=_result({
@@ -163,6 +177,61 @@ async def test_translate_page_vision_mode(
     user_content = call.kwargs["user_content"]
     assert any(isinstance(b, ImageBlock) for b in user_content), (
         f"vision mode missing ImageBlock: {[type(b).__name__ for b in user_content]}"
+    )
+
+
+async def test_translate_page_routes_to_textlayer_for_ocr_spans(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cost-saver regression: when textlayer OCR fallback succeeds on a PNG /
+    scanned doc, translate_page must consume those spans via the cheap
+    text-only textlayer branch — NOT re-OCR via vision mode."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    png_bytes = _build_png(w=100, h=100)
+    fname = (await upload_doc(workspace, pid, png_bytes, "scan.png"))["filename"]
+
+    # textlayer.py imports get_provider_for_model locally → patch the
+    # module path the function-local import resolves to (mirrors
+    # test_textlayer.py:_install_provider).
+    ocr_stub = AsyncMock()
+    ocr_stub.extract = AsyncMock(
+        return_value=_result({
+            "lines": [
+                {"bbox": [100, 200, 300, 400], "text": "Hola mundo"},
+            ],
+        }),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_stub,
+    )
+
+    # translate's own provider — items shape, aligned by index.
+    translate_stub = _install_provider(
+        monkeypatch,
+        return_value=_result({
+            "items": [{"index": 0, "translated": "你好世界"}],
+        }),
+    )
+
+    result = await translate_page(workspace, pid, fname, page=1)
+
+    assert result["mode"] == "textlayer"
+    assert len(result["lines"]) == 1
+    assert result["lines"][0]["translated"] == "你好世界"
+    assert result["lines"][0]["original"] == "Hola mundo"
+    # bbox carried over from textlayer's OCR'd span (denormalised in
+    # _ocr_extract_spans to [x0, y0, x1, y1] in page-units → [20, 10, 40, 30]
+    # for a 100×100 raster).
+    assert result["lines"][0]["bbox"] == [20.0, 10.0, 40.0, 30.0]
+
+    # The whole point: NO ImageBlock in translate's user_content. If this
+    # leaks an image, we've regressed back to paying for OCR twice.
+    call = translate_stub.extract.await_args
+    user_content = call.kwargs["user_content"]
+    assert all(isinstance(b, TextBlock) for b in user_content), (
+        f"textlayer-on-ocr-spans leaked a non-text block: "
+        f"{[type(b).__name__ for b in user_content]}"
     )
 
 
