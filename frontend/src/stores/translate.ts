@@ -25,12 +25,21 @@ export type PageState =
   | { kind: 'ready'; payload: TranslatePayload }
   | { kind: 'error'; message: string }
 
-export type Mode = 'off' | 'on'
+// Three display modes:
+// - `off`:    no translation; ghost layer not rendered, no fetches issued
+// - `subtle`: tiny low-alpha ghost text, original is the visual primary
+//             (the "navigator" — scan to decide what matters)
+// - `cover`:  opaque larger ghost text covering the original raster, à la
+//             Chrome / WeChat image translate (the "reading" mode)
+// `on` is kept as a legacy alias of `subtle` so older keymap callers that
+// say `setMode('on')` still resolve to a translated state.
+export type Mode = 'off' | 'subtle' | 'cover'
+export type ModeInput = Mode | 'on'
 
 interface State {
   mode: Mode
   byKey: Record<string, PageState>
-  setMode: (m: Mode) => void
+  setMode: (m: ModeInput) => void
   toggleMode: () => void
   ensure: (
     projectId: string,
@@ -45,17 +54,29 @@ function makeKey(projectId: string, filename: string, page: number): string {
   return `${projectId}::${filename}::${page}`
 }
 
+function normalizeMode(m: ModeInput): Mode {
+  return m === 'on' ? 'subtle' : m
+}
+
+// T-key + toolbar cycle order.
+function nextMode(m: Mode): Mode {
+  if (m === 'off') return 'subtle'
+  if (m === 'subtle') return 'cover'
+  return 'off'
+}
+
 export const useTranslate = create<State>((set, get) => ({
   mode: 'off',
   byKey: {},
-  setMode: (m) => set({ mode: m }),
-  toggleMode: () => set((s) => ({ mode: s.mode === 'on' ? 'off' : 'on' })),
+  setMode: (m) => set({ mode: normalizeMode(m) }),
+  toggleMode: () => set((s) => ({ mode: nextMode(s.mode) })),
   ensure: (projectId, filename, page, opts) => {
     if (!projectId || !filename || !page) return
-    // Hard gate: when the user has translation toggled off, this is a
-    // no-op. Toolbar button explicitly flips mode first, then loops
-    // ensure() over loadedPages — never the other way around.
-    if (get().mode !== 'on') return
+    // Hard gate: when translation is off, this is a no-op. Toolbar button
+    // explicitly flips mode away from off, then loops ensure() over
+    // loadedPages — never the other way around. `subtle` and `cover` both
+    // count as "on" for fetching purposes.
+    if (get().mode === 'off') return
     const key = makeKey(projectId, filename, page)
     const current = get().byKey[key]
     if (!opts?.force && current && (current.kind === 'loading' || current.kind === 'ready')) {

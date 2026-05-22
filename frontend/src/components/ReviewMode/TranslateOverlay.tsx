@@ -35,21 +35,28 @@ interface GhostProps {
   lines: TranslateLine[]
   pageW: number
   pageH: number
+  /** `subtle` = navigator (small low-alpha annotations above original raster);
+   *  `cover` = reading mode (opaque larger Chinese visually replacing the
+   *  raster, Chrome / WeChat style). Both render via the same DOM tree —
+   *  CSS class flips fonts, alpha, and background. Original text remains
+   *  selectable via the textlayer at z=1 in BOTH modes (ghost is z=2 +
+   *  pointer-events:none so events fall through to the textlayer). */
+  view?: 'subtle' | 'cover'
 }
 
-// Min/max caps in px keep ultra-tiny footers legible and ultra-large
-// headings from drowning the page. cqh-relative inside guarantees the
-// glyphs scale with rotation / zoom together with the raster.
-const GHOST_FONT_MIN_PX = 8
-const GHOST_FONT_MAX_PX = 11
-// Aggressive shrink — ghost is a navigator, the original raster IS the
-// page. Most rows hit the cap anyway, so the real lever is the cap.
-const GHOST_FONT_SHRINK = 0.5
+// Per-view font sizing tables. Cover mode wants Chinese to read at roughly
+// the visual weight of the original character; subtle mode wants the
+// opposite — small annotation that yields to the raster underneath.
+const GHOST_SIZING = {
+  subtle: { minPx: 8, maxPx: 11, shrink: 0.5 },
+  cover:  { minPx: 11, maxPx: 24, shrink: 0.85 },
+} as const
 
-export function TranslateGhost({ lines, pageW, pageH }: GhostProps) {
+export function TranslateGhost({ lines, pageW, pageH, view = 'subtle' }: GhostProps) {
   if (!lines.length || pageW <= 0 || pageH <= 0) return null
+  const sizing = GHOST_SIZING[view]
   return (
-    <div className="translate-ghost-layer" aria-hidden="true">
+    <div className={`translate-ghost-layer is-${view}`} aria-hidden="true">
       {lines.map((line, i) => {
         const [x0, y0, x1, y1] = line.bbox
         const left = (x0 / pageW) * 100
@@ -61,9 +68,9 @@ export function TranslateGhost({ lines, pageW, pageH }: GhostProps) {
         // tall/short lines pick proportional sizes; clamp() then enforces
         // the px caps. cqh on the wrapper (set by .translate-ghost-layer
         // container-type:size) resolves to "% of layer height".
-        const fontSizeCqh = ((y1 - y0) / pageH) * 100 * GHOST_FONT_SHRINK
+        const fontSizeCqh = ((y1 - y0) / pageH) * 100 * sizing.shrink
         const fontSize =
-          `clamp(${GHOST_FONT_MIN_PX}px, ${fontSizeCqh}cqh, ${GHOST_FONT_MAX_PX}px)`
+          `clamp(${sizing.minPx}px, ${fontSizeCqh}cqh, ${sizing.maxPx}px)`
         return (
           <span
             key={i}

@@ -199,7 +199,7 @@ export default function PdfViewer() {
   type TranslateBtnState = 'idle' | 'loading' | 'ready' | 'error'
   let translateBtnState: TranslateBtnState = 'idle'
   let translateBtnError: string | null = null
-  if (translateMode === 'on' && docKeyPrefix) {
+  if (translateMode !== 'off' && docKeyPrefix) {
     let anyLoading = false
     let anyReady = false
     let anyError = false
@@ -217,9 +217,10 @@ export default function PdfViewer() {
 
   function onToggleTranslate() {
     if (!activeProjectId || !activeFilename) return
-    const next: 'on' | 'off' = useTranslate.getState().mode === 'on' ? 'off' : 'on'
-    useTranslate.getState().setMode(next)
-    if (next === 'on') {
+    // T-key + toolbar both cycle: off → subtle → cover → off.
+    useTranslate.getState().toggleMode()
+    const after = useTranslate.getState().mode
+    if (after !== 'off') {
       // Fan-out: trigger ensure() for every currently-loaded page. New
       // pages scrolled into view after this will trigger via the per-page
       // host component below.
@@ -254,7 +255,7 @@ export default function PdfViewer() {
         // Force a re-translate; if mode is off, flip it on first so the
         // `ensure` guard in the store accepts the call.
         const st = useTranslate.getState()
-        if (st.mode !== 'on') st.setMode('on')
+        if (st.mode === 'off') st.setMode('subtle')
         useTranslate.getState().ensure(activeProjectId, activeFilename, page, { force: true })
         return
       }
@@ -394,18 +395,21 @@ export default function PdfViewer() {
         <button
           className={
             'dv-btn translate-btn'
-            + (translateMode === 'on' ? ' on' : '')
+            + (translateMode !== 'off' ? ' on' : '')
+            + (translateMode === 'cover' ? ' is-cover' : '')
             + (translateBtnState === 'loading' ? ' is-loading' : '')
             + (translateBtnState === 'error' ? ' is-error' : '')
           }
           title={
             translateBtnState === 'error' && translateBtnError
               ? `翻译失败: ${translateBtnError} (T)`
-              : translateMode === 'on'
-                ? '关闭翻译 (T) · Shift+T 重译本页'
-                : '翻译此 doc (T)'
+              : translateMode === 'cover'
+                ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
+                : translateMode === 'subtle'
+                  ? '注释模式 · T 切覆盖 · Shift+T 重译本页'
+                  : '翻译此 doc (T) · 再按一次切覆盖'
           }
-          aria-pressed={translateMode === 'on'}
+          aria-pressed={translateMode !== 'off'}
           onClick={onToggleTranslate}
         >
           {translateBtnState === 'loading' ? (
@@ -519,10 +523,11 @@ function PageOverlays({
     textlayerEnsure(projectId, filename, page)
   }, [textlayerEnsure, projectId, filename, page])
 
-  // Fetch translate when the global mode is on. The store gates internally
-  // so this is a no-op when mode is off.
+  // Fetch translate whenever the global mode is anything but `off`. Both
+  // `subtle` and `cover` need the same data; only the ghost layer's CSS
+  // changes between them, so we don't refetch on subtle↔cover.
   useEffect(() => {
-    if (translateMode !== 'on') return
+    if (translateMode === 'off') return
     translateEnsure(projectId, filename, page)
   }, [translateMode, translateEnsure, projectId, filename, page])
 
@@ -557,9 +562,13 @@ function PageOverlays({
 
   // Only enable hover when translation is loaded for this page —
   // otherwise the popover would surface an empty/missing line.
-  const translateReady = translateMode === 'on' && translateState?.kind === 'ready'
+  const translateReady = translateMode !== 'off' && translateState?.kind === 'ready'
   const hoverHook = translateReady ? onSpanHover : undefined
   const leaveHook = translateReady ? onSpanLeave : undefined
+
+  // Map the global mode onto the ghost view variant. `subtle` and `cover`
+  // share data; `off` short-circuits via `translateReady` above.
+  const ghostView: 'subtle' | 'cover' = translateMode === 'cover' ? 'cover' : 'subtle'
 
   return (
     <>
@@ -577,6 +586,7 @@ function PageOverlays({
           lines={translateState!.payload.lines}
           pageW={translateState!.payload.page_w}
           pageH={translateState!.payload.page_h}
+          view={ghostView}
         />
       )}
     </>
