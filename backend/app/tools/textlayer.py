@@ -107,29 +107,67 @@ def _pixmap_dims(page_w: float, page_h: float, dpi: int = _RENDER_DPI) -> tuple[
     return math.ceil(page_w * factor), math.ceil(page_h * factor)
 
 
+_DEDUPE_IOU_THRESHOLD = 0.3
+
+
 def _dedupe_ocr_against_fitz(
     fitz_spans: list[dict[str, Any]], ocr_spans: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Drop OCR spans whose center lies inside any fitz span bbox.
+    """Drop OCR spans that look like duplicates of fitz spans.
 
-    fitz line bboxes are tight to the inked text; OCR bboxes can be looser.
-    Center-point containment is the cheapest robust dedup: O(F×O) for
-    typical F,O ≤ 200, no IoU tuning, no false-negatives from minor bbox
-    drift. New OCR spans (logos, outlined headlines, embedded image text)
-    have centers in regions where fitz contributed nothing, so they survive.
+    A span is a duplicate if EITHER:
+      (a) bbox IoU > 0.3 with a fitz span (visually same region), OR
+      (b) text matches a fitz span AND the two share the same Y-band
+          (any vertical overlap = same visual line).
+
+    The two-rail dedupe matters because fitz line bboxes are tight to
+    inked pixels while OCR bboxes are often shifted + sized differently
+    — for Wavemaker-style table cells the IoU between fitz's and OCR's
+    "220.00" can drop to ~0.09 even though they cover the same number.
+    Text+Y-band catches those: same number, same row → it's the same
+    cell. Genuinely-new OCR spans (logos in fitz-empty regions) survive
+    both rails: IoU = 0 against everything, and either no fitz span has
+    the matching text or none of those that do are on the same line.
     """
     if not fitz_spans:
         return list(ocr_spans)
+
+    fitz_by_text: dict[str, list[dict[str, Any]]] = {}
+    for f in fitz_spans:
+        key = str(f.get("text", "")).strip()
+        if key:
+            fitz_by_text.setdefault(key, []).append(f)
+
     kept: list[dict[str, Any]] = []
     for s in ocr_spans:
-        x0, y0, x1, y1 = s["bbox"]
-        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        ox0, oy0, ox1, oy1 = s["bbox"]
+        oa = max(0.0, ox1 - ox0) * max(0.0, oy1 - oy0)
+        if oa <= 0:
+            continue
+
         overlapping = False
         for f in fitz_spans:
             fx0, fy0, fx1, fy1 = f["bbox"]
-            if fx0 <= cx <= fx1 and fy0 <= cy <= fy1:
+            iw = max(0.0, min(ox1, fx1) - max(ox0, fx0))
+            ih = max(0.0, min(oy1, fy1) - max(oy0, fy0))
+            inter = iw * ih
+            if inter <= 0:
+                continue
+            fa = max(0.0, fx1 - fx0) * max(0.0, fy1 - fy0)
+            union = oa + fa - inter
+            if union > 0 and (inter / union) > _DEDUPE_IOU_THRESHOLD:
                 overlapping = True
                 break
+
+        if not overlapping:
+            otext = str(s.get("text", "")).strip()
+            if otext and otext in fitz_by_text:
+                for f in fitz_by_text[otext]:
+                    _, fy0, _, fy1 = f["bbox"]
+                    if fy0 < oy1 and oy0 < fy1:
+                        overlapping = True
+                        break
+
         if not overlapping:
             kept.append(s)
     return kept

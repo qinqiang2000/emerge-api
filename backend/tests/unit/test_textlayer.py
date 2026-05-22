@@ -453,9 +453,9 @@ async def test_extract_textlayer_electronic_pdf_merges_partial_ocr(
 async def test_extract_textlayer_electronic_pdf_dedupes_ocr_overlap(
     workspace: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Electronic PDF + OCR returns a line whose center lies inside an
-    existing fitz span bbox — dedupe drops it, `text_source` stays
-    `"fitz"`, span count unchanged."""
+    """Electronic PDF + OCR returns a line whose bbox heavily overlaps
+    an existing fitz span (IoU > 0.3) — dedupe drops it, `text_source`
+    stays `"fitz"`, span count unchanged."""
     pid = (await create_project(workspace, name="x"))["slug"]
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
@@ -467,26 +467,18 @@ async def test_extract_textlayer_electronic_pdf_dedupes_ocr_overlap(
     fitz_only_count = len(fitz_only["spans"])
     assert fitz_only_count >= 1
 
-    # Pick the center of an existing fitz span — any OCR line landing on
-    # that center should be dropped by `_dedupe_ocr_against_fitz`.
+    # Emit an OCR line whose bbox is identical to the fitz span bbox
+    # (IoU = 1.0 — far above the 0.3 dedupe threshold). Mirrors the real
+    # Wavemaker-table case where OCR re-detects fitz-extracted numbers
+    # with bbox shapes overlapping by ~50-100%.
     fx0, fy0, fx1, fy1 = fitz_only["spans"][0]["bbox"]
-    cx = (fx0 + fx1) / 2.0
-    cy = (fy0 + fy1) / 2.0
-    # OCR bbox: a small rectangle whose center is exactly (cx, cy) in PDF
-    # units. Normalise to 0-1000 the way Gemini emits.
     # A4 = 595 x 842 pt.
     page_w, page_h = 595.0, 842.0
-    half_w = 5.0
-    half_h = 2.0
-    bx0 = max(0.0, cx - half_w)
-    by0 = max(0.0, cy - half_h)
-    bx1 = min(page_w, cx + half_w)
-    by1 = min(page_h, cy + half_h)
-    # Normalise to integer 0-1000, format [y0, x0, y1, x1].
-    y0_n = int(round(by0 / page_h * 1000.0))
-    x0_n = int(round(bx0 / page_w * 1000.0))
-    y1_n = int(round(by1 / page_h * 1000.0))
-    x1_n = int(round(bx1 / page_w * 1000.0))
+    # Normalise PDF-unit bbox → Gemini [y0, x0, y1, x1] 0-1000.
+    y0_n = int(round(fy0 / page_h * 1000.0))
+    x0_n = int(round(fx0 / page_w * 1000.0))
+    y1_n = int(round(fy1 / page_h * 1000.0))
+    x1_n = int(round(fx1 / page_w * 1000.0))
 
     # Wipe sidecar so the merge call re-runs.
     doc_textlayer_path(workspace, pid, fname, page=1).unlink()
@@ -506,3 +498,52 @@ async def test_extract_textlayer_electronic_pdf_dedupes_ocr_overlap(
     assert len(result["spans"]) == fitz_only_count
     texts = [s["text"] for s in result["spans"]]
     assert "duplicate of fitz" not in texts
+
+
+async def test_extract_textlayer_electronic_pdf_dedupes_text_and_line(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wavemaker-style table case: OCR's bbox for a number is shifted +
+    narrower than fitz's, so IoU drops below 0.3 — but the text matches
+    and both spans are on the same visual line. Text+Y-band rail must
+    catch this; otherwise every table-cell number gets a ghost twin."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf_bytes = _build_text_pdf()
+    fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
+
+    fitz_only = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
+    fitz_only_count = len(fitz_only["spans"])
+    assert fitz_only_count >= 1
+
+    fx0, fy0, fx1, fy1 = fitz_only["spans"][0]["bbox"]
+    fitz_text = fitz_only["spans"][0]["text"]
+    fw = fx1 - fx0
+    fh = fy1 - fy0
+    # OCR bbox: same text, same Y-band (slightly narrower vertically so
+    # IoU isn't trivially high), shifted LEFT so the boxes barely overlap
+    # — mirrors the real Wavemaker offset where IoU ≈ 0.09.
+    page_w, page_h = 595.0, 842.0
+    ox0 = max(0.0, fx0 - fw * 0.8)
+    ox1 = fx0 + fw * 0.15
+    oy0 = fy0 + fh * 0.1
+    oy1 = fy1 - fh * 0.1
+    y0_n = int(round(oy0 / page_h * 1000.0))
+    x0_n = int(round(ox0 / page_w * 1000.0))
+    y1_n = int(round(oy1 / page_h * 1000.0))
+    x1_n = int(round(ox1 / page_w * 1000.0))
+
+    doc_textlayer_path(workspace, pid, fname, page=1).unlink()
+
+    _install_provider(
+        monkeypatch,
+        return_value=_ocr_result([
+            {"bbox": [y0_n, x0_n, y1_n, x1_n], "text": fitz_text},
+        ]),
+    )
+
+    result = await extract_textlayer(workspace, pid, fname, page=1)
+
+    assert result["text_source"] == "fitz"
+    assert len(result["spans"]) == fitz_only_count
