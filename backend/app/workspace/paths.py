@@ -47,6 +47,67 @@ def doc_render_dir(workspace: Path, slug: str, filename: str) -> Path:
     return docs_meta_dir(workspace, slug) / "_render" / filename
 
 
+def doc_textlayer_dir(workspace: Path, slug: str, filename: str) -> Path:
+    """Per-doc PDF text-layer sidecar root: `docs/.meta/_textlayer/{filename}/`.
+
+    Sibling to `doc_render_dir`. Each PDF page lands a `p{n}.json` sidecar
+    holding fitz spans + bbox + scanned flag — see
+    `app/tools/textlayer.py:extract_textlayer`. Lets review-mode show the
+    raster bitmap (for evidence) while still letting the user select / copy
+    the underlying text (PDF.js-style transparent overlay)."""
+    return docs_meta_dir(workspace, slug) / "_textlayer" / filename
+
+
+def doc_textlayer_path(
+    workspace: Path, slug: str, filename: str, page: int,
+) -> Path:
+    """Per-page text-layer sidecar JSON path."""
+    return doc_textlayer_dir(workspace, slug, filename) / f"p{page}.json"
+
+
+def _safe_model_segment(model_id: str) -> str:
+    """Filename-safe rendering of a `model_id` for use as a path segment.
+
+    Gemini publishes both bare names (`gemini-flash-lite-latest`) and
+    qualified resource paths (`models/gemini-foo`). The latter would smuggle
+    a `/` separator into the cache filename — so we collapse `/` and `:`
+    (which Anthropic uses in some snapshot tags like `claude-3-5:beta`) to
+    underscores. Stable across renames because the model_id itself is the
+    cache key; switching model_id → cache miss → fresh translate."""
+    return model_id.replace("/", "_").replace(":", "_")
+
+
+def doc_translate_dir(workspace: Path, slug: str, filename: str) -> Path:
+    """Per-doc translation sidecar root: `docs/.meta/_translate/{filename}/`.
+
+    Sibling to `doc_textlayer_dir` and `doc_render_dir`. Each translated page
+    lands a per-(page, target_lang, mode, model_id) JSON sidecar — see
+    `app/tools/translate.py:translate_page`. Cache keys include `mode` (the
+    branch the translator took — text-only vs vision) and `model_safe` (the
+    sanitised model_id) so switching model or branch never returns a stale
+    payload."""
+    return docs_meta_dir(workspace, slug) / "_translate" / filename
+
+
+def doc_translate_path(
+    workspace: Path,
+    slug: str,
+    filename: str,
+    *,
+    page: int,
+    target_lang: str,
+    mode: str,
+    model_id: str,
+) -> Path:
+    """Per-page translation sidecar JSON path. Key shape:
+    `p{n}_{target_lang}_{mode}_{model_safe}.json`."""
+    safe = _safe_model_segment(model_id)
+    return (
+        doc_translate_dir(workspace, slug, filename)
+        / f"p{page}_{target_lang}_{mode}_{safe}.json"
+    )
+
+
 def predictions_draft_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "predictions" / "_draft"
 

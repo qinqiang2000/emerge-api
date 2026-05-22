@@ -524,9 +524,16 @@ html, body, #root {
 .dv-stack{display:flex;flex-direction:column;align-items:flex-start;gap:14px;min-width:100%}
 .dv-sizer{position:relative;flex-shrink:0}
 .dv-pagewrap{background:#fff;border:1px solid var(--rule);box-shadow:0 2px 12px rgba(31,27,20,.06);position:relative;transform-origin:top left;transition:transform .25s cubic-bezier(.4,0,.2,1);will-change:transform}
-.dv-pagewrap .pgnum{position:absolute;top:8px;right:12px;font-family:var(--mono);font-size:10px;color:var(--ink-4);background:rgba(255,255,255,.85);padding:2px 6px;border-radius:3px;z-index:2;pointer-events:none}
+.dv-pagewrap .pgnum{position:absolute;top:8px;right:12px;font-family:var(--mono);font-size:10px;color:var(--ink-4);background:rgba(255,255,255,.85);padding:2px 6px;border-radius:3px;z-index:3;pointer-events:none}
 .dv-pagewrap img{display:block;width:100%}
 .dv-placeholder{width:100%;aspect-ratio:8.5/11;background:var(--paper-2)}
+/* Transparent selectable overlay on top of the rasterised page image.
+   `container-type: size` enables `cqh` so per-span font-size scales with the
+   actual rendered height (rotation / zoom / fit-to-width all work for free). */
+.text-layer{position:absolute;inset:0;pointer-events:none;container-type:size;z-index:1}
+.text-layer-span{position:absolute;color:transparent;user-select:text;pointer-events:auto;white-space:pre;line-height:1;transform-origin:top left}
+.text-layer-span::selection{background:var(--ochre-soft);color:var(--ink)}
+.text-layer-span::-moz-selection{background:var(--ochre-soft);color:var(--ink)}
 .rev-toolbar{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:nowrap}
 .rev-toolbar .seg{display:inline-flex;border:1px solid var(--rule);border-radius:5px;overflow:hidden;background:var(--paper)}
 .rev-toolbar .seg button{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:4px 11px;border-right:1px solid var(--rule-soft);cursor:default;background:transparent;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;flex-shrink:0}
@@ -804,3 +811,36 @@ html, body, #root {
 .rev-fld .copy-pred-btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .rev-fld .copy-pred-btn:hover svg{color:var(--paper)}
 .rev-fld .copy-pred-btn svg{flex-shrink:0}
+
+/* ── translate overlay ─────────────────────────────────────────────
+   Sits between the text layer (z=1) and the page-number badge (z=3).
+   Hotspots are invisible by default; hover/focus reveals an ochre
+   tint, and the open hotspot keeps the tint while its popover is up.
+   The popover itself renders in document.body via portal so it
+   escapes the .dv-pagewrap rotate/zoom transform. */
+.translate-overlay{position:absolute;inset:0;pointer-events:none;z-index:2}
+.translate-hotspot{position:absolute;background:transparent;border:none;padding:0;cursor:help;pointer-events:auto;border-radius:2px;transition:background .12s ease, outline-color .12s ease;outline:1px solid transparent}
+.translate-hotspot:hover,
+.translate-hotspot:focus-visible{background:var(--ochre-soft);outline:1px solid var(--ochre)}
+.translate-hotspot.is-open{background:var(--ochre-soft);outline:1px solid var(--ochre)}
+.translate-hotspot:focus-visible{outline-offset:0}
+
+/* Spinner state for the toolbar button while at least one page is
+   loading. CSS-only — no extra deps. */
+.dv-btn.translate-btn.is-loading{color:var(--ochre-2)}
+.dv-btn.translate-btn.is-error{color:var(--rose-2);border-color:var(--rose-soft);background:var(--rose-soft)}
+.translate-spin{animation:translateSpin .9s linear infinite;transform-origin:center}
+@keyframes translateSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* Popover — portal'd to body, position:fixed in viewport coords so
+   page rotation/zoom never reach it. Visual language matches the
+   .hist-pop popover used elsewhere. */
+.translate-pop{position:fixed;z-index:50;min-width:200px;max-width:340px;background:#FFFFFF;border:1px solid var(--rule);border-radius:8px;box-shadow:0 10px 32px rgba(31,27,20,.12);padding:10px 12px 8px;display:flex;flex-direction:column;gap:6px;animation:translatePopIn .12s ease-out}
+@keyframes translatePopIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
+.translate-pop-translated{font-family:var(--serif);font-size:14px;line-height:1.5;color:var(--ink);user-select:text;word-break:break-word}
+.translate-pop-original{font-family:var(--mono);font-size:11px;line-height:1.4;color:var(--ink-3);user-select:text;word-break:break-word;border-top:1px solid var(--rule-soft);padding-top:6px}
+.translate-pop-actions{display:flex;justify-content:flex-end;margin-top:2px}
+.translate-pop-copy{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--rule);border-radius:5px;background:var(--paper);color:var(--ink-3);font-family:var(--mono);font-size:10.5px;cursor:default;transition:background .12s,color .12s,border-color .12s;letter-spacing:.04em}
+.translate-pop-copy:hover{background:var(--ochre-soft);color:var(--ochre-2);border-color:var(--ochre-edge)}
+.translate-pop-copy:focus-visible{outline:2px solid var(--ochre);outline-offset:1px}
+.translate-pop-copy svg{flex-shrink:0}

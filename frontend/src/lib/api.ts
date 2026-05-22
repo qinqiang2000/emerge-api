@@ -173,6 +173,87 @@ export function pdfPageUrl(slug: string, filename: string, page: number): string
   return `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}`
 }
 
+// ── Text layer (rubberband-select + copy on the rendered PDF page) ────────
+// Backend returns spans in PDF point units (top-left origin), keyed to the
+// same 150dpi raster the `<img>` displays. Scanned pages return `spans: []`
+// — the overlay renders nothing, the bitmap stays selectable-free.
+export interface TextlayerSpan {
+  bbox: [number, number, number, number]  // PDF points, [x0,y0,x1,y1]
+  text: string
+  font_size: number
+}
+
+export interface TextlayerPayload {
+  filename: string
+  page: number
+  page_w: number
+  page_h: number
+  image_w: number
+  image_h: number
+  scanned: boolean
+  spans: TextlayerSpan[]
+}
+
+export async function fetchTextlayer(
+  slug: string,
+  filename: string,
+  page: number,
+): Promise<TextlayerPayload> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/textlayer?page=${page}`,
+  )
+  if (!r.ok) throw new Error(`fetchTextlayer ${r.status}`)
+  return r.json()
+}
+
+// ── On-demand translation (textlayer OR vision mode, transparent to the
+// caller). The overlay is a sibling of the page <img>, just above the
+// transparent text layer (z-index 2). bbox is ALWAYS in PDF page units
+// (top-left origin) regardless of mode — backend normalises the vision
+// path's 0–1000 grid into page units before returning. See
+// `backend/app/tools/translate.py`.
+export interface TranslateLine {
+  bbox: [number, number, number, number]  // PDF points, [x0,y0,x1,y1]
+  original: string
+  translated: string
+}
+
+export interface TranslatePayload {
+  filename: string
+  page: number
+  target_lang: string
+  model_id: string
+  mode: 'textlayer' | 'vision'
+  page_w: number
+  page_h: number
+  image_w: number
+  image_h: number
+  lines: TranslateLine[]
+  input_tokens: number
+  output_tokens: number
+}
+
+export async function translatePage(
+  slug: string,
+  filename: string,
+  page: number,
+  opts?: { lang?: string; force?: boolean },
+): Promise<TranslatePayload> {
+  const lang = opts?.lang ?? 'zh'
+  const force = opts?.force ? 'true' : 'false'
+  const url = `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/translate?page=${page}&lang=${encodeURIComponent(lang)}&force=${force}`
+  const r = await fetch(url, { method: 'POST' })
+  if (!r.ok) {
+    let detail = `${r.status}`
+    try {
+      const j = await r.json()
+      detail = j.detail || j.error_message_en || detail
+    } catch { /* swallow */ }
+    throw new Error(`translate failed: ${detail}`)
+  }
+  return r.json()
+}
+
 export async function startJob(slug: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
   const r = await fetch('/lab/jobs', {
     method: 'POST',

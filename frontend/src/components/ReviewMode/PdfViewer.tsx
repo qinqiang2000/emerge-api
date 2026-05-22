@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import { Languages } from 'lucide-react'
 import { pdfPageUrl } from '../../lib/api'
 import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
+import { useTextlayer } from '../../stores/textlayer'
+import { useTranslate } from '../../stores/translate'
+import TextLayer from './TextLayer'
+import TranslateOverlay from './TranslateOverlay'
 
 export default function PdfViewer() {
   const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
   const { byProject } = useDocs()
+  // Translate mode is driven by both the toolbar button and the `T` key
+  // — subscribe so the button reflects state changes from either path.
+  const translateMode = useTranslate((s) => s.mode)
+  const translateByKey = useTranslate((s) => s.byKey)
 
   const [visiblePage, setVisiblePage] = useState(1)
   const [zoom, setZoom] = useState(1)
@@ -137,6 +146,83 @@ export default function PdfViewer() {
     return { width: `${w * effZoom}px`, height: `${h * effZoom}px`, position: 'relative' }
   }
 
+  // Compute toolbar button visual state from the per-page translate
+  // payloads scoped to the active doc. `any-loading` wins (shows
+  // spinner), then `any-ready` (ochre tint), then `all-error` (rose).
+  // Idle when mode === 'off' (nothing fired yet) or when only idle keys
+  // exist for this doc.
+  const docKeyPrefix = activeProjectId && activeFilename
+    ? `${activeProjectId}::${activeFilename}::`
+    : null
+  type TranslateBtnState = 'idle' | 'loading' | 'ready' | 'error'
+  let translateBtnState: TranslateBtnState = 'idle'
+  let translateBtnError: string | null = null
+  if (translateMode === 'on' && docKeyPrefix) {
+    let anyLoading = false
+    let anyReady = false
+    let anyError = false
+    let lastError: string | null = null
+    for (const [k, v] of Object.entries(translateByKey)) {
+      if (!k.startsWith(docKeyPrefix)) continue
+      if (v.kind === 'loading') anyLoading = true
+      else if (v.kind === 'ready') anyReady = true
+      else if (v.kind === 'error') { anyError = true; lastError = v.message }
+    }
+    if (anyLoading) translateBtnState = 'loading'
+    else if (anyReady) translateBtnState = 'ready'
+    else if (anyError) { translateBtnState = 'error'; translateBtnError = lastError }
+  }
+
+  function onToggleTranslate() {
+    if (!activeProjectId || !activeFilename) return
+    const next: 'on' | 'off' = useTranslate.getState().mode === 'on' ? 'off' : 'on'
+    useTranslate.getState().setMode(next)
+    if (next === 'on') {
+      // Fan-out: trigger ensure() for every currently-loaded page. New
+      // pages scrolled into view after this will trigger via the per-page
+      // host component below.
+      const ensure = useTranslate.getState().ensure
+      for (const p of loadedPages) {
+        ensure(activeProjectId, activeFilename, p)
+      }
+    }
+  }
+
+  // Keyboard shortcuts: `t` toggles translate mode (with fan-out), and
+  // `Shift+T` force-retranslates the page the user is currently looking
+  // at (bypasses both frontend session cache and backend sidecar).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      // Bail if focus is inside any editable target — otherwise every `t`
+      // typed into the chat composer would toggle the overlay.
+      const t = e.target as HTMLElement | null
+      const tag = t?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return
+      if (!activeProjectId || !activeFilename) return
+
+      // Shift+T: force re-translate the currently focused page.
+      if (e.key === 'T' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        // Force a re-translate; if mode is off, flip it on first so the
+        // `ensure` guard in the store accepts the call.
+        const st = useTranslate.getState()
+        if (st.mode !== 'on') st.setMode('on')
+        useTranslate.getState().ensure(activeProjectId, activeFilename, page, { force: true })
+        return
+      }
+      // Plain `t`: toggle mode + fan out to loaded pages on switch-on.
+      if (e.key === 't' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        onToggleTranslate()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // `onToggleTranslate` closes over `loadedPages` — re-bind whenever
+    // it changes so newly-loaded pages get fanned out on the next `t`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, activeFilename, page, loadedPages])
+
   if (!activeProjectId || !activeFilename) return null
 
   return (
@@ -198,6 +284,34 @@ export default function PdfViewer() {
             <polyline points="11,4 11,7 8,7"/>
           </svg>
         </button>
+
+        <span className="dv-sep" />
+
+        <button
+          className={
+            'dv-btn translate-btn'
+            + (translateMode === 'on' ? ' on' : '')
+            + (translateBtnState === 'loading' ? ' is-loading' : '')
+            + (translateBtnState === 'error' ? ' is-error' : '')
+          }
+          title={
+            translateBtnState === 'error' && translateBtnError
+              ? `翻译失败: ${translateBtnError} (T)`
+              : translateMode === 'on'
+                ? '关闭翻译 (T) · Shift+T 重译本页'
+                : '翻译此 doc (T)'
+          }
+          aria-pressed={translateMode === 'on'}
+          onClick={onToggleTranslate}
+        >
+          {translateBtnState === 'loading' ? (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="translate-spin">
+              <path d="M7 1.5 a5.5 5.5 0 1 1 -5.5 5.5" />
+            </svg>
+          ) : (
+            <Languages size={14} aria-hidden="true" />
+          )}
+        </button>
       </div>
 
       <div className="dv-viewport" ref={viewportRef}>
@@ -216,14 +330,18 @@ export default function PdfViewer() {
               >
                 <div className="pgnum">page {p} / {pageCount}</div>
                 {loadedPages.has(p) ? (
-                  <img
-                    src={pdfPageUrl(activeProjectId, activeFilename, p)}
-                    alt={`page ${p}`}
-                    onLoad={p === 1 ? (e) => {
-                      const img = e.target as HTMLImageElement
-                      if (img.naturalWidth > 0) setAspectRatio(img.naturalHeight / img.naturalWidth)
-                    } : undefined}
-                  />
+                  <>
+                    <img
+                      src={pdfPageUrl(activeProjectId, activeFilename, p)}
+                      alt={`page ${p}`}
+                      onLoad={p === 1 ? (e) => {
+                        const img = e.target as HTMLImageElement
+                        if (img.naturalWidth > 0) setAspectRatio(img.naturalHeight / img.naturalWidth)
+                      } : undefined}
+                    />
+                    <TextLayerHost projectId={activeProjectId} filename={activeFilename} page={p} />
+                    <TranslateOverlayHost projectId={activeProjectId} filename={activeFilename} page={p} />
+                  </>
                 ) : (
                   <div className="dv-placeholder" />
                 )}
@@ -234,4 +352,61 @@ export default function PdfViewer() {
       </div>
     </>
   )
+}
+
+// Thin per-page wrapper: fires `ensure(...)` on mount / page change and
+// renders the transparent <TextLayer/> once the payload arrives. Scanned
+// pages resolve with `spans: []` → renders nothing. Errors are silent —
+// selection is a "nice to have" and not worth surfacing chrome for.
+function TextLayerHost({
+  projectId,
+  filename,
+  page,
+}: {
+  projectId: string
+  filename: string
+  page: number
+}) {
+  const key = `${projectId}::${filename}::${page}`
+  const ensure = useTextlayer((s) => s.ensure)
+  const state = useTextlayer((s) => s.byKey[key])
+
+  useEffect(() => {
+    ensure(projectId, filename, page)
+  }, [ensure, projectId, filename, page])
+
+  if (!state || state.kind !== 'ready') return null
+  const { payload } = state
+  return <TextLayer spans={payload.spans} pageW={payload.page_w} pageH={payload.page_h} />
+}
+
+// Per-page translate host. Subscribes to the global `mode` flag + this
+// page's cache entry. The store's `ensure(...)` is a no-op when mode is
+// 'off', so the only side-effect of calling it eagerly here is the
+// initial fetch once the user flips the toolbar on (and on doc / page
+// change while already on). Loading / error states render nothing on
+// the page itself — the toolbar button is the single source of truth
+// for global progress.
+function TranslateOverlayHost({
+  projectId,
+  filename,
+  page,
+}: {
+  projectId: string
+  filename: string
+  page: number
+}) {
+  const key = `${projectId}::${filename}::${page}`
+  const mode = useTranslate((s) => s.mode)
+  const ensure = useTranslate((s) => s.ensure)
+  const state = useTranslate((s) => s.byKey[key])
+
+  useEffect(() => {
+    if (mode !== 'on') return
+    ensure(projectId, filename, page)
+  }, [mode, ensure, projectId, filename, page])
+
+  if (mode !== 'on' || !state || state.kind !== 'ready') return null
+  const { payload } = state
+  return <TranslateOverlay lines={payload.lines} pageW={payload.page_w} pageH={payload.page_h} />
 }

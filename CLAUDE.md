@@ -29,7 +29,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - **任务类型无关的 UI**：本 shell 要复用到非文档提取任务（matching、classification 等）。chrome 层（按钮、空状态、popover、slash-menu copy、kind chips）用通用动词（`init / run / tune / review / publish / ingest`），不出现 `extract` / `invoice` / 文档提取专用名词；提取专用术语只允许出现在 content/help 文案和真实路径（如 `docs/`）里。API 发布层（`/v1/{pid}/extract` 路由名等已固化部分）保持现状不破坏兼容
 - **Tool ↔ HTTP dual-form symmetry**：每个 `@tool` 注册必须配套 HTTP route（由 `backend/tests/unit/test_symmetry_invariant.py` 强制）。无法对称的 tool（如 `ui_*` 侧通道、`ask_user` 请求半）走 `_HTTP_EXEMPT` 并写明一行理由。新加 tool 时同步加 route（thin-delegate 模板见 `2026-05-19-turn-as-resource.md` §Phase B）或加 exempt 项。
 
-## 四层 LLM（互不交叉）
+## 五层 LLM（互不交叉）
 
 | 角色 | 走哪 | 配置 |
 |---|---|---|
@@ -37,13 +37,19 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 | Extract LLM | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project，`project.json.extract_model` |
 | Proposer LLM (autoresearch) | 同上，直连 HTTP | 系统默认 + per-job override |
 | Labeler LLM (pro 预标) | 同上，直连 HTTP | per project `project.json.labeler_model`，env `EMERGE_DEFAULT_LABELER_MODEL` 兜底 |
+| Translator LLM (review-mode 翻译) | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project `project.json.translate_model`，env `EMERGE_DEFAULT_TRANSLATE_MODEL` 兜底（默认 `gemini-flash-lite-latest`） |
 
-工具体内绝不递归回 SDK——Agent 与 Extract / Proposer / Labeler 是分开的代码路径。
+工具体内绝不递归回 SDK——Agent 与 Extract / Proposer / Labeler / Translator 是分开的代码路径。
+
+Translator LLM 有两种模式：textlayer 模式（电子 PDF，直接翻译 fitz 抽出的 spans）和 vision 模式（scanned PDF / 纯图片，OCR + 翻译）。仅 review 渲染层使用；不进 extract / labeler / proposer 上下文。
+
+Review viewer 双轨：每页同时叠加 (a) 透明 text layer（从 fitz `get_text("dict")` 抽出的 DOM spans，原文可选可复制；scanned 页降级为空层），(b) 150dpi raster PNG（视觉显示）。翻译热区是可选的第三层，按需开启。
 
 ## Hard rules (red lines)
 
 - **没有 image few-shot**。任何 prompt 路径都不准注入 example I/O pairs。要"教模型"只能改 `description` / `global_notes`
 - **没有 bbox / 区域信息**。`_evidence` 只携带 page 整数（不是坐标），且 review 模式 click-to-page 用它
+  - bbox 仅作为 review-mode UX 渲染（text-layer 选中复制 + 翻译热区定位）使用，永不进 extract / labeler / proposer / autoresearch 的 prompt 上下文。
 - **AutoResearch 永不自动 promote**。output 是候选 ProjectVersion，user 必须显式 activate
 - **Counterexample 永不进 runtime prompt**。仅作 AutoResearch 回归测试集
 - **Public API 读 `versions/v{active_version_id}.json`**。`schema.json` 是 lab 编辑态，不得渗入 prod

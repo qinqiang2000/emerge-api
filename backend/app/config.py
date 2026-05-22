@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # Pro-labeler model. None = label_docs refuses with `labeler_model_not_configured`
     # unless the caller passes an explicit override or sets `project.json.labeler_model`.
     default_labeler_model: str | None = None
+    # Translator model — drives the review-mode `translate_page` path (text-only
+    # for electronic PDFs, vision for scanned). Independent of extract / labeler
+    # / proposer; bbox + spans are review-UX only and never feed the extract
+    # prompt (hard rule). Per-project override lives at
+    # `project.json.translate_model`; this env value is the fallback. Defaults
+    # to `gemini-flash-lite-latest` because translate is high-volume / cheap.
+    default_translate_model: str = "gemini-flash-lite-latest"
     log_level: str = "INFO"
 
     # Colon-separated absolute paths appended to the built-in ingest allowlist.

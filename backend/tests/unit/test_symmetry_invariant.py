@@ -85,6 +85,8 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # wire output is what `read_doc_image` ships inline as base64.
     "pdf_render_page": ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
     "read_doc_image":  ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
+    "extract_textlayer": ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/textlayer$"),
+    "translate_page":    ("POST", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/translate$"),
     # Schema axes
     "derive_schema":      ("POST", r"^/lab/projects/\{slug\}/schema/derive$"),
     "write_schema":       ("POST", r"^/lab/projects/\{slug\}/schema$"),

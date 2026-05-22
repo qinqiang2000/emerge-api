@@ -24,6 +24,8 @@ from app.api.routes import prompts as prompts_route
 from app.api.routes import publish as publish_route
 from app.api.routes import reviewed as reviewed_route
 from app.api.routes import schema as schema_route
+from app.api.routes import textlayer as textlayer_route
+from app.api.routes import translate as translate_route
 from app.api.routes import upload as upload_route
 from app.config import get_settings
 from app.security.keys import get_keystore
@@ -67,6 +69,8 @@ app.include_router(chat_route.router)
 app.include_router(upload_route.router)
 app.include_router(projects_route.router)
 app.include_router(docs_route.router)
+app.include_router(textlayer_route.router)
+app.include_router(translate_route.router)
 app.include_router(predictions_route.router)
 app.include_router(prompts_route.router)
 app.include_router(models_route.router)

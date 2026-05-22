@@ -24,6 +24,8 @@ from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
 from app.tools import surface_state as surface_state_mod
+from app.tools import textlayer as textlayer_mod
+from app.tools import translate as translate_mod
 from app.tools import ui_actions as ui_actions_mod
 
 if TYPE_CHECKING:
@@ -352,6 +354,118 @@ def build_emerge_mcp(
                 },
             ]
         }
+
+    @tool(
+        "extract_textlayer",
+        "Return the vector text spans for one PDF page (or an empty layer for "
+        "image / scanned docs), persisted to a per-page sidecar. Powers the "
+        "review-mode transparent overlay that lets the user select + copy "
+        "original text on top of the rasterised page. bbox is in PDF point "
+        "units; image_w/image_h match the 150dpi raster produced by "
+        "pdf_render_page so the frontend can scale spans onto the bitmap. "
+        "`scanned=true` signals an honest degrade — the page is mostly raster, "
+        "no selectable text. NEVER feed the bbox / span text back into "
+        "extract or runtime prompts (hard rule); this is review UX only.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "page": {"type": "integer", "minimum": 1},
+            },
+            "required": ["slug", "filename", "page"],
+        },
+    )
+    async def t_extract_textlayer(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("extract_textlayer")
+            )}]}
+        try:
+            out = await textlayer_mod.extract_textlayer(
+                workspace, args["slug"], args["filename"], page=int(args["page"]),
+            )
+        except FileNotFoundError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "doc_not_found",
+                    "error_message_en": str(e),
+                },
+            }
+        except ValueError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "textlayer_invalid_args",
+                    "error_message_en": str(e),
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "translate_page",
+        "Translate a single page of a doc. Picks textlayer mode (electronic "
+        "PDF — sends vector spans as JSON to a cheap translator LLM, no "
+        "image) or vision mode (scanned PDF / image — OCR + locate + "
+        "translate in one vision call) automatically based on the page's "
+        "textlayer sidecar. Returns `{mode, page_w, page_h, image_w, "
+        "image_h, lines: [{bbox, original, translated}], model_id, "
+        "input_tokens, output_tokens}`. `bbox` is ALWAYS in PDF page units "
+        "(top-left origin, fitz convention). Cache key includes mode + "
+        "target_lang + model_id; pass `force_refresh=true` to bypass "
+        "(Shift+T from the frontend). Default target_lang=zh (简体中文). "
+        "Translation is review UX only — bbox / lines NEVER feed back into "
+        "extract or runtime prompts (hard rule).",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "page": {"type": "integer", "minimum": 1},
+                "target_lang": {"type": "string", "default": "zh"},
+                "force_refresh": {"type": "boolean", "default": False},
+            },
+            "required": ["slug", "filename", "page"],
+        },
+    )
+    async def t_translate_page(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("translate_page")
+            )}]}
+        try:
+            out = await translate_mod.translate_page(
+                workspace, args["slug"], args["filename"],
+                page=int(args["page"]),
+                target_lang=str(args.get("target_lang") or "zh"),
+                force_refresh=bool(args.get("force_refresh", False)),
+            )
+        except FileNotFoundError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "doc_not_found",
+                    "error_message_en": str(e),
+                },
+            }
+        except ValueError as e:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "translate_invalid_args",
+                    "error_message_en": str(e),
+                },
+            }
+        except Exception as e:  # noqa: BLE001 — provider failure envelope
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "translate_provider_failed",
+                    "error_message_en": str(e),
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
         "derive_schema",
@@ -1041,6 +1155,8 @@ def build_emerge_mcp(
             t_get_labeler_config,
             t_pdf_render_page,
             t_read_doc_image,
+            t_extract_textlayer,
+            t_translate_page,
             t_derive_schema,
             t_write_schema,
             t_switch_active_prompt,
@@ -1079,7 +1195,7 @@ _EMERGE_TOOL_NAMES = (
     "promote_chat_to_project",
     "promote_attachment_to_docs",
     "label_docs", "set_labeler_model", "get_labeler_config",
-    "pdf_render_page", "read_doc_image",
+    "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
     "derive_schema", "write_schema",
     "switch_active_prompt", "switch_active_model",
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
