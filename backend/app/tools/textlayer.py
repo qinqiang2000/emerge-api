@@ -19,8 +19,10 @@ Hard rules this respects:
   The OCR-only prompt below is review-UX scaffolding, not few-shot.
 - Scanned-PDF / image-doc pages still record `scanned=true`; the new
   `text_source` field tells callers WHERE the spans came from (`fitz`,
-  `ocr`, or `none` = OCR was attempted but yielded zero spans, or was
-  explicitly skipped via `skip_ocr=True`).
+  `ocr`, `fitz+ocr` = electronic page where OCR contributed additional
+  spans for outlined / image-embedded text fitz couldn't see, or `none` =
+  OCR was attempted but yielded zero spans, or was explicitly skipped via
+  `skip_ocr=True`).
 """
 from __future__ import annotations
 
@@ -103,6 +105,34 @@ def _pixmap_dims(page_w: float, page_h: float, dpi: int = _RENDER_DPI) -> tuple[
     the render cache hasn't been warmed yet."""
     factor = dpi / 72.0
     return math.ceil(page_w * factor), math.ceil(page_h * factor)
+
+
+def _dedupe_ocr_against_fitz(
+    fitz_spans: list[dict[str, Any]], ocr_spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop OCR spans whose center lies inside any fitz span bbox.
+
+    fitz line bboxes are tight to the inked text; OCR bboxes can be looser.
+    Center-point containment is the cheapest robust dedup: O(F×O) for
+    typical F,O ≤ 200, no IoU tuning, no false-negatives from minor bbox
+    drift. New OCR spans (logos, outlined headlines, embedded image text)
+    have centers in regions where fitz contributed nothing, so they survive.
+    """
+    if not fitz_spans:
+        return list(ocr_spans)
+    kept: list[dict[str, Any]] = []
+    for s in ocr_spans:
+        x0, y0, x1, y1 = s["bbox"]
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        overlapping = False
+        for f in fitz_spans:
+            fx0, fy0, fx1, fy1 = f["bbox"]
+            if fx0 <= cx <= fx1 and fy0 <= cy <= fy1:
+                overlapping = True
+                break
+        if not overlapping:
+            kept.append(s)
+    return kept
 
 
 async def _ocr_extract_spans(
@@ -233,7 +263,7 @@ async def extract_textlayer(
                                               # or pixel units for raster docs
           "image_w": int,  "image_h": int,    # raster dims at 150dpi
           "scanned": bool,                    # source page is a raster?
-          "text_source": "fitz" | "ocr" | "none",
+          "text_source": "fitz" | "ocr" | "fitz+ocr" | "none",
           "spans": [
             {"bbox": [x0, y0, x1, y1], "text": str, "font_size": float}, …
           ]
@@ -243,10 +273,12 @@ async def extract_textlayer(
     `scanned` and `text_source` answer different questions: `scanned` is
     about the source page (raster vs vector), `text_source` is about
     where the spans in this sidecar came from (`fitz` for vector spans,
-    `ocr` for Gemini-extracted, `none` for "OCR was attempted but
-    returned nothing OR OCR was skipped via `skip_ocr=True`"). Downstream
-    callers (e.g. translate.py) keep using `scanned` to decide whether
-    to run vision-mode translation.
+    `ocr` for Gemini-extracted, `fitz+ocr` for electronic pages where OCR
+    contributed additional spans on top of fitz (outlined / logo /
+    image-embedded text fitz couldn't see), `none` for "OCR was attempted
+    but returned nothing OR OCR was skipped via `skip_ocr=True`").
+    Downstream callers (e.g. translate.py) keep using `scanned` to decide
+    whether to run vision-mode translation.
 
     `skip_ocr=True` bypasses the OCR fallback and emits `spans=[]` with
     `text_source="none"`. Useful for tests and for callers that don't
@@ -365,24 +397,39 @@ async def extract_textlayer(
     joined = "".join(s["text"] for s in spans).strip()
     scanned = len(joined) < _SCANNED_TEXT_THRESHOLD
 
-    # Scanned PDF → fitz gave us nothing useful → OCR fallback (unless
-    # explicitly suppressed). We deliberately exited the `fitz.open(src)`
+    # Routing for the PDF branch (we deliberately exited the `fitz.open(src)`
     # block first so we're not holding the PDF lock during a multi-second
-    # LLM call.
-    if scanned and not skip_ocr:
-        ocr_spans = await _ocr_extract_spans(
-            workspace, project_id, filename,
-            page=page, page_w=page_w, page_h=page_h,
-        )
-        if ocr_spans:
-            spans = ocr_spans
-            text_source = "ocr"
-        else:
-            text_source = "none"
-    elif scanned:
-        text_source = "none"
+    # LLM call):
+    # - Scanned page → fitz gave us nothing useful → OCR fallback (unless
+    #   suppressed). Spans become whatever OCR returns.
+    # - Electronic page → fitz spans are kept, AND we still run OCR to catch
+    #   outlined / image-embedded text (logos, designed headlines, address
+    #   blocks rendered as paths) that fitz can't see. Center-point dedupe
+    #   against fitz spans keeps only OCR's contribution to genuinely-new
+    #   content.
+    text_source: str = "none"
+
+    if scanned:
+        if not skip_ocr:
+            ocr_spans = await _ocr_extract_spans(
+                workspace, project_id, filename,
+                page=page, page_w=page_w, page_h=page_h,
+            )
+            if ocr_spans:
+                spans = ocr_spans
+                text_source = "ocr"
+            # else: scanned + OCR yielded nothing → text_source stays "none"
     else:
         text_source = "fitz"
+        if not skip_ocr:
+            ocr_spans = await _ocr_extract_spans(
+                workspace, project_id, filename,
+                page=page, page_w=page_w, page_h=page_h,
+            )
+            new_ocr = _dedupe_ocr_against_fitz(spans, ocr_spans)
+            if new_ocr:
+                spans = spans + new_ocr
+                text_source = "fitz+ocr"
 
     payload = {
         "filename": filename,

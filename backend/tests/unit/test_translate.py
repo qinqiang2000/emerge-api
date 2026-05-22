@@ -86,6 +86,19 @@ async def test_translate_page_textlayer_mode(
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
 
+    # Electronic PDFs now also fire textlayer's OCR fallback to catch
+    # outlined / image-embedded text fitz can't see. Stub it to return zero
+    # lines so this test stays fitz-only (mirror the dual-stub pattern in
+    # `test_translate_page_vision_mode`).
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
+
     # The synthetic PDF emits a single span "Hello World, this is a long
     # sentence." — translator must return ONE item to match.
     from app.tools.textlayer import extract_textlayer
@@ -242,6 +255,17 @@ async def test_translate_page_cache_hit(
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
 
+    # Stub the textlayer's OCR provider — electronic PDFs now also run
+    # OCR for outlined-path text. Empty lines keep fitz-only spans.
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
+
     from app.tools.textlayer import extract_textlayer
 
     sidecar = await extract_textlayer(workspace, pid, fname, page=1)
@@ -274,6 +298,16 @@ async def test_translate_page_force_refresh_bypasses_cache(
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
 
+    # Stub the textlayer's OCR provider so the electronic PDF stays fitz-only.
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
+
     from app.tools.textlayer import extract_textlayer
 
     sidecar = await extract_textlayer(workspace, pid, fname, page=1)
@@ -299,6 +333,16 @@ async def test_translate_page_model_id_in_cache_key(
     pid = (await create_project(workspace, name="x"))["slug"]
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
+
+    # Stub the textlayer's OCR provider so the electronic PDF stays fitz-only.
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
 
     from app.tools.textlayer import extract_textlayer
 
@@ -343,6 +387,17 @@ async def test_translate_page_textlayer_alignment_by_index_fills_gaps(
     pdf_bytes = buf.getvalue()
     pid = (await create_project(workspace, name="x"))["slug"]
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
+
+    # Stub the textlayer's OCR provider — empty lines keep this fitz-only
+    # so the alignment-by-index test stays focused on translate behaviour.
+    ocr_empty_stub = AsyncMock()
+    ocr_empty_stub.extract = AsyncMock(
+        return_value=_result({"lines": []}),
+    )
+    monkeypatch.setattr(
+        "app.provider.get_provider_for_model",
+        lambda model_id, **_kw: ocr_empty_stub,
+    )
 
     from app.tools.textlayer import extract_textlayer
 

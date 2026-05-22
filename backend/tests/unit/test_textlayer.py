@@ -105,11 +105,16 @@ def _ocr_result(lines: list[dict[str, Any]]) -> ProviderResult:
 
 
 async def test_extract_textlayer_electronic_pdf(workspace: Path) -> None:
+    # Pure-fitz pin: skip OCR so we don't need a provider stub here.
+    # The partial-OCR merge path on electronic pages is exercised in
+    # `test_extract_textlayer_electronic_pdf_merges_partial_ocr` below.
     pid = (await create_project(workspace, name="x"))["slug"]
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
 
-    result = await extract_textlayer(workspace, pid, fname, page=1)
+    result = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
 
     assert result["scanned"] is False
     assert result["text_source"] == "fitz"
@@ -161,11 +166,15 @@ async def test_extract_textlayer_scanned_pdf_skip_ocr(workspace: Path) -> None:
 async def test_extract_textlayer_caches_sidecar(
     workspace: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Cache semantics are orthogonal to OCR routing — skip OCR on both
+    # calls so this test doesn't depend on provider stubbing.
     pid = (await create_project(workspace, name="x"))["slug"]
     pdf_bytes = _build_text_pdf()
     fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
 
-    first = await extract_textlayer(workspace, pid, fname, page=1)
+    first = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
 
     sidecar = doc_textlayer_path(workspace, pid, fname, page=1)
     assert sidecar.exists(), "sidecar must be persisted after first call"
@@ -183,7 +192,9 @@ async def test_extract_textlayer_caches_sidecar(
 
     monkeypatch.setattr(fitz_mod, "open", _boom)
 
-    second = await extract_textlayer(workspace, pid, fname, page=1)
+    second = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
     assert second == first
 
 
@@ -388,3 +399,110 @@ async def test_extract_textlayer_ocr_malformed_payload_caches_empty(
 
     assert result["text_source"] == "none"
     assert result["spans"] == []
+
+
+async def test_extract_textlayer_electronic_pdf_merges_partial_ocr(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Electronic PDF + OCR returns one line whose center sits in a region
+    fitz didn't cover (logo / outlined-path text on a real-world page).
+    The OCR span is unioned with the fitz spans and `text_source` flips
+    to `"fitz+ocr"`."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf_bytes = _build_text_pdf()
+    fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
+
+    # Pin fitz-only count by running once with skip_ocr=True (no provider
+    # call), then start fresh under a different filename for the merge run
+    # so we don't hit the sidecar cache from the first call.
+    fitz_only = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
+    fitz_only_count = len(fitz_only["spans"])
+    assert fitz_only_count >= 1
+    # Wipe the sidecar so the merge call re-extracts.
+    doc_textlayer_path(workspace, pid, fname, page=1).unlink()
+
+    # OCR stub: one line near the top-left corner of an A4 page (page_w=595,
+    # page_h=842). Bbox [10, 10, 200, 50] PDF-units is well above the fitz
+    # text which starts at y=72. Gemini emits [y0,x0,y1,x1] normalised to
+    # 0-1000, so to land at PDF coords (10,10)-(200,50):
+    #   y0 = 10/842*1000  ≈ 11.875  → use 11
+    #   x0 = 10/595*1000  ≈ 16.806  → use 16
+    #   y1 = 50/842*1000  ≈ 59.382  → use 59
+    #   x1 = 200/595*1000 ≈ 336.134 → use 336
+    # The exact denormalised values will be close to [10, 10, 200, 50] but
+    # we'll assert text + text_source rather than exact bbox equality.
+    _install_provider(
+        monkeypatch,
+        return_value=_ocr_result([
+            {"bbox": [11, 16, 59, 336], "text": "WAVEMAKER LOGO"},
+        ]),
+    )
+
+    result = await extract_textlayer(workspace, pid, fname, page=1)
+
+    assert result["scanned"] is False
+    assert result["text_source"] == "fitz+ocr"
+    # Fitz spans still present + the one new OCR span.
+    assert len(result["spans"]) == fitz_only_count + 1
+    texts = [s["text"] for s in result["spans"]]
+    assert "WAVEMAKER LOGO" in texts
+
+
+async def test_extract_textlayer_electronic_pdf_dedupes_ocr_overlap(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Electronic PDF + OCR returns a line whose center lies inside an
+    existing fitz span bbox — dedupe drops it, `text_source` stays
+    `"fitz"`, span count unchanged."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf_bytes = _build_text_pdf()
+    fname = (await upload_doc(workspace, pid, pdf_bytes, "doc.pdf"))["filename"]
+
+    # Get the fitz spans first (skip OCR, so no provider call yet).
+    fitz_only = await extract_textlayer(
+        workspace, pid, fname, page=1, skip_ocr=True,
+    )
+    fitz_only_count = len(fitz_only["spans"])
+    assert fitz_only_count >= 1
+
+    # Pick the center of an existing fitz span — any OCR line landing on
+    # that center should be dropped by `_dedupe_ocr_against_fitz`.
+    fx0, fy0, fx1, fy1 = fitz_only["spans"][0]["bbox"]
+    cx = (fx0 + fx1) / 2.0
+    cy = (fy0 + fy1) / 2.0
+    # OCR bbox: a small rectangle whose center is exactly (cx, cy) in PDF
+    # units. Normalise to 0-1000 the way Gemini emits.
+    # A4 = 595 x 842 pt.
+    page_w, page_h = 595.0, 842.0
+    half_w = 5.0
+    half_h = 2.0
+    bx0 = max(0.0, cx - half_w)
+    by0 = max(0.0, cy - half_h)
+    bx1 = min(page_w, cx + half_w)
+    by1 = min(page_h, cy + half_h)
+    # Normalise to integer 0-1000, format [y0, x0, y1, x1].
+    y0_n = int(round(by0 / page_h * 1000.0))
+    x0_n = int(round(bx0 / page_w * 1000.0))
+    y1_n = int(round(by1 / page_h * 1000.0))
+    x1_n = int(round(bx1 / page_w * 1000.0))
+
+    # Wipe sidecar so the merge call re-runs.
+    doc_textlayer_path(workspace, pid, fname, page=1).unlink()
+
+    _install_provider(
+        monkeypatch,
+        return_value=_ocr_result([
+            {"bbox": [y0_n, x0_n, y1_n, x1_n], "text": "duplicate of fitz"},
+        ]),
+    )
+
+    result = await extract_textlayer(workspace, pid, fname, page=1)
+
+    assert result["scanned"] is False
+    # OCR ran but contributed 0 spans after dedupe → text_source stays "fitz".
+    assert result["text_source"] == "fitz"
+    assert len(result["spans"]) == fitz_only_count
+    texts = [s["text"] for s in result["spans"]]
+    assert "duplicate of fitz" not in texts
