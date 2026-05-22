@@ -164,22 +164,34 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // Project route wins when both stores claim a binding — `selectedSlug` is
-    // set by the promote-flow before the unbound id clears, so checking it
-    // first keeps the URL stable through the `/c/<cid>` → `/p/<slug>` swap.
+    // Read store state directly via `getState()` rather than via the closure
+    // values. On cold-start mount, the hydration effect above calls
+    // `useProjects.select(slug)` synchronously *before* this effect fires
+    // (source order), so the store is already populated even though the
+    // subscription-driven closure values (`selectedSlug`, `loadedUnboundChatId`)
+    // are still null until React re-renders. The deps array still drives
+    // re-runs on subsequent changes; this just makes each run see the truth.
+    //
+    // Without this, the closure-driven else branch would `pushState('/')`
+    // and strip `?review=` / `?eval=` on every page load that lands on a
+    // `/p/<slug>?review=<f>` URL — and React StrictMode's dev-mode remount
+    // makes a useRef "first-run only" guard insufficient (ref persists across
+    // simulated unmount/remount).
+    const slug = useProjects.getState().selectedSlug
+    const cid = useChat.getState().loadedUnboundChatId
     const currentPathSlug = readSlugFromPathname(window.location.pathname)
     let target: string
-    if (selectedSlug) {
+    if (slug) {
       // Same-slug effect reruns (e.g. initial URL hydrate) keep the search so
       // the matrix↔review back-button loop survives. Crossing into a different
       // slug means review/eval were left over from the previous project and
       // must be dropped — see `stripProjectScopedParams` above.
-      const search = selectedSlug === currentPathSlug
+      const search = slug === currentPathSlug
         ? window.location.search
         : stripProjectScopedParams(window.location.search)
-      target = pathForSlug(selectedSlug, search, window.location.hash)
-    } else if (loadedUnboundChatId) {
-      target = pathForChatId(loadedUnboundChatId, window.location.search, window.location.hash)
+      target = pathForSlug(slug, search, window.location.hash)
+    } else if (cid) {
+      target = pathForChatId(cid, window.location.search, window.location.hash)
     } else {
       target = pathForSlug(null, stripProjectScopedParams(window.location.search), window.location.hash)
     }
