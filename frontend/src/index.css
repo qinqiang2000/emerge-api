@@ -517,6 +517,8 @@ html, body, #root {
 .dv-zoom button:last-child{border-right:0}
 .dv-zoom button:hover{background:var(--paper-2);color:var(--ink)}
 .dv-zoom .lvl{padding:0 8px;font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;min-width:46px;text-align:center;border-right:1px solid var(--rule-soft)}
+.dv-tip{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11px;line-height:1.35;padding:5px 8px;border-radius:5px;box-shadow:0 4px 14px rgba(31,27,20,.18);max-width:280px;z-index:50;animation:dvTipIn .1s ease-out;user-select:none;pointer-events:none}
+@keyframes dvTipIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
 .dv-viewport{flex:1;overflow:auto;padding:18px 14px;display:flex;flex-direction:column;align-items:flex-start;gap:14px;background:#F8F3E6;scrollbar-width:thin;scrollbar-color:var(--ink-5) transparent}
 .dv-viewport::-webkit-scrollbar{width:10px;height:10px}
 .dv-viewport::-webkit-scrollbar-thumb{background:var(--rule);border-radius:5px;border:2px solid transparent;background-clip:content-box}

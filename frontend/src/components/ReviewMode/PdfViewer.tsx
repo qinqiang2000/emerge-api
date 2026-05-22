@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import { Languages } from 'lucide-react'
 import { pdfPageUrl } from '../../lib/api'
 import { useDocs } from '../../stores/docs'
@@ -7,6 +8,24 @@ import { useTextlayer } from '../../stores/textlayer'
 import { useTranslate } from '../../stores/translate'
 import TextLayer, { type SelectableSpan } from './TextLayer'
 import { TranslateGhost, TranslatePopover } from './TranslateOverlay'
+
+// Toolbar tooltip: native `title=` has a ~500–1500ms OS-level delay that
+// makes the dv-toolbar feel sluggish. Radix tooltip with a short delay
+// gives the Mac-feel pop the rest of this UI assumes.
+const TOOLBAR_TIP_DELAY_MS = 120
+
+function Tip({ label, children }: { label: string; children: ReactElement }) {
+  return (
+    <TooltipPrimitive.Root>
+      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content className="dv-tip" sideOffset={6} side="bottom">
+          {label}
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
+  )
+}
 
 // Hover popover timing — feels like a Mac OS tooltip, not a flicker on
 // mouse-traverse.
@@ -332,92 +351,110 @@ export default function PdfViewer() {
 
   return (
     <>
-      <div className="dv-toolbar">
-        <button className="dv-btn" title="previous page"
-          disabled={visiblePage <= 1 || pageCount <= 1}
-          onClick={() => jumpToPage(Math.max(1, visiblePage - 1))}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9,3 4,7 9,11"/></svg>
-        </button>
-        <span className="dv-page">
-          <input
-            value={visiblePage}
-            onChange={e => {
-              const v = parseInt(e.target.value) || 1
-              jumpToPage(Math.max(1, Math.min(pageCount, v)))
-            }}
-            disabled={pageCount <= 1}
-          />
-          <span className="of">/</span>
-          <span className="tot">{pageCount}</span>
-        </span>
-        <button className="dv-btn" title="next page"
-          disabled={visiblePage >= pageCount || pageCount <= 1}
-          onClick={() => jumpToPage(Math.min(pageCount, visiblePage + 1))}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="5,3 10,7 5,11"/></svg>
-        </button>
+      <TooltipPrimitive.Provider delayDuration={TOOLBAR_TIP_DELAY_MS} skipDelayDuration={0}>
+        <div className="dv-toolbar">
+          <Tip label="previous page">
+            <button className="dv-btn"
+              disabled={visiblePage <= 1 || pageCount <= 1}
+              onClick={() => jumpToPage(Math.max(1, visiblePage - 1))}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9,3 4,7 9,11"/></svg>
+            </button>
+          </Tip>
+          <span className="dv-page">
+            <input
+              value={visiblePage}
+              onChange={e => {
+                const v = parseInt(e.target.value) || 1
+                jumpToPage(Math.max(1, Math.min(pageCount, v)))
+              }}
+              disabled={pageCount <= 1}
+            />
+            <span className="of">/</span>
+            <span className="tot">{pageCount}</span>
+          </span>
+          <Tip label="next page">
+            <button className="dv-btn"
+              disabled={visiblePage >= pageCount || pageCount <= 1}
+              onClick={() => jumpToPage(Math.min(pageCount, visiblePage + 1))}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="5,3 10,7 5,11"/></svg>
+            </button>
+          </Tip>
 
-        <span className="dv-sep" />
+          <span className="dv-sep" />
 
-        <div className="dv-zoom">
-          <button onClick={() => bumpZoom(-0.1)} title="zoom out">−</button>
-          <span className="lvl">{Math.round(effZoom * 100)}%</span>
-          <button onClick={() => bumpZoom(+0.1)} title="zoom in">+</button>
+          <div className="dv-zoom">
+            <Tip label="zoom out">
+              <button onClick={() => bumpZoom(-0.1)}>−</button>
+            </Tip>
+            <span className="lvl">{Math.round(effZoom * 100)}%</span>
+            <Tip label="zoom in">
+              <button onClick={() => bumpZoom(+0.1)}>+</button>
+            </Tip>
+          </div>
+          <Tip label={fit ? 'fit to width (on)' : 'fit to width'}>
+            <button
+              className={'dv-btn' + (!fit ? ' on' : '')}
+              onClick={() => { if (fit) { setZoom(fitZoom); setFit(false) } else { setFit(true) } }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="10" height="8" rx="1"/>
+                <polyline points="4.5,6 3,7.5 4.5,9"/>
+                <polyline points="9.5,6 11,7.5 9.5,9"/>
+                <line x1="3" y1="7.5" x2="11" y2="7.5"/>
+              </svg>
+            </button>
+          </Tip>
+
+          <span className="dv-sep" />
+
+          <Tip label="rotate left 90°">
+            <button className="dv-btn" onClick={() => rotate(-1)}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7a4 4 0 1 1 1.2 2.85"/>
+                <polyline points="3,4 3,7 6,7"/>
+              </svg>
+            </button>
+          </Tip>
+          <Tip label="rotate right 90°">
+            <button className="dv-btn" onClick={() => rotate(+1)}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 7a4 4 0 1 0 -1.2 2.85"/>
+                <polyline points="11,4 11,7 8,7"/>
+              </svg>
+            </button>
+          </Tip>
+
+          <span className="dv-sep" />
+
+          <Tip
+            label={
+              translateBtnState === 'error' && translateBtnError
+                ? `翻译失败: ${translateBtnError} (T)`
+                : translateMode === 'cover'
+                  ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
+                  : '翻译此 doc (T)'
+            }
+          >
+            <button
+              className={
+                'dv-btn translate-btn'
+                + (translateMode === 'cover' ? ' on is-cover' : '')
+                + (translateBtnState === 'loading' ? ' is-loading' : '')
+                + (translateBtnState === 'error' ? ' is-error' : '')
+              }
+              aria-pressed={translateMode !== 'off'}
+              onClick={onToggleTranslate}
+            >
+              {translateBtnState === 'loading' ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="translate-spin">
+                  <path d="M7 1.5 a5.5 5.5 0 1 1 -5.5 5.5" />
+                </svg>
+              ) : (
+                <Languages size={14} aria-hidden="true" />
+              )}
+            </button>
+          </Tip>
         </div>
-        <button
-          className={'dv-btn' + (!fit ? ' on' : '')}
-          title={fit ? 'fit to width (on)' : 'fit to width'}
-          onClick={() => { if (fit) { setZoom(fitZoom); setFit(false) } else { setFit(true) } }}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="3" width="10" height="8" rx="1"/>
-            <polyline points="4.5,6 3,7.5 4.5,9"/>
-            <polyline points="9.5,6 11,7.5 9.5,9"/>
-            <line x1="3" y1="7.5" x2="11" y2="7.5"/>
-          </svg>
-        </button>
-
-        <span className="dv-sep" />
-
-        <button className="dv-btn" title="rotate left 90°" onClick={() => rotate(-1)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 7a4 4 0 1 1 1.2 2.85"/>
-            <polyline points="3,4 3,7 6,7"/>
-          </svg>
-        </button>
-        <button className="dv-btn" title="rotate right 90°" onClick={() => rotate(+1)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 7a4 4 0 1 0 -1.2 2.85"/>
-            <polyline points="11,4 11,7 8,7"/>
-          </svg>
-        </button>
-
-        <span className="dv-sep" />
-
-        <button
-          className={
-            'dv-btn translate-btn'
-            + (translateMode === 'cover' ? ' on is-cover' : '')
-            + (translateBtnState === 'loading' ? ' is-loading' : '')
-            + (translateBtnState === 'error' ? ' is-error' : '')
-          }
-          title={
-            translateBtnState === 'error' && translateBtnError
-              ? `翻译失败: ${translateBtnError} (T)`
-              : translateMode === 'cover'
-                ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
-                : '翻译此 doc (T)'
-          }
-          aria-pressed={translateMode !== 'off'}
-          onClick={onToggleTranslate}
-        >
-          {translateBtnState === 'loading' ? (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="translate-spin">
-              <path d="M7 1.5 a5.5 5.5 0 1 1 -5.5 5.5" />
-            </svg>
-          ) : (
-            <Languages size={14} aria-hidden="true" />
-          )}
-        </button>
-      </div>
+      </TooltipPrimitive.Provider>
 
       <div className="dv-viewport" ref={viewportRef}>
         <div className="dv-stack">
