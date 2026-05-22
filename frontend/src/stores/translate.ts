@@ -4,9 +4,9 @@
 //
 // Two separate concerns share this store:
 //   1. `mode`: user-facing global switch (toolbar button + `T` key). When
-//      off, no fetches are issued and the overlay renders nothing. When
-//      on, the consumer (PdfViewer's `TranslateOverlayHost`) calls
-//      `ensure(...)` per page and the overlay paints whatever has
+//      off, no fetches are issued and the ghost layer renders nothing.
+//      When on, the consumer (PdfViewer's `PageOverlays`) calls
+//      `ensure(...)` per page and the ghost paints whatever has
 //      resolved. Cached payloads survive toggling off → on so retoggling
 //      is instant.
 //   2. `byKey`: per (project, filename, page) state machine

@@ -7,15 +7,38 @@
 // with the page height regardless of fit / zoom. The text itself is rendered
 // transparent (CSS `color: transparent`) — only the user's selection
 // rectangle becomes visible.
-import type { TextlayerSpan } from '../../lib/api'
+//
+// The span shape is generic (`SelectableSpan`) so PdfViewer can feed spans
+// from EITHER the textlayer sidecar (electronic PDFs) OR derive them from
+// translate.lines (vision/scanned mode). Indices align 1-to-1 with
+// `translate.lines[i]` in both cases — see PdfViewer.tsx and
+// `backend/app/tools/translate.py` (textlayer branch enumerates spans).
 
-interface Props {
-  spans: TextlayerSpan[]
-  pageW: number   // PDF page units (points)
-  pageH: number
+export interface SelectableSpan {
+  bbox: [number, number, number, number]
+  text: string
+  font_size: number
 }
 
-export default function TextLayer({ spans, pageW, pageH }: Props) {
+interface Props {
+  spans: SelectableSpan[]
+  pageW: number   // PDF page units (points)
+  pageH: number
+  // Optional hover hooks — used by the translate ghost layer to anchor a
+  // popover. The callback receives the span's index (which aligns with
+  // `translate.lines`) and the underlying DOM element so the popover can
+  // measure-and-anchor in viewport coords.
+  onSpanHover?: (index: number, anchorEl: HTMLElement) => void
+  onSpanLeave?: (index: number) => void
+}
+
+export default function TextLayer({
+  spans,
+  pageW,
+  pageH,
+  onSpanHover,
+  onSpanLeave,
+}: Props) {
   if (!spans.length || pageW <= 0 || pageH <= 0) return null
   return (
     <div className="text-layer" aria-hidden="false">
@@ -34,6 +57,7 @@ export default function TextLayer({ spans, pageW, pageH }: Props) {
           <span
             key={i}
             className="text-layer-span"
+            data-span-index={i}
             style={{
               left: `${left}%`,
               top: `${top}%`,
@@ -41,6 +65,8 @@ export default function TextLayer({ spans, pageW, pageH }: Props) {
               height: `${height}%`,
               fontSize: `max(1px, ${fontSizePct}cqh)`,
             }}
+            onMouseEnter={onSpanHover ? (e) => onSpanHover(i, e.currentTarget) : undefined}
+            onMouseLeave={onSpanLeave ? () => onSpanLeave(i) : undefined}
           >{s.text}</span>
         )
       })}

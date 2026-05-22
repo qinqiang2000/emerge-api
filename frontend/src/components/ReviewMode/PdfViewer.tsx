@@ -1,12 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Languages } from 'lucide-react'
 import { pdfPageUrl } from '../../lib/api'
 import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
 import { useTextlayer } from '../../stores/textlayer'
 import { useTranslate } from '../../stores/translate'
-import TextLayer from './TextLayer'
-import TranslateOverlay from './TranslateOverlay'
+import TextLayer, { type SelectableSpan } from './TextLayer'
+import { TranslateGhost, TranslatePopover } from './TranslateOverlay'
+
+// Hover popover timing — feels like a Mac OS tooltip, not a flicker on
+// mouse-traverse.
+const POPOVER_OPEN_DELAY_MS = 250
+const POPOVER_CLOSE_DELAY_MS = 200
+
+// State of the currently-anchored popover. Keyed by page + line index so
+// only one popover ever shows, even if user mouses across pages.
+type PopoverState = {
+  page: number
+  index: number
+  anchor: HTMLElement
+}
 
 export default function PdfViewer() {
   const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
@@ -23,9 +36,28 @@ export default function PdfViewer() {
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set([1]))
   const [vpW, setVpW] = useState(600)
   const [aspectRatio, setAspectRatio] = useState(11 / 8.5)
+  // The single popover instance — null when nothing hovered.
+  const [popover, setPopover] = useState<PopoverState | null>(null)
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
+  // Timers for hover-debounced popover open/close, indexed by intent so
+  // we can cancel the right one on a follow-up event.
+  const openTimerRef = useRef<number | null>(null)
+  const closeTimerRef = useRef<number | null>(null)
+
+  function clearOpenTimer() {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current)
+      openTimerRef.current = null
+    }
+  }
+  function clearCloseTimer() {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }
 
   // Sync pageCount from doc store. `activeFilename` is the on-disk filename
   // (the only doc handle now); look up by `filename` field.
@@ -43,7 +75,10 @@ export default function PdfViewer() {
     setFit(true)
     setLoadedPages(new Set([1]))
     setAspectRatio(11 / 8.5)
+    setPopover(null)
     pageRefs.current = {}
+    clearOpenTimer()
+    clearCloseTimer()
   }, [activeFilename])
 
   // Track viewport inner width for rotation-aware fit
@@ -85,7 +120,9 @@ export default function PdfViewer() {
     return () => obs.disconnect()
   }, [pageCount, activeFilename])
 
-  // Scroll → update visible page indicator
+  // Scroll → update visible page indicator. Closing the popover on scroll
+  // avoids stale anchors leaving the popover floating after the source
+  // span has scrolled out of view.
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp) return
@@ -98,10 +135,15 @@ export default function PdfViewer() {
         if (dist < bestDist) { bestDist = dist; best = i }
       }
       setVisiblePage(best)
+      if (popover) {
+        clearOpenTimer()
+        clearCloseTimer()
+        setPopover(null)
+      }
     }
     vp.addEventListener('scroll', onScroll, { passive: true })
     return () => vp.removeEventListener('scroll', onScroll)
-  }, [pageCount])
+  }, [pageCount, popover])
 
   function jumpToPage(p: number) {
     const el = pageRefs.current[p]
@@ -185,6 +227,12 @@ export default function PdfViewer() {
       for (const p of loadedPages) {
         ensure(activeProjectId, activeFilename, p)
       }
+    } else {
+      // Flipping mode off → close any open popover so it doesn't linger
+      // attached to a span the user can no longer see translated.
+      setPopover(null)
+      clearOpenTimer()
+      clearCloseTimer()
     }
   }
 
@@ -222,6 +270,62 @@ export default function PdfViewer() {
     // it changes so newly-loaded pages get fanned out on the next `t`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId, activeFilename, page, loadedPages])
+
+  // ── Hover wiring ─────────────────────────────────────────────────────────
+  // Each per-page text layer calls these with its own page number bound,
+  // so the popover state always knows which page's translate.lines to
+  // look up. We keep one popover instance globally — moving to a span on
+  // a different page just re-anchors.
+
+  const openPopoverSoon = useCallback((page: number, index: number, anchor: HTMLElement) => {
+    // Cancel any pending close — user is back hovering a real span.
+    clearCloseTimer()
+    // If we already have a popover open on this exact span, no-op.
+    if (popover && popover.page === page && popover.index === index) {
+      return
+    }
+    clearOpenTimer()
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      setPopover({ page, index, anchor })
+    }, POPOVER_OPEN_DELAY_MS)
+  }, [popover])
+
+  const scheduleClose = useCallback(() => {
+    // Cancel any pending open — the user moved away before tooltip
+    // materialized.
+    clearOpenTimer()
+    clearCloseTimer()
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      setPopover(null)
+    }, POPOVER_CLOSE_DELAY_MS)
+  }, [])
+
+  // Popover stays open while pointer is over IT. Cancel the close grace.
+  const onPopoverMouseEnter = useCallback(() => {
+    clearCloseTimer()
+  }, [])
+  const onPopoverMouseLeave = useCallback(() => {
+    scheduleClose()
+  }, [scheduleClose])
+
+  const onPopoverClose = useCallback(() => {
+    clearOpenTimer()
+    clearCloseTimer()
+    setPopover(null)
+  }, [])
+
+  // Look up the translate line for the currently-pinned popover, if any.
+  // The lookup gates render: only show popover if the corresponding
+  // translate state is ready AND has a line at that index.
+  const popoverLine = useMemo(() => {
+    if (!popover || !activeProjectId || !activeFilename) return null
+    const key = `${activeProjectId}::${activeFilename}::${popover.page}`
+    const state = translateByKey[key]
+    if (!state || state.kind !== 'ready') return null
+    return state.payload.lines[popover.index] ?? null
+  }, [popover, activeProjectId, activeFilename, translateByKey])
 
   if (!activeProjectId || !activeFilename) return null
 
@@ -339,8 +443,13 @@ export default function PdfViewer() {
                         if (img.naturalWidth > 0) setAspectRatio(img.naturalHeight / img.naturalWidth)
                       } : undefined}
                     />
-                    <TextLayerHost projectId={activeProjectId} filename={activeFilename} page={p} />
-                    <TranslateOverlayHost projectId={activeProjectId} filename={activeFilename} page={p} />
+                    <PageOverlays
+                      projectId={activeProjectId}
+                      filename={activeFilename}
+                      page={p}
+                      onSpanHover={(idx, el) => openPopoverSoon(p, idx, el)}
+                      onSpanLeave={() => scheduleClose()}
+                    />
                   </>
                 ) : (
                   <div className="dv-placeholder" />
@@ -350,63 +459,126 @@ export default function PdfViewer() {
           ))}
         </div>
       </div>
+
+      {popover && popoverLine && (
+        <TranslatePopover
+          anchor={popover.anchor}
+          line={popoverLine}
+          onClose={onPopoverClose}
+          onMouseEnter={onPopoverMouseEnter}
+          onMouseLeave={onPopoverMouseLeave}
+        />
+      )}
     </>
   )
 }
 
-// Thin per-page wrapper: fires `ensure(...)` on mount / page change and
-// renders the transparent <TextLayer/> once the payload arrives. Scanned
-// pages resolve with `spans: []` → renders nothing. Errors are silent —
-// selection is a "nice to have" and not worth surfacing chrome for.
-function TextLayerHost({
+// Per-page overlay host. Owns three layers stacked on top of the raster:
+//
+//   z=1  Selectable text layer — spans come from EITHER the textlayer
+//        sidecar (electronic PDFs) OR are derived from translate.lines
+//        (vision / scanned mode). pointer-events:auto so the user can
+//        rubberband-select original text (HIGH-FREQUENCY action — what
+//        reviewers paste into entity fields).
+//
+//   z=2  Translate ghost — inline translated text painted on top of the
+//        raster, low-alpha grey, pointer-events:none. Decorative
+//        navigator only; never captures selection or hover. Rendered
+//        only when translate state is ready for this page.
+//
+// Index alignment invariant: text-layer span `i` ↔ translate.lines[i]
+// 1-to-1. Two paths preserve this:
+//   - textlayer-mode: backend translate.py iterates sidecar spans by
+//     enumerate(); indices line up positionally.
+//   - vision-mode: text-layer spans are LITERALLY translate.lines, so
+//     i is the same array index.
+// Hover therefore looks up the popover content by index alone.
+function PageOverlays({
   projectId,
   filename,
   page,
+  onSpanHover,
+  onSpanLeave,
 }: {
   projectId: string
   filename: string
   page: number
+  onSpanHover: (idx: number, el: HTMLElement) => void
+  onSpanLeave: (idx: number) => void
 }) {
   const key = `${projectId}::${filename}::${page}`
-  const ensure = useTextlayer((s) => s.ensure)
-  const state = useTextlayer((s) => s.byKey[key])
+  const textlayerEnsure = useTextlayer((s) => s.ensure)
+  const textlayerState = useTextlayer((s) => s.byKey[key])
+  const translateMode = useTranslate((s) => s.mode)
+  const translateEnsure = useTranslate((s) => s.ensure)
+  const translateState = useTranslate((s) => s.byKey[key])
 
+  // Always fetch textlayer (cheap, makes electronic PDFs selectable
+  // without the user toggling anything).
   useEffect(() => {
-    ensure(projectId, filename, page)
-  }, [ensure, projectId, filename, page])
+    textlayerEnsure(projectId, filename, page)
+  }, [textlayerEnsure, projectId, filename, page])
 
-  if (!state || state.kind !== 'ready') return null
-  const { payload } = state
-  return <TextLayer spans={payload.spans} pageW={payload.page_w} pageH={payload.page_h} />
-}
-
-// Per-page translate host. Subscribes to the global `mode` flag + this
-// page's cache entry. The store's `ensure(...)` is a no-op when mode is
-// 'off', so the only side-effect of calling it eagerly here is the
-// initial fetch once the user flips the toolbar on (and on doc / page
-// change while already on). Loading / error states render nothing on
-// the page itself — the toolbar button is the single source of truth
-// for global progress.
-function TranslateOverlayHost({
-  projectId,
-  filename,
-  page,
-}: {
-  projectId: string
-  filename: string
-  page: number
-}) {
-  const key = `${projectId}::${filename}::${page}`
-  const mode = useTranslate((s) => s.mode)
-  const ensure = useTranslate((s) => s.ensure)
-  const state = useTranslate((s) => s.byKey[key])
-
+  // Fetch translate when the global mode is on. The store gates internally
+  // so this is a no-op when mode is off.
   useEffect(() => {
-    if (mode !== 'on') return
-    ensure(projectId, filename, page)
-  }, [mode, ensure, projectId, filename, page])
+    if (translateMode !== 'on') return
+    translateEnsure(projectId, filename, page)
+  }, [translateMode, translateEnsure, projectId, filename, page])
 
-  if (mode !== 'on' || !state || state.kind !== 'ready') return null
-  const { payload } = state
-  return <TranslateOverlay lines={payload.lines} pageW={payload.page_w} pageH={payload.page_h} />
+  // Choose the spans source. Prefer real sidecar (only available for
+  // electronic PDFs) when non-empty; otherwise, if translation has
+  // resolved for this page, synthesise a text layer from translate.lines
+  // so that PNG / scanned pages also become selectable & copyable.
+  const sourceSpans: { spans: SelectableSpan[]; pageW: number; pageH: number } | null = useMemo(() => {
+    if (textlayerState?.kind === 'ready' && textlayerState.payload.spans.length > 0) {
+      return {
+        spans: textlayerState.payload.spans,
+        pageW: textlayerState.payload.page_w,
+        pageH: textlayerState.payload.page_h,
+      }
+    }
+    if (translateState?.kind === 'ready' && translateState.payload.lines.length > 0) {
+      // Derived from translate.lines. font_size default = 12pt; the cqh
+      // math in TextLayer scales it relative to the page so the
+      // transparent selection rectangle is reasonable.
+      return {
+        spans: translateState.payload.lines.map((l) => ({
+          bbox: l.bbox,
+          text: l.original,
+          font_size: 12,
+        })),
+        pageW: translateState.payload.page_w,
+        pageH: translateState.payload.page_h,
+      }
+    }
+    return null
+  }, [textlayerState, translateState])
+
+  // Only enable hover when translation is loaded for this page —
+  // otherwise the popover would surface an empty/missing line.
+  const translateReady = translateMode === 'on' && translateState?.kind === 'ready'
+  const hoverHook = translateReady ? onSpanHover : undefined
+  const leaveHook = translateReady ? onSpanLeave : undefined
+
+  return (
+    <>
+      {sourceSpans && (
+        <TextLayer
+          spans={sourceSpans.spans}
+          pageW={sourceSpans.pageW}
+          pageH={sourceSpans.pageH}
+          onSpanHover={hoverHook}
+          onSpanLeave={leaveHook}
+        />
+      )}
+      {translateReady && (
+        <TranslateGhost
+          lines={translateState!.payload.lines}
+          pageW={translateState!.payload.page_w}
+          pageH={translateState!.payload.page_h}
+        />
+      )}
+    </>
+  )
 }
