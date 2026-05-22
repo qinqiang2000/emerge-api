@@ -44,7 +44,7 @@ function verdictLabel(c: CellVerdict, t: (k: string, vars?: Record<string, strin
   if (c.verdict_source === 'normalize') {
     return c.normalizer ? t('eval.source.normalizedWith', { normalizer: c.normalizer }) : t('eval.source.normalized')
   }
-  if (c.verdict_source === 'llm_judge') return t('eval.source.llmJudge', { model: c.judge_model ?? '' })
+  if (c.verdict_source === 'llm_judge') return t('eval.source.llmJudge')
   return t('eval.source.presence')
 }
 
@@ -164,13 +164,13 @@ export default function CellDrilldown({ slug: _slug, cell, onClose, onOpenReview
         <section className="mb-4 grid grid-cols-2 gap-3">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.truth')}</div>
-            <pre className="font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto text-moss">
+            <pre className="font-mono text-sm break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto">
               {prettyValue(cell.truth) ?? '—'}
             </pre>
           </div>
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-ink-3 mb-1">{t('eval.cell.current')}</div>
-            <pre className={`font-mono text-xs break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto ${predToneClass(cell.status)}`}>
+            <pre className={`font-mono text-sm break-all whitespace-pre-wrap m-0 max-h-[40vh] overflow-auto ${predToneClass(cell.status)}`}>
               {prettyValue(cell.pred) ?? '—'}
             </pre>
           </div>

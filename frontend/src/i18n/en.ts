@@ -242,7 +242,7 @@ const en: Dict = {
   'eval.source.exact': 'literal match',
   'eval.source.normalized': 'normalized match',
   'eval.source.normalizedWith': 'normalized match ({normalizer})',
-  'eval.source.llmJudge': 'LLM judge ({model})',
+  'eval.source.llmJudge': 'LLM judge',
   'eval.source.presence': 'presence check',
   'eval.cell.close': 'Close',
   'eval.cell.entity': 'entity #{idx}',

@@ -242,7 +242,7 @@ const zh: Dict = {
   'eval.source.exact': '字面相等',
   'eval.source.normalized': '归一化判定',
   'eval.source.normalizedWith': '归一化命中 ({normalizer})',
-  'eval.source.llmJudge': 'LLM 判定 ({model})',
+  'eval.source.llmJudge': 'LLM 判定',
   'eval.source.presence': '存在性判定',
   'eval.cell.close': '关闭',
   'eval.cell.entity': '实体 #{idx}',
