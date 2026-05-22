@@ -404,10 +404,10 @@ export default function PdfViewer() {
             translateBtnState === 'error' && translateBtnError
               ? `翻译失败: ${translateBtnError} (T)`
               : translateMode === 'cover'
-                ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
+                ? '覆盖模式 · T 切注释 · Shift+T 重译本页'
                 : translateMode === 'subtle'
-                  ? '注释模式 · T 切覆盖 · Shift+T 重译本页'
-                  : '翻译此 doc (T) · 再按一次切覆盖'
+                  ? '注释模式 · T 关闭 · Shift+T 重译本页'
+                  : '翻译此 doc (T)'
           }
           aria-pressed={translateMode !== 'off'}
           onClick={onToggleTranslate}

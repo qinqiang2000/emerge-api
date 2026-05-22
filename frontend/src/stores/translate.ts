@@ -58,10 +58,14 @@ function normalizeMode(m: ModeInput): Mode {
   return m === 'on' ? 'subtle' : m
 }
 
-// T-key + toolbar cycle order.
+// T-key + toolbar cycle order: off → cover → subtle → off.
+// Cover comes first because it's the more useful state for most review
+// flows — readable Chinese over the original raster. Subtle (small grey
+// navigator annotation) is reachable on the second tap for users who
+// already understand the original and just want a sparse cue.
 function nextMode(m: Mode): Mode {
-  if (m === 'off') return 'subtle'
-  if (m === 'subtle') return 'cover'
+  if (m === 'off') return 'cover'
+  if (m === 'cover') return 'subtle'
   return 'off'
 }
 
