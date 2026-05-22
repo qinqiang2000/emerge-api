@@ -25,21 +25,18 @@ export type PageState =
   | { kind: 'ready'; payload: TranslatePayload }
   | { kind: 'error'; message: string }
 
-// Three display modes:
-// - `off`:    no translation; ghost layer not rendered, no fetches issued
-// - `subtle`: tiny low-alpha ghost text, original is the visual primary
-//             (the "navigator" — scan to decide what matters)
-// - `cover`:  opaque larger ghost text covering the original raster, à la
-//             Chrome / WeChat image translate (the "reading" mode)
-// `on` is kept as a legacy alias of `subtle` so older keymap callers that
-// say `setMode('on')` still resolve to a translated state.
-export type Mode = 'off' | 'subtle' | 'cover'
-export type ModeInput = Mode | 'on'
+// Two display modes:
+// - `off`:   no translation; ghost layer not rendered, no fetches issued
+// - `cover`: opaque larger ghost text covering the original raster, à la
+//            Chrome / WeChat image translate. Original raster + textlayer
+//            stay underneath, so original text is still selectable via
+//            cmd+drag through the transparent textlayer at z=1.
+export type Mode = 'off' | 'cover'
 
 interface State {
   mode: Mode
   byKey: Record<string, PageState>
-  setMode: (m: ModeInput) => void
+  setMode: (m: Mode) => void
   toggleMode: () => void
   ensure: (
     projectId: string,
@@ -54,32 +51,16 @@ function makeKey(projectId: string, filename: string, page: number): string {
   return `${projectId}::${filename}::${page}`
 }
 
-function normalizeMode(m: ModeInput): Mode {
-  return m === 'on' ? 'subtle' : m
-}
-
-// T-key + toolbar cycle order: off → cover → subtle → off.
-// Cover comes first because it's the more useful state for most review
-// flows — readable Chinese over the original raster. Subtle (small grey
-// navigator annotation) is reachable on the second tap for users who
-// already understand the original and just want a sparse cue.
-function nextMode(m: Mode): Mode {
-  if (m === 'off') return 'cover'
-  if (m === 'cover') return 'subtle'
-  return 'off'
-}
-
 export const useTranslate = create<State>((set, get) => ({
   mode: 'off',
   byKey: {},
-  setMode: (m) => set({ mode: normalizeMode(m) }),
-  toggleMode: () => set((s) => ({ mode: nextMode(s.mode) })),
+  setMode: (m) => set({ mode: m }),
+  toggleMode: () => set((s) => ({ mode: s.mode === 'off' ? 'cover' : 'off' })),
   ensure: (projectId, filename, page, opts) => {
     if (!projectId || !filename || !page) return
     // Hard gate: when translation is off, this is a no-op. Toolbar button
     // explicitly flips mode away from off, then loops ensure() over
-    // loadedPages — never the other way around. `subtle` and `cover` both
-    // count as "on" for fetching purposes.
+    // loadedPages — never the other way around.
     if (get().mode === 'off') return
     const key = makeKey(projectId, filename, page)
     const current = get().byKey[key]

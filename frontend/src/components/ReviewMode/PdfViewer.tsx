@@ -217,7 +217,7 @@ export default function PdfViewer() {
 
   function onToggleTranslate() {
     if (!activeProjectId || !activeFilename) return
-    // T-key + toolbar both cycle: off → subtle → cover → off.
+    // T-key + toolbar both toggle: off ↔ cover.
     useTranslate.getState().toggleMode()
     const after = useTranslate.getState().mode
     if (after !== 'off') {
@@ -255,7 +255,7 @@ export default function PdfViewer() {
         // Force a re-translate; if mode is off, flip it on first so the
         // `ensure` guard in the store accepts the call.
         const st = useTranslate.getState()
-        if (st.mode === 'off') st.setMode('subtle')
+        if (st.mode === 'off') st.setMode('cover')
         useTranslate.getState().ensure(activeProjectId, activeFilename, page, { force: true })
         return
       }
@@ -395,8 +395,7 @@ export default function PdfViewer() {
         <button
           className={
             'dv-btn translate-btn'
-            + (translateMode !== 'off' ? ' on' : '')
-            + (translateMode === 'cover' ? ' is-cover' : '')
+            + (translateMode === 'cover' ? ' on is-cover' : '')
             + (translateBtnState === 'loading' ? ' is-loading' : '')
             + (translateBtnState === 'error' ? ' is-error' : '')
           }
@@ -404,10 +403,8 @@ export default function PdfViewer() {
             translateBtnState === 'error' && translateBtnError
               ? `翻译失败: ${translateBtnError} (T)`
               : translateMode === 'cover'
-                ? '覆盖模式 · T 切注释 · Shift+T 重译本页'
-                : translateMode === 'subtle'
-                  ? '注释模式 · T 关闭 · Shift+T 重译本页'
-                  : '翻译此 doc (T)'
+                ? '覆盖模式 · T 关闭 · Shift+T 重译本页'
+                : '翻译此 doc (T)'
           }
           aria-pressed={translateMode !== 'off'}
           onClick={onToggleTranslate}
@@ -566,10 +563,6 @@ function PageOverlays({
   const hoverHook = translateReady ? onSpanHover : undefined
   const leaveHook = translateReady ? onSpanLeave : undefined
 
-  // Map the global mode onto the ghost view variant. `subtle` and `cover`
-  // share data; `off` short-circuits via `translateReady` above.
-  const ghostView: 'subtle' | 'cover' = translateMode === 'cover' ? 'cover' : 'subtle'
-
   return (
     <>
       {sourceSpans && (
@@ -586,7 +579,6 @@ function PageOverlays({
           lines={translateState!.payload.lines}
           pageW={translateState!.payload.page_w}
           pageH={translateState!.payload.page_h}
-          view={ghostView}
         />
       )}
     </>

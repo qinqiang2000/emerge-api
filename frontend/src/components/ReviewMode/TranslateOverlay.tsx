@@ -35,37 +35,20 @@ interface GhostProps {
   lines: TranslateLine[]
   pageW: number
   pageH: number
-  /** `subtle` = navigator (small low-alpha annotations above original raster);
-   *  `cover` = reading mode (opaque larger Chinese visually replacing the
-   *  raster, Chrome / WeChat style). Both render via the same DOM tree —
-   *  CSS class flips fonts, alpha, and background. Original text remains
-   *  selectable via the textlayer at z=1 in BOTH modes (ghost is z=2 +
-   *  pointer-events:none so events fall through to the textlayer). */
-  view?: 'subtle' | 'cover'
 }
 
-// Per-view font sizing tables. Cover mode wants Chinese to read at roughly
-// the visual weight of the original character; subtle mode wants the
-// opposite — small annotation that yields to the raster underneath.
-//
-// Sizing is fit-to-bbox: font-size is the SMALLER of two budgets — height
-// (so tall headings can grow) and width (so long translations don't
-// truncate). With nowrap + ellipsis as a hard fallback, the user almost
-// never sees clipped text but the font shrinks gracefully on dense lines.
-const GHOST_SIZING = {
-  // navigator — keep tiny regardless of bbox so the underlying raster
-  // stays primary.
-  subtle: { minPx: 7, maxPx: 11, heightShrink: 0.5, widthCharFactor: 0.55 },
-  // reading mode — match original visual weight, but never let a long
-  // address force ellipsis.
-  cover:  { minPx: 8, maxPx: 22, heightShrink: 0.85, widthCharFactor: 0.62 },
-} as const
+// Fit-to-bbox sizing: font-size is the SMALLER of two budgets — height (so
+// tall headings can grow) and width (so long translations don't truncate).
+// With nowrap + ellipsis as a hard fallback, the user almost never sees
+// clipped text but the font shrinks gracefully on dense lines. Tuned so
+// Chinese reads at roughly the visual weight of the original character.
+const SIZING = { minPx: 8, maxPx: 22, heightShrink: 0.85, widthCharFactor: 0.62 } as const
 
-export function TranslateGhost({ lines, pageW, pageH, view = 'subtle' }: GhostProps) {
+export function TranslateGhost({ lines, pageW, pageH }: GhostProps) {
   if (!lines.length || pageW <= 0 || pageH <= 0) return null
-  const sizing = GHOST_SIZING[view]
+  const sizing = SIZING
   return (
-    <div className={`translate-ghost-layer is-${view}`} aria-hidden="true">
+    <div className="translate-ghost-layer" aria-hidden="true">
       {lines.map((line, i) => {
         const [x0, y0, x1, y1] = line.bbox
         const left = (x0 / pageW) * 100
