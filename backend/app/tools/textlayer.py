@@ -136,6 +136,13 @@ async def extract_textlayer(
         page_h = float(rect.height)
         image_w, image_h = _pixmap_dims(page_w, page_h)
 
+        # Aggregate at LINE granularity (one fitz "line" = one visual row of
+        # text in the source PDF, already a union over its inner spans).
+        # Span-level was too fine: phrases like "Faktur Pajak" are emitted as
+        # two spans, which made the cover-mode ghost leak the second word
+        # because each fragment was translated independently. Line-level
+        # gives the translator the full phrase + the ghost a single bbox to
+        # cover. Same downstream shape — frontend code is unchanged.
         spans: list[dict[str, Any]] = []
         data = pg.get_text("dict")
         for block in data.get("blocks", []):
@@ -144,16 +151,34 @@ async def extract_textlayer(
             if block.get("type") != 0:
                 continue
             for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    text = span.get("text", "")
-                    if not text:
-                        continue
-                    bbox = span.get("bbox") or [0.0, 0.0, 0.0, 0.0]
-                    spans.append({
-                        "bbox": [float(v) for v in bbox],
-                        "text": text,
-                        "font_size": float(span.get("size", 0.0)),
-                    })
+                line_spans = line.get("spans", [])
+                if not line_spans:
+                    continue
+                line_text = "".join(s.get("text", "") for s in line_spans)
+                if not line_text.strip():
+                    continue
+                bbox = line.get("bbox")
+                if not bbox:
+                    # Defensive: union the spans' bboxes if fitz didn't
+                    # surface a line-level one (older PyMuPDF versions).
+                    xs = [s.get("bbox", [0,0,0,0]) for s in line_spans]
+                    bbox = [
+                        min(b[0] for b in xs),
+                        min(b[1] for b in xs),
+                        max(b[2] for b in xs),
+                        max(b[3] for b in xs),
+                    ]
+                # font_size: pick the dominant span's size (max), so a small
+                # superscript doesn't drag the whole line's font-size down.
+                font_size = max(
+                    (float(s.get("size", 0.0)) for s in line_spans),
+                    default=0.0,
+                )
+                spans.append({
+                    "bbox": [float(v) for v in bbox],
+                    "text": line_text,
+                    "font_size": font_size,
+                })
 
     joined = "".join(s["text"] for s in spans).strip()
     scanned = len(joined) < _SCANNED_TEXT_THRESHOLD
