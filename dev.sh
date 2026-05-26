@@ -78,6 +78,13 @@ start_backend() {
     err "backend already running (pid $(cat "$BACKEND_PID")) — use restart"
     return 1
   fi
+  # evict any stray process holding :8080 (not tracked by our PID file)
+  local stray; stray=$(lsof -ti :8080 -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$stray" ]; then
+    warn "port 8080 held by stray pid(s) $stray — killing"
+    echo "$stray" | xargs kill -KILL 2>/dev/null || true
+    sleep 1
+  fi
   mkdir -p "$LOG_DIR"
   rotate_log "$LOG_DIR/backend.log"
   cd "$ROOT/backend"
