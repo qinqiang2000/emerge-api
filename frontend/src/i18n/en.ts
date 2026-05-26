@@ -47,6 +47,10 @@ const en: Dict = {
   'composer.addFilesOrPhotos': 'Add files or photos',
   'composer.removeName': 'Remove {name}',
   'composer.retryName': 'Retry {name}',
+  'composer.bulk.summary': '{total} files',
+  'composer.bulk.expand': 'expand',
+  'composer.bulk.collapse': 'collapse',
+  'composer.bulk.failedOverflow': '+{n} more failed',
 
   // ── Slash / mention menus ──────────────────────────────────────────────
   'menu.slash.title': 'Slash commands',

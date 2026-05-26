@@ -47,6 +47,10 @@ const zh: Dict = {
   'composer.addFilesOrPhotos': '添加文件或图片',
   'composer.removeName': '移除 {name}',
   'composer.retryName': '重试 {name}',
+  'composer.bulk.summary': '共 {total} 个',
+  'composer.bulk.expand': '展开',
+  'composer.bulk.collapse': '收起',
+  'composer.bulk.failedOverflow': '另有 {n} 个失败',
 
   // ── Slash / mention menus ──────────────────────────────────────────────
   'menu.slash.title': '斜杠命令',

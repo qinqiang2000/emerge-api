@@ -50,6 +50,13 @@ const IS_MAC =
   )
 const UPLOAD_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 
+// Bulk-mode thresholds. Past BULK_THRESHOLD chips the composer collapses to
+// a single summary bar + drop-up popover so dozens of attachments don't push
+// the composer up over the chat transcript. Failed chips stay inline (capped
+// at FAILED_INLINE_MAX) so errors are still one click away from retry.
+const BULK_THRESHOLD = 8
+const FAILED_INLINE_MAX = 6
+
 interface PendingChip {
   filename: string
   /** 'uploading' / 'staging' = still in flight; 'uploaded' / 'staged' = ready;
@@ -139,6 +146,10 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const [plusOpen, setPlusOpen] = useState(false)
+  // True while the bulk-mode drop-up is open. Only meaningful when
+  // `pending.length > BULK_THRESHOLD`; the menu re-closes whenever pending
+  // drops back below the threshold so we never have a stale open popover.
+  const [bulkExpanded, setBulkExpanded] = useState(false)
   // `caret` mirrors the textarea's selectionStart so the mention token can be
   // recomputed on every keystroke / click. Updated from onChange / onKeyUp /
   // onClick / onSelect.
@@ -158,6 +169,7 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const plusWrapRef = useRef<HTMLDivElement>(null)
+  const bulkWrapRef = useRef<HTMLDivElement>(null)
   // Per-(pid+dir) cache so re-opening the menu in the same dir is instant.
   const treeCacheRef = useRef<Map<string, TreeEntry[]>>(new Map())
 
@@ -370,6 +382,29 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     return () => window.removeEventListener('mousedown', handler)
   }, [plusOpen])
 
+  // Bulk-mode popover: same click-outside + Esc dismissal pattern as the +
+  // menu. Auto-collapses if the user removes enough chips that we're back
+  // below the bulk threshold (no point keeping a popover open over 3 chips).
+  useEffect(() => {
+    if (!bulkExpanded) return
+    if (pending.length <= BULK_THRESHOLD) {
+      setBulkExpanded(false)
+      return
+    }
+    const handler = (e: MouseEvent) => {
+      if (!bulkWrapRef.current?.contains(e.target as Node)) setBulkExpanded(false)
+    }
+    const keyHandler = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setBulkExpanded(false)
+    }
+    window.addEventListener('mousedown', handler)
+    window.addEventListener('keydown', keyHandler)
+    return () => {
+      window.removeEventListener('mousedown', handler)
+      window.removeEventListener('keydown', keyHandler)
+    }
+  }, [bulkExpanded, pending.length])
+
   // Global ⌘U / Ctrl+U opens the file picker, matching claude.ai. We hijack
   // the browser's default (View Source) intentionally — same trade-off claude
   // makes, since the composer is the primary action on the page.
@@ -578,6 +613,75 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     e.target.value = ''
   }
 
+  // Single chip renderer — shared by both inline and bulk-popover modes so
+  // their visual + interaction behavior never drifts. `index` is the chip's
+  // position in `pending`, which `onRemove` / `onRetry` need.
+  function renderChip(a: PendingChip, index: number) {
+    const status = a.status ?? 'uploaded'
+    const inFlight = status === 'staging' || status === 'uploading'
+    const failed = status === 'failed'
+    return (
+      <span
+        key={index}
+        className={'att-chip' + (failed ? ' att-chip-failed' : '')}
+        title={failed ? (a.error || t('composer.uploadFailed')) : a.filename}
+      >
+        <span className="att-status" aria-hidden>
+          {inFlight ? <SpinnerIcon /> : failed ? null : <CheckIcon />}
+        </span>
+        <span className="att-name">{a.filename}</span>
+        {failed && onRetry && (
+          <button
+            type="button"
+            className="att-retry"
+            onClick={() => onRetry(index)}
+            aria-label={t('composer.retryName', { name: a.filename })}
+            title={a.error ? t('composer.retryWithError', { error: a.error }) : t('composer.retry')}
+          >
+            <RetryIcon />
+          </button>
+        )}
+        {onRemove && !inFlight && (
+          <button
+            type="button"
+            className="att-x"
+            onClick={() => onRemove(index)}
+            aria-label={t('composer.removeName', { name: a.filename })}
+            title={t('composer.remove')}
+          >
+            <XIcon />
+          </button>
+        )}
+      </span>
+    )
+  }
+
+  // Bulk mode kicks in past BULK_THRESHOLD pending chips. We split into
+  // failed (always inline so retry is one click away) and the rest (folded
+  // into a summary bar with a drop-up popover for full detail). Past
+  // FAILED_INLINE_MAX failures, the overflow lands in the popover too with a
+  // "+N more failed" hint on the inline row.
+  const isBulk = pending.length > BULK_THRESHOLD
+  const stats = useMemo(() => {
+    let staged = 0, inflight = 0, failed = 0
+    for (const a of pending) {
+      const s = a.status ?? 'uploaded'
+      if (s === 'failed') failed += 1
+      else if (s === 'staging' || s === 'uploading') inflight += 1
+      else staged += 1
+    }
+    return { staged, inflight, failed }
+  }, [pending])
+  // Failed chip indices in original `pending` order — preserves stable keys
+  // and lets the inline row delegate to renderChip(index) directly.
+  const failedIndices = useMemo(() => {
+    const out: number[] = []
+    pending.forEach((a, i) => { if ((a.status ?? 'uploaded') === 'failed') out.push(i) })
+    return out
+  }, [pending])
+  const failedInline = failedIndices.slice(0, FAILED_INLINE_MAX)
+  const failedHidden = failedIndices.length - failedInline.length
+
   return (
     <div
       className={'composer-wrap' + (dragOver ? ' dragover' : '')}
@@ -618,48 +722,59 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
                - staged / uploaded   → check, chip can be removed
                - failed              → retry button (re-runs the upload) + remove
                Legacy callers (tests, older code paths) pass plain { filename }
-               and we treat that as "ready". */}
-          {pending.length > 0 && (
+               and we treat that as "ready". Past BULK_THRESHOLD chips we
+               collapse into a summary bar so dozens of attachments don't push
+               the composer up over the chat. */}
+          {pending.length > 0 && !isBulk && (
             <div className="att-row">
-              {pending.map((a, i) => {
-                const status = a.status ?? 'uploaded'
-                const inFlight = status === 'staging' || status === 'uploading'
-                const failed = status === 'failed'
-                return (
-                  <span
-                    key={i}
-                    className={'att-chip' + (failed ? ' att-chip-failed' : '')}
-                    title={failed ? (a.error || t('composer.uploadFailed')) : a.filename}
-                  >
-                    <span className="att-status" aria-hidden>
-                      {inFlight ? <SpinnerIcon /> : failed ? null : <CheckIcon />}
-                    </span>
-                    <span className="att-name">{a.filename}</span>
-                    {failed && onRetry && (
-                      <button
-                        type="button"
-                        className="att-retry"
-                        onClick={() => onRetry(i)}
-                        aria-label={t('composer.retryName', { name: a.filename })}
-                        title={a.error ? t('composer.retryWithError', { error: a.error }) : t('composer.retry')}
-                      >
-                        <RetryIcon />
-                      </button>
-                    )}
-                    {onRemove && !inFlight && (
-                      <button
-                        type="button"
-                        className="att-x"
-                        onClick={() => onRemove(i)}
-                        aria-label={t('composer.removeName', { name: a.filename })}
-                        title={t('composer.remove')}
-                      >
-                        <XIcon />
-                      </button>
-                    )}
-                  </span>
-                )
-              })}
+              {pending.map((a, i) => renderChip(a, i))}
+            </div>
+          )}
+          {pending.length > 0 && isBulk && (
+            <div className="att-bulk" ref={bulkWrapRef}>
+              {failedInline.length > 0 && (
+                <div className="att-row att-row-failed">
+                  {failedInline.map(i => renderChip(pending[i], i))}
+                  {failedHidden > 0 && (
+                    <button
+                      type="button"
+                      className="att-failed-overflow"
+                      onClick={() => setBulkExpanded(true)}
+                    >
+                      {t('composer.bulk.failedOverflow', { n: String(failedHidden) })}
+                    </button>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                className="att-summary"
+                onClick={() => setBulkExpanded(o => !o)}
+                aria-haspopup="menu"
+                aria-expanded={bulkExpanded}
+              >
+                <span className="att-summary-stats">
+                  {stats.staged > 0 && (
+                    <span className="s-staged"><CheckIcon /> {stats.staged}</span>
+                  )}
+                  {stats.inflight > 0 && (
+                    <span className="s-inflight"><SpinnerIcon /> {stats.inflight}</span>
+                  )}
+                  {stats.failed > 0 && (
+                    <span className="s-failed">✕ {stats.failed}</span>
+                  )}
+                  <span className="s-sep">·</span>
+                  <span className="s-total">{t('composer.bulk.summary', { total: String(pending.length) })}</span>
+                </span>
+                <span className="att-summary-action">
+                  {bulkExpanded ? t('composer.bulk.collapse') : t('composer.bulk.expand')}
+                </span>
+              </button>
+              {bulkExpanded && (
+                <div className="att-popover" role="menu">
+                  {pending.map((a, i) => renderChip(a, i))}
+                </div>
+              )}
             </div>
           )}
 
