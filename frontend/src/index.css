@@ -311,6 +311,9 @@ html, body, #root {
   transition:background .08s;
 }
 .composer .att-failed-overflow:hover{background:var(--rose-soft,#fbeeea)}
+.composer .att-summary-row{display:flex;align-items:center;gap:6px}
+.composer .att-summary-row .att-summary{flex:1}
+.composer .att-clear-all{flex-shrink:0;width:24px;height:24px;border-radius:4px}
 .composer .att-summary{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   width:100%;min-height:28px;

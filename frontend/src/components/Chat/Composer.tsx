@@ -84,6 +84,8 @@ interface Props {
   onSubmit: (text: string) => void
   /** Remove the i-th pending attachment. Optional so legacy callers compile. */
   onRemove?: (index: number) => void
+  /** Remove all pending attachments at once (bulk clear). Optional. */
+  onRemoveAll?: () => void
   /** Re-run the upload for a failed pending entry. Optional. */
   onRetry?: (index: number) => void
   /** When provided + `disabled` is true, renders a Stop pill + binds Esc at
@@ -151,7 +153,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
+export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRemoveAll, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
   const t = useT()
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -876,30 +878,43 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
                   )}
                 </div>
               )}
-              <button
-                type="button"
-                className="att-summary"
-                onClick={() => setBulkExpanded(o => !o)}
-                aria-haspopup="menu"
-                aria-expanded={bulkExpanded}
-              >
-                <span className="att-summary-stats">
-                  {stats.staged > 0 && (
-                    <span className="s-staged"><CheckIcon /> {stats.staged}</span>
-                  )}
-                  {stats.inflight > 0 && (
-                    <span className="s-inflight"><SpinnerIcon /> {stats.inflight}</span>
-                  )}
-                  {stats.failed > 0 && (
-                    <span className="s-failed">✕ {stats.failed}</span>
-                  )}
-                  <span className="s-sep">·</span>
-                  <span className="s-total">{t('composer.bulk.summary', { total: String(pending.length) })}</span>
-                </span>
-                <span className="att-summary-action">
-                  {bulkExpanded ? t('composer.bulk.collapse') : t('composer.bulk.expand')}
-                </span>
-              </button>
+              <div className="att-summary-row">
+                <button
+                  type="button"
+                  className="att-summary"
+                  onClick={() => setBulkExpanded(o => !o)}
+                  aria-haspopup="menu"
+                  aria-expanded={bulkExpanded}
+                >
+                  <span className="att-summary-stats">
+                    {stats.staged > 0 && (
+                      <span className="s-staged"><CheckIcon /> {stats.staged}</span>
+                    )}
+                    {stats.inflight > 0 && (
+                      <span className="s-inflight"><SpinnerIcon /> {stats.inflight}</span>
+                    )}
+                    {stats.failed > 0 && (
+                      <span className="s-failed">✕ {stats.failed}</span>
+                    )}
+                    <span className="s-sep">·</span>
+                    <span className="s-total">{t('composer.bulk.summary', { total: String(pending.length) })}</span>
+                  </span>
+                  <span className="att-summary-action">
+                    {bulkExpanded ? t('composer.bulk.collapse') : t('composer.bulk.expand')}
+                  </span>
+                </button>
+                {onRemoveAll && (
+                  <button
+                    type="button"
+                    className="att-x att-clear-all"
+                    onClick={onRemoveAll}
+                    aria-label={t('composer.clearAll')}
+                    title={t('composer.clearAll')}
+                  >
+                    <XIcon />
+                  </button>
+                )}
+              </div>
               {bulkExpanded && (
                 <div className="att-popover" role="menu">
                   {pending.map((a, i) => renderChip(a, i))}

@@ -52,6 +52,7 @@ const zh: Dict = {
   'composer.bulk.expand': '展开',
   'composer.bulk.collapse': '收起',
   'composer.bulk.failedOverflow': '另有 {n} 个失败',
+  'composer.clearAll': '全部清除',
 
   // ── Slash / mention menus ──────────────────────────────────────────────
   'menu.slash.title': '斜杠命令',

@@ -203,14 +203,15 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
     return () => cancelAnimationFrame(raf)
   }, [events.length, busy])
 
-  // Switching project or chat: reset stick mode and pin to bottom so the
-  // newly-loaded conversation opens at the latest message, not wherever the
-  // previous one was scrolled to.
+  // Switching project or chat: reset stick mode, pin to bottom, and clear
+  // any pending attachments so stale chips don't bleed into the new session.
   useEffect(() => {
     const el = convScrollRef.current
-    if (!el) return
-    stickRef.current = true
-    el.scrollTop = el.scrollHeight
+    if (el) {
+      stickRef.current = true
+      el.scrollTop = el.scrollHeight
+    }
+    setPending([])
   }, [selectedSlug, chatId])
 
   // Find any running improve job to show the banner.
@@ -426,6 +427,7 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
           }])
         }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
+        onRemoveAll={() => setPending([])}
         onRetry={(i) => { void retry(i) }}
         onSubmit={async (text) => {
           // Only carry attachments that landed somewhere the backend can act on.
