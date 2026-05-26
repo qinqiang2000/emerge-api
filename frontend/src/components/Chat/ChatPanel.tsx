@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { attachToChat, promoteChat, stageUpload } from '../../lib/api'
+import { attachToChat, promoteChat, stageUpload, type AttachmentKind } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useChat, UNBOUND_SLUG, type SurfaceContext } from '../../stores/chat'
 import { useDocs } from '../../stores/docs'
@@ -44,6 +44,11 @@ interface AttachInfo {
   file: File
   status: 'staging' | 'staged' | 'uploading' | 'uploaded' | 'failed'
   stage_token?: string
+  /** Backend-classified kind once staging/attach resolves. Drives agent
+   *  routing (doc → docs/, schema → ask before importing, etc.). Optional —
+   *  legacy backends don't return it, in which case the agent falls back to
+   *  the doc default. */
+  kind?: AttachmentKind
   error?: string
 }
 
@@ -242,7 +247,7 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
     try {
       const info = await stageUpload(file)
       setPending(p => p.map(x => _matchPending(x, file.name, file)
-        ? { ...x, status: 'staged', stage_token: info.stage_token, error: undefined }
+        ? { ...x, status: 'staged', stage_token: info.stage_token, kind: info.kind, error: undefined }
         : x))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -254,9 +259,9 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
 
   async function _uploadOne(file: File, slug: string, cid: string): Promise<void> {
     try {
-      const { filename } = await attachToChat(slug, cid, file)
+      const { filename, kind } = await attachToChat(slug, cid, file)
       setPending(p => p.map(x => _matchPending(x, file.name, file)
-        ? { ...x, status: 'uploaded', filename, error: undefined }
+        ? { ...x, status: 'uploaded', filename, kind, error: undefined }
         : x))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -397,13 +402,29 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
       )}
       <Composer
         disabled={busy && !pendingAskUser}
-        pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error }))}
+        pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error, kind: p.kind }))}
         focusOnMount={!compact}
         projectId={selectedSlug ?? undefined}
         unbound={!selectedSlug}
         onPromote={isUnbound ? handlePromote : undefined}
         placeholder={composerPlaceholder}
         onAttach={(files: File[]) => { void attach(files) }}
+        onAttachFailed={(reason) => {
+          // Empty drop / paste — surface a synthetic failed chip so the user
+          // sees we recognised the gesture but couldn't pull files out of it.
+          // The reason is an i18n key (e.g. `composer.dropEmpty`) that the
+          // chip will render via `composer.uploadFailed` fallback if missing.
+          // We synthesize a placeholder File so the AttachInfo shape stays
+          // uniform and onRemove still works.
+          const placeholder = new File([], '—', { type: '' })
+          setPending(p => [...p, {
+            filename: '—',
+            originalName: '—',
+            file: placeholder,
+            status: 'failed',
+            error: t(reason),
+          }])
+        }}
         onRemove={(i) => setPending(p => p.filter((_, idx) => idx !== i))}
         onRetry={(i) => { void retry(i) }}
         onSubmit={async (text) => {
@@ -419,6 +440,7 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
               filename: p.filename,
               source: 'chat' as const,
               ...(p.stage_token ? { stage_token: p.stage_token } : {}),
+              ...(p.kind ? { kind: p.kind } : {}),
             }))
           // In compact mode we are rendered inside the review overlay's chat
           // column OR inside the EvalMatrix drilldown's inline composer —

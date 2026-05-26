@@ -55,6 +55,53 @@ def test_staging_upload_returns_token() -> None:
     assert body["stage_token"].startswith("st_")
     assert body["filename"] == "a.pdf"
     assert body["ext"] == "pdf"
+    assert body["kind"] == "doc"
+
+
+def test_staging_upload_accepts_yaml_with_schema_kind() -> None:
+    """Phase B: staging widens beyond pdf/png/jpg. yaml → kind=schema so the
+    frontend chip can route through the agent's "import?" prompt."""
+    client = TestClient(app)
+    payload = b"- name: invoice_number\n  type: string\n  description: id\n"
+    files = {"file": ("fields.yaml", io.BytesIO(payload), "text/yaml")}
+    r = client.post("/lab/uploads/staging", files=files)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "schema"
+    assert body["ext"] == "yaml"
+
+
+def test_staging_upload_accepts_csv_with_data_kind() -> None:
+    client = TestClient(app)
+    payload = b"a,b\n1,2\n"
+    r = client.post(
+        "/lab/uploads/staging",
+        files={"file": ("rows.csv", io.BytesIO(payload), "text/csv")},
+    )
+    assert r.status_code == 200
+    assert r.json()["kind"] == "data"
+
+
+def test_staging_upload_rejects_oversize_text() -> None:
+    """Text-shaped extensions cap at 256 KiB; bigger means user grabbed the
+    wrong file, not a config."""
+    client = TestClient(app)
+    huge = b"a" * (256 * 1024 + 1)
+    r = client.post(
+        "/lab/uploads/staging",
+        files={"file": ("huge.txt", io.BytesIO(huge), "text/plain")},
+    )
+    assert r.status_code == 400
+
+
+def test_staging_upload_rejects_unknown_extension() -> None:
+    """Anything outside the doc + text allowlists 400s before disk."""
+    client = TestClient(app)
+    r = client.post(
+        "/lab/uploads/staging",
+        files={"file": ("evil.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
+    )
+    assert r.status_code == 400
 
 
 def test_staging_upload_rejects_spoofed_extension() -> None:
@@ -79,12 +126,65 @@ async def test_attach_to_chat_endpoint_writes_file_and_returns_filename(
         files={"file": ("scan.pdf", io.BytesIO(pdf), "application/pdf")},
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"filename": "scan.pdf"}
+    assert r.json() == {"filename": "scan.pdf", "kind": "doc"}
     assert (
         workspace / pid / "chats" / chat_id / "attachments" / "scan.pdf"
     ).read_bytes() == pdf
     # docs/ untouched.
     assert not (workspace / pid / "docs" / "scan.pdf").exists()
+
+
+async def test_attach_to_chat_accepts_yaml_with_schema_kind(workspace: Path) -> None:
+    """Phase B: in-project attach now accepts yaml/json/csv/txt/md too, with
+    the same `kind` envelope as staging."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    payload = b"- name: invoice_number\n  type: string\n  description: id\n"
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("fields.yaml", io.BytesIO(payload), "text/yaml")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body == {"filename": "fields.yaml", "kind": "schema"}
+    landed = workspace / pid / "chats" / chat_id / "attachments" / "fields.yaml"
+    assert landed.read_bytes() == payload
+
+
+async def test_attach_to_chat_accepts_csv_with_data_kind(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("rows.csv", io.BytesIO(b"a,b\n1,2\n"), "text/csv")},
+    )
+    assert r.status_code == 200
+    assert r.json()["kind"] == "data"
+
+
+async def test_attach_to_chat_rejects_oversize_text(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    huge = b"a" * (256 * 1024 + 1)
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("huge.txt", io.BytesIO(huge), "text/plain")},
+    )
+    assert r.status_code == 400
+
+
+async def test_attach_to_chat_rejects_unknown_extension(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attach",
+        files={"file": ("evil.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
+    )
+    assert r.status_code == 400
 
 
 async def test_attach_to_chat_dedupes_collisions(workspace: Path) -> None:

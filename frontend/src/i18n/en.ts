@@ -39,6 +39,7 @@ const en: Dict = {
   'composer.retry': 'Retry',
   'composer.retryWithError': 'Retry — {error}',
   'composer.uploadFailed': 'upload failed',
+  'composer.dropEmpty': "couldn't read any files from the drop",
   'composer.stopResponse': 'Stop response',
   'composer.stopResponse.title': 'Stop response  Esc',
   'composer.sendMessage': 'Send message',

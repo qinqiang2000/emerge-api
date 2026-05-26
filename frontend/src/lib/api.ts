@@ -50,10 +50,17 @@ export async function uploadDoc(slug: string, file: File): Promise<UploadDocResp
   return r.json()
 }
 
+/** Kind of an attached file, classified from extension + content sniff on the
+ *  backend. Drives the agent's routing decision (doc → docs/, schema → ask
+ *  before importing, etc.). Optional on the wire because the backend rolls
+ *  out the field after the frontend can read it. */
+export type AttachmentKind = 'doc' | 'schema' | 'data' | 'note'
+
 export interface ChatAttachmentResponse {
   /** Final on-disk filename inside `chats/<chat_id>/attachments/` after
    *  dedupe. The frontend stores this on the user-bubble attachment record. */
   filename: string
+  kind?: AttachmentKind
 }
 
 /** Paste/drop a file into a chat's conversational scratch (NOT into `docs/`).
@@ -97,6 +104,7 @@ export interface StagedFile {
   sha256: string
   page_count: number
   size: number
+  kind?: AttachmentKind
 }
 
 // Pre-project staging upload. The file is held under

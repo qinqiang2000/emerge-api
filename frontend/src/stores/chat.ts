@@ -183,7 +183,7 @@ interface State {
    *  user is on (only review in phase 1). Present only for sends from a
    *  surface that snapshots; main-shell ChatPanel callers must pass
    *  undefined; their behavior is unchanged. */
-  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs' }[], surfaceContext?: SurfaceContext) => Promise<void>
+  send: (projectId: string, message: string, attachments?: { filename: string; stage_token?: string; source?: 'chat' | 'docs'; kind?: 'doc' | 'schema' | 'data' | 'note' }[], surfaceContext?: SurfaceContext) => Promise<void>
   /** Drop the user message at `userIndex` (0-indexed ordinal among user
    *  events) + everything after, locally and on disk, clear the SDK session
    *  sidecar, then re-send `text` as a fresh turn. `userIndex` omitted →

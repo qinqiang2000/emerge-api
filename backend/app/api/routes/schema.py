@@ -9,12 +9,18 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from app.api.routes._safety import safe_job_id, safe_slug
+from app.api.routes._safety import safe_chat_id, safe_filename, safe_job_id, safe_slug
 from app.config import get_settings
 from app.schemas.reviewed import NoteConsumption, ReviewedSource
 from app.schemas.schema_field import SchemaField
 from app.tools.reviewed import get_reviewed, save_reviewed
-from app.tools.schema import StructuralChangeError, derive_schema, write_schema
+from app.tools.schema import (
+    SchemaImportError,
+    StructuralChangeError,
+    derive_schema,
+    import_schema_from_yaml,
+    write_schema,
+)
 from app.workspace.paths import candidate_turn_path, parse_version_id, project_json_path, version_path
 
 
@@ -291,6 +297,80 @@ async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
         "fields": [f.model_dump(mode="json", exclude_none=True) for f in fields],
         "fields_proposed": len(fields),
     }
+
+
+class _ImportSchemaFromYamlBody(BaseModel):
+    """HTTP mirror of the `import_schema_from_yaml` tool input. The slug,
+    chat_id, and filename are URL path components; this body carries only the
+    optional `allow_structural` toggle. Defaults to `True` because import is
+    inherently structural; pass `False` to surface the structural-change gate
+    if the caller wants the safety net."""
+
+    allow_structural: bool = True
+
+
+@router.post("/lab/projects/{slug}/chats/{chat_id}/attachments/{filename:path}/import-schema")
+async def post_import_schema_from_yaml(
+    slug: str,
+    chat_id: str,
+    filename: str,
+    body: _ImportSchemaFromYamlBody | None = None,
+) -> dict[str, Any]:
+    """Import a chat-attached yml/yaml/json file as the project's schema.
+
+    Mirrors the `import_schema_from_yaml` tool surface so a CLI agent can
+    drive schema imports over HTTP without going through chat. The body is
+    optional — omit to use `allow_structural=true` (the tool's default).
+
+    Returns `{ok: true, field_count, names: [...]}` on success.
+    400 with `invalid_schema_yaml` (or another tool-side error_code) on
+    parse / validation failure; 404 with `attachment_not_found` when the
+    chat attachment is missing.
+    """
+    safe_slug(slug)
+    safe_chat_id(chat_id)
+    safe_filename(filename)
+    settings = get_settings()
+    pj = project_json_path(settings.workspace_root, slug)
+    if not pj.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "project_not_found"},
+        )
+    allow_structural = bool(body.allow_structural) if body is not None else True
+    try:
+        out = await import_schema_from_yaml(
+            settings.workspace_root,
+            slug,
+            chat_id,
+            filename,
+            allow_structural=allow_structural,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "attachment_not_found",
+                "error_message_en": str(exc),
+            },
+        )
+    except SchemaImportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": exc.error_code,
+                "error_message_en": exc.error_message_en,
+            },
+        )
+    except StructuralChangeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "structural_change_blocked",
+                "error_message_en": str(exc),
+            },
+        )
+    return out
 
 
 @router.get("/lab/projects/{slug}/schema/raw", response_class=PlainTextResponse)

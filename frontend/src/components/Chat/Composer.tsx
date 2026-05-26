@@ -64,12 +64,23 @@ interface PendingChip {
    *  tests that pass plain filenames). */
   status?: 'staging' | 'staged' | 'uploading' | 'uploaded' | 'failed'
   error?: string
+  /** Backend-classified attachment kind. Optional: when present and not
+   *  `doc`, the chip renders a small kind label so the user can tell at a
+   *  glance what was recognised (a yaml schema vs. a stray file). */
+  kind?: 'doc' | 'schema' | 'data' | 'note'
 }
 
 interface Props {
   disabled: boolean
   pending: PendingChip[]
   onAttach: (files: File[]) => void
+  /** Called when a drop / paste produced no usable files (empty folder,
+   *  unsupported clipboard items, browser without `webkitGetAsEntry`).
+   *  Optional — when omitted, the failure-path emits a synthetic chip via
+   *  onAttach with an empty array (callers that don't care about the signal
+   *  just see "nothing happened"). The chat panel uses this to surface a
+   *  failed chip with `composer.dropEmpty`. */
+  onAttachFailed?: (reason: string) => void
   onSubmit: (text: string) => void
   /** Remove the i-th pending attachment. Optional so legacy callers compile. */
   onRemove?: (index: number) => void
@@ -140,7 +151,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
+export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
   const t = useT()
   const [text, setText] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -589,28 +600,137 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     }
   }
 
-  function handleDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault()
-    setDragOver(false)
-    onAttach(Array.from(e.dataTransfer.files))
-  }
-
-  // Paste: if the clipboard carries files (drag-from-finder, copied attachment,
-  // or a screenshot blob), intercept and route through onAttach. If it's just
-  // text, fall through to the textarea's default paste.
-  function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
-    const files = Array.from(e.clipboardData?.files ?? [])
-    if (files.length > 0) {
-      e.preventDefault()
-      onAttach(files)
-    }
-  }
-
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     if (files.length > 0) onAttach(files)
     // reset so picking the same filename twice still fires onChange
     e.target.value = ''
+  }
+
+  // Walk a FileSystemEntry into a flat File[]. Folders are recursed via the
+  // entries API (`createReader().readEntries(cb)` loops until empty because
+  // browsers cap each call at ~100 entries). For each resolved File we attach
+  // the relative path the user saw on disk via a non-enumerable `__relPath`
+  // property — `File.webkitRelativePath` is read-only on plain File objects
+  // so a side-channel is the only way to round-trip "this came from
+  // `folder/sub/foo.pdf`" through onAttach.
+  async function _walkEntry(entry: FileSystemEntry, parentPath: string): Promise<File[]> {
+    if (entry.isFile) {
+      const fileEntry = entry as FileSystemFileEntry
+      const file: File = await new Promise((resolve, reject) => fileEntry.file(resolve, reject))
+      const relPath = parentPath ? parentPath + '/' + entry.name : entry.name
+      if (relPath !== file.name) {
+        // Side-channel: File.webkitRelativePath is read-only on plain File
+        // objects (per spec), so we stash the dropped-folder-relative path
+        // as a non-enumerable property the attach handler can read.
+        Object.defineProperty(file, '__relPath', {
+          value: relPath,
+          enumerable: false,
+          configurable: true,
+          writable: true,
+        })
+      }
+      return [file]
+    }
+    if (entry.isDirectory) {
+      const dirEntry = entry as FileSystemDirectoryEntry
+      const reader = dirEntry.createReader()
+      const childPath = parentPath ? parentPath + '/' + entry.name : entry.name
+      const collected: File[] = []
+      // readEntries returns at most ~100 entries per call; loop until empty.
+      while (true) {
+        const batch: FileSystemEntry[] = await new Promise((resolve, reject) =>
+          reader.readEntries(resolve, reject),
+        )
+        if (batch.length === 0) break
+        const lists = await Promise.all(batch.map(c => _walkEntry(c, childPath)))
+        for (const l of lists) collected.push(...l)
+      }
+      return collected
+    }
+    return []
+  }
+
+  /** Probe a DataTransferItem / ClipboardItem-style record for an entries-API
+   *  handle. The method is non-standard but ubiquitous in Chromium + Safari +
+   *  modern Firefox, which is the desktop browser surface this lab tool runs
+   *  in. Returns null when the item isn't a filesystem entry (e.g. plain text). */
+  function _itemAsEntry(item: DataTransferItem): FileSystemEntry | null {
+    if (typeof item.webkitGetAsEntry !== 'function') return null
+    return item.webkitGetAsEntry() ?? null
+  }
+
+  async function _resolveDropFiles(items: DataTransferItemList | null, fallback: FileList | null): Promise<File[]> {
+    const collected: File[] = []
+    if (items && items.length > 0) {
+      const entries: FileSystemEntry[] = []
+      for (let i = 0; i < items.length; i++) {
+        const entry = _itemAsEntry(items[i])
+        if (entry) entries.push(entry)
+      }
+      if (entries.length > 0) {
+        const lists = await Promise.all(entries.map(en => _walkEntry(en, '')))
+        for (const l of lists) collected.push(...l)
+        return collected
+      }
+    }
+    // Fallback: browser without entries API → flat FileList.
+    if (fallback && fallback.length > 0) {
+      collected.push(...Array.from(fallback))
+    }
+    return collected
+  }
+
+  function _signalEmptyDrop() {
+    if (onAttachFailed) onAttachFailed('composer.dropEmpty')
+  }
+
+  async function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    const items = e.dataTransfer.items
+    const files = await _resolveDropFiles(items, e.dataTransfer.files)
+    if (files.length === 0) {
+      _signalEmptyDrop()
+      return
+    }
+    onAttach(files)
+  }
+
+  // Paste: if the clipboard carries files (drag-from-finder, copied attachment,
+  // or a screenshot blob), intercept and route through onAttach. If it's just
+  // text, fall through to the textarea's default paste. When the items expose
+  // the entries API (Chromium does), recurse like handleDrop so a pasted
+  // folder lands as a flat list of nested files.
+  async function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items
+    if (!items || items.length === 0) return
+    // Quick test for any file-kind items — if there are none, this is a plain
+    // text paste and the textarea's default behaviour wins.
+    let hasFile = false
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') { hasFile = true; break }
+    }
+    if (!hasFile) return
+    e.preventDefault()
+    const collected: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.kind !== 'file') continue
+      const entry = _itemAsEntry(it)
+      if (entry) {
+        const list = await _walkEntry(entry, '')
+        collected.push(...list)
+      } else {
+        const f = it.getAsFile()
+        if (f) collected.push(f)
+      }
+    }
+    if (collected.length === 0) {
+      _signalEmptyDrop()
+      return
+    }
+    onAttach(collected)
   }
 
   // Single chip renderer — shared by both inline and bulk-popover modes so
@@ -620,6 +740,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
     const status = a.status ?? 'uploaded'
     const inFlight = status === 'staging' || status === 'uploading'
     const failed = status === 'failed'
+    // Show a small kind label only for non-doc kinds — `doc` is the default
+    // and would be visual noise on every chip. Token-only styling: a tinted
+    // dot via the `att-kind att-kind-<kind>` class so the design layer can
+    // pick paper/ochre/moss/rose without raw Tailwind colors.
+    const showKind = a.kind && a.kind !== 'doc'
     return (
       <span
         key={index}
@@ -630,6 +755,11 @@ export default function Composer({ disabled, pending, onAttach, onSubmit, onRemo
           {inFlight ? <SpinnerIcon /> : failed ? null : <CheckIcon />}
         </span>
         <span className="att-name">{a.filename}</span>
+        {showKind && (
+          <span className={`att-kind att-kind-${a.kind}`} aria-label={`kind: ${a.kind}`}>
+            {a.kind}
+          </span>
+        )}
         {failed && onRetry && (
           <button
             type="button"

@@ -41,6 +41,7 @@ async def test_stage_file_writes_pdf(workspace: Path) -> None:
     info = await stage_file(workspace, SAMPLE_PDF, "invoice.pdf")
     assert info["filename"] == "invoice.pdf"
     assert info["ext"] == "pdf"
+    assert info["kind"] == "doc"
     assert info["size"] == len(SAMPLE_PDF)
     # PyMuPDF may return 0 for a degenerate test-fixture PDF — accept either.
     assert info["page_count"] >= 0
@@ -53,8 +54,75 @@ async def test_stage_file_writes_pdf(workspace: Path) -> None:
 async def test_stage_file_writes_png(workspace: Path) -> None:
     info = await stage_file(workspace, PNG_HEADER, "scan.png")
     assert info["ext"] == "png"
+    assert info["kind"] == "doc"
     dirp = stage_dir(workspace, info["stage_token"])  # type: ignore[arg-type]
     assert (dirp / "scan.png").exists()
+
+
+async def test_stage_file_accepts_yaml_with_schema_kind(workspace: Path) -> None:
+    """Phase B: yaml/yml are text-shaped → no magic-byte sniff, validated as
+    UTF-8 only. Classified as `kind=schema` so the agent can route through
+    `import_schema_from_yaml` after user confirm."""
+    payload = b"- name: invoice_number\n  type: string\n  description: id\n"
+    info = await stage_file(workspace, payload, "fields.yaml")
+    assert info["filename"] == "fields.yaml"
+    assert info["ext"] == "yaml"
+    assert info["kind"] == "schema"
+    assert info["size"] == len(payload)
+    dirp = stage_dir(workspace, info["stage_token"])  # type: ignore[arg-type]
+    assert (dirp / "fields.yaml").read_bytes() == payload
+
+
+async def test_stage_file_accepts_csv_with_data_kind(workspace: Path) -> None:
+    """csv → `kind=data` so the agent prompts before doing anything with it
+    (no auto-import path yet)."""
+    payload = b"col_a,col_b\n1,2\n3,4\n"
+    info = await stage_file(workspace, payload, "samples.csv")
+    assert info["ext"] == "csv"
+    assert info["kind"] == "data"
+
+
+async def test_stage_file_accepts_txt_with_note_kind(workspace: Path) -> None:
+    payload = "user notes go here\nline 2\n".encode("utf-8")
+    info = await stage_file(workspace, payload, "notes.txt")
+    assert info["ext"] == "txt"
+    assert info["kind"] == "note"
+
+
+async def test_stage_file_accepts_md_with_note_kind(workspace: Path) -> None:
+    payload = b"# heading\n\nsome notes\n"
+    info = await stage_file(workspace, payload, "notes.md")
+    assert info["ext"] == "md"
+    assert info["kind"] == "note"
+
+
+async def test_stage_file_classifies_schema_shaped_json_as_schema(workspace: Path) -> None:
+    """JSON whose root is a list of `{name,type,...}` dicts is a schema
+    candidate; anything else degrades to `note`."""
+    schemaish = b'[{"name": "buyer_name", "type": "string", "description": "x"}]'
+    info = await stage_file(workspace, schemaish, "fields.json")
+    assert info["ext"] == "json"
+    assert info["kind"] == "schema"
+
+    plain_obj = b'{"foo": 1}'
+    info2 = await stage_file(workspace, plain_obj, "config.json")
+    assert info2["ext"] == "json"
+    assert info2["kind"] == "note"
+
+
+async def test_stage_file_rejects_oversize_text(workspace: Path) -> None:
+    """256 KiB cap on text-shaped payloads — protects against someone
+    accidentally dropping a multi-MB CSV thinking it's a small config."""
+    too_big = b"a" * (256 * 1024 + 1)
+    with pytest.raises(StagingError, match="oversize"):
+        await stage_file(workspace, too_big, "huge.txt")
+
+
+async def test_stage_file_rejects_non_utf8_text(workspace: Path) -> None:
+    """The "looks textual" gate: invalid UTF-8 in a text-shaped extension
+    fails fast rather than landing a binary blob with a `.txt` name."""
+    with pytest.raises(StagingError, match="not valid UTF-8"):
+        await stage_file(workspace, b"\xff\xfe\x00\x00binary", "fake.txt")
 
 
 async def test_stage_file_rejects_unknown_extension(workspace: Path) -> None:

@@ -30,6 +30,10 @@ export interface StartTurnBody {
     filename?: string
     stage_token?: string
     source?: 'chat' | 'docs'
+    /** Backend-classified kind from staging/attach response — agent uses it
+     *  to route the file (doc → docs/, schema → ask before importing, etc.).
+     *  Optional: legacy backends omit it; agent falls back to the doc default. */
+    kind?: 'doc' | 'schema' | 'data' | 'note'
   }>
   surface_context?: SurfaceContext
 }

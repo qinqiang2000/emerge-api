@@ -534,6 +534,68 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
+        "import_schema_from_yaml",
+        "Import a chat-attached yml/yaml/json file as the project's schema. "
+        "The file must already live at chats/<chat_id>/attachments/<filename> "
+        "(dropped/pasted into the composer). Parses as a list of SchemaField "
+        "dicts and atomically replaces the active prompt's schema via the "
+        "same writer write_schema uses. allow_structural defaults to true "
+        "(import is inherently structural). Returns {ok: true, field_count, "
+        "names: [...]} on success; on parse/validation failure returns "
+        "{ok: false, error: {error_code: 'invalid_schema_yaml', "
+        "error_message_en}}. ALWAYS confirm with the user before invoking — "
+        "this overwrites the active prompt's schema.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "chat_id": {"type": "string"},
+                "filename": {"type": "string"},
+                "allow_structural": {"type": "boolean"},
+            },
+            "required": ["slug", "chat_id", "filename"],
+        },
+    )
+    async def t_import_schema_from_yaml(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("import_schema_from_yaml")
+            )}]}
+        try:
+            out = await schema_mod.import_schema_from_yaml(
+                workspace,
+                args["slug"],
+                args["chat_id"],
+                args["filename"],
+                allow_structural=bool(args.get("allow_structural", True)),
+            )
+        except FileNotFoundError as exc:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "attachment_not_found",
+                    "error_message_en": str(exc),
+                },
+            }
+        except schema_mod.SchemaImportError as exc:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": exc.error_code,
+                    "error_message_en": exc.error_message_en,
+                },
+            }
+        except schema_mod.StructuralChangeError as exc:
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "structural_change_blocked",
+                    "error_message_en": str(exc),
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
         "switch_active_prompt",
         "Set the project's active prompt to the given prompt_id. Affects all "
         "subsequent reads of the active prompt (extract, freeze, etc).",
@@ -1159,6 +1221,7 @@ def build_emerge_mcp(
             t_translate_page,
             t_derive_schema,
             t_write_schema,
+            t_import_schema_from_yaml,
             t_switch_active_prompt,
             t_switch_active_model,
             t_create_experiment,
@@ -1196,7 +1259,7 @@ _EMERGE_TOOL_NAMES = (
     "promote_attachment_to_docs",
     "label_docs", "set_labeler_model", "get_labeler_config",
     "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
-    "derive_schema", "write_schema",
+    "derive_schema", "write_schema", "import_schema_from_yaml",
     "switch_active_prompt", "switch_active_model",
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment",

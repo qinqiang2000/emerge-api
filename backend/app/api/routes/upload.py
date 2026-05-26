@@ -12,7 +12,14 @@ from app.workspace.paths import (
     chat_attachments_dir,
     dedupe_filename,
 )
-from app.workspace.staging import StagingError, stage_file
+from app.workspace.staging import (
+    StagingError,
+    _classify_kind,
+    _raw_ext,
+    _validate_text_payload,
+    _DOC_EXT,
+    stage_file,
+)
 
 
 router = APIRouter()
@@ -23,6 +30,14 @@ _ATTACHMENT_MEDIA = {
     "png": "image/png",
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
+    # Text-shaped attachments are served as plain text so a browser can preview
+    # them inline. Frontend chips only navigate to these for non-doc kinds.
+    "yml": "text/yaml; charset=utf-8",
+    "yaml": "text/yaml; charset=utf-8",
+    "json": "application/json; charset=utf-8",
+    "csv": "text/csv; charset=utf-8",
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/markdown; charset=utf-8",
 }
 
 
@@ -74,7 +89,10 @@ _MAGIC: tuple[tuple[bytes, str], ...] = (
 )
 
 
-def _sniff_ext(data: bytes) -> str | None:
+def _sniff_doc_ext(data: bytes) -> str | None:
+    """Magic-byte sniff for binary doc payloads (pdf/png/jpg). Text-shaped
+    payloads (yml/json/csv/txt/md) have no stable magic and go through
+    `_validate_text_payload` instead."""
     for prefix, ext in _MAGIC:
         if data.startswith(prefix):
             return ext
@@ -90,25 +108,38 @@ async def attach_to_chat(
     explicit user-confirmed `promote_attachment_to_docs` call moves it into
     the curated sample set.
 
-    Magic-byte sniffing keeps spoofed payloads out (same allowlist as
-    `upload_doc` / `stage_file`)."""
+    Mirrors the staging-time gate: pdf/png/jpg go through the magic-byte
+    allowlist; yml/yaml/json/csv/txt/md go through the UTF-8 + size cap.
+    Returns `{filename, kind}` so the frontend chip can route by kind
+    (e.g. doc → preview, schema → "import?" prompt)."""
     safe_slug(slug)
     safe_chat_id(chat_id)
     src_name = file.filename or ""
     safe_filename(src_name)
     data = await file.read()
-    sniff = _sniff_ext(data)
-    if sniff is None:
-        raise HTTPException(
-            status_code=400,
-            detail="unsupported content: bytes don't match pdf/png/jpg",
-        )
+    try:
+        raw = _raw_ext(src_name)
+    except StagingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if raw in _DOC_EXT:
+        sniff = _sniff_doc_ext(data)
+        if sniff is None:
+            raise HTTPException(
+                status_code=400,
+                detail="unsupported content: bytes don't match pdf/png/jpg",
+            )
+    else:
+        try:
+            _validate_text_payload(src_name, data)
+        except StagingError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     settings = get_settings()
     target_dir = chat_attachments_dir(settings.workspace_root, slug, chat_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     final_name = dedupe_filename(target_dir, src_name)
     (target_dir / final_name).write_bytes(data)
-    return {"filename": final_name}
+    kind = _classify_kind(final_name, data)
+    return {"filename": final_name, "kind": kind}
 
 
 @router.post("/lab/projects/{slug}/ingest-local")

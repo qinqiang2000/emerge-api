@@ -39,6 +39,7 @@ const zh: Dict = {
   'composer.retry': '重试',
   'composer.retryWithError': '重试 — {error}',
   'composer.uploadFailed': '上传失败',
+  'composer.dropEmpty': '未识别到任何文件',
   'composer.stopResponse': '停止响应',
   'composer.stopResponse.title': '停止响应  Esc',
   'composer.sendMessage': '发送消息',

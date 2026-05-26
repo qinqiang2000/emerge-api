@@ -90,6 +90,7 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Schema axes
     "derive_schema":      ("POST", r"^/lab/projects/\{slug\}/schema/derive$"),
     "write_schema":       ("POST", r"^/lab/projects/\{slug\}/schema$"),
+    "import_schema_from_yaml": ("POST", r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/import-schema$"),
     "switch_active_model":  ("PUT",  r"^/lab/projects/\{slug\}/models/active$"),
     "switch_active_prompt": ("POST", r"^/lab/projects/\{slug\}/prompts/\{prompt_id\}/activate$"),
     # Experiments

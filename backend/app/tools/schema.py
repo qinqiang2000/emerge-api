@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+from pydantic import ValidationError
+
 from app.provider.base import (
     ContentBlock,
     DocumentBlock,
@@ -14,12 +17,28 @@ from app.provider.base import (
 )
 from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.docs import list_docs, read_doc
-from app.workspace.paths import doc_meta_path
+from app.workspace.paths import chat_attachment_path, doc_meta_path
 
 
 class StructuralChangeError(Exception):
     """Raised when write_schema is called without allow_structural=True
     but the change adds, removes, or renames a field, or changes its type."""
+
+
+class SchemaImportError(ValueError):
+    """Raised when an attempted schema import fails on parse / validation /
+    extension. Carries `error_code` so HTTP / tool envelopes route the same
+    way the rest of the lab API does (see `feedback_ai_native_api_symmetry`).
+
+    Distinct from `StructuralChangeError` because the schema never reaches
+    the structural gate — we fail upstream at YAML parsing or pydantic
+    validation, before the writer is invoked.
+    """
+
+    def __init__(self, error_code: str, message: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.error_message_en = message
 
 
 async def read_schema(workspace: Path, project_id: str) -> list[SchemaField]:
@@ -219,3 +238,93 @@ async def derive_schema(
         except Exception:
             continue
     return out
+
+
+_IMPORT_SCHEMA_EXTS = {"yml", "yaml", "json"}
+
+
+async def import_schema_from_yaml(
+    workspace: Path,
+    project_id: str,
+    chat_id: str,
+    filename: str,
+    *,
+    allow_structural: bool = True,
+) -> dict[str, Any]:
+    """Read a chat attachment (yml/yaml/json), parse as `list[SchemaField]`,
+    and replace the project's active prompt schema.
+
+    The file must already live in `chats/<chat_id>/attachments/<filename>`
+    (i.e. dropped/pasted into the composer and persisted by the staging /
+    attach pipeline). Refuses upfront if the filename's extension isn't in
+    `_IMPORT_SCHEMA_EXTS`.
+
+    Atomic via the existing `write_schema` writer + lock — same path a normal
+    agent edit takes. `allow_structural=True` by default because import is
+    inherently structural; a user who wants the structural gate to bite can
+    pass `False` and the existing `StructuralChangeError` surfaces.
+
+    Returns `{ok: True, field_count, names}` on success. Surfaces parse /
+    validation failures via `SchemaImportError` so the tool / HTTP envelope
+    layers can render `{ok: false, error: {error_code, error_message_en}}`.
+    """
+    raw_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if raw_ext not in _IMPORT_SCHEMA_EXTS:
+        raise SchemaImportError(
+            "import_schema_unsupported_ext",
+            f"unsupported extension for schema import: {filename!r}; "
+            f"expected one of {sorted(_IMPORT_SCHEMA_EXTS)}",
+        )
+
+    path = chat_attachment_path(workspace, project_id, chat_id, filename)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(
+            f"chat attachment not found: {project_id}/{chat_id}/{filename}"
+        )
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SchemaImportError(
+            "invalid_schema_yaml",
+            f"failed to read attachment as UTF-8 text: {exc}",
+        ) from exc
+
+    # `yaml.safe_load` reads JSON natively (JSON is a strict YAML subset),
+    # so one parser handles both `.yaml` and `.json`.
+    try:
+        parsed = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise SchemaImportError(
+            "invalid_schema_yaml",
+            f"yaml parse failed: {exc}",
+        ) from exc
+
+    if not isinstance(parsed, list):
+        raise SchemaImportError(
+            "invalid_schema_yaml",
+            f"schema root must be a list of field dicts; got {type(parsed).__name__}",
+        )
+
+    fields: list[SchemaField] = []
+    try:
+        for item in parsed:
+            fields.append(SchemaField.model_validate(item))
+    except ValidationError as exc:
+        raise SchemaImportError(
+            "invalid_schema_yaml",
+            f"schema field validation failed: {exc}",
+        ) from exc
+
+    await write_schema(
+        workspace,
+        project_id,
+        fields,
+        reason=f"import_schema_from_yaml({filename})",
+        allow_structural=allow_structural,
+    )
+    return {
+        "ok": True,
+        "field_count": len(fields),
+        "names": [f.name for f in fields if f.name],
+    }

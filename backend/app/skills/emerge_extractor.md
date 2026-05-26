@@ -171,6 +171,26 @@ pre-creates the project (with a placeholder name like `Chat-260514-093012`)
 and the attachments are already in `chats/<chat_id>/attachments/` when you
 receive control. There is nothing to upload.
 
+### Attachment kinds
+
+Every chat-attached file carries a `kind` (sniffed from extension + bytes
+at staging time):
+
+- `doc` (pdf/png/jpg) — same as before. Promote to `docs/` only on
+  explicit user intent.
+- `schema` (yml/yaml; or json that looks like a `[{name,type,...}]`
+  list) — likely a schema definition (often exported from another
+  emerge project, or hand-written). **Ask first**: "看到一份 schema
+  文件 `<name>`。要把它作为本项目字段定义导入吗？这会替换当前 schema."
+  On confirm: call `import_schema_from_yaml(slug, chat_id, filename)`.
+  Never auto-import. If the user's message itself names schema intent
+  ("把这个作为字段", "导入字段", "用这个 schema"), proceed straight to
+  ask-confirm-import. If only the file dropped with no NL intent, ask
+  first.
+- `data` (csv) — possibly a truth-set or sample list. Ask the user what
+  to do; no tool wired yet.
+- `note` (txt/md) — read with `Read` tool when relevant; conversational.
+
 Routing for chat attachments:
 
 - **Ad-hoc question** ("what's this?", "识别一下"): answer using the image

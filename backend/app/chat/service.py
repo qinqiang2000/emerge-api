@@ -57,6 +57,14 @@ from app.workspace.staging import (
 # vision inlining, so we don't inflate the user-message token cost.
 _IMAGE_MEDIA_TYPE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
 
+# Attachment kinds whose bytes we want inlined as image blocks. `doc` is the
+# pdf/png/jpg drop path; `None` is the legacy/unset shape from older clients
+# (treat as `doc` for back-compat). Schemas / data / notes are text-shaped —
+# the agent reads them via the `Read` tool when relevant, NEVER as image
+# blocks. Keeping the gate explicit here means a future kind that's also
+# visual just adds an entry; the default is "don't waste vision tokens".
+_IMAGE_KINDS: frozenset[str | None] = frozenset({None, "doc"})
+
 
 def _load_image_blocks(
     workspace: Path,
@@ -65,9 +73,10 @@ def _load_image_blocks(
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Build Anthropic image content blocks for any attached images already on
-    disk. Silent skip for entries that aren't images, lack `filename`, or whose
-    files we can't read — the surrounding `[attachments: ...]` text mention
-    still lets the agent reference them by name.
+    disk. Silent skip for entries that aren't images, lack `filename`, carry a
+    non-doc `kind` (schema/data/note), or whose files we can't read — the
+    surrounding `[attachments: ...]` text mention still lets the agent
+    reference them by name.
 
     Dispatches on `source` + slug shape:
       - slug == `_chats` (unbound chat) → `_chats/<chat_id>/attachments/<f>`
@@ -80,6 +89,12 @@ def _load_image_blocks(
     for a in attachments:
         filename = a.get("filename", "")
         if not (isinstance(filename, str) and filename):
+            continue
+        # Skip non-doc kinds — schemas / data / notes have no visual payload
+        # to inline, and a `kind=schema` yaml that happens to share an image
+        # ext would be a bug to image-inline regardless.
+        kind = a.get("kind")
+        if kind not in _IMAGE_KINDS:
             continue
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         media_type = _IMAGE_MEDIA_TYPE.get(ext)
@@ -668,12 +683,20 @@ class ChatService:
             claimed: list[dict[str, Any]] = []
             for a in (attachments or []):
                 tok = a.get("stage_token")
+                # Frontend may pin a `kind` per chip from the staging response
+                # so the agent skill can route by attachment kind without
+                # re-sniffing. Fallback to None — `_load_image_blocks` treats
+                # missing kind as legacy `doc` for back-compat.
+                kind = a.get("kind") if isinstance(a.get("kind"), str) else None
                 if isinstance(tok, str):
                     try:
                         final_name = await claim_staged_to_unbound_chat(
                             self.workspace, tok, chat_id,
                         )
-                        claimed.append({"filename": final_name, "source": "chat"})
+                        entry: dict[str, Any] = {"filename": final_name, "source": "chat"}
+                        if kind is not None:
+                            entry["kind"] = kind
+                        claimed.append(entry)
                     except (StagingClaimError, ValueError):
                         # Stale / unknown token — drop silently rather than
                         # fail the whole turn; the agent sees one fewer doc
@@ -682,7 +705,10 @@ class ChatService:
                 else:
                     fname = a.get("filename") or ""
                     if isinstance(fname, str) and fname:
-                        claimed.append({"filename": fname, "source": "chat"})
+                        entry = {"filename": fname, "source": "chat"}
+                        if kind is not None:
+                            entry["kind"] = kind
+                        claimed.append(entry)
             attachments = claimed
 
         # ── pre-flight: mint a placeholder project whenever slug is unset ──
@@ -712,12 +738,16 @@ class ChatService:
             claimed: list[dict[str, Any]] = []
             for a in (attachments or []):
                 tok = a.get("stage_token")
+                kind = a.get("kind") if isinstance(a.get("kind"), str) else None
                 if isinstance(tok, str):
                     try:
                         final_name = await claim_staged_to_chat(
                             self.workspace, tok, new_slug, chat_id,
                         )
-                        claimed.append({"filename": final_name, "source": "chat"})
+                        entry: dict[str, Any] = {"filename": final_name, "source": "chat"}
+                        if kind is not None:
+                            entry["kind"] = kind
+                        claimed.append(entry)
                     except (StagingClaimError, ValueError):
                         # Stale / unknown token — drop silently rather than
                         # fail the whole turn; the agent sees one fewer doc
@@ -726,7 +756,10 @@ class ChatService:
                 else:
                     fname = a.get("filename") or ""
                     if isinstance(fname, str) and fname:
-                        claimed.append({"filename": fname, "source": "chat"})
+                        entry = {"filename": fname, "source": "chat"}
+                        if kind is not None:
+                            entry["kind"] = kind
+                        claimed.append(entry)
             attachments = claimed
             slug = new_slug
             minted = {
@@ -767,14 +800,23 @@ class ChatService:
         # base64 image bytes into events.jsonl (it would balloon the chat log).
         # `source` distinguishes chat-scoped paste/drop (`"chat"`) from
         # docs-promoted refs (`"docs"`); image-block resolver dispatches on it.
-        persisted_attachments = [
-            {
-                "filename": a.get("filename"),
+        # `kind` (when present) routes the agent's behaviour by attachment
+        # type — `doc` (visual), `schema` (yaml/json schema candidate),
+        # `data` (csv), `note` (txt/md). Omitted on legacy entries; the image
+        # resolver treats missing kind as `doc` for back-compat.
+        persisted_attachments: list[dict[str, Any]] = []
+        for a in (attachments or []):
+            fn = a.get("filename")
+            if not (isinstance(fn, str) and fn):
+                continue
+            entry: dict[str, Any] = {
+                "filename": fn,
                 "source": a.get("source") if a.get("source") in ("chat", "docs") else "chat",
             }
-            for a in (attachments or [])
-            if isinstance(a.get("filename"), str) and a.get("filename")
-        ]
+            kind = a.get("kind")
+            if isinstance(kind, str) and kind:
+                entry["kind"] = kind
+            persisted_attachments.append(entry)
         user_event: dict[str, Any] = {"type": "user", "text": user_message}
         if persisted_attachments:
             user_event["attachments"] = persisted_attachments

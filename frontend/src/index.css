@@ -281,6 +281,21 @@ html, body, #root {
 }
 .composer .att-chip-failed .att-name{color:var(--rose-2,#a8523c)}
 
+/* Kind label — surfaces non-`doc` attachment kinds (schema/data/note) so the
+   user can tell at a glance what was recognised. Token-only tints (paper +
+   ochre/moss/rose), no chip color flip — the chip stays the same shape, the
+   label is the only signal. */
+.composer .att-chip .att-kind{
+  display:inline-flex;align-items:center;height:14px;
+  font-family:var(--mono);font-size:9px;line-height:1;letter-spacing:.04em;
+  text-transform:uppercase;
+  padding:0 4px;border-radius:3px;
+  background:var(--paper-3);color:var(--ink-3);
+}
+.composer .att-chip .att-kind-schema{color:var(--ochre-2);background:var(--paper-3)}
+.composer .att-chip .att-kind-data{color:var(--moss-2);background:var(--paper-3)}
+.composer .att-chip .att-kind-note{color:var(--ink-3);background:var(--paper-3)}
+
 /* Bulk mode (>8 pending). Past this threshold the inline chip grid would
    stack into many rows and push the composer up over the chat transcript,
    so we collapse to a summary bar (with failed chips kept inline so retry
