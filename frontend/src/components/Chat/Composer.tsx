@@ -2,8 +2,10 @@ import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEve
 
 import { listProjectTree, type TreeEntry } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
+import { useModels, type ModelRow } from '../../stores/models'
 import { useT } from '../../i18n'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
+import { RESOURCE_SOURCES, modelCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
 import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
@@ -56,6 +58,10 @@ const UPLOAD_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 // at FAILED_INLINE_MAX) so errors are still one click away from retry.
 const BULK_THRESHOLD = 8
 const FAILED_INLINE_MAX = 6
+
+// Stable empty array so the models selector returns a referentially-stable
+// value when a project has no models loaded yet (avoids a render loop).
+const EMPTY_ROWS: ModelRow[] = []
 
 interface PendingChip {
   filename: string
@@ -248,6 +254,15 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   const showMention =
     mentionToken !== null && mentionToken.tokenStart !== dismissedAt
 
+  // When the active token is `@<scope>/…` and `<scope>` names a registered
+  // resource source (e.g. `models`), the menu drills into that source instead
+  // of fetching the file tree. `undefined` → the dir is a real filesystem dir
+  // (or the root), so the tree path applies.
+  const scopedSource = useMemo(
+    () => (mentionToken ? RESOURCE_SOURCES.find(s => s.scope === mentionToken.dir) : undefined),
+    [mentionToken],
+  )
+
   // Filter the fetched entries by the trailing query segment, case-insensitive.
   //
   // Root mode (`dir === ''`) is fetched recursively (flat list of every visible
@@ -288,12 +303,68 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     )
   }, [mentionToken, allProjects])
 
+  // Resource sources (models now; versions / experiments next) read from their
+  // own zustand stores. Rules-of-hooks means each store is read with an
+  // explicit selector here; the menu + keyboard handling stay generic over the
+  // resulting `candsByKind` map. To add a kind: read its store below and add
+  // one line to `candsByKind`.
+  const modelRows = useModels(s =>
+    projectId && projectId !== 'p_unset' ? (s.list[projectId] ?? EMPTY_ROWS) : EMPTY_ROWS,
+  )
+  const modelsLoading = useModels(s => (projectId ? !!s.loading[projectId] : false))
+  // Lazy-load the models list the first time a mention menu opens in a project
+  // — idempotent + cached in the store, so re-opens don't refetch.
+  useEffect(() => {
+    if (!showMention || !hasProject || !projectId || projectId === 'p_unset') return
+    void useModels.getState().load(projectId)
+  }, [showMention, hasProject, projectId])
+  const allModelCands = useMemo(() => modelCandidates(modelRows), [modelRows])
+  const candsByKind = useMemo<Record<string, MentionCandidate[]>>(
+    () => ({ model: allModelCands }),
+    [allModelCands],
+  )
+
+  // The single ordered/filtered list the menu renders and the keyboard handler
+  // indexes into. Root mode fans out across projects → resource sources →
+  // files; scoped mode (`@models/…`) shows only that source.
+  const mentionItems = useMemo<MentionItem[]>(() => {
+    if (!mentionToken) return []
+    const q = mentionToken.query
+    if (mentionToken.dir !== '') {
+      if (scopedSource) {
+        const cands = candsByKind[scopedSource.kind] ?? []
+        return filterCandidates(cands, q).map<MentionItem>(cand => ({
+          kind: 'resource', source: scopedSource, cand,
+        }))
+      }
+      return mentionMatches.map<MentionItem>(entry => ({ kind: 'entry', entry }))
+    }
+    const items: MentionItem[] = []
+    for (const p of projectMatches) items.push({ kind: 'project', project: p })
+    for (const src of RESOURCE_SOURCES) {
+      const cands = candsByKind[src.kind] ?? []
+      for (const cand of filterCandidates(cands, q)) {
+        items.push({ kind: 'resource', source: src, cand })
+      }
+    }
+    for (const entry of mentionMatches) items.push({ kind: 'entry', entry })
+    return items
+  }, [mentionToken, scopedSource, projectMatches, mentionMatches, candsByKind])
+
+  // Show the spinner while the file tree is fetching, or while a `@models/`
+  // drill is waiting on the (usually-cached) models store.
+  const menuLoading =
+    mentionLoading ||
+    (!!scopedSource && scopedSource.kind === 'model' && modelsLoading && allModelCands.length === 0)
+
   // Lazy fetch: when the active dir changes (or projectId changes), pull entries
   // from cache or hit `/lab/projects/{slug}/tree?dir=…`. 404 → "no such directory".
   // Skipped when there's no project context (empty hero) — the menu still
   // opens for project picking, but there's no tree to fetch.
   useEffect(() => {
-    if (!showMention || !mentionToken || !hasProject || !projectId) {
+    // `scopedSource` set → the token targets a resource source (`@models/…`),
+    // not a filesystem dir; skip the tree fetch (it would 404 on `models/`).
+    if (!showMention || !mentionToken || !hasProject || !projectId || scopedSource) {
       setMentionEntries([])
       setMentionLoading(false)
       setMentionMissing(false)
@@ -335,7 +406,7 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     return () => {
       alive = false
     }
-  }, [showMention, hasProject, projectId, mentionToken?.dir])
+  }, [showMention, hasProject, projectId, mentionToken?.dir, scopedSource])
 
   // Auto-grow textarea up to 384px (claude.ai max-h-96). Recalc on text
   // change AND on container resize — without the resize hook the textarea
@@ -451,14 +522,17 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
 
   /** Replace the current `@…` token with the rendered handle + suffix and move
    *  the caret to just after the suffix.
-   *  - Project pick → `@<slug> ` (closes menu; slug is the agent handle).
-   *  - Dir entry    → `@<full/path>/` (keeps menu open; user drills in).
-   *  - File entry   → `@<full/path> ` (closes menu). */
+   *  - Project pick  → `@<slug> ` (closes menu; slug is the agent handle).
+   *  - Resource pick → `@<scope>/<id> ` (closes menu; e.g. `@models/…`).
+   *  - Dir entry     → `@<full/path>/` (keeps menu open; user drills in).
+   *  - File entry    → `@<full/path> ` (closes menu). */
   function pickMention(item: MentionItem) {
     if (!mentionToken) return
     let insert: string
     if (item.kind === 'project') {
       insert = '@' + item.project.slug + ' '
+    } else if (item.kind === 'resource') {
+      insert = '@' + item.cand.insert + ' '
     } else {
       const suffix = item.entry.kind === 'dir' ? '/' : ' '
       insert = '@' + item.entry.path + suffix
@@ -517,8 +591,9 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     }
 
     if (showMention && mentionToken) {
-      // Active index spans the flattened list (projects then tree entries).
-      const totalCount = projectMatches.length + mentionMatches.length
+      // Active index spans the single flattened `mentionItems` list (projects,
+      // then resource sources, then tree entries — same order the menu draws).
+      const totalCount = mentionItems.length
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         if (totalCount > 0) setActiveIdx(i => (i + 1) % totalCount)
@@ -535,15 +610,7 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
         // Tab moves focus).
         if (totalCount > 0) {
           e.preventDefault()
-          const clamped = Math.min(activeIdx, totalCount - 1)
-          let item: MentionItem | null = null
-          if (clamped < projectMatches.length) {
-            item = { kind: 'project', project: projectMatches[clamped] }
-          } else {
-            const entryIdx = clamped - projectMatches.length
-            const entry = mentionMatches[entryIdx]
-            if (entry) item = { kind: 'entry', entry }
-          }
+          const item = mentionItems[Math.min(activeIdx, totalCount - 1)]
           if (item) pickMention(item)
           return
         }
@@ -835,11 +902,10 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
         )}
         {showMention && mentionToken && (
           <MentionMenu
-            projects={projectMatches}
-            entries={mentionMatches}
+            items={mentionItems}
             activeIdx={activeIdx}
             dir={mentionToken.dir}
-            loading={mentionLoading}
+            loading={menuLoading}
             hasProject={hasProject}
             flat={mentionToken.dir === '' && mentionToken.query !== ''}
             emptyHint={mentionMissing ? t('menu.mention.noDir') : (mentionToken.query ? t('menu.mention.noMatch') : t('menu.mention.empty'))}

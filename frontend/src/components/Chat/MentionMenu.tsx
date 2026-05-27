@@ -1,21 +1,23 @@
 // frontend/src/components/Chat/MentionMenu.tsx
 //
-// Mention dropdown for the chat composer. Two-tier:
+// Mention dropdown for the chat composer. The composer feeds it a single
+// already-ordered, already-filtered `items` list so the menu and the keyboard
+// handler share one flat index. Items carry their own kind; the menu draws a
+// `section-label` at each group boundary:
 //
-//   1. **Projects** (top section, only at the token root — i.e. when the user
-//      hasn't typed `/` yet). Source: in-memory project list. Selecting one
-//      inserts `@<slug>` so the agent gets a verbatim folder-name handle.
-//   2. **Tree entries** (always). Source: `/lab/projects/{slug}/tree?dir=…`
-//      filtered by the trailing query segment. Files insert as
-//      `@<full/path> `, dirs insert as `@<dir>/` (re-opens menu to keep
-//      drilling).
+//   - **projects** (root only) — in-memory project list; inserts `@<slug> `.
+//   - **resources** (models, …) — pid-scoped registry sources (see
+//     `mentionSources.ts`); insert `@<scope>/<id> `.
+//   - **tree entries** — `/lab/projects/{slug}/tree?dir=…`; files insert
+//     `@<path> `, dirs insert `@<path>/` (re-opens to keep drilling).
 //
-// The active index runs over the **flattened** list (projects first, then
-// tree entries) so arrow keys and Enter from the Composer act on a single
-// 0-indexed cursor regardless of which section it lands in.
+// Adding a new resource kind needs no change here — it just appears as more
+// `resource` items with a new group label.
+import { Fragment } from 'react'
 import { Folder, FileText, Box } from 'lucide-react'
 
 import type { TreeEntry } from '../../lib/api'
+import type { MentionCandidate, ResourceSource } from './mentionSources'
 
 /** Project pick item — just slug + display name. Restricted shape so we don't
  *  pull the whole `Project` type into the menu (which carries pid + status). */
@@ -27,34 +29,48 @@ export interface ProjectPick {
 export type MentionItem =
   | { kind: 'project'; project: ProjectPick }
   | { kind: 'entry'; entry: TreeEntry }
+  | { kind: 'resource'; source: ResourceSource; cand: MentionCandidate }
 
 interface Props {
-  /** Project matches; render in a top section. Empty array → section hidden. */
-  projects: ProjectPick[]
-  /** Tree entries for the active dir, already filtered by the query segment. */
-  entries: TreeEntry[]
-  /** 0-indexed cursor over the flattened list (projects first, then entries). */
+  /** Ordered, filtered items. Projects first, then resource groups, then tree
+   *  entries — the same order the composer's keyboard handler indexes into. */
+  items: MentionItem[]
+  /** 0-indexed cursor over `items`. */
   activeIdx: number
   dir: string
   loading: boolean
   /** When false (empty-hero state, no project selected), the tree-side
-   *  affordances — breadcrumb + dir empty hint — are hidden; only the
-   *  projects section is shown. */
+   *  affordances — breadcrumb + dir empty hint — are hidden. */
   hasProject?: boolean
   /** When true, render entries by their full `path` instead of just `name`
-   *  (used when the root recursive picker surfaces nested matches — without
-   *  the path, `02bb2dfd.png` gives no hint that it lives under `docs/`). */
+   *  (used when the root recursive picker surfaces nested matches). */
   flat?: boolean
   emptyHint?: string
-  /** Item-shaped pick. Lets the caller branch on project vs entry without
-   *  re-doing the section split. */
   onPick: (item: MentionItem) => void
   onHover: (idx: number) => void
 }
 
+/** Stable React key for an item. */
+function itemKey(it: MentionItem): string {
+  switch (it.kind) {
+    case 'project': return `p:${it.project.slug}`
+    case 'resource': return `r:${it.source.kind}:${it.cand.key}`
+    case 'entry': return `e:${it.entry.path}`
+  }
+}
+
+/** Group header an item belongs under. Entries use the breadcrumb so the
+ *  header reflects the current dir; projects/resources use a fixed label. */
+function groupLabel(it: MentionItem, crumb: string): string {
+  switch (it.kind) {
+    case 'project': return 'projects'
+    case 'resource': return it.source.label
+    case 'entry': return crumb
+  }
+}
+
 export default function MentionMenu({
-  projects,
-  entries,
+  items,
   activeIdx,
   dir,
   loading,
@@ -65,73 +81,78 @@ export default function MentionMenu({
   onHover,
 }: Props) {
   const crumb = dir ? `${dir}/` : '<root>'
-  // The flat index lets us keep the visual sections (with optional labels)
-  // while still computing one global active index.
-  const items: MentionItem[] = [
-    ...projects.map<MentionItem>(p => ({ kind: 'project', project: p })),
-    ...entries.map<MentionItem>(e => ({ kind: 'entry', entry: e })),
-  ]
-  const totalCount = items.length
   return (
     <div className="mentionmenu">
       <div className="inner">
         {hasProject && <div className="crumb">{crumb}</div>}
         {loading ? (
           <div className="empty">loading…</div>
-        ) : totalCount === 0 ? (
+        ) : items.length === 0 ? (
           <div className="empty">{emptyHint ?? 'empty'}</div>
         ) : (
-          <>
-            {projects.length > 0 && (
-              <div className="section-label" aria-hidden>projects</div>
-            )}
-            {projects.map((p, i) => (
-              <div
-                key={`p:${p.slug}`}
-                className={'item ' + (i === activeIdx ? 'active' : '')}
-                onMouseEnter={() => onHover(i)}
-                onMouseDown={(ev) => {
-                  ev.preventDefault()
-                  onPick({ kind: 'project', project: p })
-                }}
-              >
-                <span className="ic">
-                  <Box size={13} />
-                </span>
-                <span className="name">{p.name}</span>
-                <span className="slug-hint" aria-hidden>{p.slug}</span>
-                <span className="hint">{i === activeIdx ? '↵' : ''}</span>
-              </div>
-            ))}
-            {projects.length > 0 && entries.length > 0 && (
-              <div className="section-label" aria-hidden>{crumb}</div>
-            )}
-            {entries.map((e, i) => {
-              const flatIdx = projects.length + i
-              return (
+          items.map((it, i) => {
+            const grp = groupLabel(it, crumb)
+            const prevGrp = i > 0 ? groupLabel(items[i - 1], crumb) : null
+            // Show a section label at each group boundary, except for a leading
+            // file group — the top crumb already serves as its header, so a
+            // `<root>`/`dir/` label there would just duplicate it.
+            const showLabel = grp !== prevGrp && !(i === 0 && it.kind === 'entry')
+            return (
+              <Fragment key={itemKey(it)}>
+                {showLabel && <div className="section-label" aria-hidden>{grp}</div>}
                 <div
-                  key={`e:${e.path}`}
-                  className={'item ' + (flatIdx === activeIdx ? 'active' : '')}
-                  onMouseEnter={() => onHover(flatIdx)}
+                  className={'item ' + (i === activeIdx ? 'active' : '')}
+                  onMouseEnter={() => onHover(i)}
                   onMouseDown={(ev) => {
                     ev.preventDefault()
-                    onPick({ kind: 'entry', entry: e })
+                    onPick(it)
                   }}
                 >
-                  <span className="ic">
-                    {e.kind === 'dir' ? <Folder size={13} /> : <FileText size={13} />}
-                  </span>
-                  <span className="name">
-                    {flat ? e.path : e.name}
-                    {e.kind === 'dir' ? '/' : ''}
-                  </span>
-                  <span className="hint">{flatIdx === activeIdx ? '↵' : ''}</span>
+                  <Row item={it} flat={flat} />
+                  <span className="hint">{i === activeIdx ? '↵' : ''}</span>
                 </div>
-              )
-            })}
-          </>
+              </Fragment>
+            )
+          })
         )}
       </div>
     </div>
+  )
+}
+
+/** Icon + label cell for one item, branched by kind. */
+function Row({ item, flat }: { item: MentionItem; flat: boolean }) {
+  if (item.kind === 'project') {
+    return (
+      <>
+        <span className="ic"><Box size={13} /></span>
+        <span className="name">{item.project.name}</span>
+        <span className="slug-hint" aria-hidden>{item.project.slug}</span>
+      </>
+    )
+  }
+  if (item.kind === 'resource') {
+    const Icon = item.source.icon
+    return (
+      <>
+        <span className="ic"><Icon size={13} /></span>
+        <span className="name">{item.cand.display}</span>
+        {item.cand.sublabel && (
+          <span className="slug-hint" aria-hidden>{item.cand.sublabel}</span>
+        )}
+      </>
+    )
+  }
+  const e = item.entry
+  return (
+    <>
+      <span className="ic">
+        {e.kind === 'dir' ? <Folder size={13} /> : <FileText size={13} />}
+      </span>
+      <span className="name">
+        {flat ? e.path : e.name}
+        {e.kind === 'dir' ? '/' : ''}
+      </span>
+    </>
   )
 }
