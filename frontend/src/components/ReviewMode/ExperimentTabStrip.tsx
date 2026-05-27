@@ -105,10 +105,10 @@ export default function ExperimentTabStrip({
   const [popoverOpen, setPopoverOpen] = useState(false)
 
   const tabsKey = tabs
-    .map((t) =>
-      t.kind === 'annotation'
+    .map((tab) =>
+      tab.kind === 'annotation'
         ? 'annot'
-        : `${t.kind}:${t.key}|${t.model}|${t.prompt}`,
+        : `${tab.kind}:${tab.key}|${tab.model}|${tab.prompt}`,
     )
     .join('::')
 
@@ -138,7 +138,7 @@ export default function ExperimentTabStrip({
       // Pin the ✏ annotation tab (index 0) — it's the editable anchor.
       visibleN = Math.max(1, visibleN)
 
-      const next = new Set(tabs.slice(visibleN).map((t) => t.key))
+      const next = new Set(tabs.slice(visibleN).map((tab) => tab.key))
       setHiddenIds((prev) => {
         if (prev.size === next.size && [...prev].every((x) => next.has(x))) return prev
         return next
@@ -164,12 +164,12 @@ export default function ExperimentTabStrip({
     return () => document.removeEventListener('mousedown', onDown)
   }, [popoverOpen])
 
-  const hidden = tabs.filter((t) => hiddenIds.has(t.key))
-  const activeHidden = hidden.some((t) => t.key === activeTabKey)
+  const hidden = tabs.filter((tab) => hiddenIds.has(tab.key))
+  const activeHidden = hidden.some((tab) => tab.key === activeTabKey)
 
-  const renderTab = (t: TabSpec, isPopover = false) => {
-    const isOn = activeTabKey === t.key
-    const isClipped = !isPopover && hiddenIds.has(t.key)
+  const renderTab = (tab: TabSpec, isPopover = false) => {
+    const isOn = activeTabKey === tab.key
+    const isClipped = !isPopover && hiddenIds.has(tab.key)
     const commonProps = {
       role: isPopover ? 'menuitem' : 'tab',
       'aria-selected': isPopover ? undefined : isOn,
@@ -178,19 +178,19 @@ export default function ExperimentTabStrip({
       style: isClipped ? { visibility: 'hidden' as const, pointerEvents: 'none' as const } : undefined,
       type: 'button' as const,
       onClick: () => {
-        onSwitch(t.key)
+        onSwitch(tab.key)
         if (isPopover) setPopoverOpen(false)
       },
       ref: isPopover ? undefined : (el: HTMLButtonElement | null) => {
-        if (el) tabRefs.current.set(t.key, el)
-        else tabRefs.current.delete(t.key)
+        if (el) tabRefs.current.set(tab.key, el)
+        else tabRefs.current.delete(tab.key)
       },
     }
-    if (t.kind === 'annotation') {
+    if (tab.kind === 'annotation') {
       return (
         <button
           {...commonProps}
-          key={t.key}
+          key={tab.key}
           className={
             'rev-tab rev-tab-annotation' +
             (isOn ? ' on' : '') +
@@ -206,9 +206,9 @@ export default function ExperimentTabStrip({
     // baseline / pre_label / experiment share the same 2-line card shell;
     // only the icon (and an optional "pre-label" badge) differ.
     const icon =
-      t.kind === 'baseline' ? (
+      tab.kind === 'baseline' ? (
         <Beaker size={12} strokeWidth={1.6} />
-      ) : t.kind === 'pre_label' ? (
+      ) : tab.kind === 'pre_label' ? (
         <Sparkles size={12} strokeWidth={1.6} />
       ) : (
         <FlaskConical size={12} strokeWidth={1.6} />
@@ -216,23 +216,23 @@ export default function ExperimentTabStrip({
     return (
       <button
         {...commonProps}
-        key={t.key}
+        key={tab.key}
         className={
           'rev-tab rev-tab-card' +
-          ` rev-tab-${t.kind}` +
+          ` rev-tab-${tab.kind}` +
           (isOn ? ' on' : '') +
           (isPopover ? ' rev-tab-popover-item' : '')
         }
-        title={t.title}
+        title={tab.title}
       >
         <span className="rev-tab-ico" aria-hidden="true">
           {icon}
         </span>
         <span className="rev-tab-text">
-          <span className="rev-tab-model">{t.model}</span>
+          <span className="rev-tab-model">{tab.model}</span>
           <span className="rev-tab-prompt">
-            {t.prompt}
-            {t.kind === 'pre_label' && (
+            {tab.prompt}
+            {tab.kind === 'pre_label' && (
               <span className="rev-tab-badge" aria-hidden="true">pre-label</span>
             )}
           </span>
@@ -244,7 +244,7 @@ export default function ExperimentTabStrip({
   return (
     <div className="rev-tabstrip" role="tablist">
       <div className="rev-tabstrip-inner" ref={innerRef}>
-        {tabs.map((t) => renderTab(t))}
+        {tabs.map((tab) => renderTab(tab))}
       </div>
 
       {hidden.length > 0 && (
@@ -259,7 +259,7 @@ export default function ExperimentTabStrip({
           </button>
           {popoverOpen && (
             <div className="rev-tab-popover" role="menu">
-              {hidden.map((t) => renderTab(t, true))}
+              {hidden.map((tab) => renderTab(tab, true))}
             </div>
           )}
         </div>
