@@ -1,4 +1,7 @@
+import asyncio
+import logging
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,6 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 # (claude_agent_sdk, google.genai, our provider factory) see CLAUDE_CODE_OAUTH_TOKEN,
 # CLAUDE_PROXY, GOOGLE_API_KEY, ANTHROPIC_API_KEY. pydantic-settings reads .env separately.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# The bundled Claude CLI is pinned by `claude-agent-sdk` in pyproject.toml, so
+# the per-spawn `claude -v` handshake the SDK runs in `_check_claude_version`
+# is pure overhead — skip it. See claude_agent_sdk/_internal/transport/subprocess_cli.py.
+os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
 
 from app.api.routes import docs as docs_route
 from app.api.routes import eval as eval_route
@@ -100,10 +108,40 @@ async def _cleanup_orphan_projects_on_startup() -> None:
     cleanup_orphan_projects(settings.workspace_root)
 
 
+async def _prewarm_claude_cli_on_startup() -> None:
+    """Page the bundled 207MB CLI Node binary into OS cache + prime Node JIT
+    so the first chat after a backend boot doesn't pay ~5s of page-fault cost
+    on `ClaudeSDKClient` enter. Runs as a background task — never blocks the
+    healthz / chat routes from being served. Best-effort; failures are logged
+    but don't poison startup (a bad OAuth token is a chat-time concern, not a
+    boot-time one).
+    """
+    if os.getenv("EMERGE_TEST_MODE") == "1":
+        return
+
+    async def _run() -> None:
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+        log = logging.getLogger(__name__)
+        t0 = time.monotonic()
+        try:
+            async with asyncio.timeout(15):
+                async with ClaudeSDKClient(options=ClaudeAgentOptions()):
+                    pass
+            # warning-level so it surfaces in default uvicorn output — this is
+            # an observability signal users want to see after backend boot.
+            log.warning("claude-cli prewarm done in %.2fs", time.monotonic() - t0)
+        except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
+            log.warning("claude-cli prewarm failed after %.2fs: %s",
+                        time.monotonic() - t0, exc)
+
+    asyncio.create_task(_run())
+
+
 app.include_router(publish_route.router)
 app.router.on_startup.append(_load_keystore_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
 app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
+app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 
 
 @app.get("/healthz")
