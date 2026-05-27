@@ -111,7 +111,9 @@ export default function ReviewBar({
         <div className="title" title={activeFilename}>
           {t('review.reviewing')}
           <span className="doc">{activeFilename}</span>
-          {status && <span className={`status ${status}`}>{status}</span>}
+          {status && (
+            <span className={`status ${status}`}>{t(`spine.stamp.${status}`)}</span>
+          )}
           <span className="title-actions">
             <button
               type="button"

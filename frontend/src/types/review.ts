@@ -17,7 +17,7 @@ export interface RunStamp {
   kind: RunKind
 }
 
-export type DocStatus = 'reviewed' | 'draft' | 'pending'
+export type DocStatus = 'reviewed' | 'pending' | 'new'
 
 export interface DocSummary {
   /** Final on-disk filename — the only doc handle. May include spaces /
@@ -65,8 +65,8 @@ export interface PendingPayload {
 
 export function docStatus(d: DocSummary): DocStatus {
   if (d.has_reviewed) return 'reviewed'
-  if (d.has_prediction) return 'draft'
-  return 'pending'
+  if (d.has_prediction) return 'pending'
+  return 'new'
 }
 
 export type ExperimentStatus = 'draft' | 'ran' | 'archived' | 'promoted'
