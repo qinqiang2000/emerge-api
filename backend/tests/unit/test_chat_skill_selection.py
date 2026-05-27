@@ -21,7 +21,6 @@ def _make_svc(tmp_path: Path) -> ChatService:
         workspace=tmp_path,
         provider=AsyncMock(spec=Provider),
         agent_model="claude-sonnet-4-6",
-        extract_model="claude-sonnet-4-6",
     )
 
 

@@ -6,16 +6,110 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from app.config import get_settings
 from app.jobs.events import now_iso_filename_safe
+from app.provider import get_provider_for_model
 from app.provider.base import Provider, TextBlock
 from app.schemas.job import JobEvent, JobInfo, JobStatus
 from app.schemas.score import ScoreResult
 from app.schemas.schema_field import SchemaField
 from app.tools.extract import extract_one_with_schema
+from app.tools.model import ModelNotFoundError, read_active_model, read_model
 from app.tools.score import score
 from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import candidate_dir, candidate_turn_path
-from app.workspace.paths import reviewed_dir
+from app.workspace.paths import project_json_path, reviewed_dir
+
+
+class ProposerNotConfiguredError(ValueError):
+    """No proposer model could be resolved for an autoresearch job.
+
+    Lookup order is: per-call override → `project.json.autoresearch_proposer_model`
+    → `project.json.active_model_id` → `settings.default_proposer_model` → raise.
+
+    Mirrors `LabelerNotConfiguredError` in `tools/pre_label.py` — both signal
+    the same shape of misconfig (env unset + no project default + no override).
+    """
+
+
+async def _resolve_proposer_model(
+    workspace: Path,
+    project_id: str,
+    *,
+    override: str | None = None,
+) -> tuple[Provider, str]:
+    """Resolve the (provider, provider_model_id) pair for an autoresearch job.
+
+    Resolution chain:
+      1. `override` (e.g. per-job kwarg) — model_id token; tried as project
+         model_id first, then as a raw provider_model_id.
+      2. `project.json.autoresearch_proposer_model` — same dual lookup.
+      3. `project.json.active_model_id` — the project's live extract model
+         (`read_active_model`). Default behaviour.
+      4. `settings.default_proposer_model` — env fallback. Plain provider model id.
+      5. raise `ProposerNotConfiguredError`.
+
+    The dual lookup at steps 1 / 2 lets users either pass a project-scoped
+    `m_*` id (most common, full ModelConfig with `params` honored) or a raw
+    provider model id (`gemini-2.5-flash`) without a corresponding
+    `models/{m_*}.json`. Provider params from the env-fallback path default
+    to the provider's own defaults; per-`models/{mid}.json` `params` only
+    flow through when the resolution lands on a real ModelConfig.
+    """
+    # 1. explicit override
+    if override:
+        try:
+            mc = await read_model(workspace, project_id, override)
+            return get_provider_for_model(
+                mc.provider_model_id, provider=mc.provider,
+            ), mc.provider_model_id
+        except ModelNotFoundError:
+            return get_provider_for_model(override), override
+
+    # 2. project.json.autoresearch_proposer_model
+    pj = project_json_path(workspace, project_id)
+    project_override: str | None = None
+    project_active: str | None = None
+    if pj.exists():
+        try:
+            blob = json.loads(pj.read_text(encoding="utf-8"))
+            project_override = blob.get("autoresearch_proposer_model") or None
+            project_active = blob.get("active_model_id") or None
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if project_override:
+        try:
+            mc = await read_model(workspace, project_id, project_override)
+            return get_provider_for_model(
+                mc.provider_model_id, provider=mc.provider,
+            ), mc.provider_model_id
+        except ModelNotFoundError:
+            return get_provider_for_model(project_override), project_override
+
+    # 3. project's active extract model (the natural default)
+    if project_active:
+        try:
+            mc = await read_active_model(workspace, project_id)
+            return get_provider_for_model(
+                mc.provider_model_id, provider=mc.provider,
+            ), mc.provider_model_id
+        except ModelNotFoundError:
+            pass
+
+    # 4. env fallback
+    settings = get_settings()
+    if settings.default_proposer_model:
+        return (
+            get_provider_for_model(settings.default_proposer_model),
+            settings.default_proposer_model,
+        )
+
+    # 5. give up
+    raise ProposerNotConfiguredError(
+        "proposer_model not configured: no override, no project active model, "
+        "and EMERGE_DEFAULT_PROPOSER_MODEL is unset",
+    )
 
 
 PROPOSER_SYSTEM_PROMPT = """You are improving a JSON extraction schema for a document-extraction API.
@@ -107,9 +201,21 @@ def build_proposer_user_text(
         lines.append("(no graded fields)")
     else:
         for fs in per_field:
-            lines.append(
-                f"- {fs['field']}: f1={fs['f1']:.2f} tp={fs['tp']} fp={fs['fp']} fn={fs['fn']}"
-            )
+            # M12.x demoted per-field f1/tp/fp/fn to Optional[None] when the
+            # score path is accuracy-only (the new headline). Render whichever
+            # is non-null; prefer accuracy since it's the active headline.
+            if fs.get("accuracy") is not None:
+                lines.append(
+                    f"- {fs['field']}: acc={fs['accuracy']:.2f} "
+                    f"({fs.get('correct', 0)}/{fs.get('total', 0)})"
+                )
+            elif fs.get("f1") is not None:
+                lines.append(
+                    f"- {fs['field']}: f1={fs['f1']:.2f} "
+                    f"tp={fs.get('tp')} fp={fs.get('fp')} fn={fs.get('fn')}"
+                )
+            else:
+                lines.append(f"- {fs['field']}: (no score)")
 
     lines.append("")
     lines.append("=== sample errors (reviewed vs prediction) ===")

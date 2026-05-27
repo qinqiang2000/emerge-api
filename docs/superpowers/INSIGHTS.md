@@ -321,7 +321,20 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 
 ---
 
-## When to add an entry here
+## 16. `m_default` is an immutable anchor id, NOT an alias for the active model
+
+**Where:** `backend/app/tools/projects.py:create_project`, `backend/app/workspace/migrate.py`, `backend/app/tools/model.py`
+
+**The trap:** `m_default` looks like a synonym for "whatever model the project is currently using" because (a) `create_project` writes both `models/m_default.json` AND sets `active_model_id="m_default"` in one go, (b) the file's `provider_model_id` carries the env-bootstrap value (`EMERGE_DEFAULT_EXTRACT_MODEL`), so on day-1 of a project you see `"m_default" → gemini-2.5-flash` and naturally read `m_default` as "the default Gemini Flash". Then a future agent — agent or human — sees `m_default` go stale (project active is now `m_geminipro`) and reaches for "rename `m_default` so it tracks active" or "delete `m_default` to clean up", which would silently destroy the experiment audit trail.
+
+**What `m_default` actually is:** an immutable **anchor id**, not an alias.
+- Created exactly once per project (by `create_project` for fresh projects, by `_migrate_to_m91` for legacy projects). The original `provider_model_id` it captured is whatever env was set at create time.
+- Survives `switch_active_model` to other model ids (`m_geminipro`, `m_sonnet46`, etc.). The active flips; `m_default` stays where it is.
+- Referenced from `_run` envelopes and experiment metadata (`experiments/<eid>/meta.json:model_id`) as a stable anchor. Renaming or deleting it breaks historical references — past `_run` stamps still say `model_id="m_default"` and need to find the file.
+
+**Don't** rename `m_default` to track the active model id. **Don't** delete it on the assumption that `active_model_id` covers it. **Don't** change `create_project` to skip writing the `m_default` ModelConfig when env is unset — `read_active_model` would then crash on a fresh project. The label was deliberately decoupled from the env value (post-Phase 3 of `2026-05-27-default-extract-model-prompts-ev-eager-turing.md`): `"Default"` (no env-baked suffix) so the UI shows the same handle regardless of whether `EMERGE_DEFAULT_EXTRACT_MODEL` was changed; `provider_model_id` is what the user reads to know what's behind it.
+
+---
 
 - A bug took >1 round to debug and the fix is non-obvious from reading the code
 - A library/SDK semantics differs from documentation (yours or theirs)

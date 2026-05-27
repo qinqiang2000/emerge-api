@@ -65,6 +65,14 @@ async def test_notes_from_disk_reach_proposer_prompt(workspace: Path, monkeypatc
     fake_provider = AsyncMock(spec=Provider)
     fake_provider.extract.side_effect = _record_extract
 
+    # Per-project proposer resolution would otherwise build a real
+    # GoogleProvider for the seeded `gemini-2.5-flash` and ignore our fake.
+    # Stub the resolver so the test gets its mock back.
+    async def _stub_resolve(_workspace, _pid, *, override=None):
+        return fake_provider, "stub"
+
+    monkeypatch.setattr(ar, "_resolve_proposer_model", _stub_resolve)
+
     async def _fake_score(**kwargs):
         from app.schemas.score import FieldScore, ScoreResult
         return ScoreResult(
@@ -82,7 +90,7 @@ async def test_notes_from_disk_reach_proposer_prompt(workspace: Path, monkeypatc
 
     monkeypatch.setattr(ar, "score_with_schema", _fake_score)
 
-    runner = get_runner(workspace=workspace, provider=fake_provider, model_id="stub")
+    runner = get_runner(workspace=workspace, provider=fake_provider)
     job_id = await runner.start(
         skill="autoresearch",
         project_id=pid,

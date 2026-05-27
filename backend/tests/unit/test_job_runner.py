@@ -54,7 +54,7 @@ async def test_runner_starts_and_completes(workspace: Path, patched_loop) -> Non
         [SchemaField(name="x", type=FieldType.STRING, description="d")],
         reason="seed", allow_structural=True,
     )
-    runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
     job_id = await runner.start(skill="autoresearch", project_id=pid, params={"max_turn": 1})
     info = await runner.wait(job_id, timeout=5.0)
     assert info.status == JobStatus.DONE
@@ -81,7 +81,7 @@ async def test_runner_cancel(workspace: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 
-    runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
     job_id = await runner.start(skill="autoresearch", project_id=pid, params={"max_turn": 30})
     await asyncio.sleep(0.05)
     await runner.cancel(job_id)
@@ -109,7 +109,7 @@ async def test_runner_pause_resume(workspace: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(ar, "score_with_schema", _score)
     monkeypatch.setattr(ar, "propose_schema", _propose)
 
-    runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
     job_id = await runner.start(skill="autoresearch", project_id=pid, params={"max_turn": 3})
     await asyncio.sleep(0.05)
     await runner.pause(job_id)
@@ -126,14 +126,14 @@ async def test_runner_pause_resume(workspace: Path, monkeypatch: pytest.MonkeyPa
 
 
 async def test_runner_get_unknown_raises(workspace: Path) -> None:
-    runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
     with pytest.raises(JobNotFoundError):
         await runner.get("j_nonexistentaa")
 
 
 async def test_runner_unknown_skill_raises(workspace: Path) -> None:
     pid = (await create_project(workspace, name="t"))["slug"]
-    runner = JobRunner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
     with pytest.raises(UnknownSkillError):
         await runner.start(skill="not_a_skill", project_id=pid, params={})
 
@@ -149,7 +149,7 @@ def test_safe_job_id_validates() -> None:
 async def test_get_runner_singleton(workspace: Path) -> None:
     from app.jobs import get_runner, reset_runner_for_tests
     reset_runner_for_tests()
-    a = get_runner(workspace=workspace, provider=AsyncMock(), model_id="stub")
-    b = get_runner(workspace=workspace, provider=AsyncMock(), model_id="stub")
+    a = get_runner(workspace=workspace, provider=AsyncMock())
+    b = get_runner(workspace=workspace, provider=AsyncMock())
     assert a is b
     reset_runner_for_tests()

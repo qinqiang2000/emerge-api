@@ -36,11 +36,31 @@ class Settings(BaseSettings):
     )
 
     workspace_root: Path = Path("./workspace")
+    # Bootstrap seed for `models/m_default.json` when `create_project` runs.
+    # Read EXACTLY ONCE per project — the value gets baked into the freshly
+    # minted `m_default` ModelConfig (`provider_model_id`) plus stamped on
+    # legacy migrate (`_migrate_to_m91` when an old project.json carries no
+    # `extract_model` field). Updating this env var afterwards has NO effect
+    # on existing projects: their runtime extract LLM resolves through
+    # `project.json.active_model_id → models/{mid}.json` (see
+    # `tools/extract.py`'s `read_active_model`), which never re-reads this
+    # setting. To change the model an existing project uses, edit
+    # `models/{mid}.json` or run `switch_active_model` / `/compare`.
     default_extract_model: str = "gemini-2.5-flash"
     default_agent_model: str = "claude-sonnet-4-6"
     # Pro-labeler model. None = label_docs refuses with `labeler_model_not_configured`
     # unless the caller passes an explicit override or sets `project.json.labeler_model`.
     default_labeler_model: str | None = None
+    # Proposer model for autoresearch. Real runtime fallback (unlike
+    # `default_extract_model` which is bootstrap-only seed): resolved at
+    # `JobRunner` start per-project as
+    #   per-job override → project.json.autoresearch_proposer_model →
+    #   project.json.active_model_id → THIS env → ProposerNotConfiguredError
+    # so an in-flight env edit takes effect on the next `/improve` job.
+    # Default None means "fall back to the project's active extract model"
+    # which matches the pre-fix behaviour of routing autoresearch through
+    # whatever model the project itself uses.
+    default_proposer_model: str | None = None
     # Translator model — drives the review-mode `translate_page` path (text-only
     # for electronic PDFs, vision for scanned). Independent of extract / labeler
     # / proposer; bbox + spans are review-UX only and never feed the extract

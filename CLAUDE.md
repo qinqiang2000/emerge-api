@@ -31,13 +31,13 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 
 ## 五层 LLM（互不交叉）
 
-| 角色 | 走哪 | 配置 |
-|---|---|---|
-| Agent brain | `claude_agent_sdk.ClaudeSDKClient`（chat 大脑） | 系统级 env，锁 Anthropic |
-| Extract LLM | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project，`project.json.extract_model` |
-| Proposer LLM (autoresearch) | 同上，直连 HTTP | 系统默认 + per-job override |
-| Labeler LLM (pro 预标) | 同上，直连 HTTP | per project `project.json.labeler_model`，env `EMERGE_DEFAULT_LABELER_MODEL` 兜底 |
-| Translator LLM (review-mode 翻译) | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project `project.json.translate_model`，env `EMERGE_DEFAULT_TRANSLATE_MODEL` 兜底（默认 `gemini-flash-lite-latest`） |
+| 角色 | 走哪 | 配置 | 配置作用 |
+|---|---|---|---|
+| Agent brain | `claude_agent_sdk.ClaudeSDKClient`（chat 大脑） | 系统级 env，锁 Anthropic | `EMERGE_*` 锁 Anthropic（系统级 runtime） |
+| Extract LLM | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project，`project.json.active_model_id` → `models/{mid}.json` | `EMERGE_DEFAULT_EXTRACT_MODEL` 仅 **bootstrap seed**（`create_project` 时写入 `m_default.provider_model_id` + 老 project lazy-migrate）；runtime 完全走 `read_active_model`，env 改了不会影响已有项目 |
+| Proposer LLM (autoresearch) | 同上，直连 HTTP | per-job override + per project | `EMERGE_DEFAULT_PROPOSER_MODEL` 是真 **runtime fallback**：链 = per-job override → `project.json.autoresearch_proposer_model` → `project.json.active_model_id` → env → raise `ProposerNotConfiguredError` |
+| Labeler LLM (pro 预标) | 同上，直连 HTTP | per project `project.json.labeler_model` | `EMERGE_DEFAULT_LABELER_MODEL` 是真 **runtime fallback**（每次 `label_docs` 现场解析） |
+| Translator LLM (review-mode 翻译) | `provider/{anthropic,openai,gemini}.py` 直连 HTTP | per project `project.json.translate_model` | `EMERGE_DEFAULT_TRANSLATE_MODEL` 是真 **runtime fallback**（默认 `gemini-flash-lite-latest`） |
 
 工具体内绝不递归回 SDK——Agent 与 Extract / Proposer / Labeler / Translator 是分开的代码路径。
 

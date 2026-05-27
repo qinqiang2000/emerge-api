@@ -33,12 +33,22 @@ class JobRunner:
     """Process-wide registry of running jobs.
 
     For now there is no concurrency cap (single-user lab tool); the loop's
-    extract calls naturally pace it. Crash recovery is M3 territory."""
+    extract calls naturally pace it. Crash recovery is M3 territory.
 
-    def __init__(self, *, workspace: Path, provider: Provider, model_id: str) -> None:
+    Note: no `model_id` field. The proposer model for each autoresearch job
+    is resolved at `start()` via `_resolve_proposer_model`, which inspects
+    the project's active ModelConfig (with override / env fallback). The
+    previous design pinned a single env-seeded model on the singleton,
+    silently bypassing `switch_active_model` for autoresearch — see
+    `default-extract-model-prompts-ev-eager-turing` plan."""
+
+    def __init__(self, *, workspace: Path, provider: Provider) -> None:
         self.workspace = workspace
+        # `provider` is retained for back-compat with callers that pass a
+        # process-wide default; it's no longer used during job execution
+        # (each job resolves its own provider via `_resolve_proposer_model`),
+        # but tests like `test_get_runner_singleton` still construct it.
         self.provider = provider
-        self.model_id = model_id
         self._jobs: dict[str, _JobHandle] = {}
         self._lock = asyncio.Lock()
 
@@ -51,6 +61,16 @@ class JobRunner:
         initial_schema = await read_schema(self.workspace, project_id)
         if not initial_schema:
             raise ValueError("project has empty schema; nothing to autoresearch")
+        # Resolve the proposer model NOW (at job start) so the live
+        # `project.json.active_model_id` wins over any process-wide default.
+        # `proposer_model` may be passed via `params` for per-job overrides
+        # — see `_resolve_proposer_model` for the full chain.
+        override = params.get("proposer_model")
+        if override is not None and not isinstance(override, str):
+            override = None
+        proposer_provider, proposer_model_id = await ar._resolve_proposer_model(
+            self.workspace, project_id, override=override,
+        )
         job_id = new_job_id()
         info = JobInfo(
             job_id=job_id, project_id=project_id, skill=skill,
@@ -84,7 +104,7 @@ class JobRunner:
                 final = await ar.run_autoresearch_loop(
                     workspace=self.workspace, project_id=project_id, job_id=job_id,
                     initial_schema=initial_schema,
-                    provider=self.provider, model_id=self.model_id,
+                    provider=proposer_provider, model_id=proposer_model_id,
                     params=ar_params, emit=emit,
                     cancel_event=cancel_event, pause_event=pause_event,
                 )

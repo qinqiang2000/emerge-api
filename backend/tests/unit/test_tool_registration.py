@@ -16,7 +16,7 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
     business moat: provider-bound extract/label, schema atomicity, doc
     vision, lifecycle ops, UI bridge."""
     from app.jobs.runner import JobRunner
-    runner = JobRunner(workspace=workspace, provider=stub_provider, model_id="stub")
+    runner = JobRunner(workspace=workspace, provider=stub_provider)
     server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=runner)
     names = await _extract_tool_names(server)
     expected = {

@@ -229,15 +229,32 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     name = slug
     active_prompt_id: str | None = None
     active_model_id: str | None = None
-    extract_model: str | None = None
+    used_extract_model: str | None = None
     try:
         blob = json.loads(project_json_path(workspace, slug).read_text())
         name = str(blob.get("name") or slug)
         active_prompt_id = blob.get("active_prompt_id")
         active_model_id = blob.get("active_model_id")
-        extract_model = blob.get("extract_model")
     except (OSError, json.JSONDecodeError):
         pass
+    # Resolve the live extract model from the active ModelConfig (the runtime
+    # source of truth — `tools/extract.py:extract_one_with_schema`'s path).
+    # Inlined as a direct file read because this builder is sync (the SDK's
+    # system_prompt construction path); `read_active_model` is async-shaped
+    # but does no real I/O that warrants awaiting. Best-effort: a fresh /
+    # unmigrated project may not have a model file yet — fall back to no
+    # surface line rather than echo an env-derived guess.
+    if active_model_id:
+        from app.workspace.paths import model_path as _model_path
+
+        try:
+            mp = _model_path(workspace, slug, active_model_id)
+            mblob = json.loads(mp.read_text())
+            pmid = mblob.get("provider_model_id")
+            if isinstance(pmid, str) and pmid:
+                used_extract_model = pmid
+        except (OSError, json.JSONDecodeError):
+            pass
 
     project_dir = workspace_root / slug
     lines = [
@@ -262,14 +279,14 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
         _WORKSPACE_LAYOUT_TEMPLATE.format(project_dir=project_dir),
         "```",
     ]
-    if active_prompt_id or active_model_id or extract_model:
+    if active_prompt_id or active_model_id or used_extract_model:
         detail = []
         if active_prompt_id:
             detail.append(f"active prompt: `{active_prompt_id}`")
         if active_model_id:
             detail.append(f"active model: `{active_model_id}`")
-        if extract_model:
-            detail.append(f"extract model: `{extract_model}`")
+        if used_extract_model:
+            detail.append(f"extract model: `{used_extract_model}`")
         lines.append("")
         lines.append(", ".join(detail) + ".")
     return "\n".join(lines)
@@ -478,7 +495,6 @@ class ChatService:
         workspace: Path,
         provider: Provider,
         agent_model: str = "claude-sonnet-4-6",
-        extract_model: str = "gemini-2.5-flash",
     ) -> None:
         self.workspace = workspace
         self.provider = provider
@@ -488,9 +504,7 @@ class ChatService:
         self._publish_skill = load_skill("emerge_publish")
         self._pre_label_runner_skill = load_skill("emerge_pre_label_runner")
         self.system_prompt = self._extractor_skill
-        self.job_runner = get_runner(
-            workspace=workspace, provider=provider, model_id=extract_model,
-        )
+        self.job_runner = get_runner(workspace=workspace, provider=provider)
         self.mcp_server = build_emerge_mcp(
             workspace=workspace, provider=provider, job_runner=self.job_runner,
         )

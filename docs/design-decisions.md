@@ -1233,3 +1233,30 @@ User did a direct side-by-side with claude.ai's shared-chat view and the 17px se
 - Composer remains at 14.5px (still a clear step below body, 15px → 14.5px is a half-step rather than the previous full step from 17px).
 - No selector or DOM changes; existing chat-layout E2E and UserBubble unit tests untouched.
 
+### 2026-05-27 — ✅ env vars: bootstrap seed vs runtime fallback role clarification
+
+- **Status**: ✅ Accepted
+- **Area**: backend config — `EMERGE_DEFAULT_*_MODEL` env semantics
+- **Files**: `backend/app/config.py`, `backend/app/tools/projects.py`, `backend/app/tools/fork.py`, `backend/app/chat/service.py`, `backend/app/workspace/migrate.py`, `backend/app/jobs/__init__.py`, `backend/app/jobs/runner.py`, `backend/app/jobs/autoresearch.py`, `backend/app/api/routes/jobs.py`, `backend/app/api/routes/chat.py`, `CLAUDE.md`, `docs/superpowers/INSIGHTS.md`
+- **Type**: backend correctness + naming/docs
+- **Plan**: `/Users/qinqiang02/.claude/plans/emerge-default-extract-model-prompts-ev-eager-turing.md`
+
+**What changed**
+Audit of the five `EMERGE_DEFAULT_*_MODEL` env vars established two distinct roles, now documented in the CLAUDE.md five-LLM table:
+- **Bootstrap-only seed**: `EMERGE_DEFAULT_EXTRACT_MODEL`. Read once at `create_project` time to populate `models/m_default.json.provider_model_id` (and once again on legacy `migrate_project_if_needed` for projects predating M9.1). Runtime extract reads `project.json.active_model_id` → `models/{mid}.json` exclusively, so editing the env after a project exists has zero effect on it.
+- **Runtime fallback**: `EMERGE_DEFAULT_LABELER_MODEL`, `EMERGE_DEFAULT_TRANSLATE_MODEL`, and the new `EMERGE_DEFAULT_PROPOSER_MODEL`. Each is consulted at every call (label_docs / translate_page / autoresearch start) so an env edit takes effect on the next invocation.
+
+Three concrete code changes followed:
+1. **Killed the legacy `extract_model` / `extract_params` blob fields.** `create_project` no longer writes them, `fork_project` no longer copies them, `migrate_project_if_needed` lazily pops them from the blob after building `m_default`. The chat-side "Active context" surface now reads `models/{active_model_id}.json` for the extract-model display line — single source of truth.
+2. **Fixed the proposer correctness bug.** `JobRunner.model_id` was a process-wide singleton field pinned to `settings.default_extract_model` at boot, so autoresearch silently bypassed `switch_active_model`. Replaced with `_resolve_proposer_model(workspace, project_id, override=...)` resolved per-job at `runner.start()`: chain is per-job override → `project.json.autoresearch_proposer_model` → `project.json.active_model_id` → `EMERGE_DEFAULT_PROPOSER_MODEL` → `ProposerNotConfiguredError`. `JobRunner.__init__` and `get_runner` no longer take `model_id`.
+3. **Decoupled `m_default` label from env.** Was `f"Default ({settings.default_extract_model})"`; now plain `"Default"`. The provider id renders separately in the UI from `provider_model_id`, so changing env no longer leaves a stale name suffix on existing projects.
+
+**Why**
+User asked whether the env-pinning of `EMERGE_DEFAULT_EXTRACT_MODEL` constrained the multi-model × multi-prompt eval story (M9.x). Audit showed runtime extract / experiment / score were already correctly per-project; env was bootstrap-only there. But it surfaced (a) ambiguous semantics across the five env vars, (b) a real proposer correctness bug — autoresearch would propose with whatever flash the env named even after a project switched its active to gemini-pro, and (c) several pieces of dead-code state (`project.json.extract_model` written but no longer read by runtime).
+
+**Reference**
+- New runtime-fallback chain helper: `backend/app/jobs/autoresearch.py:_resolve_proposer_model`
+- New regression tests: `backend/tests/unit/test_proposer_resolution.py`, `backend/tests/unit/test_legacy_field_lazy_drop.py`
+- INSIGHTS trap note: "16. `m_default` is an immutable anchor id, NOT an alias for the active model"
+- Hard rules unchanged: publish fast-path, `_run` envelope, experiment data shape — none of these were touched.
+

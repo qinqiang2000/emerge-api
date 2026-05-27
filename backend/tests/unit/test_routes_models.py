@@ -18,12 +18,13 @@ def client(tmp_path: Path, monkeypatch) -> TestClient:
 
 def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -> None:
     import asyncio
-    from app.config import get_settings
     from app.tools.projects import create_project as _create
     from app.tools.model import create_model as _create_model
 
-    settings = get_settings()
-    default_label = f"Default ({settings.default_extract_model})"
+    # Post-Phase-3 plan: m_default's label is just "Default" (no env-baked
+    # provider name suffix). The provider id lives on `provider_model_id`,
+    # which the UI renders separately.
+    default_label = "Default"
 
     pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     asyncio.run(_create_model(

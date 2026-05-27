@@ -31,10 +31,7 @@ class StartJobBody(BaseModel):
 def _get_runner():
     settings = get_settings()
     provider = get_provider_for_model(settings.default_extract_model)
-    return get_runner(
-        workspace=settings.workspace_root, provider=provider,
-        model_id=settings.default_extract_model,
-    )
+    return get_runner(workspace=settings.workspace_root, provider=provider)
 
 
 @router.post("/lab/jobs")
