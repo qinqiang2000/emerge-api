@@ -77,9 +77,12 @@ async def test_migrate_updates_project_json_active_pointers(workspace: Path) -> 
     blob = json.loads(project_json_path(workspace, pid).read_text())
     assert blob["active_prompt_id"] == "pr_baseline"
     assert blob["active_model_id"] == "m_default"
-    # legacy fields preserved for transition-period fallback
-    assert blob["extract_model"] == "gemini-2.5-flash"
-    assert blob["extract_params"] == {"temperature": 0.0}
+    # Legacy `extract_model` / `extract_params` fields are dropped post-migrate
+    # — runtime extract reads `models/{active_model_id}.json` exclusively, so
+    # leaving the redundant blob fields just confused agent `Read project.json`
+    # output. See plan: env-var × model-axis design audit.
+    assert "extract_model" not in blob
+    assert "extract_params" not in blob
 
 
 async def test_migrate_does_not_delete_legacy_files(workspace: Path) -> None:

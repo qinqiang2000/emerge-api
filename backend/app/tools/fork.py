@@ -96,8 +96,6 @@ async def fork_project(
             "active_model_id": src_blob.get("active_model_id"),
             "active_version_id": None,  # fresh publish lineage in the fork
             "autoresearch_proposer_model": src_blob.get("autoresearch_proposer_model"),
-            "extract_model": src_blob.get("extract_model"),
-            "extract_params": src_blob.get("extract_params"),
             "published_ids": [],
         }
         atomic_write_json(project_json_path(workspace, new_slug), new_blob)

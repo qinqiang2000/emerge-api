@@ -31,6 +31,12 @@ async def test_create_project_writes_project_json(workspace: Path) -> None:
     # Pro labeler slot seeded; None when EMERGE_DEFAULT_LABELER_MODEL unset.
     assert "labeler_model" in blob
     assert blob["labeler_model"] is None
+    # Post-Phase-2 plan: legacy `extract_model` / `extract_params` are NOT
+    # written into fresh project blobs — runtime extract reads
+    # `models/{active_model_id}.json` only (see `tools/extract.py`'s
+    # `read_active_model`). Asserting absence guards against regression.
+    assert "extract_model" not in blob
+    assert "extract_params" not in blob
 
 
 async def test_create_project_writes_active_prompt_and_model(workspace: Path) -> None:

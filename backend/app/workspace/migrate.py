@@ -46,6 +46,10 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
               (only when prompts/ does not exist)
       - M9.4: rename experiments/{eid}/extracts/ -> experiments/{eid}/predictions/
               (only when the legacy extracts/ dir is present)
+      - drop-legacy-model-fields: pop `extract_model` / `extract_params` from
+              project.json. Runs independently of M9.1 because projects that
+              already crossed M9.1 (prompts/ exists) skip _migrate_to_m91 and
+              would otherwise keep the stale legacy keys forever.
       - slug-resync: project.json.slug realigned to folder name when they
               diverge (caller used `Bash mv` instead of `rename_project`).
     """
@@ -55,7 +59,42 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
 
     await _migrate_to_m91(workspace, project_id, pdir)
     await _migrate_experiment_predictions(workspace, project_id, pdir)
+    await _drop_legacy_model_fields(workspace, project_id)
     await _resync_slug(workspace, project_id)
+
+
+async def _drop_legacy_model_fields(workspace: Path, project_id: str) -> None:
+    """Pop `extract_model` / `extract_params` from project.json — runtime
+    extract reads `models/{active_model_id}.json` (M9.1+); the legacy keys
+    are vestigial and confuse agents that `Read project.json`.
+
+    Distinct from `_migrate_to_m91`: that step gates on `prompts/` not existing,
+    so projects already on M9.1 never re-enter it. This step gates on the
+    keys themselves being present, so it cleans up post-M9.1 blobs that
+    legacy `create_project` wrote.
+
+    Idempotent — only writes when at least one key is present.
+    """
+    pj = project_json_path(workspace, project_id)
+    if not pj.exists():
+        return
+    try:
+        blob = json.loads(pj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if "extract_model" not in blob and "extract_params" not in blob:
+        return
+    async with project_lock(workspace, project_id):
+        # Re-read under lock — another worker may have just dropped them.
+        try:
+            blob = json.loads(pj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if "extract_model" not in blob and "extract_params" not in blob:
+            return
+        blob.pop("extract_model", None)
+        blob.pop("extract_params", None)
+        atomic_write_json(pj, blob)
 
 
 async def _resync_slug(workspace: Path, slug: str) -> None:
@@ -151,9 +190,17 @@ async def _migrate_to_m91(workspace: Path, project_id: str, pdir: Path) -> None:
         )
         atomic_write_json(model_path(workspace, project_id, "m_default"), mc.model_dump(mode="json"))
 
-        # Stamp project.json with active pointers (preserve legacy fields for transition)
+        # Stamp project.json with active pointers AND lazily drop the legacy
+        # `extract_model` / `extract_params` fields — runtime extract has long
+        # since switched to `models/{active_model_id}.json` (`read_active_model`),
+        # so leaving these in the blob just confuses the agent on `Read
+        # project.json`. Idempotent: pop is no-op when keys are absent, so a
+        # second migrate pass on an already-cleaned blob doesn't churn the
+        # file.
         project["active_prompt_id"] = "pr_baseline"
         project["active_model_id"] = "m_default"
+        project.pop("extract_model", None)
+        project.pop("extract_params", None)
         atomic_write_json(pj_path, project)
 
         _log.info(

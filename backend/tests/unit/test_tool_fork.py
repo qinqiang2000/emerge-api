@@ -47,8 +47,6 @@ def _seed_src(workspace: Path, src_slug: str) -> None:
         "active_prompt_id": "pr_baseline",
         "active_model_id": "m_default",
         "active_version_id": "v3",
-        "extract_model": "gemini-2.5-flash",
-        "extract_params": {"temperature": 0.0},
         "published_ids": ["pub_legacyabc123"],
     })
     for pid_name in ("pr_baseline", "pr_variant"):
@@ -104,6 +102,10 @@ async def test_fork_copies_prompts_models_rewrites_project_json(workspace: Path)
     assert new_blob["active_prompt_id"] == "pr_baseline"
     assert new_blob["active_model_id"] == "m_default"
     assert "created_at" in new_blob
+    # Post-Phase-2 plan: legacy `extract_model` / `extract_params` not copied
+    # into the fork — runtime extract reads `models/{active_model_id}.json`.
+    assert "extract_model" not in new_blob
+    assert "extract_params" not in new_blob
 
     assert prompt_path(workspace, new_slug, "pr_baseline").exists()
     assert prompt_path(workspace, new_slug, "pr_variant").exists()

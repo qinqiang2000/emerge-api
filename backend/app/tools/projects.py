@@ -195,7 +195,7 @@ async def create_project(
 
         mc = ModelConfig(
             model_id="m_default",
-            label=f"Default ({settings.default_extract_model})",
+            label="Default",
             provider=infer_provider_from_model_id(settings.default_extract_model),
             provider_model_id=settings.default_extract_model,
             params={"temperature": 0.0},
@@ -213,8 +213,6 @@ async def create_project(
             "active_model_id": "m_default",
             "active_version_id": None,
             "autoresearch_proposer_model": None,
-            "extract_model": settings.default_extract_model,
-            "extract_params": {"temperature": 0.0},
             # `labeler_model` is intentionally null at init: leave it empty
             # and let `_resolve_labeler_model` fall through to
             # `EMERGE_DEFAULT_LABELER_MODEL` at call-time. Only `set_labeler_model`
