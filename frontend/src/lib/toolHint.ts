@@ -68,7 +68,6 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
       return parts.length ? parts.join(' · ') : null
     }
     case 'extract_one':
-    case 'extract_batch':
     case 'label_docs':
     case 'save_reviewed': {
       const fn = typeof o.filename === 'string' ? o.filename : null
@@ -138,12 +137,6 @@ function unsafeToolShortHint(toolName: string, result: unknown): string | null {
       if (typeof result !== 'string') return null
       const n = countPyDicts(result)
       return n === null ? null : `${n} projects`
-    }
-    case 'extract_batch': {
-      const o = asObj(result)
-      const ok = typeof o?.ok_count === 'number' ? o.ok_count : null
-      const err = typeof o?.err_count === 'number' ? o.err_count : null
-      return ok === null || err === null ? null : `${ok}/${ok + err} ok`
     }
     case 'score': {
       const o = asObj(result)

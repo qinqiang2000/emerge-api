@@ -792,29 +792,6 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": str(out)}]}
 
     @tool(
-        "extract_batch",
-        "Extract over a list of documents (foreground). `filenames` is a list "
-        "of on-disk filenames (the doc handles).",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "filenames": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["slug", "filenames"],
-        },
-    )
-    async def t_extract_batch(args: dict[str, Any]) -> dict[str, Any]:
-        if args.get("slug") == _UNBOUND_SLUG:
-            return {"content": [{"type": "text", "text": _json.dumps(
-                _chat_not_bound_error("extract_batch")
-            )}]}
-        summary = await extract_mod.extract_batch(
-            workspace, args["slug"], args["filenames"], provider=provider
-        )
-        return {"content": [{"type": "text", "text": str(summary)}]}
-
-    @tool(
         "save_reviewed",
         "Save a corrected extraction as ground truth for a doc. "
         "`notes_consumed` is an audit-trail map keyed by field name; it is "
@@ -1230,7 +1207,6 @@ def build_emerge_mcp(
             t_promote_experiment,
             t_fork_project,
             t_extract_one,
-            t_extract_batch,
             t_save_reviewed,
             t_score,
             t_readiness_check,
@@ -1264,7 +1240,7 @@ _EMERGE_TOOL_NAMES = (
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment",
     "fork_project",
-    "extract_one", "extract_batch",
+    "extract_one",
     "save_reviewed",
     "score",
     "start_job", "get_job", "pause_job", "resume_job", "cancel_job",

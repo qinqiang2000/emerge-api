@@ -86,7 +86,17 @@ class GoogleProvider(Provider):
                 )
             except Exception as e:  # noqa: BLE001
                 msg = str(e).lower()
-                if "rate" in msg or "429" in msg or "503" in msg or "504" in msg or "timeout" in msg:
+                retryable = (
+                    "rate" in msg
+                    or "429" in msg
+                    or "503" in msg
+                    or "504" in msg
+                    or "timeout" in msg
+                    or "disconnect" in msg
+                    or "remoteprotocol" in msg
+                    or "incomplete" in msg
+                )
+                if retryable:
                     raise RetryableError(str(e)) from e
                 raise
 

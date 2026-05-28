@@ -88,49 +88,6 @@ async def test_extract_one_invalid_json_returns_error(workspace: Path, stub_prov
         await extract_one(workspace, pid, did, provider=stub_provider)
 
 
-from app.tools.extract import extract_batch
-
-
-async def test_extract_batch_runs_all_docs(workspace: Path, stub_provider: AsyncMock) -> None:
-    pid = (await create_project(workspace, name="x"))["slug"]
-    pdf = _FIXTURE.read_bytes()
-    d1 = (await upload_doc(workspace, pid, pdf, "a.pdf"))["filename"]
-    d2 = (await upload_doc(workspace, pid, pdf, "b.pdf"))["filename"]
-    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
-
-    stub_provider.extract.return_value = make_provider_result(
-        {"entities": [{"invoice_no": "X", "total_amount": 1.0}], "_evidence": [{"invoice_no": 1, "total_amount": 1}]}
-    )
-
-    summary = await extract_batch(workspace, pid, [d1, d2], provider=stub_provider, concurrency=2)
-    assert summary["ok_count"] == 2
-    assert summary["err_count"] == 0
-    assert set(summary["per_doc"].keys()) == {d1, d2}
-    # entities now bubble up so agent can summarize without re-calling extract_one
-    assert summary["per_doc"][d1]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
-    assert summary["per_doc"][d2]["entities"] == [{"invoice_no": "X", "total_amount": 1.0}]
-    # M14 — each per-doc blob self-stamps with `_run` (kind=baseline).
-    for did in (d1, d2):
-        blob = json.loads(
-            (workspace / pid / "predictions" / "_draft" / f"{did}.json").read_text()
-        )
-        assert blob["_run"]["kind"] == "baseline"
-        assert blob["_run"]["extract_model"] == "gemini-2.5-flash"
-
-
-async def test_extract_batch_records_per_doc_errors(workspace: Path, stub_provider: AsyncMock) -> None:
-    pid = (await create_project(workspace, name="x"))["slug"]
-    pdf = _FIXTURE.read_bytes()
-    d1 = (await upload_doc(workspace, pid, pdf, "a.pdf"))["filename"]
-    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
-
-    stub_provider.extract.side_effect = ValueError("boom")
-    summary = await extract_batch(workspace, pid, [d1], provider=stub_provider)
-    assert summary["ok_count"] == 0
-    assert summary["err_count"] == 1
-    assert summary["per_doc"][d1]["ok"] is False
-    assert "boom" in summary["per_doc"][d1]["error"]
-
 
 async def test_extract_one_reads_schema_from_active_prompt(
     workspace: Path, stub_provider: AsyncMock

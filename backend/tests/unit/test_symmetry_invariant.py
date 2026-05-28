@@ -100,7 +100,6 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "promote_experiment":      ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/promote$"),
     # Extract + score + readiness + contract-diff
     "extract_one":     ("POST", r"^/lab/projects/\{slug\}/extract$"),
-    "extract_batch":   ("POST", r"^/lab/projects/\{slug\}/extract/batch$"),
     "save_reviewed":   ("POST", r"^/lab/projects/\{slug\}/reviewed/\{filename:path\}$"),
     "score":           ("POST", r"^/lab/projects/\{slug\}/score$"),
     "readiness_check": ("GET",  r"^/lab/projects/\{slug\}/readiness$"),

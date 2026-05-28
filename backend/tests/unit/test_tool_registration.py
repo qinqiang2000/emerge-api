@@ -24,7 +24,6 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "derive_schema",
         "write_schema",
         "extract_one",
-        "extract_batch",
         "pdf_render_page",
         "read_doc_image",
         # M2A additions

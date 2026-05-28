@@ -37,8 +37,8 @@ The loop optimizes against `field_accuracy_macro` (M12.x — was macro_f1
 before; the per-turn events still emit the old key as a transitional
 alias with the same value, so legacy JSONL readers don't break).
 
-Do NOT call extract_one / extract_batch / score yourself in the /improve
-turn - the job loop owns those.
+Do NOT call extract_one / score yourself in the /improve turn — the
+job loop owns those.
 
 ## Slash commands relevant here
 

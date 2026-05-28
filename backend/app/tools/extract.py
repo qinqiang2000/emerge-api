@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -256,68 +255,3 @@ async def extract_bytes_with_schema(
     return parsed.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
-async def extract_batch(
-    workspace: Path,
-    project_id: str,
-    filenames: list[str],
-    *,
-    provider: Provider | None = None,
-    model_id: str | None = None,
-    concurrency: int = 4,
-) -> dict[str, Any]:
-    sem = asyncio.Semaphore(concurrency)
-    per_doc: dict[str, dict[str, Any]] = {}
-
-    async def _run_one(fn: str) -> None:
-        async with sem:
-            try:
-                payload = await extract_one(
-                    workspace, project_id, fn, provider=provider, model_id=model_id,
-                )
-                per_doc[fn] = {"ok": True, "entities": payload.get("entities", [])}
-            except Exception as e:  # noqa: BLE001
-                per_doc[fn] = {"ok": False, "error": str(e)}
-
-    await asyncio.gather(*(_run_one(f) for f in filenames))
-    ok = sum(1 for v in per_doc.values() if v["ok"])
-    err = sum(1 for v in per_doc.values() if not v["ok"])
-
-    # M12.x.d — echo (model, prompt) identity in the tool result so the
-    # chat agent can narrate "gemini-2.5-flash + baseline" instead of
-    # leaving the model/prompt anchor implicit. Resolution is best-effort:
-    # if the project is mid-migration or missing an active prompt/model,
-    # the fields stay None and the agent falls back to its old phrasing.
-    used_model_id: str | None = model_id
-    used_extract_model: str | None = None
-    used_model_label: str | None = None
-    used_prompt_id: str | None = None
-    used_prompt_label: str | None = None
-    try:
-        from app.tools.model import read_active_model, read_model
-        if used_model_id is None:
-            mc = await read_active_model(workspace, project_id)
-        else:
-            mc = await read_model(workspace, project_id, used_model_id)
-        used_model_id = mc.model_id
-        used_extract_model = mc.provider_model_id
-        used_model_label = mc.label
-    except Exception:
-        pass
-    try:
-        from app.tools.prompt import read_active_prompt
-        pv = await read_active_prompt(workspace, project_id)
-        used_prompt_id = pv.prompt_id
-        used_prompt_label = pv.label
-    except Exception:
-        pass
-
-    return {
-        "ok_count": ok,
-        "err_count": err,
-        "per_doc": per_doc,
-        "model_id": used_model_id,
-        "extract_model": used_extract_model,
-        "model_label": used_model_label,
-        "prompt_id": used_prompt_id,
-        "prompt_label": used_prompt_label,
-    }

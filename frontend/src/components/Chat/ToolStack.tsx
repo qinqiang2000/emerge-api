@@ -22,6 +22,16 @@ export default function ToolStack({ children, defaultOpen = false }: Props) {
   const count = kids.length
   if (count === 0) return null
 
+  // Derive per-stack progress so concurrent extract / label tool calls show
+  // "X/N done" while in flight — no SSE plumbing needed, the running/done
+  // split is already on each child's `status` prop. We only surface this
+  // when there's at least one still running and the stack has >1 calls
+  // (single-tool stacks already render their own status).
+  const running = kids.filter(k => k.props.status === 'run').length
+  const errored = kids.filter(k => k.props.status === 'err').length
+  const done = count - running
+  const showProgress = count > 1 && running > 0
+
   return (
     <div className={`tstack${open ? ' open' : ''}`} data-testid="tool-stack">
       <div
@@ -35,6 +45,12 @@ export default function ToolStack({ children, defaultOpen = false }: Props) {
         <span>{t('tool.ran')}</span>
         <span className="cnt">{count}</span>
         <span>{count === 1 ? t('tool.tool') : t('tool.tools')}</span>
+        {showProgress && (
+          <span className="ts-progress" data-testid="ts-progress">
+            · {done}/{count}
+            {errored > 0 && <span className="ts-err"> · {errored} failed</span>}
+          </span>
+        )}
         <span className="chev">›</span>
       </div>
       <div className="ts-tree" aria-hidden={!open}>

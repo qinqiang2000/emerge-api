@@ -110,7 +110,7 @@ the user and ask them to re-run `/publish`.
 
 ## What you do NOT do here
 
-- Do NOT call `extract_one`, `extract_batch`, `derive_schema`, `score`, or
+- Do NOT call `extract_one`, `derive_schema`, `score`, or
   `start_job` from this skill. Those are extractor-skill territory.
 - Do NOT mutate `schema.json` from this skill. If readiness says the schema is
   missing something or has a breaking change, route the user back to the

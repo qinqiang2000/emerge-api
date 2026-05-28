@@ -53,8 +53,8 @@ from app.workspace.staging import (
 
 
 # Filename suffix → Anthropic image media type. PDFs deliberately excluded:
-# the agent reaches PDF docs via tools (`extract_one` / `extract_batch`), not
-# vision inlining, so we don't inflate the user-message token cost.
+# the agent reaches PDF docs via tools (`extract_one`), not vision inlining,
+# so we don't inflate the user-message token cost.
 _IMAGE_MEDIA_TYPE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
 
 # Attachment kinds whose bytes we want inlined as image blocks. `doc` is the
@@ -215,7 +215,7 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
             f"You are in an **unbound chat** (no project), chat_id=`{chat_id}`. "
             "Chat history and attachments live under `_chats/`. "
             "Project-scoped tools (`derive_schema`, `write_schema`, "
-            "`extract_batch`, `promote_attachment_to_docs`, `label_docs`, …) "
+            "`extract_one`, `promote_attachment_to_docs`, `label_docs`, …) "
             "will raise `chat_not_bound` if called from here. "
             "If the user expresses project intent (`/init`, \"build a schema "
             "for these\", \"make this a project\"), ASK for a name first, "

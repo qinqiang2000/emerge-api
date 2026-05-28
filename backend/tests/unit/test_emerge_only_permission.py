@@ -21,7 +21,7 @@ from app.chat.permissions import GateDecision, classify
 @pytest.mark.parametrize("name", [
     "mcp__emerge_tools__list_projects",
     "mcp__emerge_tools__write_schema",
-    "mcp__emerge_tools__extract_batch",
+    "mcp__emerge_tools__extract_one",
 ])
 def test_emerge_mcp_tools_always_allow(name: str, workspace: Path) -> None:
     decision = classify(name, {}, workspace_root=workspace)

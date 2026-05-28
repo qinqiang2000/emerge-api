@@ -1,7 +1,6 @@
 """HTTP coverage for the M11 Phase B T10 lab routes:
 
 * `POST /lab/projects/{slug}/extract` — wraps `extract_one`
-* `POST /lab/projects/{slug}/extract/batch` — wraps `extract_batch`
 * `POST /lab/projects/{slug}/score` — wraps `score`
 * `GET  /lab/projects/{slug}/readiness` — wraps `readiness_check`
 * `GET  /lab/projects/{slug}/contract-diff` — wraps `contract_diff`
@@ -15,11 +14,9 @@ that route; `test_v1_extract.py` covers it.
 """
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -139,97 +136,6 @@ async def test_extract_one_422_on_missing_filename(workspace: Path) -> None:
     client = TestClient(app)
     r = client.post(f"/lab/projects/{slug}/extract", json={})
     assert r.status_code == 422, r.text
-
-
-# ---------------------------------------------------------------------------
-# POST /lab/projects/{slug}/extract/batch  (extract_batch)
-# ---------------------------------------------------------------------------
-
-
-async def test_extract_batch_sync_for_small_input(
-    workspace: Path, monkeypatch,
-) -> None:
-    """≤8 filenames → returns the full batch summary inline. No job_id."""
-    slug = await _seed_basic_project(workspace)
-    filenames = [await _seed_doc(workspace, slug, f"d{i}.png") for i in range(3)]
-    stub = _stub_provider({"entities": [{"invoice_no": "INV-X"}]})
-    _patch_provider(monkeypatch, stub)
-
-    client = TestClient(app)
-    r = client.post(
-        f"/lab/projects/{slug}/extract/batch", json={"filenames": filenames},
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    # Sync shape mirrors `extract_batch` return: aggregate counts + per-doc.
-    assert "job_id" not in body
-    assert body["ok_count"] == 3
-    assert body["err_count"] == 0
-    assert set(body["per_doc"].keys()) == set(filenames)
-    for fn in filenames:
-        assert body["per_doc"][fn]["ok"] is True
-
-
-async def test_extract_batch_async_for_large_input(
-    workspace: Path, monkeypatch,
-) -> None:
-    """>8 filenames → returns `{job_id, status}` and the actual work
-    happens on a background task. Polling the status route eventually
-    reports `done` with the same per-doc shape the sync path produces.
-
-    Uses ``httpx.AsyncClient`` + ``ASGITransport`` instead of ``TestClient``
-    because ``TestClient`` spins up (and tears down) an event loop per
-    request — orphaned ``asyncio.create_task`` calls never get to run.
-    Same single-loop the async test runs in keeps the batch task alive.
-    """
-    slug = await _seed_basic_project(workspace)
-    filenames = [await _seed_doc(workspace, slug, f"d{i}.png") for i in range(9)]
-    stub = _stub_provider({"entities": [{"invoice_no": "INV-X"}]})
-    _patch_provider(monkeypatch, stub)
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        r = await client.post(
-            f"/lab/projects/{slug}/extract/batch",
-            json={"filenames": filenames},
-        )
-        assert r.status_code == 200, r.text
-        body = r.json()
-        job_id = body.get("job_id")
-        assert isinstance(job_id, str) and job_id.startswith("j_")
-        assert body["status"] == "running"
-
-        # Pump the loop until the background task finishes (50 * 0.05s = 2.5s).
-        final = None
-        for _ in range(50):
-            s = await client.get(f"/lab/projects/{slug}/extract/batch/{job_id}")
-            assert s.status_code == 200
-            final = s.json()
-            if final["status"] != "running":
-                break
-            await asyncio.sleep(0.05)
-        assert final is not None and final["status"] == "done", final
-        assert final["result"]["ok_count"] == 9
-
-
-async def test_extract_batch_status_404_unknown_job(workspace: Path) -> None:
-    """Unknown job_id → structured 404 envelope."""
-    slug = await _seed_basic_project(workspace)
-    client = TestClient(app)
-    r = client.get(f"/lab/projects/{slug}/extract/batch/j_doesnotexist0")
-    assert r.status_code == 404
-    assert r.json()["detail"]["error_code"] == "job_not_found"
-
-
-async def test_extract_batch_404_on_unknown_slug() -> None:
-    """Slug doesn't exist → 404 before any provider work begins."""
-    client = TestClient(app)
-    r = client.post(
-        "/lab/projects/does-not-exist/extract/batch",
-        json={"filenames": ["a.pdf"]},
-    )
-    assert r.status_code == 404
-    assert r.json()["detail"]["error_code"] == "project_not_found"
 
 
 # ---------------------------------------------------------------------------

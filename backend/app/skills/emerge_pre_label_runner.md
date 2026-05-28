@@ -56,7 +56,7 @@ means:
 ## Hard rules (red lines)
 
 - **Only call:** `label_docs`, `get_labeler_config`, `Glob`. Nothing else.
-- **Never call:** `extract_one`, `extract_batch`, `write_schema`,
+- **Never call:** `extract_one`, `write_schema`,
   `derive_schema`, `save_reviewed`, `promote_*`, `freeze_version`,
   `issue_api_key`, or any `ui_*` tool. These are out of scope; let the
   parent agent handle them.

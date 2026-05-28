@@ -40,7 +40,6 @@ In an unbound chat:
     - `derive_schema`
     - `write_schema`
     - `extract_one`
-    - `extract_batch`
     - `promote_attachment_to_docs`
     - `label_docs` (and the `pre_label_runner` subagent that drives it)
 
@@ -122,7 +121,7 @@ built-ins for anything not here).
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project` (whole-project rmtree — confirm first), `promote_attachment_to_docs`.
 - **Active prompt / model mutation**: `write_schema` (schema and/or `global_notes` — see red lines, the only legal mutation path), `switch_active_prompt`, `switch_active_model`, `set_labeler_model`, `get_labeler_config`.
-- **Provider HTTP calls**: `derive_schema`, `extract_one` / `extract_batch`, `extract_with_experiment`, `label_docs` (atomic small-batch pro-label; for batches >10, delegate to the `pre_label_runner` subagent via the `Agent` tool).
+- **Provider HTTP calls**: `derive_schema`, `extract_one`, `extract_with_experiment`, `label_docs` (atomic small-batch pro-label; for batches >10, delegate to the `pre_label_runner` subagent via the `Agent` tool).
 - **Reviewed lifecycle**: `save_reviewed` (atomic `_pending/` cleanup).
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
@@ -204,9 +203,9 @@ Routing for chat attachments:
   user drops 3+ similar files): ask first —
   "要把这 N 张图收进项目样本集（docs/）吗？" Only on confirm: call
   `promote_attachment_to_docs` per file, then proceed with
-  `derive_schema` → `write_schema` → `extract_batch`.
-- **PDFs**: `extract_one` / `extract_batch` require the file in `docs/`
-  — promote first (same ack rule).
+  `derive_schema` → `write_schema` → parallel `extract_one` per file.
+- **PDFs**: `extract_one` requires the file in `docs/` — promote first
+  (same ack rule).
 
 On the first turn after an empty-hero drop:
 
@@ -223,7 +222,7 @@ On the first turn after an empty-hero drop:
    the attachments to `docs/`; on confirm, `promote_attachment_to_docs`
    per file, then (optional) rename the project via `Bash mv`, then
    `derive_schema(sample=3, intent=...)` → `write_schema(allow_structural=true,
-   reason="initial bootstrap")` → `extract_batch`.
+   reason="initial bootstrap")` → parallel `extract_one` per file.
 3. **Project selected + schema-change intent** ("缺 BRN 字段"): propose
    a diff, get confirmation, then `write_schema(allow_structural=true)`.
 4. **Description-text only edit** ("把 document_type 描述改为…"): apply
@@ -312,8 +311,8 @@ promotes to ground truth.
 
 ## Long-running tools — say hi, then say bye
 
-`label_docs`, `extract_batch`, `run_experiment_eval`, `score` (large
-`reviewed/` sets), and bulk `extract_with_experiment` runs all sit
+`label_docs`, `run_experiment_eval`, `score` (large `reviewed/` sets),
+and bulk parallel `extract_one` / `extract_with_experiment` runs all sit
 behind an indeterminate spinner card for 10s-several minutes. The
 frontend cannot tell the user where in the pipeline you are. **You are
 the only progress signal.**
@@ -367,10 +366,12 @@ NOT wired up — using it errors as an unknown tool.
 
 ## Tool usage hints
 
-- `extract_batch` returns `{ok_count, err_count, per_doc}` where each
-  `per_doc[filename]` includes the extracted `entities`. After a
-  successful batch, summarize directly from this return value — do NOT
-  re-call `extract_one` per doc.
+- For multi-doc extraction, fire **parallel `extract_one`** calls (one
+  per filename) in the same turn — the SDK runs them concurrently and
+  each one's tool_call/tool_result lands as its own event, so the UI
+  renders X/N progress in the ToolStack automatically. Don't loop
+  serially. Each `extract_one` returns the prediction payload directly;
+  summarize from the collected results.
 - Need the active prompt's fields to format your response? `Read
   {CURRENT_PROJECT_DIR}/prompts/{active_prompt_id}.json` once at most —
   don't re-read inside loops.
@@ -414,7 +415,7 @@ NOT wired up — using it errors as an unknown tool.
 ## Slash commands handled by this skill
 
 - `/new` — start a new project (will prompt for sample docs / intent).
-- `/extract` — run `extract_batch` over all (or specified) docs.
+- `/extract` — fire parallel `extract_one` over all (or specified) docs.
 - `/eval` — requires reviewed examples; computes precision/recall/F1 vs
   reviewed examples; persists a metrics snapshot.
 - `/review` — opens review mode on first un-reviewed doc.
@@ -529,7 +530,7 @@ about the current doc. All five take `slug` + `filename`; `slug` is from
   the question is about labels, descriptions, or schema state, answer
   from JSON tools (`Read` on `predictions/_draft/`, `reviewed/`, the
   active prompt; `get_surface_state`) without calling this one. Do NOT
-  call `extract_one` / `extract_batch` just to "see" a doc — extract
+  call `extract_one` just to "see" a doc — extract
   produces structured JSON via a separate LLM call; `read_doc_image`
   gives you direct vision at no extra LLM cost.
 

@@ -10,7 +10,7 @@ exercises after the M11-followup-D shim removal. No LLM is invoked.
 Branching mirrors the original ``/lab/chat`` stub: ``/publish`` drives the
 publish-modal e2e (readiness → freeze → issue_api_key → reveal); ``/extract``
 drives the extract-flow e2e; everything else falls through to the
-walking-skeleton default (create_project + extract_batch + agent_text).
+walking-skeleton default (create_project + extract_one + agent_text).
 
 State across POST start → GET stream: the message we branch on lives in the
 POST body, but the GET stream is a separate request. We stash the most recent
@@ -94,9 +94,9 @@ async def stub_stream_turn(
 
     * ``/publish`` → publish-modal flow (readiness → freeze → issue_api_key
       with one-time plaintext reveal).
-    * ``/extract`` → extract-flow stub (list_docs + extract_batch).
+    * ``/extract`` → extract-flow stub (list_docs + parallel extract_one).
     * else        → walking-skeleton default (create_project +
-                    extract_batch + ``Stub run complete``).
+                    extract_one + ``Stub run complete``).
     """
     msg = _PENDING_MSG.pop((cid, tid), "").lstrip()
     is_publish = msg.startswith("/publish")
@@ -111,9 +111,9 @@ async def stub_stream_turn(
             "ok": True,
         })}
         yield {"event": "tool_call", "data": json.dumps({
-            "tool_name": "extract_batch",
-            "tool_input": {"slug": "stubbed", "filenames": []},
-            "tool_result": {"ok_count": 0, "err_count": 0, "per_doc": {}},
+            "tool_name": "extract_one",
+            "tool_input": {"slug": "stubbed", "filename": "stub.pdf"},
+            "tool_result": {"entities": []},
             "ok": True,
         })}
         yield {"event": "agent_text", "data": json.dumps({
@@ -208,10 +208,17 @@ async def stub_stream_turn(
             "ok": True,
         })}
         yield {"event": "tool_call", "data": json.dumps({
-            "tool_use_id": "tu_ext_batch",
-            "tool_name": "mcp__emerge_tools__extract_batch",
-            "tool_input": {"slug": "stubbed", "filenames": ["a.pdf", "b.pdf"]},
-            "tool_result": json.dumps({"ok_count": 2, "err_count": 0, "per_doc": {}}),
+            "tool_use_id": "tu_ext_a",
+            "tool_name": "mcp__emerge_tools__extract_one",
+            "tool_input": {"slug": "stubbed", "filename": "a.pdf"},
+            "tool_result": json.dumps({"entities": [{"invoice_no": "A"}]}),
+            "ok": True,
+        })}
+        yield {"event": "tool_call", "data": json.dumps({
+            "tool_use_id": "tu_ext_b",
+            "tool_name": "mcp__emerge_tools__extract_one",
+            "tool_input": {"slug": "stubbed", "filename": "b.pdf"},
+            "tool_result": json.dumps({"entities": [{"invoice_no": "B"}]}),
             "ok": True,
         })}
         yield {"event": "agent_text", "data": json.dumps({

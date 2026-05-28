@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ExtractionOutput(BaseModel):
-    """Wire format for extract_one / extract_batch tool output.
+    """Wire format for extract_one tool output.
 
     Field name `evidence` serializes as `_evidence` on the wire (LLM contract).
     """

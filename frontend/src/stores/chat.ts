@@ -1251,7 +1251,6 @@ function handleToolResult(
     if (
       t === 'mcp__emerge_tools__upload_doc' ||
       t === 'mcp__emerge_tools__save_reviewed' ||
-      t === 'mcp__emerge_tools__extract_batch' ||
       t === 'mcp__emerge_tools__extract_one' ||
       // label_docs writes reviewed/_pending/ drafts. Doc-list badges don't
       // change (pending status is independent of has_prediction/has_reviewed),
