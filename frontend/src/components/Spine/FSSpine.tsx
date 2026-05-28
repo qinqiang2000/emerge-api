@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './spine.css'
 
 import { useI18n, useT } from '../../i18n'
-import { navigateToReview } from '../../lib/slugUrl'
+import { navigateToReview, pathForBench } from '../../lib/slugUrl'
 import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
@@ -418,6 +418,27 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                     <span className="arrow">{open ? '▾' : '▸'}</span>
                     <span>{g.name}</span>
                     <span className="stamp">{g.count}</span>
+                    {/* ── experiments/ → open Bench leaderboard ─────────
+                        Secondary affordance: a small ↗ icon button that
+                        deep-links to `?bench=1`. stopPropagation so the
+                        click never bubbles up to toggleDir (which would
+                        also fire from the parent .branch.dir handler).
+                        Disabled when there's no active project. */}
+                    {g.name === 'experiments/' && (
+                      <button
+                        type="button"
+                        className="bench-open"
+                        aria-label={t('spine.experiments.open_bench')}
+                        title={t('spine.experiments.open_bench')}
+                        disabled={!selectedSlug}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (!selectedSlug) return
+                          window.history.pushState(null, '', pathForBench(selectedSlug))
+                          window.dispatchEvent(new PopStateEvent('popstate'))
+                        }}
+                      >↗</button>
+                    )}
                   </div>
                   {open && g.items.map((n, j) => {
                     if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>

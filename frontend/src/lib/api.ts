@@ -680,6 +680,21 @@ export async function runExperimentPrediction(
   return r.json()
 }
 
+// ── Bench (project-level prompt × model leaderboard) ──────────────────────
+import type { BenchResponse } from '../types/bench'
+
+/** Project-level bench aggregator. Pulls every non-archived experiment +
+ *  the synthetic baseline (active prompt × active model anchored to the
+ *  most recent `experiment_id is None` eval) and the per-(row, field)
+ *  cells used by the matrix UI. Throws on non-2xx — bench is mounted from
+ *  a modal, so a fetch failure should surface as an error banner rather
+ *  than degrading silently to an empty matrix. */
+export async function getBench(slug: string): Promise<BenchResponse> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/bench`)
+  if (!r.ok) throw new Error(`getBench ${r.status}`)
+  return r.json()
+}
+
 // ── Stage 2: project tree (for `@` mention) ────────────────────────────────
 export interface TreeEntry {
   name: string

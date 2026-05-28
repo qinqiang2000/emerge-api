@@ -10,6 +10,7 @@ from app.provider.base import Provider
 from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import SchemaField
 from app.tools import ask_user as ask_user_mod
+from app.tools import bench as bench_mod
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
@@ -743,6 +744,31 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
+        "bench_view",
+        "Project-level bench leaderboard: one row per non-archived experiment "
+        "+ a synthetic baseline row (when a baseline eval exists). Each row "
+        "carries `{prompt_id, model_id, status, score, delta, summary_ts, "
+        "cells: {field: {correct, total, strip}}}`. Pure read; no LLM calls. "
+        "Use when the user asks 'which (prompt × model) is best' / 'show me "
+        "the leaderboard' / '哪个 experiment 跑得最好' — single shot avoids "
+        "the per-experiment ls+cat dance.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
+    )
+    async def t_bench_view(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("bench_view")
+            )}]}
+        out = await bench_mod.bench_view(workspace, args["slug"])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
         "fork_project",
         "Clone-at-time fork of an existing project. Copies project.json + "
         "prompts/ + models/ into a fresh project (new slug + pid). Skips chats, "
@@ -1205,6 +1231,7 @@ def build_emerge_mcp(
             t_extract_with_experiment,
             t_run_experiment_eval,
             t_promote_experiment,
+            t_bench_view,
             t_fork_project,
             t_extract_one,
             t_save_reviewed,
@@ -1239,6 +1266,7 @@ _EMERGE_TOOL_NAMES = (
     "switch_active_prompt", "switch_active_model",
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment",
+    "bench_view",
     "fork_project",
     "extract_one",
     "save_reviewed",

@@ -21,6 +21,10 @@ class ExperimentEval(BaseModel):
     per_doc: dict[str, float] = Field(default_factory=dict)
     run_id: str
     coverage: int
+    # M14-style audit link to the metrics/eval_<ts>/ dir that produced this
+    # score. New field — Optional for backwards-compat with pre-T1 meta.json.
+    # Bench backend uses this to route experiment row click → EvalMatrixModal.
+    summary_ts: Optional[str] = None
 
 
 class Experiment(BaseModel):

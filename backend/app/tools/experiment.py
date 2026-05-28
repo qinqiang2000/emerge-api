@@ -359,6 +359,9 @@ async def run_experiment_eval(
         per_doc=per_doc,
         run_id=f"r_{int(time.time())}",
         coverage=len(predictions),
+        # T1 (bench): audit link to metrics/eval_<ts>/ — same ts surfaced in
+        # the HTTP return (below) so Bench can route row click → EvalMatrix.
+        summary_ts=summary.ts,
     )
     async with project_lock(workspace, project_id):
         updated = ex.model_copy(update={"status": "ran", "eval": eval_blob})

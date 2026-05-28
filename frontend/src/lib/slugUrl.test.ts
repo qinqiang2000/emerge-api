@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { pathForChatId, pathForSlug, readChatIdFromPathname, readSlugFromPathname } from './slugUrl'
+import {
+  pathForBench,
+  pathForChatId,
+  pathForSlug,
+  readBenchOpenFromSearch,
+  readChatIdFromPathname,
+  readSlugFromPathname,
+} from './slugUrl'
 
 describe('readSlugFromPathname', () => {
   it('parses the slug out of /p/{slug}', () => {
@@ -97,5 +104,52 @@ describe('pathForChatId', () => {
     for (const id of ids) {
       expect(readChatIdFromPathname(pathForChatId(id))).toBe(id)
     }
+  })
+})
+
+// Bench leaderboard route — `/p/<slug>?bench=1`. Mirrors `?eval=<ts>` shape.
+// Bench is project-level (no sub-state) so the value is the literal `1`
+// rather than a meaningful payload — the presence of the param IS the state.
+describe('readBenchOpenFromSearch', () => {
+  it('returns true when ?bench=1 is present', () => {
+    expect(readBenchOpenFromSearch('?bench=1')).toBe(true)
+  })
+
+  it('returns true on a string without the leading "?"', () => {
+    expect(readBenchOpenFromSearch('bench=1')).toBe(true)
+  })
+
+  it('returns true when bench coexists with other params', () => {
+    expect(readBenchOpenFromSearch('?eval=2026-05-25&bench=1')).toBe(true)
+    expect(readBenchOpenFromSearch('?bench=1&review=foo.pdf')).toBe(true)
+  })
+
+  it('returns false when bench param is absent', () => {
+    expect(readBenchOpenFromSearch('')).toBe(false)
+    expect(readBenchOpenFromSearch('?eval=2026-05-25')).toBe(false)
+  })
+
+  it('returns false when bench param value is empty', () => {
+    // `?bench=` with no value is treated as "not open" — matches the
+    // readEvalTsFromSearch convention.
+    expect(readBenchOpenFromSearch('?bench=')).toBe(false)
+  })
+})
+
+describe('pathForBench', () => {
+  it('builds /p/{slug}?bench=1', () => {
+    expect(pathForBench('us-invoice')).toBe('/p/us-invoice?bench=1')
+  })
+
+  it('percent-encodes CJK slugs', () => {
+    expect(pathForBench('默沙东_小票')).toBe(
+      '/p/%E9%BB%98%E6%B2%99%E4%B8%9C_%E5%B0%8F%E7%A5%A8?bench=1',
+    )
+  })
+
+  it('round-trips with readBenchOpenFromSearch', () => {
+    const url = pathForBench('us-invoice')
+    const qs = url.slice(url.indexOf('?'))
+    expect(readBenchOpenFromSearch(qs)).toBe(true)
   })
 })

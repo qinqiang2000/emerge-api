@@ -9,6 +9,7 @@ import PromptQuickLook from './components/QuickLook/PromptQuickLook'
 import PanelToggle from './components/Shell/PanelToggle'
 import EvalMatrixModal from './components/EvalMatrix/EvalMatrixModal'
 import EvalCompare from './components/EvalMatrix/EvalCompare'
+import BenchOverlay from './components/Bench/BenchOverlay'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
@@ -16,6 +17,7 @@ import {
   pathForChatId,
   pathForEvalMatrix,
   pathForSlug,
+  readBenchOpenFromSearch,
   readChatIdFromPathname,
   readEvalRouteFromUrl,
   readEvalTsFromSearch,
@@ -25,13 +27,17 @@ import {
   searchWithoutParam,
 } from './lib/slugUrl'
 
-// `?review` and `?eval` are scoped to a specific project. When the URL
-// transitions across project boundaries (root → /p/A, /p/A → /p/B), carrying
-// them over would land the new project's review surface on a doc that may
-// not even exist there. Within a single project they are preserved so the
-// matrix → review → matrix back-button loop keeps state.
+// `?review`, `?eval`, and `?bench` are scoped to a specific project. When the
+// URL transitions across project boundaries (root → /p/A, /p/A → /p/B),
+// carrying them over would land the new project's overlays on artifacts that
+// may not even exist there. Within a single project they are preserved so
+// the matrix → review → matrix back-button loop (and the bench → matrix
+// row-click drilldown) keep state.
 function stripProjectScopedParams(search: string): string {
-  return searchWithoutParam(searchWithoutParam(search, 'review'), 'eval')
+  return searchWithoutParam(
+    searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
+    'bench',
+  )
 }
 
 const KEY_LEFT_CHAT    = 'emerge.panel.leftHidden.chat'
@@ -95,6 +101,12 @@ export default function App() {
   const [reviewFilename, setReviewFilename] = useState<string | null>(() =>
     readReviewFilenameFromSearch(window.location.search),
   )
+  // `?bench=1` opens the project-level Bench leaderboard. No sub-state (one
+  // leaderboard per project), so the URL value is just the literal `1` and
+  // presence carries the open/close signal.
+  const [benchOpen, setBenchOpen] = useState<boolean>(() =>
+    readBenchOpenFromSearch(window.location.search),
+  )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
@@ -102,6 +114,7 @@ export default function App() {
       )
       setEvalTs(readEvalTsFromSearch(window.location.search))
       setReviewFilename(readReviewFilenameFromSearch(window.location.search))
+      setBenchOpen(readBenchOpenFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -199,12 +212,13 @@ export default function App() {
     if (target !== current) {
       window.history.pushState(null, '', target)
       // `pushState` doesn't fire popstate, so the project-scoped state mirrors
-      // (reviewFilename, evalTs) must be refreshed from the post-strip URL.
-      // Without this, switching projects keeps the stale review/eval values
-      // in React state and the URL→useReview effect below would still try to
-      // open the previous project's doc.
+      // (reviewFilename, evalTs, benchOpen) must be refreshed from the
+      // post-strip URL. Without this, switching projects keeps the stale
+      // values in React state and the URL→useReview effect below would still
+      // try to open the previous project's doc.
       setReviewFilename(readReviewFilenameFromSearch(window.location.search))
       setEvalTs(readEvalTsFromSearch(window.location.search))
+      setBenchOpen(readBenchOpenFromSearch(window.location.search))
     }
   }, [selectedSlug, loadedUnboundChatId])
 
@@ -365,9 +379,48 @@ export default function App() {
           ALSO active (`?eval=<ts>&review=<f>`), the modal stays mounted but
           hidden so review can layer on top without us losing matrix state
           (scroll/filter/drilldown/maximized) on the way back. The user
-          dropping `?review` reveals the matrix exactly where they left it. */}
+          dropping `?review` reveals the matrix exactly where they left it.
+          Bench overlay is layered the same way: bench → row click drills
+          into the matrix while keeping `?bench=1` in the URL, so closing
+          the matrix returns to bench instead of dropping back to chat. */}
       {evalTs && selectedSlug && (
         <EvalMatrixModal slug={selectedSlug} ts={evalTs} hidden={!!reviewFilename} />
+      )}
+
+      {/* Bench leaderboard overlay — mounts on `?bench=1`. Row click pushes
+          `?bench=1&eval=<summary_ts>` keeping bench in the URL; the
+          EvalMatrix layers on top via `hidden` (display:none on this
+          overlay while eval is in front), and closing the matrix simply
+          strips `?eval=` → reveals bench in the exact selection / hover
+          state the user left it in. */}
+      {benchOpen && selectedSlug && (
+        <BenchOverlay
+          slug={selectedSlug}
+          hidden={!!evalTs}
+          onClose={() => {
+            const next = searchWithoutParam(window.location.search, 'bench')
+            const target = pathForSlug(selectedSlug, next, window.location.hash)
+            if (target !== window.location.pathname + window.location.search + window.location.hash) {
+              window.history.pushState(null, '', target)
+            }
+            setBenchOpen(false)
+          }}
+          onOpenRow={(row) => {
+            if (!row.summary_ts) return
+            // Layer eval on top of bench by appending `?eval=<ts>` to the
+            // current search instead of replacing it. Strip any stale eval
+            // first so re-opening a different row doesn't accumulate. We
+            // construct the URL by hand (rather than via pathForEvalMatrix)
+            // because that helper drops sibling params — exactly the wrong
+            // behavior here.
+            const cleaned = searchWithoutParam(window.location.search, 'eval')
+            const sep = cleaned.startsWith('?') ? '&' : '?'
+            const search = `${cleaned}${sep}eval=${encodeURIComponent(row.summary_ts)}`
+            const target = `/p/${encodeURIComponent(selectedSlug)}${search}${window.location.hash}`
+            window.history.pushState(null, '', target)
+            setEvalTs(row.summary_ts)
+          }}
+        />
       )}
     </>
   )

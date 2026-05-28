@@ -1,0 +1,227 @@
+/* Bench surface — project-level (prompt × model) leaderboard.
+ *
+ * This file ports the `.b-*` selectors used by the leaf components
+ * (BenchTopBar / BenchHeadline / AxisRail / BenchMatrix / BenchSelectionBar)
+ * from `docs/design_docs/styles.css`. Raw `rgba(...)` color literals from
+ * the demo were swapped for `--paper-*` / `--rule*` / `--ochre*` / `--moss*`
+ * / `--rose*` semantic tokens (CLAUDE.md red line: no raw hex / no Tailwind
+ * color class). A few tint backgrounds keep an `rgba(...)` form because the
+ * design intentionally washes 30-40% alpha over white — we use the matching
+ * semantic edge colour via CSS variable composition where the alpha is part
+ * of the token palette intent.
+ *
+ * Selectors NOT ported here (intentionally out of T5 scope):
+ *   .b-candidate-banner / .b-cand-* — AutoResearch banner (deferred)
+ *
+ * Ported in T7:
+ *   .b-diff-* / .b-line-added / .b-line-removed — BenchDiff modal
+ */
+
+/* ── shell scroll wrap (re-used by BenchOverlay shell in T6) ──────────── */
+.bench-root { position: relative; display: flex; flex-direction: column; background: var(--paper); overflow: hidden; height: 100%; }
+.bench-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 80px; position: relative; }
+.bench-body { max-width: 1380px; margin: 0 auto; padding: 28px 32px 24px; display: flex; flex-direction: column; gap: 22px; }
+
+/* ── top bar ──────────────────────────────────────────────────────────── */
+.b-topbar { display: flex; align-items: center; gap: 24px; padding: 10px 22px; border-bottom: 1px solid var(--rule); background: var(--paper); flex-shrink: 0; }
+.b-toprail { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.b-rail-meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.b-rail-meta strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.b-topbar-close { font-size: 18px; background: transparent; border: 0; color: var(--ink-3); cursor: pointer; width: 30px; height: 30px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.b-topbar-close:hover { background: var(--paper-3); color: var(--ink); }
+
+/* ── headline ─────────────────────────────────────────────────────────── */
+.b-headline { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.b-headline-best { display: flex; align-items: baseline; gap: 12px; }
+.b-headline-h { font-family: var(--mono); font-size: 11px; color: var(--ink-4); text-transform: uppercase; letter-spacing: .16em; }
+.b-headline-pct { font-family: var(--serif); font-size: 44px; line-height: 1; color: var(--ink); font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.b-pct-sm { font-size: 24px; color: var(--ink-3); margin-left: 2px; }
+.b-headline-by { display: inline-flex; align-items: center; gap: 8px; margin-left: 6px; }
+.b-headline-x { font-family: var(--mono); font-size: 12px; color: var(--ink-4); }
+.b-headline-counts { font-family: var(--mono); font-size: 13px; color: var(--ink-3); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.b-headline-counts strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.b-h-sep { color: var(--ink-5); }
+
+/* ── axis rails ───────────────────────────────────────────────────────── */
+.b-rails { display: flex; flex-direction: column; gap: 8px; background: var(--paper-2); border: 1px solid var(--rule-soft); border-radius: 10px; padding: 14px 16px; }
+.b-rail { display: flex; align-items: center; gap: 14px; }
+.b-rail-h { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-4); width: 60px; flex-shrink: 0; }
+.b-rail-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; }
+.b-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; font-family: var(--mono); font-size: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; color: var(--ink-2); cursor: pointer; transition: background .12s, border-color .12s, color .12s; white-space: nowrap; flex-shrink: 0; }
+.b-chip:hover { border-color: var(--ink-5); color: var(--ink); }
+.b-chip.active { border-color: var(--ochre); background: var(--ochre-soft); color: var(--ochre-2); font-weight: 500; }
+.b-chip.hover { box-shadow: 0 0 0 3px var(--ochre-soft); border-color: var(--ochre); }
+/* Pinned: persistent filter — heavier ring than transient hover, distinct
+   color (--moss) so user can tell "this chip is locked" at a glance even
+   after cursor leaves. */
+.b-chip.pinned { box-shadow: 0 0 0 2px var(--moss); border-color: var(--moss); color: var(--ink); font-weight: 500; }
+.b-chip.pinned.active { box-shadow: 0 0 0 2px var(--moss); }
+.b-chip.new { color: var(--ink-4); border-style: dashed; background: transparent; }
+.b-chip.new:hover { color: var(--ink-2); border-color: var(--ink-4); }
+/* Disabled placeholder: drop hover effects + not-allowed cursor so the chip
+   doesn't keep inviting clicks that do nothing. */
+.b-chip.new[disabled], .b-chip.new[aria-disabled="true"] {
+  cursor: not-allowed; opacity: .55;
+}
+.b-chip.new[disabled]:hover, .b-chip.new[aria-disabled="true"]:hover {
+  color: var(--ink-4); border-color: var(--rule);
+}
+.b-chip-refs { color: var(--ink-5); font-size: 10.5px; }
+.b-chip.active .b-chip-refs { color: var(--ochre-2); opacity: .6; }
+.b-star { font-size: 11px; line-height: 1; }
+
+/* ── matrix table ─────────────────────────────────────────────────────── */
+.b-matrix-wrap { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; overflow: auto; }
+.b-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); min-width: 1240px; }
+.b-matrix thead th { position: sticky; top: 0; background: var(--paper-2); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-4); font-weight: 500; padding: 11px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
+.b-matrix thead .b-th-overall, .b-matrix thead .b-th-actions { text-align: right; }
+.b-matrix thead .b-th-field { text-align: center; }
+.b-row { cursor: pointer; transition: background .1s, opacity .15s; }
+.b-row:hover { background: var(--paper-2); }
+/* selected rail uses --ochre at low alpha — kept as rgba derived from the */
+/* token's hex because Tailwind/CSS-var compose can't produce alpha here.   */
+.b-row.active { background: rgba(181, 100, 44, .04); }
+.b-row.active:hover { background: rgba(181, 100, 44, .07); }
+.b-row.selected { background: rgba(181, 100, 44, .08); box-shadow: inset 3px 0 0 var(--ochre); }
+.b-row.dimmed { opacity: .35; }
+.b-row td { padding: 10px 10px; border-bottom: 1px solid var(--rule-soft); vertical-align: middle; }
+.b-row:last-child td { border-bottom: 0; }
+.b-row-pick { padding: 10px 8px 10px 14px !important; cursor: pointer; }
+.b-pick { width: 16px; height: 16px; border: 1.5px solid var(--ink-5); border-radius: 4px; display: flex; align-items: center; justify-content: center; background: var(--paper); transition: border-color .12s, background .12s; }
+.b-pick:hover { border-color: var(--ochre); }
+.b-pick.on { background: var(--ochre); border-color: var(--ochre); }
+.b-pick-mark { color: #fff; font-size: 11px; line-height: 1; font-weight: bold; }
+
+/* axis chips inside rows */
+.b-axis-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-family: var(--mono); font-size: 11.5px; border-radius: 5px; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-axis-chip.model { color: var(--ink-3); }
+.b-axis-chip.active { border-color: var(--ochre-edge); background: var(--ochre-soft); color: var(--ochre-2); }
+.b-axis-chip.small { font-size: 11px; padding: 2px 7px; }
+
+/* cells */
+.b-cell { padding: 8px 10px !important; text-align: center; vertical-align: middle; border-left: 1px solid var(--rule-soft); }
+.b-cell-score { font-family: var(--mono); font-variant-numeric: tabular-nums; line-height: 1; display: flex; align-items: baseline; justify-content: center; gap: 1px; }
+.b-cell-score .num { font-size: 15px; color: var(--ink); font-weight: 600; }
+.b-cell-score .den { font-size: 10.5px; color: var(--ink-4); }
+.b-cell-strip { display: flex; justify-content: center; gap: 1px; margin-top: 4px; font-family: var(--mono); font-size: 9px; line-height: 1; }
+.b-tick { display: inline-block; width: 8px; text-align: center; }
+.b-tick.ok { color: var(--moss); }
+.b-tick.no { color: var(--rose); }
+.b-cell-pending { color: var(--ink-5); font-style: italic; font-size: 11px; }
+/* tint bands derived from --moss-soft / --ochre-soft / --rose-soft at low  */
+/* alpha — kept as rgba so the bands sit lighter than the chip equivalents. */
+.b-cell-ok { background: rgba(215, 219, 194, .4); }
+.b-cell-mid { background: rgba(239, 217, 196, .35); }
+.b-cell-bad { background: rgba(234, 201, 197, .35); }
+.b-cell-empty { background: var(--paper-2); }
+.b-cell-ok .b-cell-score .num { color: var(--moss-2); }
+.b-cell-bad .b-cell-score .num { color: var(--rose-2); }
+
+/* overall */
+.b-row-overall { text-align: right; font-family: var(--mono); padding-right: 14px !important; }
+.b-overall-num { font-size: 18px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.b-overall-pct { font-size: 11px; color: var(--ink-4); margin-left: 1px; }
+.b-overall-delta { font-size: 10.5px; font-variant-numeric: tabular-nums; margin-top: 3px; font-family: var(--mono); font-weight: 500; }
+.b-overall-delta.up { color: var(--moss-2); }
+.b-overall-delta.down { color: var(--rose-2); }
+.b-overall-pending { color: var(--ink-5); font-family: var(--mono); font-size: 11px; font-style: italic; }
+
+/* actions */
+.b-row-action { text-align: right; padding-right: 14px !important; }
+.b-action-active { font-family: var(--mono); font-size: 10.5px; color: var(--ochre-2); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
+.b-action-promote { font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 6px 12px; background: var(--ink); color: #fff; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: .02em; transition: background .12s; }
+.b-action-promote:hover { background: var(--ochre); }
+.b-action-run { font-family: var(--mono); font-size: 11px; padding: 6px 12px; background: transparent; color: var(--ink-3); border: 1px solid var(--rule); border-radius: 5px; cursor: pointer; letter-spacing: .02em; }
+.b-action-run:hover { color: var(--ink); border-color: var(--ink-5); background: var(--paper-2); }
+
+/* placeholder row — disabled until create-experiment lands; drop hover
+   invitation since clicking does nothing right now. */
+.b-row-new { cursor: default; }
+.b-row-new.disabled { opacity: .55; }
+.b-row-new.disabled .b-new-cell { cursor: not-allowed; }
+.b-new-cell { padding: 14px 14px !important; font-family: var(--mono); font-size: 12px; color: var(--ink-4); display: flex; align-items: center; gap: 8px; border-bottom: 0 !important; }
+.b-new-icon { font-size: 14px; color: var(--ink-3); width: 16px; text-align: center; }
+.b-new-hint { color: var(--ink-5); font-style: italic; font-family: var(--serif); }
+
+/* ── selection bar (floating) ─────────────────────────────────────────── */
+.b-selbar { position: sticky; bottom: 18px; margin: 18px 32px 0; display: flex; align-items: center; gap: 14px; padding: 11px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 27, 20, .16); font-family: var(--sans); font-size: 13px; z-index: 5; }
+.b-selbar-count strong { font-weight: 600; }
+.b-selbar-clear { font-family: var(--mono); font-size: 11px; background: transparent; border: 1px solid rgba(255, 255, 255, .2); color: rgba(255, 255, 255, .7); padding: 4px 10px; border-radius: 5px; cursor: pointer; letter-spacing: .02em; }
+.b-selbar-clear:hover { color: #fff; border-color: rgba(255, 255, 255, .4); }
+.b-selbar-btn { font-family: var(--mono); font-size: 12px; padding: 7px 16px; background: var(--ochre); color: #fff; border: 0; border-radius: 5px; cursor: pointer; font-weight: 500; letter-spacing: .02em; }
+.b-selbar-btn:hover:not(:disabled) { background: var(--ochre-2); }
+.b-selbar-btn:disabled { background: rgba(255, 255, 255, .15); color: rgba(255, 255, 255, .5); cursor: not-allowed; }
+.b-selbar-spacer { flex: 1; }
+
+/* ── diff modal (T7) ──────────────────────────────────────────────────── */
+/* Backdrop dim color uses rgba(--ink, .45) — see EvalMatrixModal for the   */
+/* same rationale: `--ink` is hex in tokens.css, so Tailwind/CSS-var alpha  */
+/* composition is unavailable; inline rgba derived from the token (#1B1A16)*/
+/* keeps the chat shell behind the modal legibly dimmed.                    */
+.b-diff-back { position: fixed; inset: 0; background: rgba(27, 26, 22, .45); backdrop-filter: blur(3px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 32px; }
+.b-diff-modal { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; width: 100%; max-width: 1100px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(31, 27, 20, .22); }
+.b-diff-hd { display: flex; align-items: center; justify-content: space-between; padding: 14px 22px; border-bottom: 1px solid var(--rule); background: var(--paper-2); flex-shrink: 0; }
+.b-diff-hd-l { display: flex; align-items: baseline; gap: 12px; }
+.b-diff-kind { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .16em; color: var(--moss-2); background: var(--moss-soft); padding: 3px 10px; border-radius: 4px; font-weight: 600; }
+.b-diff-title { font-family: var(--serif); font-size: 18px; color: var(--ink); font-weight: 600; margin: 0; letter-spacing: .005em; display: flex; align-items: baseline; gap: 10px; }
+.b-diff-title .arr { color: var(--ink-4); font-family: var(--mono); font-size: 14px; }
+.b-diff-x { font-size: 18px; background: transparent; border: 0; color: var(--ink-3); cursor: pointer; width: 30px; height: 30px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.b-diff-x:hover { background: var(--paper-3); color: var(--ink); }
+
+/* summary band — paper-2 fill so it reads as "header annex" not "panel".   */
+.b-diff-summary { display: flex; gap: 36px; padding: 18px 22px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.b-diff-summary-cell { display: flex; flex-direction: column; gap: 4px; }
+.b-diff-summary-cell .lbl { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-4); white-space: nowrap; }
+.b-diff-summary-cell .val { font-family: var(--mono); font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; gap: 8px; font-weight: 500; }
+.b-diff-summary-cell .val .arr { color: var(--ink-4); }
+.b-diff-summary-cell .val .pill { font-family: var(--mono); font-size: 11.5px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+.b-diff-summary-cell .val .pill.up { color: var(--moss-2); background: var(--moss-soft); }
+.b-diff-summary-cell .val .pill.down { color: var(--rose-2); background: var(--rose-soft); }
+.b-diff-summary-cell .val .pill.flat { color: var(--ink-4); background: var(--paper-3); }
+.b-diff-summary-cell .val .muted { color: var(--ink-4); font-style: italic; font-family: var(--serif); font-weight: 400; }
+
+/* per-field bars */
+.b-diff-fields { padding: 18px 22px; display: flex; flex-direction: column; gap: 8px; background: var(--paper); }
+.b-diff-fields-h { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-4); margin-bottom: 4px; white-space: nowrap; }
+.b-diff-fields-empty { font-family: var(--mono); font-size: 11.5px; color: var(--ink-5); font-style: italic; padding: 6px 0; }
+.b-diff-frow { display: grid; grid-template-columns: 170px 60px 18px 60px 1fr 60px; gap: 10px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--ink-2); padding: 5px 0; }
+.b-diff-fn { color: var(--ink); }
+.b-diff-base { color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.b-diff-arr { color: var(--ink-5); text-align: center; }
+.b-diff-targ { color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; font-weight: 500; }
+.b-diff-bar-wrap { height: 5px; background: var(--paper-3); border-radius: 3px; overflow: hidden; position: relative; }
+.b-diff-bar { display: block; height: 100%; border-radius: 3px; }
+.b-diff-bar.up { background: var(--moss); }
+.b-diff-bar.down { background: var(--rose); }
+.b-diff-bar.flat { background: var(--ink-5); }
+.b-diff-pill { font-family: var(--mono); font-size: 11px; text-align: center; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.b-diff-pill.up { color: var(--moss-2); background: var(--moss-soft); }
+.b-diff-pill.down { color: var(--rose-2); background: var(--rose-soft); }
+.b-diff-pill.flat { color: var(--ink-4); background: var(--paper-3); }
+
+/* prompt-text two-col diff */
+.b-diff-prompt { padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--rule-soft); overflow: hidden; flex: 1; min-height: 0; }
+.b-diff-prompt-h { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-4); white-space: nowrap; gap: 14px; }
+.b-diff-prompt-tag { text-transform: none; font-size: 10.5px; letter-spacing: .02em; font-style: italic; color: var(--ink-5); }
+.b-diff-prompt-loading { font-family: var(--mono); font-size: 12px; color: var(--ink-5); font-style: italic; padding: 14px 0; text-align: center; background: var(--paper-2); border-radius: 6px; }
+.b-diff-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1; min-height: 0; overflow: hidden; }
+.b-diff-col { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--paper); }
+.b-diff-col-hd { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--ink-2); padding: 8px 12px; background: var(--paper-2); border-bottom: 1px solid var(--rule-soft); text-transform: lowercase; }
+.b-diff-body { flex: 1; min-height: 0; overflow: auto; font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--ink-2); padding: 14px 14px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+/* faint rose / moss wash to telegraph "this is the older / newer side"     */
+/* — same intent as `.b-cell-bad` etc. above (rgba kept so the wash sits    */
+/* lighter than chip variants).                                              */
+.b-diff-body.base { background: rgba(234, 201, 197, .18); }
+.b-diff-body.targ { background: rgba(215, 219, 194, .22); }
+
+/* per-line markers — added (moss wash) + removed (rose wash + line-through) */
+.b-line-added { background: rgba(92, 107, 58, .18); color: var(--moss-2); font-weight: 500; border-radius: 2px; padding: 1px 0; }
+.b-line-removed { background: rgba(166, 69, 63, .18); color: var(--rose-2); text-decoration: line-through; border-radius: 2px; padding: 1px 0; }
+
+/* footer button strip */
+.b-diff-foot { display: flex; align-items: center; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--rule); background: var(--paper-2); flex-shrink: 0; }
+.b-diff-foot-spacer { flex: 1; }
+.b-diff-btn { font-family: var(--mono); font-size: 12px; padding: 7px 14px; border: 1px solid var(--rule); border-radius: 5px; background: var(--paper); color: var(--ink-2); cursor: pointer; letter-spacing: .02em; white-space: nowrap; }
+.b-diff-btn:hover { background: var(--paper-2); }
+.b-diff-btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.b-diff-btn.primary:hover { background: var(--ochre); }

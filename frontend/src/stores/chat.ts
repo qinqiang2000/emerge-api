@@ -18,6 +18,7 @@ import { dispatchUiAction } from '../lib/surfaceRouter'
 import { attachStream, cancelTurn, fetchTurnState, startTurn, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
+import { useBench } from './bench'
 import { useDocs } from './docs'
 import { useEval } from './eval'
 import { useExperiments } from './experiments'
@@ -37,6 +38,36 @@ export const UNBOUND_SLUG = '_chats'
 
 // Process-lifetime fallback when localStorage is unavailable (SSR / incognito).
 const _memChatIds = new Map<string, string>()
+
+// Chat ids minted by ``newChat`` / ``newUnboundChat`` that haven't been
+// persisted server-side yet (no first turn sent). ``enterProject`` runs a
+// multi-device reconciliation against the server-side chat list and, if the
+// local cid is missing from it, silently switches to the newest server chat
+// — without this guard, a freshly-clicked "+ new chat" gets yanked back to
+// the previous conversation the moment the user navigates away and returns.
+// Mirrored to localStorage so a reload between the mint and the first send
+// still respects the fresh-canvas intent.
+const LOCAL_ONLY_KEY_PREFIX = 'emerge.localOnly.'
+const _localOnlyChats = new Set<string>()
+
+function _markLocalOnly(cid: string): void {
+  _localOnlyChats.add(cid)
+  try { localStorage.setItem(LOCAL_ONLY_KEY_PREFIX + cid, '1') } catch { /* ignore */ }
+}
+
+function _unmarkLocalOnly(cid: string): void {
+  _localOnlyChats.delete(cid)
+  try { localStorage.removeItem(LOCAL_ONLY_KEY_PREFIX + cid) } catch { /* ignore */ }
+}
+
+function _isLocalOnly(cid: string): boolean {
+  if (_localOnlyChats.has(cid)) return true
+  try {
+    return localStorage.getItem(LOCAL_ONLY_KEY_PREFIX + cid) === '1'
+  } catch {
+    return false
+  }
+}
 
 function _readChatId(projectId: string): string | null {
   try {
@@ -401,6 +432,10 @@ export const useChat = create<State>((set, get) => ({
       // the await. If they have, leave their explicit pick alone.
       if (cur.chatId !== cid) return
       if (list.some(c => c.chat_id === cid)) return
+      // Freshly minted via newChat() and not yet sent — skip swap. The user
+      // is intentionally on a blank canvas; pulling them back to the previous
+      // chat would defeat the whole point of clicking "+ new chat".
+      if (_isLocalOnly(cid)) return
       const latest = list[0].chat_id
       if (latest === cid) return
       get().switchChat(projectId, latest)
@@ -465,6 +500,7 @@ export const useChat = create<State>((set, get) => ({
     // it later can still re-attach.
     get()._detachStream()
     const fresh = newChatId()
+    _markLocalOnly(fresh)
     set({
       loadedProjectId: null,
       loadedUnboundChatId: fresh,
@@ -555,6 +591,7 @@ export const useChat = create<State>((set, get) => ({
     get()._detachStream()
     const fresh = newChatId()
     _writeChatId(projectId, fresh)
+    _markLocalOnly(fresh)
     set({
       loadedProjectId: projectId,
       chatId: fresh,
@@ -781,6 +818,9 @@ export const useChat = create<State>((set, get) => ({
     try {
       const resp = await startTurn(cid, startBody)
       turnId = resp.turn_id
+      // The chat now exists server-side — drop the local-only mark so future
+      // reconciliations rely on the server list, not this hint.
+      _unmarkLocalOnly(cid)
     } catch (e) {
       // Couldn't even start the turn — surface as an error event and bail.
       // The optimistic user line stays so the user can retry / edit; matches
@@ -1328,8 +1368,36 @@ function handleToolResult(
     }
     // extract_with_experiment writes to experiment's extracts (doc-scoped, handled
     // in useReview T13) — no project-scoped store refresh needed here.
+    //
+    // T9 — Bench leaderboard cache invalidation. Bench is a project-level
+    // aggregator (prompt × model leaderboard rows + per-doc strip cells).
+    // Whenever the underlying ingredients change — experiment lifecycle
+    // (create / promote / run / archive / delete), active prompt or model
+    // switch, prompt body rewrite, or a fresh score pass — we drop the
+    // cached BenchResponse so the next overlay open re-fetches. We DO NOT
+    // eager-`load(projectId)` here: Bench is only consumed when the
+    // overlay is open, and the next open triggers `load` itself. This
+    // mirrors `useExperiments` invalidate semantics with no autoload.
+    if (BENCH_INVALIDATING_TOOLS.has(t)) {
+      useBench.getState().invalidate(projectId)
+    }
   }
 }
+
+/** Tools whose successful completion can change Bench leaderboard rows
+ *  (score, axis activeness, axis label, experiment status) or per-doc strip
+ *  cells. See T9 of 2026-05-28-bench-leaderboard.md. */
+const BENCH_INVALIDATING_TOOLS: ReadonlySet<string> = new Set([
+  'mcp__emerge_tools__promote_experiment',
+  'mcp__emerge_tools__run_experiment_eval',
+  'mcp__emerge_tools__create_experiment',
+  'mcp__emerge_tools__archive_experiment',
+  'mcp__emerge_tools__delete_experiment',
+  'mcp__emerge_tools__write_prompt',
+  'mcp__emerge_tools__switch_active_prompt',
+  'mcp__emerge_tools__switch_active_model',
+  'mcp__emerge_tools__score',
+])
 
 /**
  * Reduce a raw chat JSONL log (one object per line) into the in-memory ChatEvent[]

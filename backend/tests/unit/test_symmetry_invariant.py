@@ -104,6 +104,9 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "score":           ("POST", r"^/lab/projects/\{slug\}/score$"),
     "readiness_check": ("GET",  r"^/lab/projects/\{slug\}/readiness$"),
     "contract_diff":   ("GET",  r"^/lab/projects/\{slug\}/contract-diff$"),
+    # Bench leaderboard (project-level horizontal view of prompt × model evals).
+    # Both forms thin-delegate to `app.services.bench.compute_bench`.
+    "bench_view":      ("GET",  r"^/lab/projects/\{slug\}/bench$"),
     # Publish + keys
     "freeze_version": ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
     "issue_api_key":  ("POST", r"^/lab/keys$"),

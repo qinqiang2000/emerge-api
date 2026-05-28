@@ -18,6 +18,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 # is pure overhead — skip it. See claude_agent_sdk/_internal/transport/subprocess_cli.py.
 os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
 
+from app.api.routes import bench as bench_route
 from app.api.routes import docs as docs_route
 from app.api.routes import eval as eval_route
 from app.api.routes import experiments as experiments_route
@@ -90,6 +91,7 @@ app.include_router(extract_lab_route.router)
 app.include_router(jobs_route.router)
 app.include_router(schema_route.router)
 app.include_router(export_route.router)
+app.include_router(bench_route.router)
 async def _load_keystore_on_startup() -> None:
     settings = get_settings()
     settings.workspace_root.mkdir(parents=True, exist_ok=True)

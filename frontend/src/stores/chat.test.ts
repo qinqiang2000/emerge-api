@@ -18,7 +18,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from '../lib/api'
 import * as turn from '../lib/turn'
-import { useChat } from './chat'
+import { useBench } from './bench'
+import { _testUtils, useChat } from './chat'
+import { useDocs } from './docs'
+import { useEval } from './eval'
+import { useExperiments } from './experiments'
+import { useModels } from './models'
+import { useProjects } from './projects'
+import { usePrompts } from './prompts'
 
 // ── attachStream mock plumbing ───────────────────────────────────────────
 // Each test fills `queues[turnId]` with the events to yield (in order). The
@@ -280,5 +287,122 @@ describe('chat store: send() split + lifecycle detach', () => {
     expect(useChat.getState().interrupted).toBe(true)
 
     startTurnSpy.mockRestore()
+  })
+})
+
+// T9 — cross-store invalidation: when a Bench-mutating tool succeeds, the
+// chat slice must call `useBench.getState().invalidate(slug)` so the next
+// Bench overlay open re-fetches the aggregator. The plan enumerates 9 tools:
+// promote_experiment, run_experiment_eval, create_experiment,
+// archive_experiment, delete_experiment, write_prompt,
+// switch_active_prompt, switch_active_model, score.
+//
+// We drive `handleToolResult` (re-exported via _testUtils) directly with a
+// seeded `tool_call` event in the chat slice for each tool — that's the
+// same entry point the SSE branch in _consumeStream uses, but without the
+// async generator plumbing.
+describe('chat store: cross-store invalidation → useBench.invalidate', () => {
+  const PID = 'proj-a'
+  const TUID = 't_use_42'
+
+  function seedToolCall(toolName: string) {
+    useChat.setState({
+      chatId: 'c_initial0001',
+      events: [{
+        type: 'tool_call',
+        tool_use_id: TUID,
+        tool_name: toolName,
+        tool_input: {},
+        tool_result: null,
+        ok: true,
+      }],
+      busy: false,
+      loadedProjectId: PID,
+      loadedUnboundChatId: null,
+      chatsByProject: {},
+      chatsUnbound: [],
+      streamAbort: null,
+      inflightTurnId: null,
+      interrupted: false,
+    })
+  }
+
+  beforeEach(() => {
+    try { localStorage.clear() } catch { /* ignore */ }
+    vi.restoreAllMocks()
+    useBench.setState({ byProject: {}, loading: {} })
+    // Stub the side-effect `load` / `refresh` calls on sibling stores so
+    // `handleToolResult`'s post-invalidate refetch helpers don't fire real
+    // network requests (no API base URL in jsdom → unhandled rejection).
+    // We're only asserting the BENCH invalidate spy here; the other store
+    // wirings have their own coverage.
+    vi.spyOn(usePrompts.getState(), 'load').mockResolvedValue(undefined)
+    vi.spyOn(useModels.getState(), 'load').mockResolvedValue(undefined)
+    vi.spyOn(useExperiments.getState(), 'load').mockResolvedValue(undefined)
+    vi.spyOn(useEval.getState(), 'refresh').mockResolvedValue(null)
+    vi.spyOn(useDocs.getState(), 'refresh').mockResolvedValue(undefined)
+    vi.spyOn(useProjects.getState(), 'refresh').mockResolvedValue(undefined)
+    // useSchema.invalidate is sync — no need to stub.
+  })
+
+  // Each of the 9 plan-listed tools: a successful tool_result MUST trigger
+  // `useBench.invalidate(slug)`. We don't test the other invalidations the
+  // same handler triggers (those have their own coverage upstream); we only
+  // assert the bench invalidate spy fires with the right slug.
+  const BENCH_INVALIDATING_TOOLS = [
+    'mcp__emerge_tools__promote_experiment',
+    'mcp__emerge_tools__run_experiment_eval',
+    'mcp__emerge_tools__create_experiment',
+    'mcp__emerge_tools__archive_experiment',
+    'mcp__emerge_tools__delete_experiment',
+    'mcp__emerge_tools__write_prompt',
+    'mcp__emerge_tools__switch_active_prompt',
+    'mcp__emerge_tools__switch_active_model',
+    'mcp__emerge_tools__score',
+  ] as const
+
+  for (const toolName of BENCH_INVALIDATING_TOOLS) {
+    it(`invalidates useBench(${PID}) on tool_result for ${toolName}`, () => {
+      seedToolCall(toolName)
+      const benchSpy = vi.spyOn(useBench.getState(), 'invalidate')
+
+      _testUtils.handleToolResult(
+        { tool_use_id: TUID, result_text: '{}', ok: true },
+        PID,
+        null,
+      )
+
+      expect(benchSpy).toHaveBeenCalledWith(PID)
+    })
+  }
+
+  it('does NOT invalidate useBench when tool_result.ok is false', () => {
+    // Sanity: failed tool calls already skip every other invalidate branch
+    // (`if (... && d.ok)`), so the new bench branch must respect that too.
+    seedToolCall('mcp__emerge_tools__promote_experiment')
+    const benchSpy = vi.spyOn(useBench.getState(), 'invalidate')
+
+    _testUtils.handleToolResult(
+      { tool_use_id: TUID, result_text: 'err', ok: false },
+      PID,
+      null,
+    )
+
+    expect(benchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT invalidate useBench for an unrelated tool (e.g. list_docs)', () => {
+    // Negative case — ensures we didn't accidentally fire invalidate on
+    // every successful tool. `list_docs` mutates nothing.
+    seedToolCall('mcp__emerge_tools__list_docs')
+    const benchSpy = vi.spyOn(useBench.getState(), 'invalidate')
+
+    _testUtils.handleToolResult(
+      { tool_use_id: TUID, result_text: '{}', ok: true },
+      PID,
+      null,
+    )
+
+    expect(benchSpy).not.toHaveBeenCalled()
   })
 })

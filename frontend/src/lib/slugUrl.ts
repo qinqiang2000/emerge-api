@@ -183,3 +183,27 @@ export function pathForEvalCompare(slug: string, a?: string, b?: string): string
   if (b) qs.push(`b=${encodeURIComponent(b)}`)
   return qs.length ? `${base}?${qs.join('&')}` : base
 }
+
+
+// Bench leaderboard route — `/p/<slug>?bench=1`. Mirrors `?eval=<ts>` shape.
+//
+// Bench is project-scoped and has no sub-state (one leaderboard per project),
+// so the param value is just the literal `1` — presence carries the meaning.
+// Coexists cleanly with `?eval=<ts>` in the URL for back-button history, but
+// the App-level mount logic chooses to render at most one overlay at a time
+// (see App.tsx — when bench is open, EvalMatrixModal stands down).
+
+/** Read `?bench=1` from a URL search string. Returns true iff the param is
+ *  present AND has a non-empty value. Used by App.tsx to decide whether to
+ *  mount the BenchOverlay on top of the project shell. */
+export function readBenchOpenFromSearch(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const v = params.get('bench')
+  return v !== null && v.length > 0
+}
+
+
+/** Build the canonical path that opens the bench leaderboard for `slug`. */
+export function pathForBench(slug: string): string {
+  return `/p/${encodeURIComponent(slug)}?bench=1`
+}
