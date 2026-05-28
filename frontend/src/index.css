@@ -197,6 +197,10 @@ html, body, #root {
 .composer-actions{display:flex;align-items:center;gap:8px;width:100%}
 .composer-actions .left{flex:1;display:flex;align-items:center;gap:4px;min-width:0}
 .composer-actions .right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.composer .composer-hint{
+  font-family:var(--sans);font-size:11px;line-height:1;color:var(--ink-4);
+  user-select:none;white-space:nowrap;letter-spacing:.01em;
+}
 
 .composer .iconbtn{
   display:inline-flex;align-items:center;justify-content:center;

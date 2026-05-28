@@ -194,8 +194,8 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
 
   // The autocomplete menu is open only while the user is still typing a command
   // name. Once a full command prefixes the text (`/eval` or `/eval …`), the
-  // menu closes and plain Enter inserts a newline like a normal textarea —
-  // only ⌘/Ctrl+Enter submits, matching the footer hint.
+  // menu closes and plain Enter behaves like the rest of the composer (submit;
+  // Shift+Enter for newline) — matching ChatGPT / Claude.ai / Gemini.
   const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
   // Path-vs-command disambiguation: if the user types/pastes a path like
   // `/Users/...`, a second `/` appears in the first whitespace-delimited
@@ -582,8 +582,8 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     // gets appended to the picker-replaced `/review `).
     if (e.nativeEvent.isComposing) return
 
-    // Cmd/Ctrl+Enter always submits. If a mention menu is open we close it
-    // first so the textarea state is clean for the next turn.
+    // ⌘/Ctrl+Enter always submits — kept as a compatibility shortcut for users
+    // coming from Claude Code CLI / older composers that required it.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       submit()
@@ -658,8 +658,16 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
         return
       }
     } else {
-      // Plain Enter inserts a newline (default textarea behavior);
-      // submission requires ⌘/Ctrl+Enter, handled at the top of this function.
+      // Plain Enter submits; Shift+Enter falls through to the textarea's
+      // default and inserts a newline. Mirrors ChatGPT / Claude.ai / Gemini /
+      // Grok — which is what users now expect from any chat composer.
+      // ⌘/Ctrl+Enter is kept as a compatibility shortcut at the top of this
+      // function so old muscle memory still works.
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        submit()
+        return
+      }
       // Esc blurs
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -1062,18 +1070,23 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
               ) : (() => {
                 const hasInFlight = pending.some(p => p.status === 'staging' || p.status === 'uploading')
                 return (
-                  <button
-                    type="button"
-                    className="iconbtn send"
-                    onClick={submit}
-                    disabled={!text.trim() || hasInFlight}
-                    title={hasInFlight
-                      ? t('composer.sendMessage.titleWaiting')
-                      : t('composer.sendMessage.title', { shortcut: `${IS_MAC ? '⌘' : 'Ctrl'}↵` })}
-                    aria-label={t('composer.sendMessage')}
-                  >
-                    <SendIcon />
-                  </button>
+                  <>
+                    <span className="composer-hint" aria-hidden>
+                      {t('composer.hint.newline')}
+                    </span>
+                    <button
+                      type="button"
+                      className="iconbtn send"
+                      onClick={submit}
+                      disabled={!text.trim() || hasInFlight}
+                      title={hasInFlight
+                        ? t('composer.sendMessage.titleWaiting')
+                        : t('composer.sendMessage.title', { shortcut: '↵' })}
+                      aria-label={t('composer.sendMessage')}
+                    >
+                      <SendIcon />
+                    </button>
+                  </>
                 )
               })()}
             </div>

@@ -53,6 +53,7 @@ const en: Dict = {
   'composer.bulk.collapse': 'collapse',
   'composer.bulk.failedOverflow': '+{n} more failed',
   'composer.clearAll': 'clear all',
+  'composer.hint.newline': 'shift + ↵ for newline',
 
   // ── Slash / mention menus ──────────────────────────────────────────────
   'menu.slash.title': 'Slash commands',
