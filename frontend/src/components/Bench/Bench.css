@@ -69,10 +69,10 @@
 
 /* ── matrix table ─────────────────────────────────────────────────────── */
 .b-matrix-wrap { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; overflow: auto; }
-.b-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); min-width: 1240px; table-layout: fixed; }
+.b-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); min-width: 1140px; table-layout: fixed; }
 .b-matrix thead th { position: sticky; top: 0; background: var(--paper-2); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-4); font-weight: 500; padding: 11px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
 .b-matrix thead .b-th-overall, .b-matrix thead .b-th-actions { text-align: right; }
-.b-matrix thead .b-th-field { text-align: center; text-transform: none; letter-spacing: 0; font-size: 11px; }
+.b-matrix thead .b-th-field { text-align: center; text-transform: none; letter-spacing: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-row { cursor: pointer; transition: background .1s, opacity .15s; }
 .b-row:hover { background: var(--paper-2); }
 /* selected rail uses --ochre at low alpha — kept as rgba derived from the */
@@ -88,6 +88,44 @@
 .b-pick:hover { border-color: var(--ochre); }
 .b-pick.on { background: var(--ochre); border-color: var(--ochre); }
 .b-pick-mark { color: #fff; font-size: 11px; line-height: 1; font-weight: bold; }
+
+/* ── left rail: pick / identity sticky so row identity survives horizontal
+   scroll (the matrix overflows past ~7 fields). Mirrors the right-side
+   overall/action sticky block: opaque bg is required (translucent rgba would
+   let scrolled cells bleed through), so active/selected rows give up their
+   ochre wash on these two cells — same tradeoff the right rail documents.
+   The selected inset rail is re-applied on the pick cell because the tr-level
+   inset shadow sits *under* the now-opaque td. Left offset = 30 (pick width). */
+.b-row-pick, .b-row-id {
+  position: sticky; background: var(--paper); z-index: 1;
+}
+.b-row-pick { left: 0; }
+.b-row-id   { left: 30px; box-shadow: 1px 0 0 var(--rule-soft); }
+.b-row:hover .b-row-pick, .b-row:hover .b-row-id,
+.b-row.active .b-row-pick, .b-row.active .b-row-id,
+.b-row.selected .b-row-pick, .b-row.selected .b-row-id {
+  background: var(--paper-2);
+}
+.b-row.selected .b-row-pick { box-shadow: inset 3px 0 0 var(--ochre); }
+.b-matrix thead .b-th-pick, .b-matrix thead .b-th-id {
+  position: sticky; top: 0; background: var(--paper-2); z-index: 3;
+}
+.b-matrix thead .b-th-pick { left: 0; }
+.b-matrix thead .b-th-id   { left: 30px; box-shadow: 1px 0 0 var(--rule-soft); }
+.b-th-id-x { color: var(--ink-5); margin: 0 1px; }
+
+/* identity cell: prompt (primary) over model (secondary) — replaces the two
+   separate chip columns. Each line ellipsises within the 190px col; the ⭐
+   still marks the active prompt / model. */
+.b-row-id { line-height: 1.35; }
+.b-id-prompt, .b-id-model {
+  display: flex; align-items: center; gap: 5px;
+  font-family: var(--mono); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.b-id-prompt { font-size: 12px; color: var(--ink); font-weight: 500; }
+.b-id-model { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.b-id-star { font-size: 10px; line-height: 1; flex-shrink: 0; }
 
 /* axis chips inside rows */
 .b-axis-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-family: var(--mono); font-size: 11.5px; border-radius: 5px; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

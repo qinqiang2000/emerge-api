@@ -83,18 +83,18 @@ export default function BenchMatrix({
       <table className="b-matrix">
         <colgroup>
           <col style={{ width: 30 }} />
-          <col style={{ width: 145 }} />
-          <col style={{ width: 145 }} />
+          <col style={{ width: 190 }} />
           {fields.map((f) => <col key={f} style={{ width: 88 }} />)}
           <col style={{ width: 84 }} />
           <col style={{ width: 96 }} />
         </colgroup>
         <thead>
           <tr>
-            <th></th>
-            <th className="b-th-axis">{t('bench.matrix.col.prompt')}</th>
-            <th className="b-th-axis">{t('bench.matrix.col.model')}</th>
-            {fields.map((f) => <th key={f} className="b-th-field">{f}</th>)}
+            <th className="b-th-pick"></th>
+            <th className="b-th-axis b-th-id">
+              {t('bench.matrix.col.prompt')} <span className="b-th-id-x">×</span> {t('bench.matrix.col.model')}
+            </th>
+            {fields.map((f) => <th key={f} className="b-th-field" title={f}>{f}</th>)}
             <th className="b-th-overall">{t('bench.matrix.col.overall')}</th>
             <th className="b-th-actions">{t('bench.matrix.col.action')}</th>
           </tr>
@@ -128,17 +128,15 @@ export default function BenchMatrix({
                     {sel && <span className="b-pick-mark">✓</span>}
                   </div>
                 </td>
-                <td className="b-row-prompt">
-                  <span className="b-axis-chip prompt">
-                    {p && p.is_active && '⭐ '}
+                <td className="b-row-id">
+                  <div className="b-id-prompt" title={p ? p.label : row.prompt_id}>
+                    {p && p.is_active && <span className="b-id-star">⭐</span>}
                     {p ? p.label : row.prompt_id}
-                  </span>
-                </td>
-                <td className="b-row-model">
-                  <span className="b-axis-chip model">
-                    {m && m.is_active && '⭐ '}
+                  </div>
+                  <div className="b-id-model" title={m ? m.label : row.model_id}>
+                    {m && m.is_active && <span className="b-id-star">⭐</span>}
                     {m ? m.label : row.model_id}
-                  </span>
+                  </div>
                 </td>
                 {fields.map((f) => {
                   const c = row.cells[f]
