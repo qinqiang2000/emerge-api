@@ -103,7 +103,7 @@ def test_tier0_fuzzy(monkeypatch):
         monkeypatch,
     )
     assert locs[0].status == "fuzzy"
-    assert locs[0].score >= 85.0
+    assert locs[0].score > 0.0
     assert locs[0].rects
 
 
@@ -279,3 +279,152 @@ def test_evidence_none(monkeypatch):
     # no page hint → full-doc scan still finds it
     assert locs[0].status == "exact"
     assert locs[0].page == 1
+
+
+# --- numeric fields: token compare, never digit-run substring --------------
+
+
+def test_numeric_no_substring_false_positive(monkeypatch):
+    """A short numeric value must not match a longer digit run that merely
+    contains its digits (the ABA-routing-number bug: 111 ⊄ 111000012)."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {
+        1: [
+            _span("ABA #: 111000012", bbox=(10, 300, 300, 312)),
+            _span("111.00 USD", bbox=(10, 20, 110, 32)),
+        ]
+    }
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].page == 1
+    # only the real 111.00 amount, never the ABA digit run
+    assert locs[0].rects == [[10.0, 20.0, 110.0, 32.0]]
+
+
+def test_numeric_multi_occurrence_is_ambiguous_none(monkeypatch):
+    """The same amount scattered across the page (unit price, line total,
+    grand total) can't be disambiguated by value alone → none, not a shotgun
+    of every 111 on the page."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {
+        1: [
+            _span("111.00 USD", bbox=(10, 20, 110, 32)),
+            _span("111.00 USD", bbox=(10, 200, 110, 212)),
+            _span("EA 111.00 USD 111.00 USD", bbox=(10, 400, 300, 412)),
+        ]
+    }
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []
+
+
+def test_zero_value_excludes_digit_runs(monkeypatch):
+    """value 0 must match only a numeric token equal to 0, never every span
+    that happens to contain the digit '0'."""
+    fields = [SchemaField(name="tax", type="number", description="t")]
+    pages = {
+        1: [
+            _span("Chicago IL 60674-8571", bbox=(10, 300, 300, 312)),
+            _span("Acct 740008571", bbox=(10, 330, 300, 342)),
+            _span("0.00 USD", bbox=(10, 20, 110, 32)),
+        ]
+    }
+    locs = _run(
+        [{"tax": 0}],
+        [{"tax": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].rects == [[10.0, 20.0, 110.0, 32.0]]
+
+
+def test_source_quote_disambiguates_repeated_value(monkeypatch):
+    """When the value repeats, the model's verbatim source quote is the anchor:
+    quote 'Total 111.00 USD' pins the grand-total line, ignoring the line-item
+    and bare-amount occurrences."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {
+        1: [
+            _span("EA 111.00 USD 111.00 USD", bbox=(10, 90, 300, 102)),
+            _span("111.00 USD", bbox=(500, 90, 600, 102)),
+            _span("Total 111.00 USD", bbox=(10, 690, 300, 702)),
+        ]
+    }
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": "Total 111.00 USD"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "quote"
+    assert locs[0].rects == [[10.0, 690.0, 300.0, 702.0]]
+
+
+def test_distinctive_string_repeat_unions(monkeypatch):
+    """A long distinctive string matched exactly in several places (invoice
+    number in header + payment stub) is the same entity → highlight all, unlike
+    a numeric collision."""
+    fields = [SchemaField(name="invoiceNumber", type="string", description="n")]
+    pages = {
+        1: [
+            _span("74671636", bbox=(400, 40, 500, 52)),
+            _span("unrelated", bbox=(10, 200, 110, 212)),
+            _span("74671636", bbox=(50, 700, 150, 712)),
+        ]
+    }
+    locs = _run(
+        [{"invoiceNumber": "74671636"}],
+        [{"invoiceNumber": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "exact"
+    assert len(locs[0].rects) == 2  # both occurrences, not the unrelated span
+
+
+def test_unannotated_date_string_matches(monkeypatch):
+    """invoiceDate declared as plain `string` (no format=date) still matches a
+    differently-formatted date on the page via the heuristic."""
+    fields = [SchemaField(name="invoiceDate", type="string", description="d")]
+    pages = {1: [_span("March 20, 2024", bbox=(400, 600, 520, 612))]}
+    locs = _run(
+        [{"invoiceDate": "2024-03-20"}],
+        [{"invoiceDate": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "normalized"
+    assert locs[0].rects == [[400.0, 600.0, 520.0, 612.0]]
+
+
+def test_short_string_substring_respects_word_boundary(monkeypatch):
+    """A short string value must match on token boundaries, not mid-word
+    (e.g. 'Air' must not light up 'Airbus')."""
+    fields = [SchemaField(name="code", type="string", description="c")]
+    pages = {1: [_span("Airbus Americas")]}
+    locs = _run(
+        [{"code": "Air"}],
+        [{"code": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []

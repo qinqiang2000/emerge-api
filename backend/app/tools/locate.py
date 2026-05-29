@@ -10,27 +10,67 @@ render layer. They never enter any LLM prompt. This module backs an HTTP render
 endpoint, deliberately NOT a @tool (see app/api/routes/locate.py and
 docs/superpowers/INSIGHTS.md #7).
 
-Match cascade per field (page-hint first, then full-document fallback):
-  tier 0  exact / fuzzy  — value text vs span text (NFKC, then partial_ratio)
-  tier 1  normalized     — type-aware equivalence (date/money/number/enum/…)
-  tier 2  quote          — re-run tiers 0/1 using the verbatim ``source`` quote
-  none    — value has no literal source in the document
+High-precision / low-recall by design: a wrong or shotgun highlight teaches the
+user to distrust provenance, so when the source is genuinely ambiguous (the same
+value scattered across the page with no disambiguating anchor) we return
+``status="none"`` and let the viewer fall back to the page-level button rather
+than light up every occurrence.
+
+Match strategy per field:
+  source quote (primary)  — the model's own verbatim pointer; text-assembled
+                            against spans, the single most specific anchor.
+  value (fallback)        — type-aware: numeric fields compare extracted number
+                            tokens (never digit-run substrings), dates parse,
+                            strings use boundary-aware substring / fuzzy.
+
+Hits are grouped into spatial clusters; a value spanning adjacent lines is ONE
+cluster (legit multi-rect), but the same value scattered across the page is many
+clusters. We return a single best cluster, or none when the top clusters tie.
 """
 
 from __future__ import annotations
 
+import re
 import unicodedata
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
+from app.eval.normalize import _try_number, normalize_equivalent
 from app.schemas.extraction import evidence_page, evidence_source
 from app.schemas.locate import FieldLocation
 from app.schemas.schema_field import SchemaField
 from app.tools.extract import _collect_leaves
 from app.tools.textlayer import extract_textlayer
 
-# rapidfuzz partial-ratio threshold for tier-0 fuzzy hits.
+# rapidfuzz partial-ratio threshold for fuzzy hits (0..100 scale).
 _FUZZY_THRESHOLD = 85.0
+# Minimum length for a string value (or span fragment) to be allowed to match as
+# a substring rather than a full-span equal; shorter values must match exactly
+# (avoids "F2" / "USD" lighting up half the page).
+_MIN_SUBSTR_LEN = 3
+# Strict strength ladder: only a literal full-span-equal hit reaches 1.0, so a
+# tie at 1.0 means genuine textual identity (what gates the repeat-union). Lower
+# tiers sit strictly below it — substring < normalized < (full-span). All hits of
+# the same tier share one strength so several of them tie → ambiguous → none
+# rather than an arbitrary pick.
+_SUBSTR_STRENGTH = 0.9
+_FUZZY_MAX_STRENGTH = 0.8  # fuzzy caps below substring/normalized; never 1.0
+# A distinctive string this long, matched full-span-equal in several places, is
+# the same entity repeated (e.g. an invoice number in header + stub) → highlight
+# all. Shorter or non-exact multi-hits stay ambiguous → none.
+_DISTINCTIVE_LEN = 5
+# Numeric field types whose value is compared as a number token, never as a
+# digit-run substring.
+_NUMERIC_TYPES = {"number", "integer", "decimal", "float", "money", "currency", "amount"}
+_DATE_TYPES = {"date", "datetime"}
+# Pulls number-like tokens out of a span ("Total 111.00 USD" → ["111.00"]).
+_NUM_TOKEN = re.compile(r"[-+]?\d[\d.,]*\d|\d")
+# Strength gap above which the top cluster is considered a clear winner (so two
+# equally-good clusters → ambiguous → none).
+_DOMINANCE_EPS = 1e-6
+# Ranking of statuses strongest → weakest, for picking a cluster's label.
+_STATUS_RANK = {"exact": 4, "normalized": 3, "quote": 2, "fuzzy": 1, "none": 0}
 
 
 def _nfkc(s: Any) -> str:
@@ -78,111 +118,256 @@ def _flatten_entity(
     return out
 
 
-def _exact_or_substring(value_n: str, span_text_n: str) -> bool:
-    if not value_n or not span_text_n:
-        return False
-    return value_n == span_text_n or value_n in span_text_n or span_text_n in value_n
-
-
-def _fuzzy_score(value_n: str, span_text_n: str) -> float:
-    if not value_n or not span_text_n:
+def _fuzzy_score(a_n: str, b_n: str) -> float:
+    if not a_n or not b_n:
         return 0.0
     from rapidfuzz import fuzz
 
-    return float(fuzz.partial_ratio(value_n, span_text_n))
+    return float(fuzz.partial_ratio(a_n, b_n))
 
 
-def _match_text_in_spans(
-    text: str,
-    spans: list[dict],
-    field: SchemaField,
-) -> tuple[str, float, list[list[float]]]:
-    """Match ``text`` against page ``spans``, returning (status, score, rects).
+def _field_type(field: SchemaField) -> str:
+    t = field.type
+    if t is None:
+        return "string"
+    return str(t.value if hasattr(t, "value") else t).lower()
 
-    Runs tier-0 (exact / substring / fuzzy) then tier-1 (type-aware normalized
-    equivalence). Collects bbox rects from every hitting span (a value can wrap
-    across multiple spans). Returns status ``"none"`` with empty rects on miss.
+
+def _field_is_date(field: SchemaField) -> bool:
+    if _field_type(field) in _DATE_TYPES:
+        return True
+    f = field.format
+    fmt = str(f.value if hasattr(f, "value") else f).lower() if f is not None else None
+    return fmt in ("date", "date-time", "time")
+
+
+def _numeric_tokens(text: str) -> list[Decimal]:
+    """Extract number-like tokens from span text as Decimals (commas stripped)."""
+    out: list[Decimal] = []
+    for tok in _NUM_TOKEN.findall(text or ""):
+        d = _try_number(tok)
+        if d is not None:
+            out.append(d)
+    return out
+
+
+def _bounded_substring(needle_n: str, hay_n: str) -> bool:
+    """True if ``needle_n`` occurs in ``hay_n`` on word boundaries.
+
+    Prevents mid-word matches ("Air" ⊄ "Airbus") while allowing label-prefixed
+    hits ("Acme Corp" ⊂ "Acme Corp Ltd"). Boundaries are non-alphanumeric chars
+    (Unicode-aware via ``str.isalnum``).
     """
-    value_n = _nfkc(text)
-    if not value_n:
-        return "none", 0.0, []
+    start = 0
+    while True:
+        i = hay_n.find(needle_n, start)
+        if i < 0:
+            return False
+        before = hay_n[i - 1] if i > 0 else ""
+        after = hay_n[i + len(needle_n)] if i + len(needle_n) < len(hay_n) else ""
+        if not before.isalnum() and not after.isalnum():
+            return True
+        start = i + 1
 
-    # tier 0a: exact / substring
-    exact_rects: list[list[float]] = []
-    for sp in spans:
-        if _exact_or_substring(value_n, _nfkc(sp.get("text", ""))):
-            exact_rects.append([float(v) for v in sp.get("bbox", [])])
-    if exact_rects:
-        return "exact", 100.0, exact_rects
 
-    # tier 0b: fuzzy (partial_ratio per span)
-    best_score = 0.0
-    fuzzy_rects: list[list[float]] = []
-    for sp in spans:
-        sc = _fuzzy_score(value_n, _nfkc(sp.get("text", "")))
-        if sc >= _FUZZY_THRESHOLD:
-            fuzzy_rects.append([float(v) for v in sp.get("bbox", [])])
-            best_score = max(best_score, sc)
-    if fuzzy_rects:
-        return "fuzzy", best_score, fuzzy_rects
+# A value worth trying the unannotated-date heuristic on: an ISO-ish date or one
+# containing a month name. Keeps the liberal dateparser away from invoice numbers
+# / codes that happen to parse as some date.
+_ISO_DATE = re.compile(r"\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b")
+_MONTH_WORD = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", re.IGNORECASE
+)
 
-    # tier 1: type-aware normalized equivalence.
-    # Textlayer spans are line-level, so a "Label: value" span like
-    # "Date:   March 20, 2024" cannot be parsed as a date whole.  When the span
-    # contains a colon, also try the substring after the last colon so that the
-    # value part is isolated for the normalizer.
-    from app.eval.normalize import normalize_equivalent
 
-    norm_rects: list[list[float]] = []
-    for sp in spans:
-        span_text = sp.get("text", "")
-        span_n = _nfkc(span_text)
-        if not span_n:
-            continue
-        candidates: list[str] = [span_text]
-        if ":" in span_n:
-            rhs = span_n.rsplit(":", 1)[-1].strip()
-            if rhs and rhs != span_n:
-                candidates.append(rhs)
-        try:
-            matched = any(normalize_equivalent(text, c, field).equivalent for c in candidates)
-        except Exception:
-            continue
-        if matched:
-            norm_rects.append([float(v) for v in sp.get("bbox", [])])
-    if norm_rects:
-        return "normalized", 95.0, norm_rects
+def _looks_like_date(value_n: str) -> bool:
+    return bool(_ISO_DATE.search(value_n) or _MONTH_WORD.search(value_n))
 
-    # tier 1.5: heuristic date matching — fires when the extracted value parses
-    # as a date even without a "date" format annotation on the SchemaField.
-    # This handles schemas where date fields are declared as plain `string`
-    # without explicit format metadata.  Candidates include the rhs-split
-    # sub-spans already built above (label:value lines).
+
+def _date_equivalent(value_n: str, span_n: str) -> bool:
+    """Heuristic date equality. Spans are line-level ("Date: March 20, 2024"),
+    so also try the substring after the last colon."""
     try:
         import dateparser
+    except Exception:  # pragma: no cover - dateparser is a hard dep
+        return False
+    vd = dateparser.parse(value_n, settings={"DATE_ORDER": "YMD"})
+    if vd is None:
+        return False
+    candidates = [span_n]
+    if ":" in span_n:
+        rhs = span_n.rsplit(":", 1)[-1].strip()
+        if rhs and rhs != span_n:
+            candidates.append(rhs)
+    for cand in candidates:
+        pd_ = dateparser.parse(cand, settings={"DATE_ORDER": "YMD"})
+        if pd_ is not None and pd_.date() == vd.date():
+            return True
+    return False
 
-        value_date = dateparser.parse(value_n, settings={"DATE_ORDER": "YMD"})
-        if value_date is not None:
-            date_rects: list[list[float]] = []
-            for sp in spans:
-                span_text = sp.get("text", "")
-                span_n2 = _nfkc(span_text)
-                span_candidates: list[str] = [span_n2]
-                if ":" in span_n2:
-                    rhs2 = span_n2.rsplit(":", 1)[-1].strip()
-                    if rhs2 and rhs2 != span_n2:
-                        span_candidates.append(rhs2)
-                for cand in span_candidates:
-                    parsed = dateparser.parse(cand, settings={"DATE_ORDER": "YMD"})
-                    if parsed is not None and parsed.date() == value_date.date():
-                        date_rects.append([float(v) for v in sp.get("bbox", [])])
-                        break  # only count each span once
-            if date_rects:
-                return "normalized", 90.0, date_rects
+
+def _value_strength(
+    value_n: str,
+    value_dec: Optional[Decimal],
+    field: SchemaField,
+    span_text: str,
+) -> tuple[float, str]:
+    """Strength (0..1) + status of one field *value* against one span.
+
+    Type-aware. Numeric fields compare extracted number tokens (so ``111`` never
+    matches the digit run ``111000012`` and ``0`` never matches ``60674``);
+    strings use exact / boundary-aware substring / fuzzy; dates parse.
+    """
+    span_n = _nfkc(span_text)
+    if not span_n or not value_n:
+        return 0.0, "none"
+
+    if _field_type(field) in _NUMERIC_TYPES and value_dec is not None:
+        for tok in _numeric_tokens(span_n):
+            if tok == value_dec:
+                return (1.0, "exact") if span_n == value_n else (0.95, "normalized")
+        return 0.0, "none"
+
+    if _field_is_date(field):
+        return (0.95, "normalized") if _date_equivalent(value_n, span_n) else (0.0, "none")
+
+    # string-like
+    if span_n == value_n:
+        return 1.0, "exact"
+    # boundary-aware substring in either direction: value inside a longer span
+    # ("Acme Corp" ⊂ "Acme Corp Ltd") or a span fragment of a longer value (a
+    # name wrapped across lines). All substring hits share one strength so that
+    # several of them tie → ambiguous → none (never an arbitrary pick).
+    if len(value_n) >= _MIN_SUBSTR_LEN and (
+        _bounded_substring(value_n, span_n)
+        or (len(span_n) >= _MIN_SUBSTR_LEN and _bounded_substring(span_n, value_n))
+    ):
+        return _SUBSTR_STRENGTH, "exact"
+    try:
+        if normalize_equivalent(value_n, span_n, field).equivalent:
+            return 0.95, "normalized"
     except Exception:
         pass
+    # Unannotated date strings: value declared as plain `string` but is really a
+    # date ("2024-03-20") that appears as "March 20, 2024" on the page. Only
+    # fires when the value itself parses as a date, so non-date strings skip it.
+    if _looks_like_date(value_n) and _date_equivalent(value_n, span_n):
+        return 0.95, "normalized"
+    # Fuzzy is "approximately the same string", not "value is a small fragment of
+    # a big span" — partial_ratio would score a short value 100 just for being a
+    # substring window ("Air" in "Airbus"). Require the value to be long enough
+    # and to cover a fair share of the span before trusting a fuzzy hit. Fuzzy is
+    # scaled below the literal/substring/normalized tiers so only a true
+    # full-span-equal ever reaches strength 1.0 (which gates the repeat-union).
+    if len(value_n) >= _MIN_SUBSTR_LEN and 2 * len(value_n) >= len(span_n):
+        sc = _fuzzy_score(value_n, span_n)
+        if sc >= _FUZZY_THRESHOLD:
+            return _FUZZY_MAX_STRENGTH * (sc / 100.0), "fuzzy"
+    return 0.0, "none"
 
-    return "none", 0.0, []
+
+def _quote_strength(quote_n: str, span_text: str) -> tuple[float, str]:
+    """Strength of the verbatim source quote against one span (text mode).
+
+    The quote is a free-text phrase that may wrap several spans, so a span that
+    is a fragment of the quote scores by its coverage; this lets contiguous
+    fragments reassemble into one cluster while keeping a full-quote span on top.
+    """
+    span_n = _nfkc(span_text)
+    if not span_n or not quote_n:
+        return 0.0, "none"
+    if span_n == quote_n or quote_n in span_n:
+        return 1.0, "quote"
+    if span_n in quote_n:
+        return len(span_n) / len(quote_n), "quote"
+    sc = _fuzzy_score(quote_n, span_n)
+    if sc >= _FUZZY_THRESHOLD:
+        return (sc / 100.0) * 0.95, "quote"  # slight penalty vs literal coverage
+    return 0.0, "none"
+
+
+def _cluster_hits(
+    spans: list[dict],
+    strength_fn: Callable[[str], tuple[float, str]],
+) -> list[dict]:
+    """Score every span, then group hits into spatial clusters.
+
+    Two hits join a cluster when they are vertically adjacent (within ~one line
+    height) and horizontally overlapping — i.e. a value wrapped across lines, or
+    a quote spanning lines. Scattered hits stay separate clusters. Each cluster
+    is ``{score, status, rects}`` (score = best member strength).
+    """
+    items: list[dict] = []
+    for sp in spans:
+        s, status = strength_fn(sp.get("text", ""))
+        if s <= 0.0:
+            continue
+        bbox = [float(v) for v in sp.get("bbox", [])]
+        if len(bbox) < 4:
+            continue
+        items.append({"s": s, "status": status, "bbox": bbox})
+    items.sort(key=lambda it: (it["bbox"][1], it["bbox"][0]))
+
+    clusters: list[dict] = []
+    for it in items:
+        x0, y0, x1, y1 = it["bbox"]
+        h = max(y1 - y0, 1.0)
+        placed = False
+        for cl in clusters:
+            gap = y0 - cl["y1"]
+            x_overlap = not (x1 < cl["x0"] or x0 > cl["x1"])
+            if x_overlap and -h * 0.5 <= gap <= h * 0.8:
+                cl["members"].append(it)
+                cl["x0"], cl["y0"] = min(cl["x0"], x0), min(cl["y0"], y0)
+                cl["x1"], cl["y1"] = max(cl["x1"], x1), max(cl["y1"], y1)
+                placed = True
+                break
+        if not placed:
+            clusters.append(
+                {"members": [it], "x0": x0, "y0": y0, "x1": x1, "y1": y1}
+            )
+
+    out: list[dict] = []
+    for cl in clusters:
+        members = cl["members"]
+        score = max(m["s"] for m in members)
+        status = max((m["status"] for m in members), key=lambda st: _STATUS_RANK.get(st, 0))
+        out.append({"score": score, "status": status, "rects": [m["bbox"] for m in members]})
+    return out
+
+
+def _select_cluster(
+    clusters: list[dict],
+    *,
+    distinctive: bool = False,
+) -> Optional[dict]:
+    """Pick the single best cluster, or None when the top clusters tie.
+
+    A clear winner (strictly higher score than the runner-up) is returned. A tie
+    at the top usually means the value is ambiguous (the same amount in several
+    places) → None, preferring no highlight over a wrong one.
+
+    Exception: a ``distinctive`` value (a long non-numeric string) that matches
+    *exactly* (full-span-equal) in several places is the same entity repeated —
+    an invoice number in the header and the payment stub, a company name top and
+    bottom — so all tied exact clusters are unioned into one location.
+    """
+    if not clusters:
+        return None
+    ranked = sorted(clusters, key=lambda c: c["score"], reverse=True)
+    if len(ranked) == 1:
+        return ranked[0]
+    if ranked[0]["score"] > ranked[1]["score"] + _DOMINANCE_EPS:
+        return ranked[0]
+    # tie at the top
+    top = [c for c in ranked if abs(c["score"] - ranked[0]["score"]) <= _DOMINANCE_EPS]
+    # Union only literal full-span-equal repeats (score 1.0) of a distinctive
+    # value — substring / fuzzy ties (score < 1.0) stay ambiguous → none.
+    if distinctive and all(c["score"] >= 1.0 - _DOMINANCE_EPS for c in top):
+        rects: list[list[float]] = []
+        for c in top:
+            rects.extend(c["rects"])
+        return {"score": ranked[0]["score"], "status": "exact", "rects": rects}
+    return None
 
 
 async def _page_count(workspace: Path, project_id: str, filename: str) -> int:
@@ -249,47 +434,69 @@ async def _locate_one_field(
             score=score,
         )
 
-    has_value = value is not None and _nfkc(value) != ""
-
-    # ---- tiers 0/1 on the page hint, if any ----
-    if page_hint is not None and has_value:
-        spans = await _spans_for_page(
-            workspace, project_id, filename, page_hint, span_cache
-        )
-        status, score, rects = _match_text_in_spans(str(value), spans, field)
-        if status != "none":
-            return _result(status, score, rects, page_hint)
-
-    # ---- tiers 0/1 across the whole document (hint missing or missed) ----
-    if has_value and total_pages:
-        for pg in range(1, total_pages + 1):
-            if pg == page_hint:
-                continue  # already tried
-            spans = await _spans_for_page(
-                workspace, project_id, filename, pg, span_cache
-            )
-            status, score, rects = _match_text_in_spans(str(value), spans, field)
-            if status != "none":
-                return _result(status, score, rects, pg)
-
-    # ---- tier 2: the verbatim source quote (treat the quote as the value) ----
-    if source_quote and _nfkc(source_quote):
-        ordered_pages: list[int] = []
+    def _ordered_pages() -> list[int]:
+        pages: list[int] = []
         if page_hint is not None:
-            ordered_pages.append(page_hint)
-        ordered_pages.extend(
-            pg for pg in range(1, (total_pages or 0) + 1) if pg != page_hint
-        )
-        for pg in ordered_pages:
-            spans = await _spans_for_page(
-                workspace, project_id, filename, pg, span_cache
-            )
-            status, score, rects = _match_text_in_spans(source_quote, spans, field)
-            if status != "none":
-                # any source-quote hit is reported as the "quote" tier
-                return _result("quote", score, rects, pg)
+            pages.append(page_hint)
+        pages.extend(pg for pg in range(1, (total_pages or 0) + 1) if pg != page_hint)
+        return pages
 
-    # ---- nothing matched ----
+    # ---- source quote first: the model's own pointer is the most specific
+    # anchor and is what disambiguates a value that repeats on the page. ----
+    quote_n = _nfkc(source_quote) if source_quote else ""
+    if quote_n:
+        for pg in _ordered_pages():
+            spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+            clusters = _cluster_hits(spans, lambda txt: _quote_strength(quote_n, txt))
+            sel = _select_cluster(clusters)
+            if sel is not None:
+                return _result("quote", sel["score"] * 100.0, sel["rects"], pg)
+            if clusters:
+                break  # quote present on this page but ambiguous → fall to value
+
+    # ---- value matching (type-aware), page hint first ----
+    has_value = value is not None and _nfkc(value) != ""
+    if has_value:
+        value_n = _nfkc(value)
+        value_dec = _try_number(value_n)
+        # A long value on a string-typed field is distinctive enough that exact
+        # repeats are the same entity (an invoice number in header + stub), so
+        # they may be unioned. Numeric fields stay collision-collapsed even when
+        # long, because a repeated amount is genuinely ambiguous.
+        distinctive = (
+            _field_type(field) not in _NUMERIC_TYPES
+            and len(value_n) >= _DISTINCTIVE_LEN
+        )
+
+        def _vfn(txt: str) -> tuple[float, str]:
+            return _value_strength(value_n, value_dec, field, txt)
+
+        if page_hint is not None:
+            spans = await _spans_for_page(
+                workspace, project_id, filename, page_hint, span_cache
+            )
+            clusters = _cluster_hits(spans, _vfn)
+            sel = _select_cluster(clusters, distinctive=distinctive)
+            if sel is not None:
+                return _result(sel["status"], sel["score"] * 100.0, sel["rects"], page_hint)
+            if clusters:
+                # value present on the hinted page but ambiguous → don't scatter
+                # the search across other pages; prefer the page-level fallback.
+                return _result("none", 0.0, [], page_hint)
+
+        # full-document scan (no hint, or the hinted page had no match). Select
+        # per page so a distinctive-repeat union only ever merges same-page rects
+        # (a FieldLocation carries one page; the highlight layer paints its rects
+        # on that page). First page with a confident selection wins.
+        for pg in range(1, (total_pages or 0) + 1):
+            if pg == page_hint:
+                continue
+            spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+            sel = _select_cluster(_cluster_hits(spans, _vfn), distinctive=distinctive)
+            if sel is not None:
+                return _result(sel["status"], sel["score"] * 100.0, sel["rects"], pg)
+
+    # ---- nothing matched (or ambiguous) ----
     return _result("none", 0.0, [], page_hint)
 
 
