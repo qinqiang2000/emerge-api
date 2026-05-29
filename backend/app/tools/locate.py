@@ -671,6 +671,132 @@ async def _ordinal_tiebreak(
             break
 
 
+def _dedupe_aggregate_rects(rects: list[list[float]]) -> list[list[float]]:
+    """Drop line-aggregate rects that enclose their own constituent word rects.
+
+    On an electronic page the text layer can carry BOTH a fitz line-level span
+    ("SHIM     SHIM", "EA 111.00 USD 111.00 USD") and OCR word-level spans
+    ("SHIM", "111.00 USD") for the same content (OCR runs to catch logos and its
+    word split survives the center-point dedupe). Matching both paints a wide
+    ring drawn over two tight rings — clutter that occludes the value. When one
+    rect geometrically encloses the centres of >=2 OTHER, strictly-narrower
+    rects, it is that line aggregate; drop it and keep the tight word rects. A
+    single clean span (the common case) or vertically-stacked wrap rects enclose
+    nothing → untouched."""
+    if len(rects) <= 1:
+        return rects
+
+    def cx(r: list[float]) -> float:
+        return (r[0] + r[2]) / 2.0
+
+    def cy(r: list[float]) -> float:
+        return (r[1] + r[3]) / 2.0
+
+    keep: list[list[float]] = []
+    for i, R in enumerate(rects):
+        enclosed = 0
+        for j, r in enumerate(rects):
+            if i == j:
+                continue
+            if (
+                R[0] <= cx(r) <= R[2]
+                and R[1] <= cy(r) <= R[3]
+                and (r[2] - r[0]) < (R[2] - R[0])
+            ):
+                enclosed += 1
+        if enclosed < 2:
+            keep.append(R)
+    return keep or rects
+
+
+# A none array-child line cluster is accepted by the row anchor only when its
+# quote coverage clears this bar (so we never anchor on a weak label-only hit).
+_ROW_ANCHOR_MIN_SCORE = 0.6
+
+
+async def _row_anchor(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    results: list[FieldLocation],
+    field_meta: list[dict],
+    span_cache: dict[int, list[dict]],
+    total_pages: int,
+) -> None:
+    """Resolve ambiguous array-child fields by their resolved row neighbours.
+
+    A line-item amount ("111.00 USD") repeats across the page — the row's
+    unit/total price AND the document grand totals — with no quote unique enough
+    to disambiguate, so it lands on none. But its siblings on the same row
+    (articleName, description) usually DO resolve, pinning the row's vertical
+    band. For an array-child still none, we restrict its quote clusters to the
+    lines inside that band and assign when exactly one qualifies — so the amount
+    lands on its own row, never on a grand-total line, and never on a guess.
+
+    Gated hard so it can only ever turn a none into a row-local hit (never
+    overrides a confident result): array-children only; anchors must be resolved
+    siblings of the SAME array; assign only on a single in-band cluster clearing
+    the coverage bar.
+    """
+    meta_by_ri = {m["ri"]: m for m in field_meta}
+
+    def _array_parent(path: str) -> Optional[str]:
+        return path.rsplit(".", 1)[0] if "[]." in path else None
+
+    # Row band per array parent = union y-extent of that array's resolved
+    # children, padded by ~1.5 line-heights so the row's other lines (an amount
+    # on the header line, a wrapped value below) fall inside it.
+    bands: dict[str, tuple[float, float]] = {}
+    by_parent_none: dict[str, list[FieldLocation]] = {}
+    for loc in results:
+        parent = _array_parent(loc.path)
+        if parent is None:
+            continue
+        if loc.status != "none" and loc.rects:
+            y0 = min(r[1] for r in loc.rects)
+            y1 = max(r[3] for r in loc.rects)
+            h = max((r[3] - r[1]) for r in loc.rects)
+            pad = max(1.6 * h, 16.0)
+            lo, hi = bands.get(parent, (y0, y1))
+            bands[parent] = (min(lo, y0 - pad), max(hi, y1 + pad))
+        elif loc.status == "none":
+            by_parent_none.setdefault(parent, []).append(loc)
+
+    for parent, none_locs in by_parent_none.items():
+        band = bands.get(parent)
+        if band is None:
+            continue  # no resolved sibling to anchor against
+        lo, hi = band
+        for loc in none_locs:
+            ri = next((i for i, r in enumerate(results) if r is loc), None)
+            if ri is None:
+                continue
+            meta = meta_by_ri.get(ri)
+            if not meta or not meta["quote_n"]:
+                continue
+            page = meta["page_hint"]
+            pages = [page] if page else list(range(1, (total_pages or 0) + 1))
+            for pg in pages:
+                spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+                clusters = _cluster_quote_lines(spans, meta["quote_n"])
+                in_band = [
+                    c for c in clusters
+                    if c["score"] >= _ROW_ANCHOR_MIN_SCORE
+                    and lo <= sum((r[1] + r[3]) / 2.0 for r in c["rects"]) / len(c["rects"]) <= hi
+                ]
+                if len(in_band) == 1:
+                    cl = in_band[0]
+                    results[ri] = FieldLocation(
+                        entity_index=loc.entity_index,
+                        path=loc.path,
+                        rects=cl["rects"],
+                        page=pg,
+                        status="quote",
+                        score=cl["score"] * 100.0,
+                    )
+                    break
+
+
 async def locate_fields(
     workspace: Path,
     project_id: str,
@@ -739,5 +865,18 @@ async def locate_fields(
         await _ordinal_tiebreak(
             workspace, project_id, filename, results, field_meta, span_cache, total_pages
         )
+        # array-children still none → anchor to their resolved row neighbours
+        await _row_anchor(
+            workspace, project_id, filename, results, field_meta, span_cache, total_pages
+        )
+
+    # Final render-quality sweep: collapse the fitz-line + OCR-word rect overlap
+    # into tight word rects so highlights never paint a wide ring over narrow
+    # ones (see _dedupe_aggregate_rects).
+    for i, loc in enumerate(results):
+        if len(loc.rects) > 1:
+            deduped = _dedupe_aggregate_rects(loc.rects)
+            if len(deduped) != len(loc.rects):
+                results[i] = loc.model_copy(update={"rects": deduped})
 
     return results

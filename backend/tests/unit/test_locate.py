@@ -509,6 +509,68 @@ def test_ordinal_tiebreak_only_groups_siblings(monkeypatch):
     assert by["lines[].grossAmount"].status == "none"
 
 
+def test_dedupe_aggregate_rect_dropped():
+    """A wide line-level rect that encloses >=2 narrower word rects (fitz line
+    span layered over OCR word spans) is dropped so the highlight paints tight
+    word rings, not a wide ring over two narrow ones."""
+    wide = [101.0, 412.0, 179.0, 425.0]   # "SHIM     SHIM" fitz line
+    w1 = [100.0, 414.0, 125.0, 422.0]      # "SHIM" OCR word
+    w2 = [161.0, 414.0, 186.0, 422.0]      # "SHIM" OCR word
+    out = locate_mod._dedupe_aggregate_rects([wide, w1, w2])
+    assert wide not in out
+    assert sorted(out) == sorted([w1, w2])
+    # a lone rect, or non-enclosing rects, pass through untouched
+    assert locate_mod._dedupe_aggregate_rects([w1]) == [w1]
+    assert sorted(locate_mod._dedupe_aggregate_rects([w1, w2])) == sorted([w1, w2])
+
+
+def test_row_anchor_lineitem_amount(monkeypatch):
+    """An array-child amount that repeats (row price + grand total) ties to none
+    on its own, but its resolved row sibling (articleName) pins the row band, so
+    the amount is anchored to its row line rather than the far-below grand total."""
+    fields = [
+        SchemaField(
+            name="lines",
+            type="array",
+            description="line items",
+            items=SchemaField(
+                type="object",
+                description="row",
+                properties=[
+                    SchemaField(name="articleName", type="string", description="name"),
+                    SchemaField(name="netAmount", type="number", description="net"),
+                ],
+            ),
+        ),
+    ]
+    pages = {
+        1: [
+            # line-item row (y≈100): distinctive name + the row's amount
+            _span("WIDGET ABC", bbox=(100, 100, 200, 112)),
+            _span("111.00 USD", bbox=(400, 100, 500, 112)),
+            # document grand total far below (y≈400): same amount, no anchor
+            _span("Total", bbox=(10, 400, 60, 412)),
+            _span("111.00 USD", bbox=(400, 400, 500, 412)),
+        ]
+    }
+    locs = _run(
+        [{"lines": [{"articleName": "WIDGET ABC", "netAmount": 111}]}],
+        [{
+            "lines[].articleName": {"page": 1, "source": "WIDGET ABC"},
+            "lines[].netAmount": {"page": 1, "source": "111.00 USD"},
+        }],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    by = {l.path: l for l in locs}
+    amt = by["lines[].netAmount"]
+    assert amt.status == "quote"
+    # anchored to the row line (y≈100), never the grand-total line (y≈400)
+    assert all(r[1] < 200 for r in amt.rects)
+    assert amt.rects == [[400, 100, 500, 112]]
+
+
 def test_quote_coverage_is_union_not_sum(monkeypatch):
     """A line-item row carries the value twice (net + gross both '111.00 USD').
     Summed coverage would let it (2×) beat the real 'Total 111.00 USD' line; the
