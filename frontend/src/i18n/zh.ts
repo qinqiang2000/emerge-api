@@ -356,6 +356,7 @@ const zh: Dict = {
   'bench.rails.new.disabled': '暂未实装 — 在聊天里让 agent 帮你新建一个',
   'bench.rails.chip.pin': '锁定 {label} — 只让命中的行保持高亮',
   'bench.rails.chip.unpin': '取消锁定 {label}',
+  'bench.rails.chip.refs': '{n} 个对比实验',
   'bench.matrix.action.run_eval': '跑 eval',
   'bench.matrix.action.promote': '切为当前',
   'bench.matrix.action.active': '当前',

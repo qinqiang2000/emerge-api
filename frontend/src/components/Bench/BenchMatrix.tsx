@@ -77,18 +77,17 @@ export default function BenchMatrix({
   const t = useT()
   const promptIx = indexBy(prompts)
   const modelIx = indexBy(models)
-  const colCount = 3 + fields.length + 2
 
   return (
     <div className="b-matrix-wrap">
       <table className="b-matrix">
         <colgroup>
           <col style={{ width: 30 }} />
-          <col style={{ width: 170 }} />
-          <col style={{ width: 170 }} />
-          {fields.map((f) => <col key={f} style={{ width: 112 }} />)}
-          <col style={{ width: 92 }} />
-          <col style={{ width: 110 }} />
+          <col style={{ width: 145 }} />
+          <col style={{ width: 145 }} />
+          {fields.map((f) => <col key={f} style={{ width: 88 }} />)}
+          <col style={{ width: 84 }} />
+          <col style={{ width: 96 }} />
         </colgroup>
         <thead>
           <tr>
@@ -130,23 +129,13 @@ export default function BenchMatrix({
                   </div>
                 </td>
                 <td className="b-row-prompt">
-                  <span
-                    className={
-                      'b-axis-chip prompt' +
-                      (p && p.is_active ? ' active' : '')
-                    }
-                  >
+                  <span className="b-axis-chip prompt">
                     {p && p.is_active && '⭐ '}
                     {p ? p.label : row.prompt_id}
                   </span>
                 </td>
                 <td className="b-row-model">
-                  <span
-                    className={
-                      'b-axis-chip model' +
-                      (m && m.is_active ? ' active' : '')
-                    }
-                  >
+                  <span className="b-axis-chip model">
                     {m && m.is_active && '⭐ '}
                     {m ? m.label : row.model_id}
                   </span>
@@ -220,17 +209,6 @@ export default function BenchMatrix({
               </tr>
             )
           })}
-          <tr className="b-row-new disabled" aria-disabled="true">
-            <td
-              colSpan={colCount}
-              className="b-new-cell"
-              title={t('bench.rails.new.disabled')}
-            >
-              <span className="b-new-icon">+</span>
-              <span>{t('bench.matrix.empty')}</span>
-              <span className="b-new-hint">— {t('bench.rails.new.disabled')}</span>
-            </td>
-          </tr>
         </tbody>
       </table>
     </div>

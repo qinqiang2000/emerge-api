@@ -22,13 +22,9 @@
 .bench-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 80px; position: relative; }
 .bench-body { max-width: 1380px; margin: 0 auto; padding: 28px 32px 24px; display: flex; flex-direction: column; gap: 22px; }
 
-/* ── top bar ──────────────────────────────────────────────────────────── */
-.b-topbar { display: flex; align-items: center; gap: 24px; padding: 10px 22px; border-bottom: 1px solid var(--rule); background: var(--paper); flex-shrink: 0; }
-.b-toprail { display: flex; align-items: center; gap: 10px; margin-left: auto; }
-.b-rail-meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
-.b-rail-meta strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-.b-topbar-close { font-size: 18px; background: transparent; border: 0; color: var(--ink-3); cursor: pointer; width: 30px; height: 30px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
-.b-topbar-close:hover { background: var(--paper-3); color: var(--ink); }
+/* ── close X (absolute on card, replaces former BenchTopBar) ──────────── */
+.b-card-close { position: absolute; top: 12px; right: 12px; z-index: 4; font-size: 18px; background: transparent; border: 0; color: var(--ink-3); cursor: pointer; width: 30px; height: 30px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.b-card-close:hover { background: var(--paper-3); color: var(--ink); }
 
 /* ── headline ─────────────────────────────────────────────────────────── */
 .b-headline { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
@@ -49,7 +45,9 @@
 .b-rail-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; }
 .b-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; font-family: var(--mono); font-size: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; color: var(--ink-2); cursor: pointer; transition: background .12s, border-color .12s, color .12s; white-space: nowrap; flex-shrink: 0; }
 .b-chip:hover { border-color: var(--ink-5); color: var(--ink); }
-.b-chip.active { border-color: var(--ochre); background: var(--ochre-soft); color: var(--ochre-2); font-weight: 500; }
+/* "active" (= current prompt/model) is signalled solely by the ⭐ inside the
+   chip — no fill / border tint. Keeps the rail visually quiet so the matrix
+   colors are the loudest thing on screen. */
 .b-chip.hover { box-shadow: 0 0 0 3px var(--ochre-soft); border-color: var(--ochre); }
 /* Pinned: persistent filter — heavier ring than transient hover, distinct
    color (--moss) so user can tell "this chip is locked" at a glance even
@@ -67,15 +65,14 @@
   color: var(--ink-4); border-color: var(--rule);
 }
 .b-chip-refs { color: var(--ink-5); font-size: 10.5px; }
-.b-chip.active .b-chip-refs { color: var(--ochre-2); opacity: .6; }
 .b-star { font-size: 11px; line-height: 1; }
 
 /* ── matrix table ─────────────────────────────────────────────────────── */
 .b-matrix-wrap { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; overflow: auto; }
-.b-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); min-width: 1240px; }
+.b-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); min-width: 1240px; table-layout: fixed; }
 .b-matrix thead th { position: sticky; top: 0; background: var(--paper-2); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-4); font-weight: 500; padding: 11px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
 .b-matrix thead .b-th-overall, .b-matrix thead .b-th-actions { text-align: right; }
-.b-matrix thead .b-th-field { text-align: center; }
+.b-matrix thead .b-th-field { text-align: center; text-transform: none; letter-spacing: 0; font-size: 11px; }
 .b-row { cursor: pointer; transition: background .1s, opacity .15s; }
 .b-row:hover { background: var(--paper-2); }
 /* selected rail uses --ochre at low alpha — kept as rgba derived from the */
@@ -95,7 +92,7 @@
 /* axis chips inside rows */
 .b-axis-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-family: var(--mono); font-size: 11.5px; border-radius: 5px; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-axis-chip.model { color: var(--ink-3); }
-.b-axis-chip.active { border-color: var(--ochre-edge); background: var(--ochre-soft); color: var(--ochre-2); }
+/* Like the rail chips: "active" is signalled by ⭐ alone, no ochre wash. */
 .b-axis-chip.small { font-size: 11px; padding: 2px 7px; }
 
 /* cells */
@@ -117,8 +114,28 @@
 .b-cell-ok .b-cell-score .num { color: var(--moss-2); }
 .b-cell-bad .b-cell-score .num { color: var(--rose-2); }
 
-/* overall */
-.b-row-overall { text-align: right; font-family: var(--mono); padding-right: 14px !important; }
+/* overall — sticky right col 1 (offset by actions col width = 96px).
+   Sticky cells need opaque backgrounds (translucent rgba would let scrolling
+   content show through). We use --paper / --paper-2 tokens here even though
+   it costs the subtle ochre wash on active/selected rows for these two
+   rightmost cells — the pinned columns still read as "fixed rail" via the
+   1px shadow on the left edge. */
+.b-row-overall {
+  text-align: right; font-family: var(--mono); padding-right: 14px !important;
+  position: sticky; right: 96px;
+  background: var(--paper);
+  box-shadow: -1px 0 0 var(--rule-soft);
+  z-index: 1;
+}
+.b-row:hover .b-row-overall,
+.b-row.active .b-row-overall,
+.b-row.selected .b-row-overall { background: var(--paper-2); }
+.b-matrix thead .b-th-overall {
+  position: sticky; top: 0; right: 96px;
+  background: var(--paper-2);
+  box-shadow: -1px 0 0 var(--rule-soft);
+  z-index: 3;
+}
 .b-overall-num { font-size: 18px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
 .b-overall-pct { font-size: 11px; color: var(--ink-4); margin-left: 1px; }
 .b-overall-delta { font-size: 10.5px; font-variant-numeric: tabular-nums; margin-top: 3px; font-family: var(--mono); font-weight: 500; }
@@ -126,22 +143,33 @@
 .b-overall-delta.down { color: var(--rose-2); }
 .b-overall-pending { color: var(--ink-5); font-family: var(--mono); font-size: 11px; font-style: italic; }
 
-/* actions */
-.b-row-action { text-align: right; padding-right: 14px !important; }
-.b-action-active { font-family: var(--mono); font-size: 10.5px; color: var(--ochre-2); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
-.b-action-promote { font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 6px 12px; background: var(--ink); color: #fff; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: .02em; transition: background .12s; }
+/* actions — sticky right col 2 */
+.b-row-action {
+  text-align: right; padding-right: 14px !important;
+  position: sticky; right: 0;
+  background: var(--paper);
+  box-shadow: -1px 0 0 var(--rule-soft);
+  z-index: 1;
+}
+.b-row:hover .b-row-action,
+.b-row.active .b-row-action,
+.b-row.selected .b-row-action { background: var(--paper-2); }
+.b-matrix thead .b-th-actions {
+  position: sticky; top: 0; right: 0;
+  background: var(--paper-2);
+  box-shadow: -1px 0 0 var(--rule-soft);
+  z-index: 3;
+}
+.b-action-active { font-family: var(--mono); font-size: 10.5px; color: var(--ochre-2); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; white-space: nowrap; }
+.b-action-promote { font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 6px 12px; background: var(--ink); color: #fff; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: .02em; transition: background .12s; white-space: nowrap; }
 .b-action-promote:hover { background: var(--ochre); }
-.b-action-run { font-family: var(--mono); font-size: 11px; padding: 6px 12px; background: transparent; color: var(--ink-3); border: 1px solid var(--rule); border-radius: 5px; cursor: pointer; letter-spacing: .02em; }
+.b-action-run { font-family: var(--mono); font-size: 11px; padding: 6px 12px; background: transparent; color: var(--ink-3); border: 1px solid var(--rule); border-radius: 5px; cursor: pointer; letter-spacing: .02em; white-space: nowrap; }
 .b-action-run:hover { color: var(--ink); border-color: var(--ink-5); background: var(--paper-2); }
-
-/* placeholder row — disabled until create-experiment lands; drop hover
-   invitation since clicking does nothing right now. */
-.b-row-new { cursor: default; }
-.b-row-new.disabled { opacity: .55; }
-.b-row-new.disabled .b-new-cell { cursor: not-allowed; }
-.b-new-cell { padding: 14px 14px !important; font-family: var(--mono); font-size: 12px; color: var(--ink-4); display: flex; align-items: center; gap: 8px; border-bottom: 0 !important; }
-.b-new-icon { font-size: 14px; color: var(--ink-3); width: 16px; text-align: center; }
-.b-new-hint { color: var(--ink-5); font-style: italic; font-family: var(--serif); }
+.b-action-active { font-family: var(--mono); font-size: 10.5px; color: var(--ochre-2); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; white-space: nowrap; }
+.b-action-promote { font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 6px 12px; background: var(--ink); color: #fff; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: .02em; transition: background .12s; white-space: nowrap; }
+.b-action-promote:hover { background: var(--ochre); }
+.b-action-run { font-family: var(--mono); font-size: 11px; padding: 6px 12px; background: transparent; color: var(--ink-3); border: 1px solid var(--rule); border-radius: 5px; cursor: pointer; letter-spacing: .02em; white-space: nowrap; }
+.b-action-run:hover { color: var(--ink); border-color: var(--ink-5); background: var(--paper-2); }
 
 /* ── selection bar (floating) ─────────────────────────────────────────── */
 .b-selbar { position: sticky; bottom: 18px; margin: 18px 32px 0; display: flex; align-items: center; gap: 14px; padding: 11px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 27, 20, .16); font-family: var(--sans); font-size: 13px; z-index: 5; }

@@ -356,6 +356,7 @@ const en: Dict = {
   'bench.rails.new.disabled': 'soon — for now, ask the agent in chat to create one',
   'bench.rails.chip.pin': 'pin {label} — only matching rows stay highlighted',
   'bench.rails.chip.unpin': 'unpin {label}',
+  'bench.rails.chip.refs': '{n} compare experiments',
   'bench.matrix.action.run_eval': 'run eval',
   'bench.matrix.action.promote': 'promote',
   'bench.matrix.action.active': 'active',

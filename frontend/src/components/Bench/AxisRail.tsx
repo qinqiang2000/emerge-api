@@ -65,7 +65,11 @@ export default function AxisRail({ kind, items, hovered, pinned, onHover, onPin 
             >
               {it.is_active && <span className="b-star" data-testid="axisrail-star">⭐</span>}
               <span className="b-chip-label">{it.label}</span>
-              <span className="b-chip-refs" data-testid="axisrail-refs">·{it.refs ?? 0}</span>
+              <span
+                className="b-chip-refs"
+                data-testid="axisrail-refs"
+                title={t('bench.rails.chip.refs', { n: String(it.refs ?? 0) })}
+              >·{it.refs ?? 0}</span>
             </button>
           )
         })}

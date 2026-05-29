@@ -28,6 +28,7 @@
 // affordance (T9's mutation invalidation hook keeps the cache fresh after
 // experiment / prompt / model edits).
 
+import { X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { useT } from '../../i18n'
@@ -39,7 +40,6 @@ import BenchDiff from './BenchDiff'
 import BenchHeadline from './BenchHeadline'
 import BenchMatrix from './BenchMatrix'
 import BenchSelectionBar from './BenchSelectionBar'
-import BenchTopBar from './BenchTopBar'
 import './Bench.css'
 
 /** Format a PromptVariant blob into plain text for BenchDiff's line-by-line
@@ -276,10 +276,18 @@ export default function BenchOverlay({ slug, onClose, onOpenRow, hidden = false 
       aria-hidden={hidden}
     >
       <div
-        className="bg-paper text-ink rounded-lg shadow-xl border border-rule flex flex-col w-full max-w-[min(1480px,96vw)] max-h-[92vh] overflow-hidden"
+        className="bg-paper text-ink rounded-lg shadow-xl border border-rule flex flex-col w-full max-w-[min(1480px,96vw)] max-h-[92vh] overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
       >
-        <BenchTopBar reviewedCount={reviewedCount} onClose={onClose} />
+        <button
+          type="button"
+          className="b-card-close"
+          aria-label={t('bench.topbar.close.aria')}
+          title={t('bench.topbar.close')}
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
 
         <div className="bench-root">
           <div className="bench-scroll">

@@ -328,22 +328,4 @@ describe('BenchMatrix', () => {
     expect(onPromote).toHaveBeenCalledTimes(1)
     expect(onOpenRow).not.toHaveBeenCalled()
   })
-
-  it('renders the empty "create experiment" row beneath the data rows', () => {
-    render(
-      <BenchMatrix
-        rows={[row({ id: 'r1' })]}
-        fields={FIELDS}
-        prompts={PROMPTS}
-        models={MODELS}
-        selectedIds={new Set()}
-        hovered={null}
-        onToggleSelect={() => {}}
-        onOpenRow={() => {}}
-        onPromote={() => {}}
-        onRunEval={() => {}}
-      />,
-    )
-    expect(screen.getByText(/create experiment/i)).toBeInTheDocument()
-  })
 })
