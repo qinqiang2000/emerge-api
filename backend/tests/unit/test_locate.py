@@ -455,6 +455,60 @@ def test_ordinal_tiebreak_twin_totals(monkeypatch):
     assert min(r[1] for r in by["totalAmount"].rects) == 690
 
 
+def test_ordinal_tiebreak_only_groups_siblings(monkeypatch):
+    """The ordinal tie-break must group fields by (parent, quote) — siblings only.
+
+    Regression: grounding gave a top-level ``currency`` the bogus quote
+    "111.00 USD" that the line-item ``netAmount`` / ``grossAmount`` legitimately
+    carry. Grouped by quote alone, that made 3 fields ⇄ 3 equally-good lines
+    (the line-item row + two grand-total lines) — a false K⇄K tie that assigned
+    the line-item amounts to the document's grand totals. Sibling-scoping splits
+    the group, so the array amounts no longer reach a tie and fall back to none
+    rather than lighting up the wrong (grand-total) line."""
+    fields = [
+        SchemaField(name="currency", type="string", description="ccy"),
+        SchemaField(
+            name="lines",
+            type="array",
+            description="line items",
+            items=SchemaField(
+                type="object",
+                description="row",
+                properties=[
+                    SchemaField(name="netAmount", type="number", description="net"),
+                    SchemaField(name="grossAmount", type="number", description="gross"),
+                ],
+            ),
+        ),
+    ]
+    pages = {
+        1: [
+            # line-item row: unit-price + total-price both "111.00 USD" (one line)
+            _span("111.00 USD", bbox=(300, 90, 400, 102)),
+            _span("111.00 USD", bbox=(450, 90, 550, 102)),
+            # two grand-total lines further down
+            _span("111.00 USD", bbox=(300, 600, 400, 612)),
+            _span("111.00 USD", bbox=(300, 690, 400, 702)),
+        ]
+    }
+    locs = _run(
+        [{"currency": "111.00 USD", "lines": [{"netAmount": 111, "grossAmount": 111}]}],
+        [{
+            "currency": {"page": 1, "source": "111.00 USD"},
+            "lines[].netAmount": {"page": 1, "source": "111.00 USD"},
+            "lines[].grossAmount": {"page": 1, "source": "111.00 USD"},
+        }],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    by = {l.path: l for l in locs}
+    # Ambiguous ("111.00 USD" repeats 4× with no disambiguating anchor) → none,
+    # never a confident assignment to a grand-total line.
+    assert by["lines[].netAmount"].status == "none"
+    assert by["lines[].grossAmount"].status == "none"
+
+
 def test_quote_coverage_is_union_not_sum(monkeypatch):
     """A line-item row carries the value twice (net + gross both '111.00 USD').
     Summed coverage would let it (2×) beat the real 'Total 111.00 USD' line; the

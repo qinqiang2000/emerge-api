@@ -617,16 +617,28 @@ async def _ordinal_tiebreak(
     i-th matching line (top-to-bottom). Assumption: field order ≈ document order
     (holds for the usual net-above-grand invoice layout); only fires on an exact
     K-fields ⇄ K-lines tie, so it never scatters a guess.
+
+    Fields are grouped by ``(parent_path, quote)`` — siblings only — never by the
+    quote alone. The reading-order assumption is defensible only among siblings;
+    lumping unrelated fields together (a top-level ``currency`` that grounding gave
+    the bogus quote "111.00 USD" alongside the line-item ``netAmount`` / ``grossAmount``
+    that legitimately carry it) used to manufacture a K⇄K tie and assign the
+    line-item amounts to the document's grand-total lines. Sibling-scoping keeps
+    each genuine repeat-set (the two top-level totals; the line-item amounts) on
+    its own, so a coincidental cross-kind collision no longer fires.
     """
     from collections import OrderedDict
 
-    groups: "OrderedDict[str, list[dict]]" = OrderedDict()
+    def _parent(path: str) -> str:
+        return path.rsplit(".", 1)[0] if "." in path else ""
+
+    groups: "OrderedDict[tuple[str, str], list[dict]]" = OrderedDict()
     for m in field_meta:
         if results[m["ri"]].status != "none" or not m["quote_n"]:
             continue
-        groups.setdefault(m["quote_n"], []).append(m)
+        groups.setdefault((_parent(results[m["ri"]].path), m["quote_n"]), []).append(m)
 
-    for quote_n, members in groups.items():
+    for (_parent_path, quote_n), members in groups.items():
         if len(members) < 2:
             continue
         hints = [m["page_hint"] for m in members if m["page_hint"]]
