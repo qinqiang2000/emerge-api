@@ -45,6 +45,60 @@ export function evidencePageOf(v: EvidenceValue | undefined): number | null {
   return null
 }
 
+/**
+ * POST to the grounding endpoint to resolve (and cache) per-field evidence
+ * (page + verbatim source quote) for a prediction blob. This is the anchor the
+ * high-precision locate resolver needs to disambiguate repeated values; it runs
+ * a separate LLM pass server-side, cached into the blob, so it fires once.
+ *
+ * Like locate, grounding is best-effort: any failure resolves to `null` and the
+ * caller falls back to whatever evidence it already had (often none → page-level).
+ */
+export async function fetchGround(
+  projectId: string,
+  filename: string,
+  tab: '_draft' | '_pending',
+  entities: Record<string, unknown>[],
+): Promise<(Record<string, unknown> | null)[] | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/lab/projects/${encodeURIComponent(projectId)}/docs/by-name/${encodeURIComponent(
+        filename,
+      )}/ground`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // send the displayed entities so we ground exactly what's shown (the
+        // merged `active` view may be backed by pending, not the `tab` blob).
+        body: JSON.stringify({ tab, entities }),
+      },
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as { evidence?: (Record<string, unknown> | null)[] }
+    return Array.isArray(data?.evidence) ? data.evidence : null
+  } catch {
+    return null
+  }
+}
+
+/** True if any entity's evidence carries a page hint or a source quote. */
+export function hasEvidenceSignal(
+  evidence: (Record<string, unknown> | null)[] | null,
+): boolean {
+  if (!evidence) return false
+  for (const entry of evidence) {
+    if (!entry) continue
+    for (const v of Object.values(entry)) {
+      if (typeof v === 'number') return true
+      if (v && typeof v === 'object') {
+        const o = v as { page?: number | null; source?: string | null }
+        if (o.page != null || (o.source && o.source !== '')) return true
+      }
+    }
+  }
+  return false
+}
+
 export async function fetchLocate(
   projectId: string,
   filename: string,

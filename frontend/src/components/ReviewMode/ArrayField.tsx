@@ -39,16 +39,38 @@ interface SubFieldRowProps {
   type: string
   value: unknown
   readOnly: boolean
+  /** Locate path for this sub-field, `[]`-collapsed (e.g. `lines[].name`) to
+   *  match the grounding/locate evidence key. */
+  path?: string
+  evidencePage?: number | null
+  active?: boolean
   onChange: (v: unknown) => void
+  onClick?: (path: string) => void
+  onJumpToPage?: (page: number) => void
 }
 
-function SubFieldRow({ name, type, value, readOnly, onChange }: SubFieldRowProps) {
+function SubFieldRow({
+  name, type, value, readOnly, path, evidencePage, active, onChange, onClick, onJumpToPage,
+}: SubFieldRowProps) {
   const displayValue = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
   return (
-    <div className="rev-arr-sub">
+    <div
+      className={`rev-arr-sub${active ? ' active' : ''}`}
+      onClick={path && onClick ? () => onClick(path) : undefined}
+    >
       <div className="rev-arr-sub-key">
         <span className="rev-arr-sub-name">{name}</span>
         <span className="rev-arr-sub-ty">{type}</span>
+        {evidencePage != null && (
+          <button
+            type="button"
+            className="ev"
+            aria-label={`jump to page ${evidencePage}`}
+            onClick={(e) => { e.stopPropagation(); onJumpToPage?.(evidencePage) }}
+          >
+            p{evidencePage}
+          </button>
+        )}
       </div>
       <span
         className="rev-arr-sub-val"
@@ -83,9 +105,19 @@ interface RowCardProps {
   forceOpen?: boolean | null
   readOnly: boolean
   onChangeEntry: (v: unknown) => void
+  /** Array field path (e.g. `detailOfGoodsOrServices`); children locate under
+   *  `${arrayPath}[].${child}` — `[]`-collapsed, so all rows share one anchor. */
+  arrayPath?: string
+  getEvidencePage?: (path: string) => number | null
+  activeField?: string | null
+  onSetActiveField?: (path: string) => void
+  onJumpToPage?: (page: number) => void
 }
 
-function RowCard({ index, entry, rowSchema, forceOpen, readOnly, onChangeEntry }: RowCardProps) {
+function RowCard({
+  index, entry, rowSchema, forceOpen, readOnly, onChangeEntry,
+  arrayPath, getEvidencePage, activeField, onSetActiveField, onJumpToPage,
+}: RowCardProps) {
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -126,6 +158,7 @@ function RowCard({ index, entry, rowSchema, forceOpen, readOnly, onChangeEntry }
               {rowSchema.map(child => {
                 if (!child.name) return null
                 const cname = child.name
+                const childPath = arrayPath ? `${arrayPath}[].${cname}` : undefined
                 return (
                   <SubFieldRow
                     key={cname}
@@ -133,7 +166,12 @@ function RowCard({ index, entry, rowSchema, forceOpen, readOnly, onChangeEntry }
                     type={child.type}
                     value={obj[cname] ?? null}
                     readOnly={readOnly}
+                    path={childPath}
+                    evidencePage={childPath ? getEvidencePage?.(childPath) ?? null : null}
+                    active={!!childPath && activeField === childPath}
                     onChange={(v) => handleSubChange(cname, v)}
+                    onClick={onSetActiveField}
+                    onJumpToPage={onJumpToPage}
                   />
                 )
               })}
@@ -182,6 +220,11 @@ interface Props {
   readOnly?: boolean
   onChange: (value: unknown) => void
   onClick: (path: string) => void
+  /** Source-grounding wiring for the row sub-fields (p1 link + click-to-focus). */
+  getEvidencePage?: (path: string) => number | null
+  activeField?: string | null
+  onSetActiveField?: (path: string) => void
+  onJumpToPage?: (page: number) => void
 }
 
 export default function ArrayField({
@@ -194,6 +237,10 @@ export default function ArrayField({
   readOnly = false,
   onChange,
   onClick,
+  getEvidencePage,
+  activeField,
+  onSetActiveField,
+  onJumpToPage,
 }: Props) {
   const t = useT()
   const [open, setOpen] = useState(true)
@@ -266,6 +313,11 @@ export default function ArrayField({
                 forceOpen={forceOpen}
                 readOnly={readOnly}
                 onChangeEntry={(v) => handleChangeEntry(idx, v)}
+                arrayPath={path}
+                getEvidencePage={getEvidencePage}
+                activeField={activeField}
+                onSetActiveField={onSetActiveField}
+                onJumpToPage={onJumpToPage}
               />
               {!readOnly && (
                 <div className="rfoot">

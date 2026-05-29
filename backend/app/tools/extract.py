@@ -23,13 +23,16 @@ Output rules:
 - top-level: array of objects (entities). One PDF may contain multiple entities (e.g. multiple receipts).
 - use the field names from the schema verbatim (case-sensitive); do not translate snake_case↔camelCase.
 - ALWAYS include every field declared in the schema for each entity. Use null when the value is absent from the document or you are uncertain. Do NOT omit keys.
-- emit `_evidence` parallel to `entities`: per-entity dict mapping field_name -> {"page": <1-based page int>, "source": <verbatim text>}.
-  - `page`: the page where you saw the value. For derived / computed / inferred fields (sums, classifications, reformatted dates) emit null.
-  - `source`: the exact text fragment you read the value from, copied verbatim from the document (<=120 chars, keep the original language; do NOT rewrite, translate, normalize, or reformat). For derived / computed fields with no literal source, emit null.
-  - Emit an entry for every field (null page and null source when the field is absent from the document).
-  - NEVER output coordinates, bounding boxes, pixel positions, or region geometry — only the page number and the verbatim text snippet.
 
 Use the emit_extraction tool to return the result."""
+
+# Source-grounding (page + verbatim quote per field) is NOT requested here on
+# purpose: it is resolved by a separate grounding pass (app/tools/ground.py) run
+# lazily at review time. Folding it into this response_schema would either need
+# `additionalProperties` (which Gemini's OpenAPI-3.0 dialect rejects) or a full
+# mirror of the nested field shape — bloating the schema and risking extraction
+# adherence under constrained decoding. Keeping extraction clean protects value
+# accuracy; grounding owns its own flat schema. See 2026-05-29-grounding-pass.md.
 
 
 def _build_response_schema(schema: list[SchemaField]) -> dict[str, Any]:
@@ -46,12 +49,9 @@ def _build_response_schema(schema: list[SchemaField]) -> dict[str, Any]:
         "required": [f.name for f in schema],
     }
 
-    # `_evidence` is intentionally omitted from the formal response_schema:
-    # Gemini's OpenAPI-3.0 dialect rejects `additionalProperties` (which we'd need
-    # to allow arbitrary field names as evidence keys), and listing each schema
-    # field again as an explicit nullable integer doubles the schema for marginal
-    # value at this layer. The system prompt still instructs the model to emit
-    # `_evidence`; ExtractionOutput accepts it as Optional and validates length.
+    # No `_evidence` here — grounding is a separate pass (see _EXTRACT_SYSTEM note
+    # + app/tools/ground.py). ExtractionOutput still accepts `_evidence` as
+    # Optional so reviewed-save / grounding can stamp it onto the blob later.
     return {
         "type": "object",
         "required": ["entities"],

@@ -375,6 +375,150 @@ def test_source_quote_disambiguates_repeated_value(monkeypatch):
     assert locs[0].rects == [[10.0, 690.0, 300.0, 702.0]]
 
 
+def test_exact_value_beats_quote(monkeypatch):
+    """A literal full-value match is the most trustworthy anchor: when the value
+    has its own clean span it wins over the (label+value) quote, boxing just the
+    value — not the longer label span the old quote-first path picked."""
+    fields = [SchemaField(name="po", type="string", description="po")]
+    pages = {
+        1: [
+            _span("Your P.O.:", bbox=(10, 100, 110, 112)),   # label column
+            _span("108575201", bbox=(300, 100, 400, 112)),   # value column, same line
+            _span("RAN:", bbox=(10, 130, 110, 142)),         # next line, no match
+        ]
+    }
+    locs = _run(
+        [{"po": "108575201"}],
+        [{"po": {"page": 1, "source": "Your P.O.: 108575201"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "exact"
+    assert locs[0].rects == [[300, 100, 400, 112]]  # the value, not the label
+
+
+def test_exact_value_beats_wrong_logo_quote(monkeypatch):
+    """The model sometimes points the quote at a logo/letterhead ("AIRBUS") while
+    the real value text sits in the body. A full-span-equal value match must win
+    over the short wrong quote, so the box lands on the company line, not the
+    logo."""
+    fields = [SchemaField(name="billFromName", type="string", description="seller")]
+    val = "Airbus Americas Customer Services, Inc."
+    pages = {
+        1: [
+            _span("AIRBUS", bbox=(275, 34, 362, 51)),        # logo (the bad quote)
+            _span(val, bbox=(425, 745, 535, 754)),           # the real company line
+        ]
+    }
+    locs = _run(
+        [{"billFromName": val}],
+        [{"billFromName": {"page": 1, "source": "AIRBUS"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "exact"
+    assert locs[0].rects == [[425, 745, 535, 754]]  # company line, not the logo
+
+
+def test_ordinal_tiebreak_twin_totals(monkeypatch):
+    """Two fields share one identical quote ("Total 111.00 USD" — net == grand
+    because tax is 0) that matches exactly two equally-good lines. Neither value
+    nor quote can split them, so the ordinal tie-break assigns them by reading
+    order: the first (schema-order) field → the top line, the second → below."""
+    fields = [
+        SchemaField(name="totalNetAmount", type="number", description="net"),
+        SchemaField(name="totalAmount", type="number", description="grand"),
+    ]
+    pages = {
+        1: [
+            _span("Total", bbox=(10, 400, 60, 412)),
+            _span("111.00 USD", bbox=(300, 400, 400, 412)),   # top line (net)
+            _span("Total", bbox=(10, 690, 60, 702)),
+            _span("111.00 USD", bbox=(300, 690, 400, 702)),   # bottom line (grand)
+        ]
+    }
+    locs = _run(
+        [{"totalNetAmount": 111, "totalAmount": 111}],
+        [{"totalNetAmount": {"page": 1, "source": "Total 111.00 USD"},
+          "totalAmount": {"page": 1, "source": "Total 111.00 USD"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    by = {l.path: l for l in locs}
+    assert by["totalNetAmount"].status == "quote"
+    assert by["totalAmount"].status == "quote"
+    # net → top line, grand → bottom line (reading order)
+    assert min(r[1] for r in by["totalNetAmount"].rects) == 400
+    assert min(r[1] for r in by["totalAmount"].rects) == 690
+
+
+def test_quote_coverage_is_union_not_sum(monkeypatch):
+    """A line-item row carries the value twice (net + gross both '111.00 USD').
+    Summed coverage would let it (2×) beat the real 'Total 111.00 USD' line; the
+    set-union coverage must count the repeated quote region once, so the labelled
+    Total line wins."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {
+        1: [
+            _span("111.00 USD", bbox=(300, 90, 400, 102)),   # line-item net
+            _span("111.00 USD", bbox=(450, 90, 550, 102)),   # line-item gross (same line)
+            _span("Total", bbox=(10, 690, 60, 702)),         # grand-total label
+            _span("111.00 USD", bbox=(300, 690, 400, 702)),  # grand-total value (same line)
+        ]
+    }
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": "Total 111.00 USD"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "quote"
+    assert sorted(locs[0].rects) == sorted([[10, 690, 60, 702], [300, 690, 400, 702]])
+
+
+def test_quote_repeated_identical_line_is_ambiguous_none(monkeypatch):
+    """Two lines that cover the quote identically (net total == grand total, both
+    'Total 111.00 USD') are genuinely ambiguous → none (page-level fallback),
+    never a confident wrong pick."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {
+        1: [
+            _span("Total", bbox=(10, 400, 60, 412)),
+            _span("111.00 USD", bbox=(300, 400, 400, 412)),
+            _span("Total", bbox=(10, 690, 60, 702)),
+            _span("111.00 USD", bbox=(300, 690, 400, 702)),
+        ]
+    }
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": "Total 111.00 USD"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []
+
+
+def test_quote_no_fuzzy_cross_contamination(monkeypatch):
+    """'0.00 USD' must NOT match the quote 'Total 111.00 USD' (the old fuzzy
+    partial-ratio branch scored it ~0.84 and lit up the Sales-Tax line)."""
+    fields = [SchemaField(name="amt", type="number", description="a")]
+    pages = {1: [_span("0.00 USD", bbox=(300, 500, 400, 512))]}
+    locs = _run(
+        [{"amt": 111}],
+        [{"amt": {"page": 1, "source": "Total 111.00 USD"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+
+
 def test_distinctive_string_repeat_unions(monkeypatch):
     """A long distinctive string matched exactly in several places (invoice
     number in header + payment stub) is the same entity → highlight all, unlike

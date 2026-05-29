@@ -73,8 +73,17 @@ _DOMINANCE_EPS = 1e-6
 _STATUS_RANK = {"exact": 4, "normalized": 3, "quote": 2, "fuzzy": 1, "none": 0}
 
 
+_WS = re.compile(r"\s+")
+
+
 def _nfkc(s: Any) -> str:
-    return unicodedata.normalize("NFKC", str(s)).strip()
+    """NFKC-fold + collapse internal whitespace runs to a single space.
+
+    PyMuPDF text-layer spans carry column-padding artefacts ("SHIM     SHIM",
+    "EA        111.00 USD"); the model's verbatim quote does not. Collapsing
+    whitespace on both sides lets a clean quote align to a padded span without
+    loosening the strength ladder."""
+    return _WS.sub(" ", unicodedata.normalize("NFKC", str(s))).strip()
 
 
 def _value_at_path(entity: dict, path: str) -> Any:
@@ -265,24 +274,91 @@ def _value_strength(
     return 0.0, "none"
 
 
-def _quote_strength(quote_n: str, span_text: str) -> tuple[float, str]:
-    """Strength of the verbatim source quote against one span (text mode).
+def _quote_span_range(quote_n: str, span_n: str) -> Optional[tuple[int, int]]:
+    """The character range of the quote that this span covers, or None.
 
-    The quote is a free-text phrase that may wrap several spans, so a span that
-    is a fragment of the quote scores by its coverage; this lets contiguous
-    fragments reassemble into one cluster while keeping a full-quote span on top.
-    """
-    span_n = _nfkc(span_text)
+    A span equal to / containing the whole quote covers ``[0, len(quote))``; a
+    span that is a contiguous fragment covers the range where it sits. No fuzzy
+    matching — quotes are copied verbatim, so a span must be a real substring to
+    count. (Fuzzy partial-ratio used to let "0.00 USD" score against "Total
+    111.00 USD", lighting up the wrong line.)"""
     if not span_n or not quote_n:
-        return 0.0, "none"
+        return None
     if span_n == quote_n or quote_n in span_n:
-        return 1.0, "quote"
-    if span_n in quote_n:
-        return len(span_n) / len(quote_n), "quote"
-    sc = _fuzzy_score(quote_n, span_n)
-    if sc >= _FUZZY_THRESHOLD:
-        return (sc / 100.0) * 0.95, "quote"  # slight penalty vs literal coverage
-    return 0.0, "none"
+        return (0, len(quote_n))
+    i = quote_n.find(span_n)
+    if i >= 0:
+        return (i, i + len(span_n))
+    return None
+
+
+def _merged_len(ranges: list[tuple[int, int]]) -> int:
+    """Total length of the union of (possibly overlapping) character ranges."""
+    if not ranges:
+        return 0
+    ranges = sorted(ranges)
+    total = 0
+    cur_s, cur_e = ranges[0]
+    for s, e in ranges[1:]:
+        if s <= cur_e:
+            cur_e = max(cur_e, e)
+        else:
+            total += cur_e - cur_s
+            cur_s, cur_e = s, e
+    return total + (cur_e - cur_s)
+
+
+def _cluster_quote_lines(spans: list[dict], quote_n: str) -> list[dict]:
+    """Group quote-matching spans into *line* clusters and score by coverage.
+
+    A source quote is a horizontal phrase — "Invoice No.: 74671636", "Your P.O.:
+    108575201" — whose label and value sit in different columns of the SAME line.
+    So (unlike value-wrap clustering, which stacks vertically and needs x-overlap)
+    quote fragments are grouped by vertical proximity ONLY, reassembling the whole
+    line. A cluster's score is the fraction of the quote's *characters* its
+    members cover as a set-union — so a line carrying the value twice (a line-item
+    row with net + gross both "111.00 USD") doesn't double-count and beat the real
+    "Total 111.00 USD" line. The best-covering line wins and its rects union into
+    one whole-line highlight; lines that cover the quote equally (a value that
+    genuinely repeats line-for-line) tie → the caller returns none.
+    """
+    qlen = max(len(quote_n), 1)
+    items: list[dict] = []
+    for sp in spans:
+        rng = _quote_span_range(quote_n, _nfkc(sp.get("text", "")))
+        if rng is None:
+            continue
+        bbox = [float(v) for v in sp.get("bbox", [])]
+        if len(bbox) < 4:
+            continue
+        items.append({"range": rng, "bbox": bbox})
+    items.sort(key=lambda it: (it["bbox"][1], it["bbox"][0]))
+
+    clusters: list[dict] = []
+    for it in items:
+        x0, y0, x1, y1 = it["bbox"]
+        h = max(y1 - y0, 1.0)
+        cy = (y0 + y1) / 2.0
+        placed = False
+        for cl in clusters:
+            # same line: this span's vertical centre sits within the cluster's
+            # band (± ~half a line height). No x-overlap requirement — label and
+            # value are in different columns of one line.
+            if cl["y0"] - h * 0.6 <= cy <= cl["y1"] + h * 0.6:
+                cl["members"].append(it)
+                cl["y0"], cl["y1"] = min(cl["y0"], y0), max(cl["y1"], y1)
+                placed = True
+                break
+        if not placed:
+            clusters.append({"members": [it], "y0": y0, "y1": y1})
+
+    out: list[dict] = []
+    for cl in clusters:
+        score = _merged_len([m["range"] for m in cl["members"]]) / qlen
+        out.append(
+            {"score": score, "status": "quote", "rects": [m["bbox"] for m in cl["members"]]}
+        )
+    return out
 
 
 def _cluster_hits(
@@ -441,63 +517,146 @@ async def _locate_one_field(
         pages.extend(pg for pg in range(1, (total_pages or 0) + 1) if pg != page_hint)
         return pages
 
-    # ---- source quote first: the model's own pointer is the most specific
-    # anchor and is what disambiguates a value that repeats on the page. ----
-    quote_n = _nfkc(source_quote) if source_quote else ""
-    if quote_n:
-        for pg in _ordered_pages():
-            spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
-            clusters = _cluster_hits(spans, lambda txt: _quote_strength(quote_n, txt))
-            sel = _select_cluster(clusters)
-            if sel is not None:
-                return _result("quote", sel["score"] * 100.0, sel["rects"], pg)
-            if clusters:
-                break  # quote present on this page but ambiguous → fall to value
-
-    # ---- value matching (type-aware), page hint first ----
     has_value = value is not None and _nfkc(value) != ""
-    if has_value:
-        value_n = _nfkc(value)
-        value_dec = _try_number(value_n)
-        # A long value on a string-typed field is distinctive enough that exact
-        # repeats are the same entity (an invoice number in header + stub), so
-        # they may be unioned. Numeric fields stay collision-collapsed even when
-        # long, because a repeated amount is genuinely ambiguous.
-        distinctive = (
-            _field_type(field) not in _NUMERIC_TYPES
-            and len(value_n) >= _DISTINCTIVE_LEN
-        )
+    value_n = _nfkc(value) if has_value else ""
+    value_dec = _try_number(value_n) if has_value else None
+    # A long value on a string-typed field is distinctive enough that exact
+    # repeats are the same entity (an invoice number in header + stub), so they
+    # may be unioned. Numeric fields stay collision-collapsed even when long,
+    # because a repeated amount is genuinely ambiguous.
+    distinctive = (
+        has_value
+        and _field_type(field) not in _NUMERIC_TYPES
+        and len(value_n) >= _DISTINCTIVE_LEN
+    )
+
+    async def _value_locate() -> Optional[dict]:
+        """Best value-match selection across pages (hint first), or None.
+
+        Returns ``{status, score, rects, page}``. None when the value is absent,
+        unmatched, or ambiguous on the hinted page (we don't scatter the search
+        across pages once the value is present-but-ambiguous on its own page)."""
+        if not has_value:
+            return None
 
         def _vfn(txt: str) -> tuple[float, str]:
             return _value_strength(value_n, value_dec, field, txt)
 
         if page_hint is not None:
-            spans = await _spans_for_page(
-                workspace, project_id, filename, page_hint, span_cache
-            )
+            spans = await _spans_for_page(workspace, project_id, filename, page_hint, span_cache)
             clusters = _cluster_hits(spans, _vfn)
             sel = _select_cluster(clusters, distinctive=distinctive)
             if sel is not None:
-                return _result(sel["status"], sel["score"] * 100.0, sel["rects"], page_hint)
+                return {**sel, "page": page_hint}
             if clusters:
-                # value present on the hinted page but ambiguous → don't scatter
-                # the search across other pages; prefer the page-level fallback.
-                return _result("none", 0.0, [], page_hint)
-
-        # full-document scan (no hint, or the hinted page had no match). Select
-        # per page so a distinctive-repeat union only ever merges same-page rects
-        # (a FieldLocation carries one page; the highlight layer paints its rects
-        # on that page). First page with a confident selection wins.
+                return None  # present but ambiguous on the hinted page
         for pg in range(1, (total_pages or 0) + 1):
             if pg == page_hint:
                 continue
             spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
             sel = _select_cluster(_cluster_hits(spans, _vfn), distinctive=distinctive)
             if sel is not None:
-                return _result(sel["status"], sel["score"] * 100.0, sel["rects"], pg)
+                return {**sel, "page": pg}
+        return None
+
+    value_sel = await _value_locate()
+
+    # ---- 1. literal full-value identity first ---------------------------------
+    # A full-span-equal value match (score 1.0) — or a distinctive-repeat union of
+    # them — is the most trustworthy anchor there is. It outranks the source quote,
+    # which the model sometimes points at a logo / letterhead / abbreviation (e.g.
+    # billFromName quoted as "AIRBUS" while the real company line sits unmatched).
+    if value_sel is not None and value_sel["score"] >= 1.0 - _DOMINANCE_EPS:
+        return _result(
+            value_sel["status"], value_sel["score"] * 100.0, value_sel["rects"], value_sel["page"]
+        )
+
+    # ---- 2. source quote: disambiguates a value that repeats / isn't literal ----
+    quote_n = _nfkc(source_quote) if source_quote else ""
+    if quote_n:
+        for pg in _ordered_pages():
+            spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+            clusters = _cluster_quote_lines(spans, quote_n)
+            sel = _select_cluster(clusters)
+            if sel is not None:
+                return _result("quote", sel["score"] * 100.0, sel["rects"], pg)
+            if clusters:
+                break  # quote present on this page but ambiguous → fall to value
+
+    # ---- 3. non-literal value fallback (substring / normalized / fuzzy) --------
+    if value_sel is not None:
+        return _result(
+            value_sel["status"], value_sel["score"] * 100.0, value_sel["rects"], value_sel["page"]
+        )
 
     # ---- nothing matched (or ambiguous) ----
     return _result("none", 0.0, [], page_hint)
+
+
+# Minimum quote-coverage for the ordinal tie-break to trust a line cluster (so we
+# never ordinally assign on a weak label-only match).
+_ORDINAL_MIN_SCORE = 0.6
+
+
+async def _ordinal_tiebreak(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    results: list[FieldLocation],
+    field_meta: list[dict],
+    span_cache: dict[int, list[dict]],
+    total_pages: int,
+) -> None:
+    """Resolve same-quote sibling fields that tied to ``none`` by document order.
+
+    When several fields share one identical source quote ("Total 111.00 USD" for
+    both the net total and the grand total — equal because tax is 0) and that
+    quote matches exactly that many equally-good lines, neither value nor quote
+    can tell them apart from text alone. We break the tie deterministically by
+    *reading order*: the i-th such field (in document/schema order) takes the
+    i-th matching line (top-to-bottom). Assumption: field order ≈ document order
+    (holds for the usual net-above-grand invoice layout); only fires on an exact
+    K-fields ⇄ K-lines tie, so it never scatters a guess.
+    """
+    from collections import OrderedDict
+
+    groups: "OrderedDict[str, list[dict]]" = OrderedDict()
+    for m in field_meta:
+        if results[m["ri"]].status != "none" or not m["quote_n"]:
+            continue
+        groups.setdefault(m["quote_n"], []).append(m)
+
+    for quote_n, members in groups.items():
+        if len(members) < 2:
+            continue
+        hints = [m["page_hint"] for m in members if m["page_hint"]]
+        pages: list[int] = []
+        if hints:
+            pages.append(hints[0])
+        pages.extend(pg for pg in range(1, (total_pages or 0) + 1) if pg not in pages)
+        for pg in pages:
+            spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+            clusters = _cluster_quote_lines(spans, quote_n)
+            if not clusters:
+                continue
+            top = max(c["score"] for c in clusters)
+            if top < _ORDINAL_MIN_SCORE:
+                continue
+            tied = [c for c in clusters if abs(c["score"] - top) <= _DOMINANCE_EPS]
+            if len(tied) != len(members):
+                continue
+            tied.sort(key=lambda c: (min(r[1] for r in c["rects"]), min(r[0] for r in c["rects"])))
+            for m, cl in zip(members, tied):
+                cur = results[m["ri"]]
+                results[m["ri"]] = FieldLocation(
+                    entity_index=cur.entity_index,
+                    path=cur.path,
+                    rects=cl["rects"],
+                    page=pg,
+                    status="quote",
+                    score=cl["score"] * 100.0,
+                )
+            break
 
 
 async def locate_fields(
@@ -538,6 +697,7 @@ async def locate_fields(
         )
         # per-document span cache shared across this entity's fields
         span_cache: dict[int, list[dict]] = {}
+        field_meta: list[dict] = []
         for path, value, leaf in _flatten_entity(entity, schema):
             page_hint = evidence_page(ev_entry, path) if ev_entry else None
             source_quote = evidence_source(ev_entry, path) if ev_entry else None
@@ -554,6 +714,18 @@ async def locate_fields(
                 span_cache=span_cache,
                 total_pages=total_pages,
             )
+            field_meta.append(
+                {
+                    "ri": len(results),
+                    "quote_n": _nfkc(source_quote) if source_quote else "",
+                    "page_hint": page_hint,
+                }
+            )
             results.append(loc)
+
+        # same-quote sibling fields that tied to none → assign by document order
+        await _ordinal_tiebreak(
+            workspace, project_id, filename, results, field_meta, span_cache, total_pages
+        )
 
     return results
