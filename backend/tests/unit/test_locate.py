@@ -571,6 +571,79 @@ def test_row_anchor_lineitem_amount(monkeypatch):
     assert amt.rects == [[400, 100, 500, 112]]
 
 
+def test_array_child_value_overrides_misgrounded_quote(monkeypatch):
+    """A single-row array child surfaces its value so a wrong source quote can't
+    drag the highlight to the wrong cell.
+
+    items[].item = "房费" but grounding mis-pointed its source at "支付宝" (an
+    adjacent row). Flying blind on the quote lit 支付宝; surfacing the value lets
+    the exact full-value match win and land on the real 房费 cell."""
+    fields = [
+        SchemaField(
+            name="items",
+            type="array",
+            description="line items",
+            items=SchemaField(
+                type="object",
+                description="row",
+                properties=[SchemaField(name="item", type="string", description="name")],
+            ),
+        ),
+    ]
+    pages = {
+        1: [
+            _span("房费", bbox=(150, 1084, 188, 1104)),
+            _span("支付宝", bbox=(150, 1119, 188, 1139)),
+        ]
+    }
+    locs = _run(
+        [{"items": [{"item": "房费"}]}],
+        [{"items[].item": {"page": 1, "source": "支付宝"}}],  # mis-grounded
+        fields,
+        pages,
+        monkeypatch,
+    )
+    by = {l.path: l for l in locs}
+    item = by["items[].item"]
+    assert item.status == "exact"
+    assert item.rects == [[150, 1084, 188, 1104]]  # 房费, not 支付宝
+
+
+def test_array_child_value_none_when_rows_disagree(monkeypatch):
+    """Multi-row arrays with differing child values keep value=None (ambiguous):
+    one collapsed `items[].item` evidence slot can't pick a row, so they fall
+    through to the quote tier as before — the surfacing only fires when the rows
+    agree on a single value."""
+    fields = [
+        SchemaField(
+            name="items",
+            type="array",
+            description="line items",
+            items=SchemaField(
+                type="object",
+                description="row",
+                properties=[SchemaField(name="item", type="string", description="name")],
+            ),
+        ),
+    ]
+    pages = {
+        1: [
+            _span("apple", bbox=(150, 100, 200, 112)),
+            _span("banana", bbox=(150, 130, 200, 142)),
+        ]
+    }
+    # two different values, no source quote → value is None (rows disagree) →
+    # nothing to anchor → none (not an arbitrary pick of one row's value).
+    locs = _run(
+        [{"items": [{"item": "apple"}, {"item": "banana"}]}],
+        [{"items[].item": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+
+
 def test_quote_coverage_is_union_not_sum(monkeypatch):
     """A line-item row carries the value twice (net + gross both '111.00 USD').
     Summed coverage would let it (2×) beat the real 'Total 111.00 USD' line; the

@@ -86,19 +86,37 @@ def _nfkc(s: Any) -> str:
     return _WS.sub(" ", unicodedata.normalize("NFKC", str(s))).strip()
 
 
-def _value_at_path(entity: dict, path: str) -> Any:
-    """Walk a leaf dot-path into an entity dict. Returns None if any hop misses.
+def _value_at_path(entity: Any, path: str) -> Any:
+    """Walk a leaf dot-path into an entity dict; None if any hop misses.
 
     ``_collect_leaves`` emits object children as ``parent.child`` and array
-    items as ``parent[]`` / ``parent[].child``. Array leaves have no single
-    scalar at the entity root, so they resolve to None here and fall through to
-    the document-text scan / quote tiers like any other multi-valued field.
+    items as ``parent[]`` / ``parent[].child``. At a ``[]`` hop the current node
+    is a list: we descend into every item, collecting the remaining sub-path's
+    value from each, and return the SINGLE distinct non-empty value if the rows
+    agree (a one-row array, or every row sharing the same value). When the rows
+    disagree (genuinely multi-valued) we return None and the field falls through
+    to the quote / document-text tiers, as before.
+
+    Surfacing the lone value lets the resolver value-match an array child (e.g.
+    ``items[].item`` = "房费") and so cross-check / override a mis-grounded source
+    quote, instead of flying blind on the quote alone.
     """
+    parts = path.split(".")
     cur: Any = entity
-    for part in path.split("."):
+    for i, part in enumerate(parts):
         if part.endswith("[]"):
-            # array leaf — no single scalar to pull out
-            return None
+            key = part[:-2]
+            seq = cur.get(key) if isinstance(cur, dict) else None
+            if not isinstance(seq, list):
+                return None
+            rest = ".".join(parts[i + 1:])
+            vals = []
+            for item in seq:
+                v = _value_at_path(item, rest) if rest else item
+                if v is not None and _nfkc(v) != "":
+                    vals.append(v)
+            distinct = {_nfkc(v) for v in vals}
+            return vals[0] if len(distinct) == 1 else None
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
         else:
