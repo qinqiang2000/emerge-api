@@ -29,6 +29,7 @@ import { Copy, Check } from 'lucide-react'
 
 import type { TranslateLine } from '../../lib/api'
 import { useT } from '../../i18n'
+import { BBoxRect } from './BBoxRect'
 
 // ── Ghost layer (inline translated text, decorative only) ───────────────────
 
@@ -52,8 +53,6 @@ export function TranslateGhost({ lines, pageW, pageH }: GhostProps) {
     <div className="translate-ghost-layer" aria-hidden="true">
       {lines.map((line, i) => {
         const [x0, y0, x1, y1] = line.bbox
-        const left = (x0 / pageW) * 100
-        const top = (y0 / pageH) * 100
         const widthPct = ((x1 - x0) / pageW) * 100
         const heightPct = ((y1 - y0) / pageH) * 100
         // Two budgets:
@@ -61,27 +60,26 @@ export function TranslateGhost({ lines, pageW, pageH }: GhostProps) {
         //   widthCqw  = bbox width / (char count × char-width factor), "% of layer width" → cqw
         // Container queries (container-type: size on .translate-ghost-layer)
         // resolve cqh / cqw against the wrapper, which is the rendered page,
-        // so the result tracks rotation + zoom for free.
+        // so the result tracks rotation + zoom for free. left/top/width/height
+        // %-positioning is delegated to <BBoxRect>.
         const heightCqh = heightPct * sizing.heightShrink
         const charCount = Math.max(1, line.translated.length)
         const widthCqw = widthPct / (charCount * sizing.widthCharFactor)
         const fontSize =
           `clamp(${sizing.minPx}px, min(${heightCqh}cqh, ${widthCqw}cqw), ${sizing.maxPx}px)`
         return (
-          <span
+          <BBoxRect
             key={i}
+            as="span"
+            bbox={line.bbox}
+            pageW={pageW}
+            pageH={pageH}
             className="translate-ghost-span"
             data-line-index={i}
-            style={{
-              left: `${left}%`,
-              top: `${top}%`,
-              width: `${widthPct}%`,
-              height: `${heightPct}%`,
-              fontSize,
-            }}
+            style={{ fontSize }}
           >
             {line.translated}
-          </span>
+          </BBoxRect>
         )
       })}
     </div>

@@ -80,6 +80,9 @@ app.include_router(projects_route.router)
 app.include_router(docs_route.router)
 app.include_router(textlayer_route.router)
 app.include_router(translate_route.router)
+from app.api.routes import locate as locate_route  # noqa: E402
+
+app.include_router(locate_route.router)
 app.include_router(predictions_route.router)
 app.include_router(prompts_route.router)
 app.include_router(models_route.router)

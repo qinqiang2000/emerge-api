@@ -11,10 +11,12 @@
 // through ReviewOverlay.
 
 import { ArrowLeftToLine } from 'lucide-react'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
 import { useReview } from '../../stores/review'
+import { useLocate } from '../../stores/locate'
+import { evidencePageOf, type EvidenceValue } from '../../lib/locate'
 import { useT } from '../../i18n'
 import type { SchemaField } from '../../stores/schema'
 
@@ -22,7 +24,7 @@ interface Props {
   schema: SchemaField[]
   entities: Record<string, unknown>[]
   notes?: Record<string, string>
-  evidence?: (Record<string, number | null> | undefined)[] | null
+  evidence?: (Record<string, unknown> | undefined)[] | null
   onChange: (entityIdx: number, name: string, value: unknown) => void
   onAddEntity: () => void
   onRemoveEntity: (idx: number) => void
@@ -67,6 +69,41 @@ export default function FieldEditor({
   const currentEntity = entities[safeIdx] ?? {}
   const evidenceForEntity = evidence?.[safeIdx] ?? undefined
 
+  // ── Source grounding (locate) wiring ───────────────────────────────────────
+  // Resolve source rects for the currently-displayed tab's entities/evidence,
+  // cached per (filename, tabKey) so this fires once per tab — not per render.
+  const projectId = useReview(s => s.activeProjectId)
+  const filename = useReview(s => s.activeFilename)
+  const activeTabKey = useReview(s => s.activeTabKey)
+  const focusLocate = useLocate(s => s.focus)
+  const loadFor = useLocate(s => s.loadFor)
+
+  useEffect(() => {
+    if (!projectId || !filename || !entities.length) return
+    void loadFor(
+      projectId,
+      filename,
+      activeTabKey,
+      entities as Record<string, unknown>[],
+      (evidence ?? null) as (Record<string, unknown> | null)[] | null,
+    )
+  }, [projectId, filename, activeTabKey, entities, evidence, loadFor])
+
+  // Field click → existing select + new source-grounding focus. If the field's
+  // resolved source sits on another page, scroll there (off-page jump lives in
+  // the focus handler, not the render layer, so it fires exactly once on click).
+  const handleSetActiveField = useCallback((path: string) => {
+    setActiveField(path)
+    focusLocate(path)
+    if (projectId && filename) {
+      const locations = useLocate.getState().byKey[`${filename}::${activeTabKey}`] ?? []
+      const hit = locations.find(
+        (l) => l.path === path && l.status !== 'none' && l.rects.length > 0 && l.page != null,
+      )
+      if (hit?.page != null) onJumpToPage?.(hit.page)
+    }
+  }, [setActiveField, focusLocate, projectId, filename, activeTabKey, onJumpToPage])
+
   // T11.1: Synthetic single-section — one section labelled "fields" containing all SchemaFields
   const sections = useMemo(() => {
     const fields: SectionField[] = schema.flatMap((f) => {
@@ -81,7 +118,7 @@ export default function FieldEditor({
         description: f.description,
         value: currentEntity[f.name] ?? null,
         note: notes[f.name],
-        evidencePage: evidenceForEntity?.[f.name] ?? null,
+        evidencePage: evidencePageOf(evidenceForEntity?.[f.name] as EvidenceValue | undefined),
         children: rowSchema,
       }]
     })
@@ -181,7 +218,7 @@ export default function FieldEditor({
                 readOnly={readOnly}
                 onChange={onChange}
                 onJumpToPage={onJumpToPage}
-                onSetActiveField={setActiveField}
+                onSetActiveField={handleSetActiveField}
                 onAdoptField={onAdoptField}
               />
             ))}

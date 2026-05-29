@@ -36,7 +36,7 @@ export interface DocSummary {
 
 export interface PredictionPayload {
   entities: Record<string, unknown>[]
-  _evidence?: Record<string, number | null>[]
+  _evidence?: Record<string, unknown>[]
   /** M14 — self-identifying envelope (model, prompt, kind). Optional so
    *  pre-M14 blobs still load; consumers gate the "baseline" tab on its
    *  presence. */
@@ -47,7 +47,7 @@ export interface ReviewedPayload {
   entities: Record<string, unknown>[]
   source: 'manual' | 'feedback'
   _notes?: Record<string, string>
-  _evidence?: Record<string, number | null>[]
+  _evidence?: Record<string, unknown>[]
 }
 
 /** Pro-labeler draft sitting at `reviewed/_pending/{filename}.json`. Same
@@ -56,7 +56,7 @@ export interface ReviewedPayload {
  *  `labeler_model` + `created_at` record provenance. */
 export interface PendingPayload {
   entities: Record<string, unknown>[]
-  _evidence?: Record<string, number | null>[]
+  _evidence?: Record<string, unknown>[]
   labeler_model?: string
   created_at?: string
   /** M14 — same envelope as PredictionPayload, with `kind: 'pre_label'`. */

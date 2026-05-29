@@ -8,6 +8,8 @@ import { useTextlayer } from '../../stores/textlayer'
 import { useTranslate } from '../../stores/translate'
 import TextLayer, { type SelectableSpan } from './TextLayer'
 import { TranslateGhost, TranslatePopover } from './TranslateOverlay'
+import { LocateHighlight } from './LocateHighlight'
+import { useLocate } from '../../stores/locate'
 import { useT } from '../../i18n'
 
 // Toolbar tooltip: native `title=` has a ~500–1500ms OS-level delay that
@@ -569,6 +571,11 @@ function PageOverlays({
   const translateMode = useTranslate((s) => s.mode)
   const translateEnsure = useTranslate((s) => s.ensure)
   const translateState = useTranslate((s) => s.byKey[key])
+  // Source-grounding (locate) — rects for the focused field. Keyed by
+  // (filename, tabKey); the active tab key drives which cache slice we read.
+  const locateTabKey = useReview((s) => s.activeTabKey)
+  const focusedPath = useLocate((s) => s.focusedPath)
+  const locations = useLocate((s) => s.byKey[`${filename}::${locateTabKey}`])
 
   // Always fetch textlayer (cheap, makes electronic PDFs selectable
   // without the user toggling anything).
@@ -613,6 +620,17 @@ function PageOverlays({
     return null
   }, [textlayerState, translateState])
 
+  // Page dimensions in PDF points for the locate highlight. Available from the
+  // textlayer payload even on scanned pages (empty spans but real page_w/h);
+  // fall back to the chosen spans source for vision-only pages.
+  const pageDims = useMemo(() => {
+    if (textlayerState?.kind === 'ready') {
+      return { pageW: textlayerState.payload.page_w, pageH: textlayerState.payload.page_h }
+    }
+    if (sourceSpans) return { pageW: sourceSpans.pageW, pageH: sourceSpans.pageH }
+    return null
+  }, [textlayerState, sourceSpans])
+
   // Only enable hover when translation is loaded for this page —
   // otherwise the popover would surface an empty/missing line.
   const translateReady = translateMode !== 'off' && translateState?.kind === 'ready'
@@ -621,6 +639,17 @@ function PageOverlays({
 
   return (
     <>
+      {/* Source-grounding highlight: above the raster <img>, below the
+          selectable text layer (rendered first → lower in DOM stacking). */}
+      {pageDims && locations && locations.length > 0 && (
+        <LocateHighlight
+          locations={locations}
+          focusedPath={focusedPath}
+          page={page}
+          pageW={pageDims.pageW}
+          pageH={pageDims.pageH}
+        />
+      )}
       {sourceSpans && (
         <TextLayer
           spans={sourceSpans.spans}
