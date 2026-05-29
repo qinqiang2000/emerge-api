@@ -50,9 +50,18 @@ For EACH listed value, find where it was read from in the document and report:
 
 Rules:
 - Echo back the same `entity` index and `path` string you were given.
-- For a value that is derived / computed / inferred (a sum, a classification, a
-  reformatted date) and has no single literal source on the page, emit null for
-  both `page` and `source`.
+- A value that was merely REFORMATTED or REORDERED from the page still HAS a
+  source — report it (do NOT emit null). The extracted value is normalized but
+  the page text is not, so they look different:
+    * a date: value "2025-07-02" may appear as "07-02-25", "2 Jul 2024", "07/02";
+      report the verbatim on-page text (e.g. "到店日期 : 07-02-25"), with its
+      label so the snippet is unique.
+    * a number: value "494.03" may appear with different separators/precision;
+      report the verbatim on-page text.
+  Copy what is printed, NOT the normalized value.
+- Emit null for both `page` and `source` ONLY when there is no single literal
+  source on the page: a computed sum/total, an inferred classification, or a
+  field that is simply absent from the document.
 - If you cannot locate a value, emit null for both `page` and `source`.
 - NEVER output coordinates, bounding boxes, pixel positions, or region geometry —
   only the page number and the verbatim text snippet.
