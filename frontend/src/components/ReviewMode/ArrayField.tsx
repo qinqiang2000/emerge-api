@@ -56,7 +56,12 @@ function SubFieldRow({
   return (
     <div
       className={`rev-arr-sub${active ? ' active' : ''}`}
-      onClick={path && onClick ? () => onClick(path) : undefined}
+      // stopPropagation: without it the click bubbles to the ArrayField root's
+      // onClick, which re-focuses the array-level path and clobbers this
+      // sub-field's focus → no source highlight ever paints (the array path has
+      // no leaf location). Header FieldRows have no such ancestor handler, which
+      // is why only array sub-fields were affected.
+      onClick={path && onClick ? (e) => { e.stopPropagation(); onClick(path) } : undefined}
     >
       <div className="rev-arr-sub-key">
         <span className="rev-arr-sub-name">{name}</span>
