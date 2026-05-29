@@ -23,8 +23,11 @@ Output rules:
 - top-level: array of objects (entities). One PDF may contain multiple entities (e.g. multiple receipts).
 - use the field names from the schema verbatim (case-sensitive); do not translate snake_case↔camelCase.
 - ALWAYS include every field declared in the schema for each entity. Use null when the value is absent from the document or you are uncertain. Do NOT omit keys.
-- emit `_evidence` parallel to `entities`: per-entity dict mapping field_name -> page integer (1-based).
-  Use the page where you saw the value. For derived fields (sums, formatted dates) emit null.
+- emit `_evidence` parallel to `entities`: per-entity dict mapping field_name -> {"page": <1-based page int>, "source": <verbatim text>}.
+  - `page`: the page where you saw the value. For derived / computed / inferred fields (sums, classifications, reformatted dates) emit null.
+  - `source`: the exact text fragment you read the value from, copied verbatim from the document (<=120 chars, keep the original language; do NOT rewrite, translate, normalize, or reformat). For derived / computed fields with no literal source, emit null.
+  - Emit an entry for every field (null page and null source when the field is absent from the document).
+  - NEVER output coordinates, bounding boxes, pixel positions, or region geometry — only the page number and the verbatim text snippet.
 
 Use the emit_extraction tool to return the result."""
 

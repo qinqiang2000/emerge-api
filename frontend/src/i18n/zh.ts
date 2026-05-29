@@ -168,6 +168,7 @@ const zh: Dict = {
   'review.nav.kbdHint': '使用 ← / → 在文档间切换',
   'review.openChat.aria': '打开对话',
   'review.openChat.title': '打开对话 (⌘⇧.)',
+  'review.locate.aria': '来源区域',
   'review.reviewing': '正在 review',
   'review.tab.reviewed': '已审',
   'review.view.form': 'form',
@@ -358,8 +359,8 @@ const zh: Dict = {
   'bench.rails.chip.unpin': '取消锁定 {label}',
   'bench.rails.chip.refs': '{n} 个对比实验',
   'bench.matrix.action.run_eval': '跑 eval',
-  'bench.matrix.action.promote': '切为当前',
-  'bench.matrix.action.active': '当前',
+  'bench.matrix.action.promote': '设为在用',
+  'bench.matrix.action.active': '在用',
   'bench.matrix.col.prompt': 'prompt',
   'bench.matrix.col.model': 'model',
   'bench.matrix.col.overall': '总分',
@@ -391,7 +392,7 @@ const zh: Dict = {
   'bench.diff.prompt.loading': 'prompt 加载中…',
   'bench.diff.close': '关闭',
   'bench.diff.copy': '复制对比为文本',
-  'bench.diff.promote': '切为当前：{label}',
+  'bench.diff.promote': '设为在用：{label}',
 }
 
 export default zh

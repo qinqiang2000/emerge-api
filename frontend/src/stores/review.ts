@@ -12,6 +12,8 @@ import {
 import type { ExperimentPredictionPayload, ReviewedPayload, RunStamp } from '../types/review'
 import { useDocs } from './docs'
 import { useProjects } from './projects'
+import { useLocate } from './locate'
+import type { EvidenceValue } from '../lib/locate'
 
 type FieldsValue = Record<string, unknown>
 
@@ -25,7 +27,7 @@ interface State {
   saving: boolean
   err: string | null
   entities: FieldsValue[]
-  evidence: Record<string, number | null>[] | null
+  evidence: Record<string, EvidenceValue>[] | null
   notes: Record<string, string>
   /** Path of the field row currently highlighted in the FieldEditor — hoisted
    *  out of FieldEditor local state so the review chat column can render a
@@ -52,12 +54,12 @@ interface State {
    *  surfaced alongside `draftRun` so the overlay can switch view without
    *  re-fetching. */
   draftEntities: FieldsValue[] | null
-  draftEvidence: Record<string, number | null>[] | null
+  draftEvidence: Record<string, EvidenceValue>[] | null
   /** `_run` from the pre-label pending blob; powers the "pre-label" tab. */
   pendingRun: RunStamp | null
   /** Cached pending entities/evidence for the `_pending` tab's readonly view. */
   pendingEntities: FieldsValue[] | null
-  pendingEvidence: Record<string, number | null>[] | null
+  pendingEvidence: Record<string, EvidenceValue>[] | null
   // ── experiment-tab state ─────────────────────────────────────────
   activeTabKey: 'active' | '_draft' | '_pending' | string  // 'active' / '_draft' / '_pending' / experiment_id
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
@@ -80,7 +82,7 @@ interface State {
   // ── adopt-from-prediction (label-studio-style) ───────────────────
   adoptPrediction: (
     entities: FieldsValue[],
-    evidence?: Record<string, number | null>[] | null,
+    evidence?: Record<string, EvidenceValue>[] | null,
   ) => void
   adoptPredictionField: (
     entityIdx: number,
@@ -122,6 +124,9 @@ export const useReview = create<State>((set, get) => ({
     if (useProjects.getState().selectedSlug !== projectId) {
       useProjects.getState().select(projectId)
     }
+    // Source-grounding cache + focus are doc-scoped — clear them alongside the
+    // tab/entity state reset below so a freshly-opened doc starts clean.
+    useLocate.getState().reset()
     set({
       activeProjectId: projectId,
       activeFilename: filename,
@@ -174,7 +179,7 @@ export const useReview = create<State>((set, get) => ({
       })
       set({
         entities,
-        evidence: reviewed?._evidence ?? pending?._evidence ?? pred?._evidence ?? null,
+        evidence: (reviewed?._evidence ?? pending?._evidence ?? pred?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
         notes: reviewed?._notes ?? {},
         isPending: !reviewed && !!pending,
         labelerModel: !reviewed && pending ? pending.labeler_model ?? null : null,
@@ -182,10 +187,10 @@ export const useReview = create<State>((set, get) => ({
         // so the tabstrip can offer them as readonly tabs without re-fetching.
         draftRun: pred?._run ?? null,
         draftEntities: pred?.entities ?? null,
-        draftEvidence: pred?._evidence ?? null,
+        draftEvidence: (pred?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
         pendingRun: pending?._run ?? null,
         pendingEntities: pending?.entities ?? null,
-        pendingEvidence: pending?._evidence ?? null,
+        pendingEvidence: (pending?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
         loading: false,
       })
     } catch (e: unknown) {
@@ -265,7 +270,7 @@ export const useReview = create<State>((set, get) => ({
 
     let nextEvidence = s.evidence
     if (evidencePage !== undefined) {
-      const base = (s.evidence ?? []).slice() as Record<string, number | null>[]
+      const base = (s.evidence ?? []).slice() as Record<string, EvidenceValue>[]
       while (base.length <= entityIdx) base.push({})
       base[entityIdx] = { ...base[entityIdx], [name]: evidencePage }
       nextEvidence = base

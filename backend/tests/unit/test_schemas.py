@@ -245,11 +245,17 @@ def test_extraction_output_minimal() -> None:
 
 
 def test_extraction_output_with_evidence() -> None:
+    # field-source-grounding: legacy int wire shape `{field: page}` is accepted
+    # and normalized into the internal `{field: FieldEvidence}` form. The
+    # page-only view stays backward compatible for existing consumers.
     o = ExtractionOutput(
         entities=[{"document_type": "invoice", "invoice_no": "INV-1"}],
         evidence=[{"document_type": 1, "invoice_no": 1}],
     )
-    assert o.evidence == [{"document_type": 1, "invoice_no": 1}]
+    assert o.evidence_pages == [{"document_type": 1, "invoice_no": 1}]
+    entry = o.evidence_entries[0]
+    assert entry["document_type"].page == 1
+    assert entry["document_type"].source is None
 
 
 def test_extraction_evidence_must_match_entities_length() -> None:

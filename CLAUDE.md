@@ -48,8 +48,7 @@ Review viewer 双轨：每页同时叠加 (a) 透明 text layer（从 fitz `get_
 ## Hard rules (red lines)
 
 - **没有 image few-shot**。任何 prompt 路径都不准注入 example I/O pairs。要"教模型"只能改 `description` / `global_notes`
-- **没有 bbox / 区域信息**。`_evidence` 只携带 page 整数（不是坐标），且 review 模式 click-to-page 用它
-  - bbox 仅作为 review-mode UX 渲染（text-layer 选中复制 + 翻译热区定位）使用，永不进 extract / labeler / proposer / autoresearch 的 prompt 上下文。
+- **没有 bbox / 区域信息进 prompt**。`_evidence` 携带 page 整数 + 可选 verbatim source 引文（纯文本，非坐标；review click-to-page + field-source-grounding 用）；**bbox / 坐标 仍永不进任何 prompt**——只活在 review UX 渲染层（text-layer 复制 + 翻译热区 + locate rects），永不进 extract / labeler / proposer / autoresearch 上下文。
 - **AutoResearch 永不自动 promote**。output 是候选 ProjectVersion，user 必须显式 activate
 - **Counterexample 永不进 runtime prompt**。仅作 AutoResearch 回归测试集
 - **Public API 读 `versions/v{active_version_id}.json`**。`schema.json` 是 lab 编辑态，不得渗入 prod

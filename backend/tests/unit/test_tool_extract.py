@@ -36,7 +36,7 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
 
     out = await extract_one(workspace, pid, did, provider=stub_provider)
     assert out["entities"][0]["invoice_no"] == "INV-1"
-    assert out["_evidence"][0]["invoice_no"] == 1
+    assert out["_evidence"][0]["invoice_no"]["page"] == 1
 
     pred = json.loads((workspace / pid / "predictions" / "_draft" / f"{did}.json").read_text())
     assert pred == out

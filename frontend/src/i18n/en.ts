@@ -168,6 +168,7 @@ const en: Dict = {
   'review.nav.kbdHint': 'use ← / → to step through docs',
   'review.openChat.aria': 'open chat',
   'review.openChat.title': 'open chat (⌘⇧.)',
+  'review.locate.aria': 'source region',
   'review.reviewing': 'reviewing',
   'review.tab.reviewed': 'reviewed',
   'review.view.form': 'form',

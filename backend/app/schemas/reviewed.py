@@ -59,4 +59,6 @@ class Reviewed(BaseModel):
     notes_consumed: Optional[dict[str, NoteConsumption]] = Field(
         default=None, alias="_notes_consumed"
     )
-    evidence: Optional[list[dict[str, Optional[int]]]] = Field(default=None, alias="_evidence")
+    # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
+    # Validation and normalization live in ExtractionOutput (extract time only).
+    evidence: Optional[list[dict[str, Any]]] = Field(default=None, alias="_evidence")

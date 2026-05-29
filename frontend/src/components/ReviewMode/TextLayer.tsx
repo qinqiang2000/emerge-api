@@ -13,6 +13,13 @@
 // translate.lines (vision/scanned mode). Indices align 1-to-1 with
 // `translate.lines[i]` in both cases — see PdfViewer.tsx and
 // `backend/app/tools/translate.py` (textlayer branch enumerates spans).
+//
+// bbox -> % positioning is delegated to the shared <BBoxRect> primitive
+// (single home for the `(x0/pageW)*100%` formula; see BBoxRect.tsx). This
+// layer only owns the cqh font-size + selection styling.
+
+import type { MouseEvent } from 'react'
+import { BBoxRect } from './BBoxRect'
 
 export interface SelectableSpan {
   bbox: [number, number, number, number]
@@ -43,31 +50,24 @@ export default function TextLayer({
   return (
     <div className="text-layer" aria-hidden="false">
       {spans.map((s, i) => {
-        const [x0, y0, x1, y1] = s.bbox
-        const left = (x0 / pageW) * 100
-        const top = (y0 / pageH) * 100
-        const width = ((x1 - x0) / pageW) * 100
-        const height = ((y1 - y0) / pageH) * 100
         // font_size is in PDF points; convert to a fraction of the page height
         // so `cqh` (parent is the cq-sized container) renders the glyphs at
         // approximately the same size they appear in the raster. `max(1px, …)`
         // keeps tiny footers selectable even if the page is zoomed out.
         const fontSizePct = (s.font_size / pageH) * 100
         return (
-          <span
+          <BBoxRect
             key={i}
+            as="span"
+            bbox={s.bbox}
+            pageW={pageW}
+            pageH={pageH}
             className="text-layer-span"
             data-span-index={i}
-            style={{
-              left: `${left}%`,
-              top: `${top}%`,
-              width: `${width}%`,
-              height: `${height}%`,
-              fontSize: `max(1px, ${fontSizePct}cqh)`,
-            }}
-            onMouseEnter={onSpanHover ? (e) => onSpanHover(i, e.currentTarget) : undefined}
+            style={{ fontSize: `max(1px, ${fontSizePct}cqh)` }}
+            onMouseEnter={onSpanHover ? (e: MouseEvent<HTMLElement>) => onSpanHover(i, e.currentTarget) : undefined}
             onMouseLeave={onSpanLeave ? () => onSpanLeave(i) : undefined}
-          >{s.text}</span>
+          >{s.text}</BBoxRect>
         )
       })}
     </div>

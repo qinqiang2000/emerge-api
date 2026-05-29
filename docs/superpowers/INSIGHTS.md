@@ -345,3 +345,25 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 - Trivial bugs fixed in one commit
 - Style preferences
 - "How do I run tests" — that's CLAUDE.md
+
+## field-source-grounding: source is TEXT, locate is a render route
+
+"Click a field, see where it came from in the PDF" is solved the LangExtract /
+PyMuPDF way, not by asking the model for coordinates.
+
+(a) Why `_evidence.source` is verbatim text, not coordinates. The Extract LLM
+emits only the verbatim value + an optional `source` quote (<=120 chars,
+original language, no rewriting). The backend then aligns that text against
+PyMuPDF text-layer spans post-hoc to recover bbox rects (`app/tools/locate.py`).
+We do NOT ask the model for bboxes: Gemini's native bbox output is unreliable
+for document layout, and -- more fundamentally -- coordinates in a prompt
+violate Software-3.0 (you teach via `description` / `global_notes`, never carry
+positional geometry in the prompt). Text in, text out; geometry is recovered by
+code (rapidfuzz fuzzy + `eval/normalize.py` type-aware equivalence).
+
+(b) Why locate is an HTTP route, never a `@tool`. `FieldLocation.rects` are bbox
+coordinates. If locate were an agent tool, those rects would land in the SDK
+context and leak coordinates into the brain -- breaking the hard rule. So
+`POST .../locate` is render-only (`app/api/routes/locate.py`), consumed by the
+review viewer. The symmetry invariant only enforces "@tool => route"; a
+route-without-tool is legitimate and needs no `_HTTP_EXEMPT` entry.

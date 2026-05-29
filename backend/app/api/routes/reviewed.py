@@ -18,7 +18,8 @@ class ReviewedBody(BaseModel):
     entities: list[dict[str, Any]]
     source: ReviewedSource = ReviewedSource.MANUAL
     notes: Optional[dict[str, str]] = None
-    evidence: Optional[list[dict[str, Optional[int]]]] = Field(default=None, alias="_evidence")
+    # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
+    evidence: Optional[list[dict[str, Any]]] = Field(default=None, alias="_evidence")
 
 
 @router.post("/lab/projects/{slug}/reviewed/{filename:path}")

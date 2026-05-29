@@ -603,6 +603,13 @@ html, body, #root {
 .text-layer-span{position:absolute;color:transparent;user-select:text;pointer-events:auto;white-space:pre;line-height:1;transform-origin:top left}
 .text-layer-span::selection{background:var(--ochre-soft);color:var(--ink)}
 .text-layer-span::-moz-selection{background:var(--ochre-soft);color:var(--ink)}
+/* Source-grounding highlight (field → source rects). Above the raster <img>
+   (z=0), below the selectable text layer (z=1) so click-to-select still works
+   through it. Purely visual — pointer-events:none. Per-rect fill/outline is
+   inline (ochre ring + low-alpha ochre via color-mix; never ochre-soft, which
+   is transient-menu-only — see project_design_token_roles). */
+.dv-locate-layer{position:absolute;inset:0;pointer-events:none;container-type:size;z-index:0}
+.dv-locate-rect{position:absolute;pointer-events:none}
 .rev-toolbar{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:nowrap}
 .rev-toolbar .seg{display:inline-flex;border:1px solid var(--rule);border-radius:5px;overflow:hidden;background:var(--paper)}
 .rev-toolbar .seg button{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:4px 11px;border-right:1px solid var(--rule-soft);cursor:default;background:transparent;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;flex-shrink:0}

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.schemas.extraction import evidence_page
 from app.tools.predictions import get_prediction
 from app.tools.reviewed import get_reviewed
 from app.workspace.paths import (
@@ -101,12 +102,26 @@ async def _review_state(
         review_status = "unprocessed"
 
     # Evidence pages: surface the reviewed map if reviewed exists, else the
-    # prediction map. Each entry is `{field_name: page_int_or_null}` per
-    # entity index. `_evidence` mirrors the on-disk JSON schema.
+    # prediction map. Each surfaced entry is `{field_name: page_int_or_null}`
+    # per entity index.
+    #
+    # The on-disk `_evidence` may be either the legacy `{field: int}` shape or
+    # the field-source-grounding `{field: {page, source}}` shape. We coalesce to
+    # page-only here via `evidence_page` so the AGENT surface stays page-only and
+    # shape-stable — the verbatim `source` is locate-render-internal and must not
+    # widen the agent's surface_context (keeps review-turn token cost down).
+    raw_evidence = None
     if reviewed is not None and isinstance(reviewed.get("_evidence"), list):
-        evidence = reviewed["_evidence"]
+        raw_evidence = reviewed["_evidence"]
     elif prediction is not None and isinstance(prediction.get("_evidence"), list):
-        evidence = prediction["_evidence"]
+        raw_evidence = prediction["_evidence"]
+    if raw_evidence is not None:
+        evidence = [
+            {f: evidence_page(entry, f) for f in entry}
+            if isinstance(entry, dict)
+            else {}
+            for entry in raw_evidence
+        ]
     else:
         evidence = None
 
