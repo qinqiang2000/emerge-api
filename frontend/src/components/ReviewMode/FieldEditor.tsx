@@ -224,7 +224,13 @@ export default function FieldEditor({
                 onJumpToPage={onJumpToPage}
                 onSetActiveField={handleSetActiveField}
                 onAdoptField={onAdoptField}
-                getEvidencePage={(p) => evidencePageOf(evidenceForEntity?.[p] as EvidenceValue | undefined)}
+                getEvidencePage={(p) =>
+                  // array-child paths are concrete-indexed (lines[2].name) but
+                  // evidence is keyed by the collapsed form (lines[].name) —
+                  // collapse the index before the lookup.
+                  evidencePageOf(
+                    evidenceForEntity?.[p.replace(/\[\d+\]/g, '[]')] as EvidenceValue | undefined,
+                  )}
               />
             ))}
           </div>

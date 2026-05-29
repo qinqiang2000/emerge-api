@@ -86,42 +86,68 @@ def _nfkc(s: Any) -> str:
     return _WS.sub(" ", unicodedata.normalize("NFKC", str(s))).strip()
 
 
+_INDEXED = re.compile(r"\[\d+\]")
+
+
+def _collapse_index(path: str) -> str:
+    """`items[0].item` → `items[].item`: the bracket form the grounding evidence
+    is keyed by (ground.py collapses concrete indices on reshape)."""
+    return _INDEXED.sub("[]", path)
+
+
 def _value_at_path(entity: Any, path: str) -> Any:
-    """Walk a leaf dot-path into an entity dict; None if any hop misses.
+    """Walk a concrete dot-path into an entity; None if any hop misses.
 
-    ``_collect_leaves`` emits object children as ``parent.child`` and array
-    items as ``parent[]`` / ``parent[].child``. At a ``[]`` hop the current node
-    is a list: we descend into every item, collecting the remaining sub-path's
-    value from each, and return the SINGLE distinct non-empty value if the rows
-    agree (a one-row array, or every row sharing the same value). When the rows
-    disagree (genuinely multi-valued) we return None and the field falls through
-    to the quote / document-text tiers, as before.
-
-    Surfacing the lone value lets the resolver value-match an array child (e.g.
-    ``items[].item`` = "房费") and so cross-check / override a mis-grounded source
-    quote, instead of flying blind on the quote alone.
+    Handles object children (``parent.child``) and *concrete* array indices
+    (``items[0].item``, ``tags[1]``) — the per-row paths produced by
+    :func:`_expand_leaf_indices`. The collapsed ``[]`` form never reaches here.
     """
-    parts = path.split(".")
     cur: Any = entity
-    for i, part in enumerate(parts):
-        if part.endswith("[]"):
-            key = part[:-2]
-            seq = cur.get(key) if isinstance(cur, dict) else None
-            if not isinstance(seq, list):
+    for part in path.split("."):
+        m = re.fullmatch(r"(.*)\[(\d+)\]", part)
+        if m:
+            key, idx = m.group(1), int(m.group(2))
+            if key:
+                cur = cur.get(key) if isinstance(cur, dict) else None
+            if not isinstance(cur, list) or idx >= len(cur):
                 return None
-            rest = ".".join(parts[i + 1:])
-            vals = []
-            for item in seq:
-                v = _value_at_path(item, rest) if rest else item
-                if v is not None and _nfkc(v) != "":
-                    vals.append(v)
-            distinct = {_nfkc(v) for v in vals}
-            return vals[0] if len(distinct) == 1 else None
-        if isinstance(cur, dict) and part in cur:
+            cur = cur[idx]
+        elif isinstance(cur, dict) and part in cur:
             cur = cur[part]
         else:
             return None
     return cur
+
+
+def _expand_leaf_indices(entity: Any, path: str) -> list[str]:
+    """Expand a schema leaf path's ``[]`` hops to the concrete indices present in
+    the data: ``items[].item`` over a 2-row array → ``items[0].item``,
+    ``items[1].item``. A scalar array leaf ``tags[]`` → ``tags[0]`` … Each row
+    thus gets its own path + value, so per-row values disambiguate cells that a
+    single collapsed slot could not (row 0's "房费" vs row 1's "支付宝").
+
+    An absent / empty array yields no paths (no rows → nothing to highlight)."""
+    parts = path.split(".")
+    out: list[str] = []
+
+    def rec(node: Any, acc: list[str], rest: list[str]) -> None:
+        if not rest:
+            out.append(".".join(acc))
+            return
+        part, tail = rest[0], rest[1:]
+        if part.endswith("[]"):
+            key = part[:-2]
+            seq = node.get(key) if isinstance(node, dict) else None
+            if not isinstance(seq, list):
+                return
+            for i, item in enumerate(seq):
+                rec(item, acc + [f"{key}[{i}]"], tail)
+        else:
+            nxt = node.get(part) if isinstance(node, dict) else None
+            rec(nxt, acc + [part], tail)
+
+    rec(entity, [], parts)
+    return out
 
 
 def _flatten_entity(
@@ -141,7 +167,13 @@ def _flatten_entity(
         leaves.extend(_collect_leaves(f.name, f))
     out: list[tuple[str, Any, SchemaField]] = []
     for path, leaf in leaves:
-        out.append((path, _value_at_path(entity, path), leaf))
+        if "[]" in path:
+            # one (path, value) per concrete row, so each row's value resolves
+            # independently (row 0's cell vs row 1's cell).
+            for cpath in _expand_leaf_indices(entity, path):
+                out.append((cpath, _value_at_path(entity, cpath), leaf))
+        else:
+            out.append((path, _value_at_path(entity, path), leaf))
     return out
 
 
@@ -749,6 +781,10 @@ def _dedupe_aggregate_rects(rects: list[list[float]]) -> list[list[float]]:
 # A none array-child line cluster is accepted by the row anchor only when its
 # quote coverage clears this bar (so we never anchor on a weak label-only hit).
 _ROW_ANCHOR_MIN_SCORE = 0.6
+# Max vertical distance (PDF points) the nearest matching line may sit from the
+# row's anchor before the row anchor refuses (the row's cell should be on or
+# very near the anchor's line; a far match is a different row / a grand total).
+_ROW_ANCHOR_MAX_GAP = 40.0
 
 
 async def _row_anchor(
@@ -762,48 +798,49 @@ async def _row_anchor(
 ) -> None:
     """Resolve ambiguous array-child fields by their resolved row neighbours.
 
-    A line-item amount ("111.00 USD") repeats across the page — the row's
-    unit/total price AND the document grand totals — with no quote unique enough
-    to disambiguate, so it lands on none. But its siblings on the same row
-    (articleName, description) usually DO resolve, pinning the row's vertical
-    band. For an array-child still none, we restrict its quote clusters to the
-    lines inside that band and assign when exactly one qualifies — so the amount
-    lands on its own row, never on a grand-total line, and never on a guess.
+    A line-item amount ("111.00 USD", "494.03") repeats across the page — the
+    row's own columns AND the document grand totals — with no quote unique enough
+    to disambiguate, so it lands on none. But its siblings on the SAME concrete
+    row (``items[0].item`` = "房费") usually resolve, pinning that row's y. For a
+    none field we pick the quote cluster whose line is *nearest* the row's anchor
+    y — so ``items[0].subtotal`` takes the 494.03 on row 0's line, ``items[1]``
+    the one on row 1, and a line-item amount takes its row, not the grand total.
 
-    Gated hard so it can only ever turn a none into a row-local hit (never
-    overrides a confident result): array-children only; anchors must be resolved
-    siblings of the SAME array; assign only on a single in-band cluster clearing
-    the coverage bar.
+    Per concrete row (``items[0]`` ≠ ``items[1]``): nearest-y, not a padded band,
+    because adjacent rows sit only ~one line apart and a band would bridge them.
+    Gated hard so it only ever turns a none into a row-local hit: array-children
+    only; needs a resolved sibling in the SAME row; the chosen cluster must clear
+    the coverage bar, sit within ``_ROW_ANCHOR_MAX_GAP`` of the anchor, and be
+    strictly nearer than the runner-up (an equidistant tie → leave it none).
     """
     meta_by_ri = {m["ri"]: m for m in field_meta}
 
-    def _array_parent(path: str) -> Optional[str]:
-        return path.rsplit(".", 1)[0] if "[]." in path else None
+    def _row_parent(path: str) -> Optional[str]:
+        # concrete-row child "items[0].item" → row "items[0]"; else not an array child
+        return path.rsplit(".", 1)[0] if re.search(r"\[\d+\]\.", path) else None
 
-    # Row band per array parent = union y-extent of that array's resolved
-    # children, padded by ~1.5 line-heights so the row's other lines (an amount
-    # on the header line, a wrapped value below) fall inside it.
-    bands: dict[str, tuple[float, float]] = {}
+    # Anchor y per concrete row = mean centre of that row's resolved children.
+    anchors: dict[str, list[float]] = {}
+    line_h: dict[str, float] = {}
     by_parent_none: dict[str, list[FieldLocation]] = {}
     for loc in results:
-        parent = _array_parent(loc.path)
+        parent = _row_parent(loc.path)
         if parent is None:
             continue
         if loc.status != "none" and loc.rects:
-            y0 = min(r[1] for r in loc.rects)
-            y1 = max(r[3] for r in loc.rects)
-            h = max((r[3] - r[1]) for r in loc.rects)
-            pad = max(1.6 * h, 16.0)
-            lo, hi = bands.get(parent, (y0, y1))
-            bands[parent] = (min(lo, y0 - pad), max(hi, y1 + pad))
+            anchors.setdefault(parent, []).append(
+                sum((r[1] + r[3]) / 2.0 for r in loc.rects) / len(loc.rects)
+            )
+            line_h[parent] = max(line_h.get(parent, 0.0), max(r[3] - r[1] for r in loc.rects))
         elif loc.status == "none":
             by_parent_none.setdefault(parent, []).append(loc)
 
     for parent, none_locs in by_parent_none.items():
-        band = bands.get(parent)
-        if band is None:
+        ys = anchors.get(parent)
+        if not ys:
             continue  # no resolved sibling to anchor against
-        lo, hi = band
+        anchor_y = sum(ys) / len(ys)
+        gap = max(_ROW_ANCHOR_MAX_GAP, 2.0 * line_h.get(parent, 0.0))
         for loc in none_locs:
             ri = next((i for i, r in enumerate(results) if r is loc), None)
             if ri is None:
@@ -815,23 +852,31 @@ async def _row_anchor(
             pages = [page] if page else list(range(1, (total_pages or 0) + 1))
             for pg in pages:
                 spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
-                clusters = _cluster_quote_lines(spans, meta["quote_n"])
-                in_band = [
-                    c for c in clusters
+                clusters = [
+                    c for c in _cluster_quote_lines(spans, meta["quote_n"])
                     if c["score"] >= _ROW_ANCHOR_MIN_SCORE
-                    and lo <= sum((r[1] + r[3]) / 2.0 for r in c["rects"]) / len(c["rects"]) <= hi
                 ]
-                if len(in_band) == 1:
-                    cl = in_band[0]
-                    results[ri] = FieldLocation(
-                        entity_index=loc.entity_index,
-                        path=loc.path,
-                        rects=cl["rects"],
-                        page=pg,
-                        status="quote",
-                        score=cl["score"] * 100.0,
-                    )
+                if not clusters:
+                    continue
+                def _dist(c: dict) -> float:
+                    cy = sum((r[1] + r[3]) / 2.0 for r in c["rects"]) / len(c["rects"])
+                    return abs(cy - anchor_y)
+                clusters.sort(key=_dist)
+                nearest = clusters[0]
+                if _dist(nearest) > gap:
+                    break  # closest matching line is too far from the row → none
+                # require a clear winner: runner-up at least half a line further
+                if len(clusters) > 1 and _dist(clusters[1]) - _dist(nearest) < line_h.get(parent, 12.0) * 0.5:
                     break
+                results[ri] = FieldLocation(
+                    entity_index=loc.entity_index,
+                    path=loc.path,
+                    rects=nearest["rects"],
+                    page=pg,
+                    status="quote",
+                    score=nearest["score"] * 100.0,
+                )
+                break
 
 
 async def locate_fields(
@@ -874,8 +919,12 @@ async def locate_fields(
         span_cache: dict[int, list[dict]] = {}
         field_meta: list[dict] = []
         for path, value, leaf in _flatten_entity(entity, schema):
-            page_hint = evidence_page(ev_entry, path) if ev_entry else None
-            source_quote = evidence_source(ev_entry, path) if ev_entry else None
+            # Evidence is keyed by the collapsed `items[].child` form (ground.py
+            # collapses concrete indices); try the exact concrete key first (for
+            # any future per-row grounding) then fall back to the collapsed one.
+            ev_key = path if (ev_entry and path in ev_entry) else _collapse_index(path)
+            page_hint = evidence_page(ev_entry, ev_key) if ev_entry else None
+            source_quote = evidence_source(ev_entry, ev_key) if ev_entry else None
             loc = await _locate_one_field(
                 workspace,
                 project_id,

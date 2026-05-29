@@ -503,10 +503,11 @@ def test_ordinal_tiebreak_only_groups_siblings(monkeypatch):
         monkeypatch,
     )
     by = {l.path: l for l in locs}
-    # Ambiguous ("111.00 USD" repeats 4× with no disambiguating anchor) → none,
-    # never a confident assignment to a grand-total line.
-    assert by["lines[].netAmount"].status == "none"
-    assert by["lines[].grossAmount"].status == "none"
+    # Ambiguous ("111.00 USD" repeats 4× with no disambiguating row sibling) →
+    # none, never a confident assignment to a grand-total line. (currency is a
+    # different parent, so it never pollutes the line-item amounts' tie-break.)
+    assert by["lines[0].netAmount"].status == "none"
+    assert by["lines[0].grossAmount"].status == "none"
 
 
 def test_dedupe_aggregate_rect_dropped():
@@ -564,7 +565,7 @@ def test_row_anchor_lineitem_amount(monkeypatch):
         monkeypatch,
     )
     by = {l.path: l for l in locs}
-    amt = by["lines[].netAmount"]
+    amt = by["lines[0].netAmount"]
     assert amt.status == "quote"
     # anchored to the row line (y≈100), never the grand-total line (y≈400)
     assert all(r[1] < 200 for r in amt.rects)
@@ -604,16 +605,16 @@ def test_array_child_value_overrides_misgrounded_quote(monkeypatch):
         monkeypatch,
     )
     by = {l.path: l for l in locs}
-    item = by["items[].item"]
+    item = by["items[0].item"]
     assert item.status == "exact"
     assert item.rects == [[150, 1084, 188, 1104]]  # 房费, not 支付宝
 
 
-def test_array_child_value_none_when_rows_disagree(monkeypatch):
-    """Multi-row arrays with differing child values keep value=None (ambiguous):
-    one collapsed `items[].item` evidence slot can't pick a row, so they fall
-    through to the quote tier as before — the surfacing only fires when the rows
-    agree on a single value."""
+def test_array_child_per_row_distinct_values_resolve(monkeypatch):
+    """Per-row expansion: each row's child resolves to its OWN cell by value, even
+    when the rows carry different values. A collapsed `items[].item` slot used to
+    share one highlight across rows; concrete `items[0].item` / `items[1].item`
+    paths let row 0 ("apple") and row 1 ("banana") each light their own line."""
     fields = [
         SchemaField(
             name="items",
@@ -632,8 +633,6 @@ def test_array_child_value_none_when_rows_disagree(monkeypatch):
             _span("banana", bbox=(150, 130, 200, 142)),
         ]
     }
-    # two different values, no source quote → value is None (rows disagree) →
-    # nothing to anchor → none (not an arbitrary pick of one row's value).
     locs = _run(
         [{"items": [{"item": "apple"}, {"item": "banana"}]}],
         [{"items[].item": {"page": 1, "source": None}}],
@@ -641,7 +640,11 @@ def test_array_child_value_none_when_rows_disagree(monkeypatch):
         pages,
         monkeypatch,
     )
-    assert locs[0].status == "none"
+    by = {l.path: l for l in locs}
+    assert by["items[0].item"].status == "exact"
+    assert by["items[0].item"].rects == [[150, 100, 200, 112]]   # apple
+    assert by["items[1].item"].status == "exact"
+    assert by["items[1].item"].rects == [[150, 130, 200, 142]]   # banana
 
 
 def test_quote_coverage_is_union_not_sum(monkeypatch):

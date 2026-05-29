@@ -39,8 +39,9 @@ interface SubFieldRowProps {
   type: string
   value: unknown
   readOnly: boolean
-  /** Locate path for this sub-field, `[]`-collapsed (e.g. `lines[].name`) to
-   *  match the grounding/locate evidence key. */
+  /** Locate path for this sub-field, with the concrete row index (e.g.
+   *  `lines[2].name`) so each row focuses + highlights its OWN cell. The
+   *  collapsed `lines[].name` form is only the grounding evidence key. */
   path?: string
   evidencePage?: number | null
   active?: boolean
@@ -111,7 +112,8 @@ interface RowCardProps {
   readOnly: boolean
   onChangeEntry: (v: unknown) => void
   /** Array field path (e.g. `detailOfGoodsOrServices`); children locate under
-   *  `${arrayPath}[].${child}` — `[]`-collapsed, so all rows share one anchor. */
+   *  `${arrayPath}[${index}].${child}` — concrete row index, so each row anchors
+   *  to its own cell. */
   arrayPath?: string
   getEvidencePage?: (path: string) => number | null
   activeField?: string | null
@@ -163,7 +165,7 @@ function RowCard({
               {rowSchema.map(child => {
                 if (!child.name) return null
                 const cname = child.name
-                const childPath = arrayPath ? `${arrayPath}[].${cname}` : undefined
+                const childPath = arrayPath ? `${arrayPath}[${index}].${cname}` : undefined
                 return (
                   <SubFieldRow
                     key={cname}
