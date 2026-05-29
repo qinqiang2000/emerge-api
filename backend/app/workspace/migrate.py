@@ -60,6 +60,7 @@ async def migrate_project_if_needed(workspace: Path, project_id: str) -> None:
     await _migrate_to_m91(workspace, project_id, pdir)
     await _migrate_experiment_predictions(workspace, project_id, pdir)
     await _drop_legacy_model_fields(workspace, project_id)
+    await _backfill_m_default_label(workspace, project_id)
     await _resync_slug(workspace, project_id)
 
 
@@ -95,6 +96,42 @@ async def _drop_legacy_model_fields(workspace: Path, project_id: str) -> None:
         blob.pop("extract_model", None)
         blob.pop("extract_params", None)
         atomic_write_json(pj, blob)
+
+
+async def _backfill_m_default_label(workspace: Path, project_id: str) -> None:
+    """Rewrite legacy `m_default.label` ("Default" / "Default (model-id)") to
+    just `provider_model_id`. The "Default" wording was engineering-internal
+    naming that leaked into the bench rail UI; users see the same model name
+    everywhere instead.
+
+    Idempotent — only writes when the existing label is one of the legacy
+    forms ("Default" or starts with "Default (").
+    """
+    mp = model_path(workspace, project_id, "m_default")
+    if not mp.exists():
+        return
+    try:
+        blob = json.loads(mp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    label = blob.get("label")
+    pmid = blob.get("provider_model_id")
+    if not pmid:
+        return
+    legacy = label == "Default" or (isinstance(label, str) and label.startswith("Default ("))
+    if not legacy:
+        return
+    async with project_lock(workspace, project_id):
+        try:
+            blob = json.loads(mp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        label = blob.get("label")
+        legacy = label == "Default" or (isinstance(label, str) and label.startswith("Default ("))
+        if not legacy:
+            return
+        blob["label"] = blob.get("provider_model_id") or label
+        atomic_write_json(mp, blob)
 
 
 async def _resync_slug(workspace: Path, slug: str) -> None:
@@ -182,7 +219,7 @@ async def _migrate_to_m91(workspace: Path, project_id: str, pdir: Path) -> None:
         legacy_params = project.get("extract_params") or {"temperature": 0.0}
         mc = ModelConfig(
             model_id="m_default",
-            label=f"Default ({legacy_model})",
+            label=legacy_model,
             provider=infer_provider_from_model_id(legacy_model),
             provider_model_id=legacy_model,
             params=legacy_params,

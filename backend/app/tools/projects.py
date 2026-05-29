@@ -195,7 +195,7 @@ async def create_project(
 
         mc = ModelConfig(
             model_id="m_default",
-            label="Default",
+            label=settings.default_extract_model,
             provider=infer_provider_from_model_id(settings.default_extract_model),
             provider_model_id=settings.default_extract_model,
             params={"temperature": 0.0},
