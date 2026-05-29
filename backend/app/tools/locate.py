@@ -160,6 +160,16 @@ def _numeric_tokens(text: str) -> list[Decimal]:
     return out
 
 
+def _is_decimal_amount(value_n: str, value_dec: Optional[Decimal]) -> bool:
+    """True if the value is a number written with a fractional part ("494.03").
+
+    Used to keep a measured amount stored on a string-typed field out of the
+    distinctive-repeat union (a repeated amount is ambiguous, not a distinctive
+    identifier). A pure-integer code ("74671636") returns False, so invoice
+    numbers stay distinctive."""
+    return value_dec is not None and "." in value_n
+
+
 def _bounded_substring(needle_n: str, hay_n: str) -> bool:
     """True if ``needle_n`` occurs in ``hay_n`` on word boundaries.
 
@@ -524,9 +534,18 @@ async def _locate_one_field(
     # repeats are the same entity (an invoice number in header + stub), so they
     # may be unioned. Numeric fields stay collision-collapsed even when long,
     # because a repeated amount is genuinely ambiguous.
+    #
+    # The ``_is_decimal_amount`` guard also collapses a *decimal* number stored on
+    # a string-typed field (an amount "494.03" the schema declares as string): a
+    # value with a fractional part is a measured amount, and a repeat is the same
+    # amount appearing several times (a line charge + the total row), NOT a
+    # distinctive identifier — don't union; let the quote anchor pick the one
+    # right line or fall back to none. A pure-integer code ("74671636") has no
+    # decimal point, so an invoice number stays distinctive and still unions.
     distinctive = (
         has_value
         and _field_type(field) not in _NUMERIC_TYPES
+        and not _is_decimal_amount(value_n, value_dec)
         and len(value_n) >= _DISTINCTIVE_LEN
     )
 

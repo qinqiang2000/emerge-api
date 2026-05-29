@@ -658,6 +658,34 @@ def test_distinctive_string_repeat_unions(monkeypatch):
     assert len(locs[0].rects) == 2  # both occurrences, not the unrelated span
 
 
+def test_decimal_amount_on_string_field_not_distinctive(monkeypatch):
+    """A decimal amount stored on a string-typed field ("494.03" — a bad schema
+    declaring an amount as string) must NOT distinctive-union its repeats. The
+    amount appears on several lines (a line charge + the total row); the source
+    quote anchors it to the one labelled total line instead of lighting up every
+    occurrence. (A pure-integer code like an invoice number still unions — see
+    test_distinctive_string_repeat_unions.)"""
+    fields = [SchemaField(name="actual_payment_amount", type="string", description="amt")]
+    pages = {
+        1: [
+            _span("494.03", bbox=(900, 1080, 970, 1100)),    # a line charge
+            _span("494.03", bbox=(1050, 1115, 1110, 1135)),  # another line
+            _span("总计", bbox=(560, 1165, 600, 1188)),        # total label
+            _span("494.03", bbox=(900, 1165, 970, 1188)),    # total row value
+        ]
+    }
+    locs = _run(
+        [{"actual_payment_amount": "494.03"}],
+        [{"actual_payment_amount": {"page": 1, "source": "总计 494.03"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    # quote anchors to the 总计 line, not a 4-rect union of every occurrence
+    assert locs[0].status == "quote"
+    assert all(r[1] >= 1165 for r in locs[0].rects)  # only the total row band
+
+
 def test_unannotated_date_string_matches(monkeypatch):
     """invoiceDate declared as plain `string` (no format=date) still matches a
     differently-formatted date on the page via the heuristic."""
