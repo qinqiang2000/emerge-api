@@ -15,11 +15,13 @@ interface LocateHighlightProps {
   pageH: number
 }
 
-// Persistent highlight: ochre outline + low-alpha ochre fill via color-mix so we
-// reference the semantic token (never raw color, never ochre-soft which is
+// Persistent highlight: an ochre *ring* around the value, no fill — a filled
+// tint sits over the raster glyphs and occludes the very value it points at
+// (the user's "遮挡了金额"), and overlapping rects compound their alpha into a
+// near-opaque blob. A ring marks the region while leaving the text fully legible.
+// References the semantic token (never raw color, never ochre-soft which is
 // transient-menu-only). Purely visual — pointer-events: none.
 const HIGHLIGHT_OUTLINE = '2px solid var(--ochre)'
-const HIGHLIGHT_FILL = 'color-mix(in srgb, var(--ochre) 16%, transparent)'
 
 /**
  * Source-grounding highlight layer. Sits above the raster page and below the
@@ -69,8 +71,8 @@ export function LocateHighlight({
           className="dv-locate-rect"
           style={{
             outline: HIGHLIGHT_OUTLINE,
-            outlineOffset: '-1px',
-            background: HIGHLIGHT_FILL,
+            // ring sits just outside the glyph box so it never overlaps the text
+            outlineOffset: '1px',
             borderRadius: '2px',
             pointerEvents: 'none',
           }}

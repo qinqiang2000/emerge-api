@@ -78,6 +78,7 @@ export default function FieldEditor({
   const focusLocate = useLocate(s => s.focus)
   const loadFor = useLocate(s => s.loadFor)
 
+  const isPending = useReview(s => s.isPending)
   useEffect(() => {
     if (!projectId || !filename || !entities.length) return
     void loadFor(
@@ -86,8 +87,11 @@ export default function FieldEditor({
       activeTabKey,
       entities as Record<string, unknown>[],
       (evidence ?? null) as (Record<string, unknown> | null)[] | null,
+      // the editable `active` tab is backed by pending when verifying a
+      // pre-label, else by the draft — the grounding cache target.
+      isPending ? '_pending' : '_draft',
     )
-  }, [projectId, filename, activeTabKey, entities, evidence, loadFor])
+  }, [projectId, filename, activeTabKey, entities, evidence, isPending, loadFor])
 
   // Field click → existing select + new source-grounding focus. If the field's
   // resolved source sits on another page, scroll there (off-page jump lives in
@@ -220,6 +224,13 @@ export default function FieldEditor({
                 onJumpToPage={onJumpToPage}
                 onSetActiveField={handleSetActiveField}
                 onAdoptField={onAdoptField}
+                getEvidencePage={(p) =>
+                  // array-child paths are concrete-indexed (lines[2].name) but
+                  // evidence is keyed by the collapsed form (lines[].name) —
+                  // collapse the index before the lookup.
+                  evidencePageOf(
+                    evidenceForEntity?.[p.replace(/\[\d+\]/g, '[]')] as EvidenceValue | undefined,
+                  )}
               />
             ))}
           </div>

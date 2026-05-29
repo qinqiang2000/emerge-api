@@ -35,6 +35,9 @@ interface Props {
   onSetActiveField: (path: string) => void
   /** Per-field copy from prediction → annotation (only meaningful when readOnly). */
   onAdoptField?: (entityIdx: number, name: string, value: unknown, evidencePage?: number | null) => void
+  /** Resolve a leaf path (incl. array children like `lines[].name`) to its
+   *  evidence page, for the p1 jump link on nested rows. */
+  getEvidencePage?: (path: string) => number | null
 }
 
 export default function Section({
@@ -50,6 +53,7 @@ export default function Section({
   onJumpToPage,
   onSetActiveField,
   onAdoptField,
+  getEvidencePage,
 }: Props) {
   const [open, setOpen] = useState(true)
 
@@ -103,6 +107,10 @@ export default function Section({
                   readOnly={readOnly}
                   onChange={(v) => onChange(entityIdx, f.name, v)}
                   onClick={onSetActiveField}
+                  getEvidencePage={getEvidencePage}
+                  activeField={activeField}
+                  onSetActiveField={onSetActiveField}
+                  onJumpToPage={onJumpToPage}
                 />
               )
             }
