@@ -174,7 +174,7 @@ const zh: Dict = {
   'review.locate.resolving': '正在定位来源…',
   'review.locate.notFound': '此字段在文档中无法定位来源',
   'review.reviewing': '正在 review',
-  'review.tab.reviewed': '已审',
+  'review.tab.reviewed': 'reviewed',
   'review.view.form': 'form',
   'review.view.json': 'json',
   'review.save': '保存',
