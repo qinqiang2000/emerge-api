@@ -54,7 +54,7 @@ export default function EvalMatrixModal({ slug, ts, hidden = false }: Props) {
   useEffect(() => {
     // When review is layered on top (hidden=true), ESC must close review,
     // not matrix. Skip the listener while hidden so review's own back path
-    // (history.back via "← back to chat") owns the key.
+    // owns the key.
     if (hidden) return
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {

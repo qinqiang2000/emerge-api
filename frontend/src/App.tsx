@@ -340,7 +340,11 @@ export default function App() {
         left={leftSlot}
         center={inReview
           ? <ReviewOverlay
-              onBack={() => window.history.back()}
+              onBack={() => {
+                const noReview = searchWithoutParam(window.location.search, 'review')
+                window.history.pushState(null, '', window.location.pathname + noReview + window.location.hash)
+                setReviewFilename(null)
+              }}
               leftHidden={leftHidden}
               rightHidden={reviewChatHidden}
               onToggleLeft={onToggleLeft}
