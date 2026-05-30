@@ -218,6 +218,7 @@ const zh: Dict = {
   'pdf.translate.title': '翻译此 doc (T)',
   'pdf.translate.title.on': '覆盖模式 · T 关闭 · Shift+T 重译本页',
   'pdf.translate.title.failed': '翻译失败: {error} (T)',
+  'pdf.translate.loading': '正在处理本页…',
 
   // ── TranslateOverlay (popover) ─────────────────────────────────────────
   'translate.aria.pair': '原文与翻译',

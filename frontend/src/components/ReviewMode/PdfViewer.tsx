@@ -479,11 +479,13 @@ export default function PdfViewer() {
 
           <Tip
             label={
-              translateBtnState === 'error' && translateBtnError
-                ? t('pdf.translate.title.failed', { error: translateBtnError })
-                : translateMode === 'cover'
-                  ? t('pdf.translate.title.on')
-                  : t('pdf.translate.title')
+              translateBtnState === 'loading'
+                ? t('pdf.translate.loading')
+                : translateBtnState === 'error' && translateBtnError
+                  ? t('pdf.translate.title.failed', { error: translateBtnError })
+                  : translateMode === 'cover'
+                    ? t('pdf.translate.title.on')
+                    : t('pdf.translate.title')
             }
           >
             <button
@@ -494,7 +496,8 @@ export default function PdfViewer() {
                 + (translateBtnState === 'error' ? ' is-error' : '')
               }
               aria-pressed={translateMode !== 'off'}
-              onClick={onToggleTranslate}
+              aria-busy={translateBtnState === 'loading'}
+              onClick={() => { if (translateBtnState !== 'loading') onToggleTranslate() }}
             >
               {translateBtnState === 'loading' ? (
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="translate-spin">
