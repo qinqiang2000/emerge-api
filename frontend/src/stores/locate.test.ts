@@ -36,14 +36,21 @@ afterEach(() => {
 })
 
 describe('useLocate', () => {
-  it('focus sets focusedPath and toggles off when the same path is re-focused', () => {
+  it('focus sets focusedPath/Entity and toggles off when the same (entity,path) is re-focused', () => {
     const { focus } = useLocate.getState()
-    focus('a')
+    focus('a', 0)
     expect(useLocate.getState().focusedPath).toBe('a')
-    focus('b')
+    expect(useLocate.getState().focusedEntity).toBe(0)
+    focus('b', 0)
     expect(useLocate.getState().focusedPath).toBe('b')
-    focus('b')
+    // same path on a DIFFERENT entity is a fresh focus, not a toggle-off
+    focus('b', 1)
+    expect(useLocate.getState().focusedPath).toBe('b')
+    expect(useLocate.getState().focusedEntity).toBe(1)
+    // re-focusing the exact (entity,path) pair clears it
+    focus('b', 1)
     expect(useLocate.getState().focusedPath).toBeNull()
+    expect(useLocate.getState().focusedEntity).toBeNull()
   })
 
   it('empty evidence triggers a ground pass before locate, then caches', async () => {
@@ -115,9 +122,10 @@ describe('useLocate', () => {
   it('reset clears cache and focus', async () => {
     vi.stubGlobal('fetch', routedFetch())
     await useLocate.getState().loadFor('s', 'f.pdf', 'active', [{ a: 1 }], null)
-    useLocate.getState().focus('invoice_number')
+    useLocate.getState().focus('invoice_number', 0)
     useLocate.getState().reset()
     expect(useLocate.getState().byKey).toEqual({})
     expect(useLocate.getState().focusedPath).toBeNull()
+    expect(useLocate.getState().focusedEntity).toBeNull()
   })
 })

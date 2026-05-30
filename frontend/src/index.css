@@ -609,7 +609,21 @@ html, body, #root {
    inline (ochre ring + low-alpha ochre via color-mix; never ochre-soft, which
    is transient-menu-only — see project_design_token_roles). */
 .dv-locate-layer{position:absolute;inset:0;pointer-events:none;container-type:size;z-index:0}
-.dv-locate-rect{position:absolute;pointer-events:none}
+/* Rect mounts fresh on each focus → the reveal radiates once so the eye
+   catches where the auto-pan landed. Ring stays (no fill); the pulse is an
+   outward ochre glow that fades to nothing. */
+.dv-locate-rect{position:absolute;pointer-events:none;animation:dvLocateReveal 1.3s cubic-bezier(.34,.1,.2,1)}
+@keyframes dvLocateReveal{
+  0%{box-shadow:0 0 0 1px color-mix(in srgb, var(--ochre) 60%, transparent)}
+  55%{box-shadow:0 0 0 8px color-mix(in srgb, var(--ochre) 0%, transparent)}
+  100%{box-shadow:0 0 0 8px transparent}
+}
+/* "Where is it?" hint — anchored to the doc pane (.rev-pdf is relative),
+   bottom-center, above the page raster but out of the toolbar's way. */
+.dv-locate-hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:6;display:inline-flex;align-items:center;gap:7px;max-width:84%;padding:7px 13px;border-radius:7px;background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11.5px;line-height:1.3;letter-spacing:.01em;box-shadow:0 6px 20px rgba(31,27,20,.22);pointer-events:none;animation:dvLocateHintIn .16s ease-out}
+.dv-locate-hint.is-resolving{background:var(--ink-2)}
+.dv-locate-hint svg{flex-shrink:0;opacity:.9}
+@keyframes dvLocateHintIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
 .rev-toolbar{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:nowrap}
 .rev-toolbar .seg{display:inline-flex;border:1px solid var(--rule);border-radius:5px;overflow:hidden;background:var(--paper)}
 .rev-toolbar .seg button{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:4px 11px;border-right:1px solid var(--rule-soft);cursor:default;background:transparent;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;flex-shrink:0}

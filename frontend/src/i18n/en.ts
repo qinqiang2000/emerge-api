@@ -169,6 +169,8 @@ const en: Dict = {
   'review.openChat.aria': 'open chat',
   'review.openChat.title': 'open chat (⌘⇧.)',
   'review.locate.aria': 'source region',
+  'review.locate.resolving': 'locating source…',
+  'review.locate.notFound': "no source for this field in the document",
   'review.reviewing': 'reviewing',
   'review.tab.reviewed': 'reviewed',
   'review.view.form': 'form',

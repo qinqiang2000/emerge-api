@@ -367,3 +367,76 @@ context and leak coordinates into the brain -- breaking the hard rule. So
 `POST .../locate` is render-only (`app/api/routes/locate.py`), consumed by the
 review viewer. The symmetry invariant only enforces "@tool => route"; a
 route-without-tool is legitimate and needs no `_HTTP_EXEMPT` entry.
+
+## locate auto-pan: driven by a request seq, NOT by overlay mount
+
+Clicking a field pans the doc so its source rect centers (`block:'center'`,
+no zoom). The scroll is fired from `LocateHighlight` — the only place that
+already knows the rect's rendered geometry (handles fit/zoom/rotation for free
+via `scrollIntoView`). The trap a "simplification" would re-introduce: driving
+that scroll off the overlay **mounting** (i.e. scroll whenever the focused
+page's highlight appears). That yanks the viewport when a far page lazy-loads
+during ordinary manual scrolling. Instead the focus handler bumps a monotonic
+`useLocate.scrollReq = {seq, path}`, and each page's highlight *claims* a seq
+once (`consumedSeqRef`). So: (a) incidental lazy mounts never scroll — no new
+seq; (b) an off-page target still pans after it finishes loading — the seq is
+still unclaimed; (c) re-clicking the same field re-pans — new seq. Pages never
+unmount (`loadedPages` only grows), so the per-page claim persists.
+
+When a focused field has no locatable rect (`status:'none'` / no entry), there
+is nothing to pan to — `PdfViewer` shows a bottom-center pane hint
+(`.dv-locate-hint`, `review.locate.notFound`) so the reviewer stops hunting
+page by page. `resolving` covers the sub-second window before `locate` resolves.
+
+## locate perf: dateparser is O(spans) — gate + memoise, never remove
+
+`/locate` on a 28-page × 14-entity doc took **>180s** (wedging the review pane).
+Not OCR — textlayer sidecars were warm. cProfile pinned 84% on
+`_date_equivalent → dateparser.parse`: a date-ish field that misses its
+page-hint scans the WHOLE document, and the old code ran `dateparser.parse`
+(~10ms, lazy-loads locale tables) on EVERY span of every scanned page, ×every
+entity. 494 parses for 3 entities; it scales with spans×pages×date-fields×entities.
+
+Two guards make it ~80× faster (180s → 2.3s) with ZERO match change (same
+97/159 located on a fixed 3-entity input; 36 locate tests green):
+- `_parse_date` = `lru_cache`’d dateparser. The same value parses against
+  hundreds of spans and recurs across every entity — caching bounds parses to
+  the count of UNIQUE strings, so cost stops scaling with entity count.
+- `_DATE_GATE` / `_span_maybe_date`: a cheap regex pre-filter so only
+  date-SHAPED spans reach dateparser. Deliberately inclusive (separator / CJK
+  年月日 / month-word / bare yyyymmdd) so it never drops a span the unfiltered
+  path matched. Do NOT narrow it to ASCII-only.
+
+Also: `span_cache` is now hoisted to document scope (was per-entity), so a
+multi-entity doc reads each page's textlayer sidecar once, not once-per-entity.
+
+Still open (the click-path latency the user flagged): a COLD doc whose scanned
+pages have no textlayer sidecar yet still triggers Gemini OCR on the first
+locate/review. The right fix is to warm textlayer (incl. OCR) at upload/extract
+time and persist it, so review only ever reads warm sidecars — bigger change
+(touches the extract pipeline), not done here.
+
+## locate focus/pan/highlight MUST scope by (entity, path), not path alone
+
+A multi-entity doc carries the SAME leaf path once per entity — `invoiceNumber`
+appears for all 14 invoices, each on its own page. The review highlight + the
+click-to-pan resolve a field to its `FieldLocation`, and matching on `path`
+alone always returns entity 0's occurrence → clicking entity 5's `invoiceNumber`
+jumped to entity 0's page and ringed the wrong value. Fix: the locate store
+carries `focusedEntity` alongside `focusedPath`; `LocateHighlight`,
+`PdfViewer.focusStatus`, and `FieldEditor`'s click-time `find` all filter
+`l.entity_index === focusedEntity && l.path === focusedPath`. `focusedEntity`
+is the displayed `activeEntityIdx` (passed through `focus(path, entityIdx)`).
+Note `activeField` (row highlight, review store) is SEPARATE from `focusedPath`
+(locate, doc-pane) — they can desync; don't assume one implies the other.
+
+## don't setTimeout-auto-dismiss a focus-derived hint inside its own effect
+
+The "no source in document" pane hint first used `useEffect(... setLocateHint
+('unlocated'); setTimeout(()=>setLocateHint(null), 2800) ...)`. The pill never
+appeared: the timer (or its effect-cleanup) cleared the state almost immediately
+under React's dev effect re-runs. The hint is a pure function of `focusStatus`,
+so derive it — `const locateHint = focusStatus === 'unlocated' ? ... : null` —
+no state, no timer. It then shows exactly while that field is the focused one and
+clears when focus moves, which is also the better contract (the pill is the
+answer to "where's the source?", so it lives as long as the question does).

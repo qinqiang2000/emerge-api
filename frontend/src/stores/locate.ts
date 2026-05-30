@@ -34,9 +34,24 @@ function cacheKey(filename: string, tabKey: string): string {
 interface LocateState {
   byKey: Record<string, FieldLocation[]>
   focusedPath: string | null
+  /** Entity the focused path belongs to. A multi-entity doc carries the SAME
+   *  leaf path (e.g. `invoiceNumber`) once per entity, each on its own page, so
+   *  path alone is ambiguous — the highlight/pan must scope to (entity, path)
+   *  or every field resolves to entity 0's occurrence. */
+  focusedEntity: number | null
   loading: boolean
-  /** Toggle focus: focusing the already-focused path clears it. */
-  focus: (path: string) => void
+  /**
+   * Pan request: bumped whenever a field is freshly focused so the doc viewer
+   * scrolls that field's source rect to center. `seq` is monotonic so each
+   * click re-triggers even on the same field; `path` lets the matching page's
+   * overlay claim the request (other pages ignore it). Render-only — never fed
+   * to any agent/extract path (same red line as `byKey`).
+   */
+  scrollReq: { seq: number; path: string } | null
+  /** Toggle focus on (entity, path): focusing the already-focused pair clears it. */
+  focus: (path: string, entityIdx: number) => void
+  /** Bump the pan request for `path` (called on focus-in, not on toggle-off). */
+  requestScroll: (path: string) => void
   /** Fetch + cache locations for a tab if not already attempted (404 -> [] counts as attempted). */
   loadFor: (
     projectId: string,
@@ -54,10 +69,21 @@ interface LocateState {
 export const useLocate = create<LocateState>((set, get) => ({
   byKey: {},
   focusedPath: null,
+  focusedEntity: null,
   loading: false,
+  scrollReq: null,
 
-  focus: (path) => {
-    set((s) => ({ focusedPath: path === s.focusedPath ? null : path }))
+  focus: (path, entityIdx) => {
+    set((s) => {
+      const same = s.focusedPath === path && s.focusedEntity === entityIdx
+      return same
+        ? { focusedPath: null, focusedEntity: null }
+        : { focusedPath: path, focusedEntity: entityIdx }
+    })
+  },
+
+  requestScroll: (path) => {
+    set((s) => ({ scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, path } }))
   },
 
   loadFor: async (projectId, filename, tabKey, entities, evidence, activeBacking = '_draft') => {
@@ -86,7 +112,7 @@ export const useLocate = create<LocateState>((set, get) => ({
   },
 
   reset: () => {
-    set({ byKey: {}, focusedPath: null, loading: false })
+    set({ byKey: {}, focusedPath: null, focusedEntity: null, loading: false, scrollReq: null })
   },
 }))
 

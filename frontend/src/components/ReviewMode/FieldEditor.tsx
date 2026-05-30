@@ -76,6 +76,7 @@ export default function FieldEditor({
   const filename = useReview(s => s.activeFilename)
   const activeTabKey = useReview(s => s.activeTabKey)
   const focusLocate = useLocate(s => s.focus)
+  const requestScroll = useLocate(s => s.requestScroll)
   const loadFor = useLocate(s => s.loadFor)
 
   const isPending = useReview(s => s.isPending)
@@ -97,16 +98,33 @@ export default function FieldEditor({
   // resolved source sits on another page, scroll there (off-page jump lives in
   // the focus handler, not the render layer, so it fires exactly once on click).
   const handleSetActiveField = useCallback((path: string) => {
+    // `focus`/`setActiveField` are toggles — clicking the active row clears it.
+    // Only navigate when this click *focuses* the field, not when it clears.
+    const ls = useLocate.getState()
+    const wasFocused = ls.focusedPath === path && ls.focusedEntity === safeIdx
     setActiveField(path)
-    focusLocate(path)
+    focusLocate(path, safeIdx)
+    if (wasFocused) return
     if (projectId && filename) {
-      const locations = useLocate.getState().byKey[`${filename}::${activeTabKey}`] ?? []
+      const locations = ls.byKey[`${filename}::${activeTabKey}`] ?? []
+      // Scope to the displayed entity — the same leaf path repeats once per
+      // entity (each on its own page), so an unscoped find always lands on
+      // entity 0 and the doc jumps to the wrong page.
       const hit = locations.find(
-        (l) => l.path === path && l.status !== 'none' && l.rects.length > 0 && l.page != null,
+        (l) =>
+          l.entity_index === safeIdx &&
+          l.path === path &&
+          l.status !== 'none' &&
+          l.rects.length > 0 &&
+          l.page != null,
       )
       if (hit?.page != null) onJumpToPage?.(hit.page)
     }
-  }, [setActiveField, focusLocate, projectId, filename, activeTabKey, onJumpToPage])
+    // Bump the pan request so the focused field's source rect scrolls to center
+    // once its page overlay is mounted (LocateHighlight claims it). No-op when
+    // the field has no located source — the doc-pane hint covers that case.
+    requestScroll(path)
+  }, [setActiveField, focusLocate, requestScroll, projectId, filename, activeTabKey, onJumpToPage, safeIdx])
 
   // T11.1: Synthetic single-section — one section labelled "fields" containing all SchemaFields
   const sections = useMemo(() => {

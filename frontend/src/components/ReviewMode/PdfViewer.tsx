@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
-import { Languages } from 'lucide-react'
+import { Languages, MapPinOff } from 'lucide-react'
 import { pdfPageUrl } from '../../lib/api'
 import { useDocs } from '../../stores/docs'
 import { useReview } from '../../stores/review'
@@ -46,6 +46,7 @@ type PopoverState = {
 export default function PdfViewer() {
   const t = useT()
   const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
+  const activeTabKey = useReview((s) => s.activeTabKey)
   const { byProject } = useDocs()
   // Translate mode is driven by both the toolbar button and the `T` key
   // — subscribe so the button reflects state changes from either path.
@@ -67,6 +68,36 @@ export default function PdfViewer() {
   const [aspectRatio, setAspectRatio] = useState(11 / 8.5)
   // The single popover instance — null when nothing hovered.
   const [popover, setPopover] = useState<PopoverState | null>(null)
+
+  // ── Source-grounding focus status (drives the "where is it?" hint) ─────────
+  // When a field is focused but its source can't be located in the doc, the
+  // viewer would otherwise sit silent and the reviewer hunts page by page.
+  // Surface a transient pane-anchored hint instead. Located fields need no
+  // hint — the pan + ring already answer "where".
+  const focusedPath = useLocate((s) => s.focusedPath)
+  const focusedEntity = useLocate((s) => s.focusedEntity)
+  const locateLoading = useLocate((s) => s.loading)
+  const locations = useLocate((s) =>
+    activeFilename ? s.byKey[`${activeFilename}::${activeTabKey}`] : undefined,
+  )
+  const focusStatus = useMemo<'none' | 'resolving' | 'located' | 'unlocated'>(() => {
+    if (!focusedPath) return 'none'
+    if (!locations) return locateLoading ? 'resolving' : 'unlocated'
+    // Scope to the focused entity — the same path repeats per entity.
+    const hits = locations.filter((l) => l.entity_index === focusedEntity && l.path === focusedPath)
+    if (hits.some((l) => l.status !== 'none' && l.rects.length > 0 && l.page != null)) return 'located'
+    if (hits.length === 0 && locateLoading) return 'resolving'
+    return 'unlocated'
+  }, [focusedPath, focusedEntity, locations, locateLoading])
+
+  // The hint mirrors focusStatus directly: shown while an unlocated/resolving
+  // field stays focused, cleared the moment focus moves or the source resolves.
+  // (No setTimeout auto-dismiss — a timer inside this effect got cleared early
+  // under React's effect re-runs, and persist-while-focused is the cleaner
+  // contract anyway: the pill is the answer to "where's the source?", so it
+  // belongs on screen exactly as long as that field is the focused one.)
+  const locateHint: 'resolving' | 'unlocated' | null =
+    focusStatus === 'unlocated' ? 'unlocated' : focusStatus === 'resolving' ? 'resolving' : null
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -528,6 +559,28 @@ export default function PdfViewer() {
           onMouseLeave={onPopoverMouseLeave}
         />
       )}
+
+      {/* Source-grounding hint — anchored to the doc pane (.rev-pdf is
+          position:relative), bottom-center so it never collides with the
+          wrapping toolbar. Tells the reviewer to stop hunting: the value
+          carries no locatable source in this document. */}
+      {locateHint && (
+        <div className={'dv-locate-hint' + (locateHint === 'resolving' ? ' is-resolving' : '')} role="status">
+          {locateHint === 'resolving' ? (
+            <>
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="translate-spin" aria-hidden="true">
+                <path d="M7 1.5 a5.5 5.5 0 1 1 -5.5 5.5" />
+              </svg>
+              <span>{t('review.locate.resolving')}</span>
+            </>
+          ) : (
+            <>
+              <MapPinOff size={13} strokeWidth={1.7} aria-hidden="true" />
+              <span>{t('review.locate.notFound')}</span>
+            </>
+          )}
+        </div>
+      )}
     </>
   )
 }
@@ -575,6 +628,7 @@ function PageOverlays({
   // (filename, tabKey); the active tab key drives which cache slice we read.
   const locateTabKey = useReview((s) => s.activeTabKey)
   const focusedPath = useLocate((s) => s.focusedPath)
+  const focusedEntity = useLocate((s) => s.focusedEntity)
   const locations = useLocate((s) => s.byKey[`${filename}::${locateTabKey}`])
 
   // Always fetch textlayer (cheap, makes electronic PDFs selectable
@@ -645,6 +699,7 @@ function PageOverlays({
         <LocateHighlight
           locations={locations}
           focusedPath={focusedPath}
+          focusedEntity={focusedEntity}
           page={page}
           pageW={pageDims.pageW}
           pageH={pageDims.pageH}

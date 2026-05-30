@@ -169,6 +169,8 @@ const zh: Dict = {
   'review.openChat.aria': '打开对话',
   'review.openChat.title': '打开对话 (⌘⇧.)',
   'review.locate.aria': '来源区域',
+  'review.locate.resolving': '正在定位来源…',
+  'review.locate.notFound': '此字段在文档中无法定位来源',
   'review.reviewing': '正在 review',
   'review.tab.reviewed': '已审',
   'review.view.form': 'form',

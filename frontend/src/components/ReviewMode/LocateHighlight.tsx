@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { BBoxRect } from './BBoxRect'
 import type { FieldLocation } from '../../lib/locate'
+import { useLocate } from '../../stores/locate'
 import { useT } from '../../i18n'
 
 interface LocateHighlightProps {
@@ -8,6 +9,8 @@ interface LocateHighlightProps {
   locations: FieldLocation[]
   /** Field whose source rects should be painted. */
   focusedPath: string | null
+  /** Entity the focused path belongs to — scopes the match in multi-entity docs. */
+  focusedEntity: number | null
   /** 1-based page this overlay sits on. */
   page: number
   /** Page size in PDF points (same unit as rects). */
@@ -31,15 +34,20 @@ const HIGHLIGHT_OUTLINE = '2px solid var(--ochre)'
 export function LocateHighlight({
   locations,
   focusedPath,
+  focusedEntity,
   page,
   pageW,
   pageH,
 }: LocateHighlightProps) {
   const t = useT()
+  const layerRef = useRef<HTMLDivElement>(null)
+  const consumedSeqRef = useRef(0)
+  const scrollReq = useLocate((s) => s.scrollReq)
   const rects = useMemo(() => {
     if (!focusedPath || !pageW || !pageH) return []
     const out: { bbox: [number, number, number, number]; key: string }[] = []
     locations.forEach((loc, li) => {
+      if (loc.entity_index !== focusedEntity) return
       if (loc.path !== focusedPath) return
       if (loc.page !== page) return
       if (loc.status === 'none') return
@@ -49,12 +57,32 @@ export function LocateHighlight({
       })
     })
     return out
-  }, [locations, focusedPath, page, pageW, pageH])
+  }, [locations, focusedPath, focusedEntity, page, pageW, pageH])
+
+  // Auto-pan: when a fresh focus request targets the field whose rects live on
+  // THIS page, scroll the first rect to center. Driven by the monotonic
+  // `scrollReq.seq` (claimed once per request via `consumedSeqRef`) rather than
+  // by mount — so a page lazily scrolled into view later never yanks the user,
+  // and the request still fires when an off-page target finishes loading. No
+  // zoom change: `scrollIntoView` only translates the viewport.
+  useEffect(() => {
+    if (!scrollReq || scrollReq.path !== focusedPath) return
+    if (scrollReq.seq <= consumedSeqRef.current) return
+    if (!rects.length) return // not this page (or rect not painted yet)
+    consumedSeqRef.current = scrollReq.seq
+    const el = layerRef.current?.querySelector('.dv-locate-rect') as HTMLElement | null
+    if (!el) return
+    const id = requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [scrollReq, focusedPath, rects])
 
   if (!rects.length) return null
 
   return (
     <div
+      ref={layerRef}
       className="dv-locate-layer"
       aria-label={t('review.locate.aria')}
       // z-index 0: above the raster <img> (DOM-earlier, auto), below the
