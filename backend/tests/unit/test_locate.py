@@ -209,9 +209,14 @@ def test_evidence_page_priority(monkeypatch):
     assert locs[0].rects == [[5.0, 5.0, 6.0, 6.0]]
 
 
-def test_full_doc_fallback_when_hint_misses(monkeypatch):
+def test_page_hint_is_authoritative_no_cross_page_drift(monkeypatch):
+    """A present page hint is authoritative: locate must NOT relocate the field
+    onto another page even when the value sits there. In a multi-invoice doc the
+    seller boilerplate is byte-identical on every invoice, so a whole-doc scan
+    would teleport the highlight to another invoice's copy (the p17→p5 drift).
+    Hint says page 1 (which lacks the value here) → stay none on page 1, never
+    jump to the page-3 lookalike."""
     fields = [SchemaField(name="vendor", type="string", description="v")]
-    # hint page (1) lacks the value; it's on page 3 → fallback finds it
     pages = {
         1: [_span("cover sheet")],
         2: [_span("table of contents")],
@@ -220,6 +225,27 @@ def test_full_doc_fallback_when_hint_misses(monkeypatch):
     locs = _run(
         [{"vendor": "Acme Corporation"}],
         [{"vendor": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].page == 1  # hint preserved; no drift to page 3
+    assert locs[0].rects == []
+
+
+def test_full_doc_scan_when_no_page_hint(monkeypatch):
+    """With NO page hint (legacy / derived evidence), the whole-doc scan still
+    runs and finds the value wherever it uniquely sits."""
+    fields = [SchemaField(name="vendor", type="string", description="v")]
+    pages = {
+        1: [_span("cover sheet")],
+        2: [_span("table of contents")],
+        3: [_span("Acme Corporation", bbox=(9, 9, 9, 9))],
+    }
+    locs = _run(
+        [{"vendor": "Acme Corporation"}],
+        [{"vendor": {"page": None, "source": None}}],
         fields,
         pages,
         monkeypatch,
@@ -792,3 +818,68 @@ def test_short_string_substring_respects_word_boundary(monkeypatch):
     )
     assert locs[0].status == "none"
     assert locs[0].rects == []
+
+
+def test_short_span_does_not_fuzzy_match_long_value(monkeypatch):
+    """A tiny span must not fuzzy-match a long value just by being a digit slice
+    of it. The reg number "195101000115 (002060-T)" lives in a letterhead image
+    (absent from the text layer), so the only span carrying "15" is a quantity
+    cell; partial_ratio scored that 2-char span 100 against the 23-char value and
+    lit up the wrong cell. With the comparable-length floor it stays none."""
+    fields = [SchemaField(name="bizRegNo", type="string", description="r")]
+    pages = {
+        1: [
+            _span("BROWN STD RIDGE", bbox=(40, 320, 300, 332)),
+            _span("15", bbox=(345, 335, 355, 346)),       # quantity cell
+            _span("4.9100", bbox=(800, 335, 870, 346)),
+        ]
+    }
+    locs = _run(
+        [{"bizRegNo": "195101000115 (002060-T)"}],
+        [{"bizRegNo": {"page": 1, "source": "Company No.: 195101000115 (002060-T)"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []
+
+
+def test_low_coverage_quote_fragment_is_not_a_match(monkeypatch):
+    """A lone span covering a negligible slice of the source quote is noise, not a
+    location. "15" ⊂ "Company No.: 195101000115 (002060-T)" must not be returned
+    as a quote hit (it used to win as the only cluster on the page)."""
+    fields = [SchemaField(name="bizRegNo", type="string", description="r")]
+    pages = {1: [_span("15", bbox=(345, 335, 355, 346))]}
+    locs = _run(
+        [{"bizRegNo": "195101000115 (002060-T)"}],
+        [{"bizRegNo": {"page": 1, "source": "Company No.: 195101000115 (002060-T)"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []
+
+
+def test_quote_still_matches_when_whole_line_present(monkeypatch):
+    """Guard against over-tightening: when the letterhead line IS in the text
+    layer (warm OCR), the full-coverage quote still resolves cleanly."""
+    fields = [SchemaField(name="bizRegNo", type="string", description="r")]
+    pages = {
+        1: [
+            _span("Company No.: 195101000115 (002060-T)", bbox=(205, 72, 552, 80)),
+            _span("15", bbox=(345, 335, 355, 346)),  # distractor quantity cell
+        ]
+    }
+    locs = _run(
+        [{"bizRegNo": "195101000115 (002060-T)"}],
+        [{"bizRegNo": {"page": 1, "source": "Company No.: 195101000115 (002060-T)"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    # the whole-value substring match on the letterhead line wins; never the cell
+    assert locs[0].page == 1
+    assert locs[0].rects == [[205.0, 72.0, 552.0, 80.0]]
+    assert locs[0].status in ("exact", "quote")

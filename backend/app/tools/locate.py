@@ -46,6 +46,15 @@ from app.tools.textlayer import extract_textlayer
 
 # rapidfuzz partial-ratio threshold for fuzzy hits (0..100 scale).
 _FUZZY_THRESHOLD = 85.0
+# partial_ratio is asymmetric: it scores the SHORTER string as a sliding window
+# over the longer one, so a 2-char span ("15") scores 100 against a long value
+# ("195101000115 (002060-T)") just for being a substring slice of it. Fuzzy means
+# "approximately the same string", not "this tiny fragment occurs inside" — so the
+# two must be of comparable length. Require the shorter to be at least this
+# fraction of the longer before trusting a fuzzy hit (kills the "15" lights-up-the
+# -quantity-cell class of false positive; a real OCR-noise match like
+# "Acme Corporatlon Ltd" vs "Acme Corporation" stays well above the floor).
+_FUZZY_MIN_LEN_RATIO = 0.5
 # Minimum length for a string value (or span fragment) to be allowed to match as
 # a substring rather than a full-span equal; shorter values must match exactly
 # (avoids "F2" / "USD" lighting up half the page).
@@ -70,6 +79,15 @@ _NUM_TOKEN = re.compile(r"[-+]?\d[\d.,]*\d|\d")
 # Strength gap above which the top cluster is considered a clear winner (so two
 # equally-good clusters → ambiguous → none).
 _DOMINANCE_EPS = 1e-6
+# Minimum fraction of the source quote a line cluster must cover before the
+# primary quote path will trust it. Without a floor, a single incidental fragment
+# — a bare "15" that happens to be a substring of "Company No.: 195101000115
+# (002060-T)" — forms a lone cluster and _select_cluster returns it regardless of
+# how little of the quote it covers, scattering the highlight onto a random
+# quantity cell. A genuine match (the whole quote on one line, or its label+value
+# fragments unioned) clears this easily; noise fragments don't. Mirrors the
+# coverage bars the ordinal / row-anchor passes already apply.
+_QUOTE_MIN_COVERAGE = 0.6
 # Ranking of statuses strongest → weakest, for picking a cluster's label.
 _STATUS_RANK = {"exact": 4, "normalized": 3, "quote": 2, "fuzzy": 1, "none": 0}
 
@@ -358,12 +376,15 @@ def _value_strength(
     if _looks_like_date(value_n) and _date_equivalent(value_n, span_n):
         return 0.95, "normalized"
     # Fuzzy is "approximately the same string", not "value is a small fragment of
-    # a big span" — partial_ratio would score a short value 100 just for being a
-    # substring window ("Air" in "Airbus"). Require the value to be long enough
-    # and to cover a fair share of the span before trusting a fuzzy hit. Fuzzy is
+    # a big span" (nor "a tiny span is a slice of a big value") — partial_ratio
+    # scores the shorter string as a window over the longer one, so it returns 100
+    # for "Air" in "Airbus" OR for "15" in "195101000115 (002060-T)". Require the
+    # two to be of comparable length (shorter >= _FUZZY_MIN_LEN_RATIO * longer) and
+    # the shorter to clear _MIN_SUBSTR_LEN before trusting a fuzzy hit. Fuzzy is
     # scaled below the literal/substring/normalized tiers so only a true
     # full-span-equal ever reaches strength 1.0 (which gates the repeat-union).
-    if len(value_n) >= _MIN_SUBSTR_LEN and 2 * len(value_n) >= len(span_n):
+    short_len, long_len = sorted((len(value_n), len(span_n)))
+    if short_len >= _MIN_SUBSTR_LEN and short_len >= _FUZZY_MIN_LEN_RATIO * long_len:
         sc = _fuzzy_score(value_n, span_n)
         if sc >= _FUZZY_THRESHOLD:
             return _FUZZY_MAX_STRENGTH * (sc / 100.0), "fuzzy"
@@ -614,11 +635,18 @@ async def _locate_one_field(
         )
 
     def _ordered_pages() -> list[int]:
-        pages: list[int] = []
+        # The evidence page hint is the model's testimony of WHERE it read the
+        # value — it is authoritative. When present, search ONLY that page; never
+        # relocate a field onto another page. In a multi-invoice doc the seller
+        # boilerplate (country, reg#, TIN, company name) is byte-identical on every
+        # invoice, so a whole-doc scan would "find" the value on some OTHER
+        # invoice's letterhead and teleport the highlight to the wrong page (the
+        # p17→p5 drift). The hint is the only thing that disambiguates the copies,
+        # so leaving it is always wrong. Whole-doc scan runs ONLY when there is no
+        # hint at all (legacy / derived fields).
         if page_hint is not None:
-            pages.append(page_hint)
-        pages.extend(pg for pg in range(1, (total_pages or 0) + 1) if pg != page_hint)
-        return pages
+            return [page_hint]
+        return list(range(1, (total_pages or 0) + 1))
 
     has_value = value is not None and _nfkc(value) != ""
     value_n = _nfkc(value) if has_value else ""
@@ -643,28 +671,19 @@ async def _locate_one_field(
     )
 
     async def _value_locate() -> Optional[dict]:
-        """Best value-match selection across pages (hint first), or None.
+        """Best value-match selection, or None.
 
-        Returns ``{status, score, rects, page}``. None when the value is absent,
-        unmatched, or ambiguous on the hinted page (we don't scatter the search
-        across pages once the value is present-but-ambiguous on its own page)."""
+        Returns ``{status, score, rects, page}``. Confined to the hinted page when
+        a hint exists (the hint is authoritative — see ``_ordered_pages``); only a
+        hint-less field scans the whole doc. None when the value is absent,
+        unmatched, or ambiguous on the searched page(s)."""
         if not has_value:
             return None
 
         def _vfn(txt: str) -> tuple[float, str]:
             return _value_strength(value_n, value_dec, field, txt)
 
-        if page_hint is not None:
-            spans = await _spans_for_page(workspace, project_id, filename, page_hint, span_cache)
-            clusters = _cluster_hits(spans, _vfn)
-            sel = _select_cluster(clusters, distinctive=distinctive)
-            if sel is not None:
-                return {**sel, "page": page_hint}
-            if clusters:
-                return None  # present but ambiguous on the hinted page
-        for pg in range(1, (total_pages or 0) + 1):
-            if pg == page_hint:
-                continue
+        for pg in _ordered_pages():
             spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
             sel = _select_cluster(_cluster_hits(spans, _vfn), distinctive=distinctive)
             if sel is not None:
@@ -688,7 +707,13 @@ async def _locate_one_field(
     if quote_n:
         for pg in _ordered_pages():
             spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
-            clusters = _cluster_quote_lines(spans, quote_n)
+            # Keep only clusters that cover a real share of the quote; a lone
+            # low-coverage fragment ("15" ⊂ the quote's digits) is noise, not a
+            # presence of the quote, so it must not win nor stop the page scan.
+            clusters = [
+                c for c in _cluster_quote_lines(spans, quote_n)
+                if c["score"] >= _QUOTE_MIN_COVERAGE
+            ]
             sel = _select_cluster(clusters)
             if sel is not None:
                 return _result("quote", sel["score"] * 100.0, sel["rects"], pg)
@@ -753,11 +778,10 @@ async def _ordinal_tiebreak(
     for (_parent_path, quote_n), members in groups.items():
         if len(members) < 2:
             continue
+        # Hint is authoritative (see _ordered_pages): confine the tie-break to the
+        # siblings' hinted page; only a hint-less group scans the whole doc.
         hints = [m["page_hint"] for m in members if m["page_hint"]]
-        pages: list[int] = []
-        if hints:
-            pages.append(hints[0])
-        pages.extend(pg for pg in range(1, (total_pages or 0) + 1) if pg not in pages)
+        pages = [hints[0]] if hints else list(range(1, (total_pages or 0) + 1))
         for pg in pages:
             spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
             clusters = _cluster_quote_lines(spans, quote_n)
