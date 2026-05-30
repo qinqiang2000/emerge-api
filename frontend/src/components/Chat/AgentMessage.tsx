@@ -1,15 +1,37 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { useT } from '../../i18n'
+import { useProjects } from '../../stores/projects'
+import { useDocs } from '../../stores/docs'
+import { navigateToReview } from '../../lib/slugUrl'
 
 interface Props { text: string }
 
 export default function AgentMessage({ text }: Props) {
   const t = useT()
   const [copied, setCopied] = useState(false)
+
+  // Make inline-code chips that name a real doc in this project clickable —
+  // same destination as clicking the left-spine doc row (`navigateToReview`).
+  // We match the chip's exact text against the project's doc list so only true
+  // filenames become clickable; model ids / paths (`gemini-3-flash-preview`,
+  // `predictions/_draft/`) stay inert plain chips. Unbound chats (no slug) have
+  // an empty set, so everything degrades to plain chips. `original_name` is a
+  // secondary key for the case where the agent shows the pre-dedupe name, but
+  // navigation always uses the canonical on-disk `filename`.
+  const selectedSlug = useProjects(s => s.selectedSlug)
+  const docs = useDocs(s => (selectedSlug ? s.byProject[selectedSlug] : undefined) ?? [])
+  const docNames = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of docs) {
+      m.set(d.filename, d.filename)
+      if (d.original_name && !m.has(d.original_name)) m.set(d.original_name, d.filename)
+    }
+    return m
+  }, [docs])
 
   async function copy() {
     try {
@@ -43,9 +65,29 @@ export default function AgentMessage({ text }: Props) {
             code: ({ className, children, ...rest }) => {
               const node = (rest as { node?: { position?: { start?: { column?: number } } } }).node
               const isBlock = node?.position?.start?.column === 1
-              return isBlock ? (
-                <code className={`${className ?? ''} font-mono`}>{children}</code>
-              ) : (
+              if (isBlock) {
+                return <code className={`${className ?? ''} font-mono`}>{children}</code>
+              }
+              const raw = typeof children === 'string'
+                ? children
+                : Array.isArray(children) ? children.join('') : ''
+              const filename = selectedSlug ? docNames.get(raw.trim()) : undefined
+              if (filename) {
+                const open = () => navigateToReview(selectedSlug!, filename)
+                return (
+                  <code
+                    role="button"
+                    tabIndex={0}
+                    title={filename}
+                    onClick={open}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
+                    className="font-mono bg-paper-2 border border-rule-soft text-ochre-2 px-1 py-0.5 rounded text-[0.86em] cursor-pointer hover:bg-ochre/10 hover:border-ochre transition-colors"
+                  >
+                    {children}
+                  </code>
+                )
+              }
+              return (
                 <code className="font-mono bg-paper-2 border border-rule-soft text-ochre-2 px-1 py-0.5 rounded text-[0.86em]">
                   {children}
                 </code>
