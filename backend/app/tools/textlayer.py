@@ -334,7 +334,22 @@ async def extract_textlayer(
 
     sidecar = doc_textlayer_path(workspace, project_id, filename, page)
     if sidecar.exists():
-        return json.loads(sidecar.read_text())
+        cached = json.loads(sidecar.read_text())
+        # Don't serve a sidecar written WITHOUT an OCR attempt to a caller that
+        # wants OCR. locate runs with skip_ocr=True and PERSISTS a fitz-only
+        # sidecar (see below); without this guard a page locate touched first is
+        # stuck fitz-only forever — the viewer / warm-relocate could never upgrade
+        # it with the letterhead / logo text only OCR recovers (the reg# / TIN /
+        # address block rendered as an image). Re-extract to upgrade.
+        # `ocr_attempted` disambiguates "OCR skipped" from "OCR ran, added
+        # nothing" (both leave text_source=='fitz'). Legacy sidecars lack the
+        # field → infer it from text_source so they self-heal on next OCR request.
+        attempted = cached.get("ocr_attempted")
+        if attempted is None:
+            attempted = cached.get("text_source") in ("ocr", "fitz+ocr")
+        if skip_ocr or attempted:
+            return cached
+        # caller wants OCR but the cache has none → fall through and re-extract.
 
     cache_dir = doc_textlayer_dir(workspace, project_id, filename)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +386,7 @@ async def extract_textlayer(
             "image_h": image_h,
             "scanned": True,
             "text_source": text_source,
+            "ocr_attempted": not skip_ocr,
             "spans": ocr_spans,
         }
         atomic_write_text(sidecar, json.dumps(payload, ensure_ascii=False))
@@ -478,6 +494,7 @@ async def extract_textlayer(
         "image_h": int(image_h),
         "scanned": scanned,
         "text_source": text_source,
+        "ocr_attempted": not skip_ocr,
         "spans": spans,
     }
     atomic_write_text(sidecar, json.dumps(payload, ensure_ascii=False))
