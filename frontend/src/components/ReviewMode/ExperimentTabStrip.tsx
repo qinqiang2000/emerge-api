@@ -196,7 +196,7 @@ export default function ExperimentTabStrip({
             (isOn ? ' on' : '') +
             (isPopover ? ' rev-tab-popover-item' : '')
           }
-          title="✏ editable ground truth — the reviewed copy"
+          title="✏ editable ground truth — your corrected copy"
         >
           <Pencil size={12} strokeWidth={1.7} aria-hidden="true" />
           <span>{t('review.tab.reviewed')}</span>

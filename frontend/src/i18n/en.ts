@@ -174,12 +174,12 @@ const en: Dict = {
   'review.locate.resolving': 'locating source…',
   'review.locate.notFound': "no source for this field in the document",
   'review.reviewing': 'reviewing',
-  'review.tab.reviewed': 'reviewed',
+  'review.tab.reviewed': 'ground truth',
   'review.view.form': 'form',
   'review.view.json': 'json',
   'review.save': 'save',
   'review.save.saving': 'saving…',
-  'review.save.notReviewedTabHint': 'save only persists on the ✏ reviewed tab — switch to it, or use "adopt as reviewed"',
+  'review.save.notReviewedTabHint': 'save only persists on the ✏ ground truth tab — switch to it, or use "adopt as ground truth"',
   'review.loading': 'loading…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────
@@ -192,7 +192,7 @@ const en: Dict = {
   'field.entity.count.many': '{n} entities',
   'field.entity.removeLabel': '− remove',
   'field.entity.addLabel': '+ entity',
-  'field.adopt.label': 'adopt as reviewed',
+  'field.adopt.label': 'adopt as ground truth',
   'field.row.add': 'add row',
   'field.row.add.label': '+ row',
   'field.row.empty': 'no items',
@@ -202,8 +202,8 @@ const en: Dict = {
   'field.row.delete.label': 'delete row',
   'field.array.rows': 'array · {n} rows',
   'field.object.keys': 'object · {n} keys',
-  'field.adopt.aria': 'adopt this prediction as reviewed',
-  'field.adopt.title': 'overwrite the reviewed copy with these values and switch to it',
+  'field.adopt.aria': 'adopt this prediction as ground truth',
+  'field.adopt.title': 'overwrite the ground truth with these values and switch to it',
   'field.confidence.high': 'confidence: high',
 
   // ── PdfViewer toolbar ──────────────────────────────────────────────────

@@ -698,8 +698,8 @@ html, body, #root {
 .rev-fld .cdot.low{background:var(--rose)}
 .rev-fld .name{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);font-weight:500;letter-spacing:.005em;min-width:0;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;flex:1 1 auto}
 .rev-fld .ty{font-family:var(--mono);font-size:9.5px;color:var(--ink-5);text-transform:lowercase;font-style:italic;flex-shrink:0}
-.rev-fld .ev{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);cursor:default;text-decoration:underline;text-decoration-color:var(--ink-5);text-underline-offset:2px;flex-shrink:0}
-.rev-fld .ev:hover{color:var(--ochre-2);text-decoration-color:var(--ochre)}
+.rev-fld .ev,.rev-arr-sub-key .ev{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);cursor:default;text-decoration:underline;text-decoration-color:var(--ink-5);text-underline-offset:2px;flex-shrink:0}
+.rev-fld .ev:hover,.rev-arr-sub-key .ev:hover{color:var(--ochre-2);text-decoration-color:var(--ochre)}
 .rev-fld .val{font-family:var(--serif);font-size:13.5px;line-height:1.4;color:var(--ink);padding:1px 4px;border:1px solid transparent;border-radius:3px;min-height:20px;outline:none;letter-spacing:.005em;word-break:break-word;min-width:0}
 .rev-fld .val:hover{border-color:var(--rule-soft);background:var(--paper)}
 .rev-fld .val:focus{border-color:var(--ochre);background:#fff;box-shadow:0 0 0 2px var(--ochre-soft)}
@@ -866,8 +866,8 @@ html, body, #root {
    read-only prediction cards (single line + leading pencil icon). */
 .rev-tab-annotation{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;font-size:11.5px;color:var(--ink-3);border:1px solid var(--rule);background:var(--paper);font-weight:500}
 .rev-tab-annotation:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule)}
-.rev-tab-annotation.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.rev-tab-annotation.on svg{color:var(--paper)}
+.rev-tab-annotation.on{background:var(--ochre-soft);color:var(--ink);border-color:var(--ochre)}
+.rev-tab-annotation.on svg{color:var(--ochre-2)}
 .rev-tab-annotation svg{flex-shrink:0;color:var(--ink-3)}
 .rev-tab-card{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;color:var(--ink-3);max-width:240px;text-align:left}
 .rev-tab-card:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule-soft)}
@@ -887,15 +887,15 @@ html, body, #root {
 .rev-tab-popover-item{background:transparent;border:1px solid transparent;border-radius:4px}
 .rev-tab-popover-item:hover{background:var(--paper-2)}
 .rev-tab-popover-item.on{background:var(--ochre-soft);border-color:var(--ochre)}
-/* M14 — baseline (active prod run) gets moss treatment so users see at a
-   glance which tab is the "this matches active" lane; pre_label keeps ochre
-   (already paired with PreLabelNotice) and adds a small "pre-label" badge.
-   Order matters: these come after `.rev-tab-card.on` so kind-specific .on
-   rules win by source order without bumping specificity. */
+/* M14 — kind identity lives in the icon chip (baseline = moss "this matches
+   active" lane; pre_label adds a small "pre-label" badge), NOT in the selected
+   fill: selection is one unified ochre treatment across every tab (see
+   `.rev-tab-card.on` + `.rev-tab-annotation.on`) so switching lanes never
+   changes the selected color. The moss icon persists in both rest and on.
+   Order matters: these come after `.rev-tab-card.on` so kind-specific rules
+   win by source order without bumping specificity. */
 .rev-tab-baseline .rev-tab-ico{background:var(--moss-soft);color:var(--moss-2);border-color:var(--moss-edge)}
-.rev-tab-baseline.on{background:var(--moss-soft);color:var(--ink);border-color:var(--moss)}
 .rev-tab-baseline.on .rev-tab-ico{background:var(--paper);color:var(--moss-2);border-color:var(--moss-edge)}
-.rev-tab-baseline.on .rev-tab-prompt{color:var(--moss-2)}
 .rev-tab-pre_label .rev-tab-badge{display:inline-block;margin-left:6px;font-size:9px;font-weight:600;padding:0 5px;border-radius:3px;background:var(--ochre-soft);color:var(--ochre-2);letter-spacing:.02em;border:1px solid var(--ochre-edge);line-height:1.4;vertical-align:middle}
 
 /* ── adopt-from-prediction affordances ──────────────────────────── */

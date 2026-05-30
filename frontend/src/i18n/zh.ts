@@ -174,12 +174,12 @@ const zh: Dict = {
   'review.locate.resolving': '正在定位来源…',
   'review.locate.notFound': '此字段在文档中无法定位来源',
   'review.reviewing': '正在 review',
-  'review.tab.reviewed': 'reviewed',
+  'review.tab.reviewed': '校订稿',
   'review.view.form': 'form',
   'review.view.json': 'json',
   'review.save': '保存',
   'review.save.saving': '保存中…',
-  'review.save.notReviewedTabHint': 'save 仅在 ✏ reviewed 标签页生效 — 切到那里，或使用 “adopt as reviewed”',
+  'review.save.notReviewedTabHint': 'save 仅在 ✏ 校订稿 标签页生效 — 切到那里，或使用“采用为校订稿”',
   'review.loading': '加载中…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────
@@ -192,7 +192,7 @@ const zh: Dict = {
   'field.entity.count.many': '{n} 个 entity',
   'field.entity.removeLabel': '− 删除',
   'field.entity.addLabel': '+ entity',
-  'field.adopt.label': '采用为 reviewed',
+  'field.adopt.label': '采用为校订稿',
   'field.row.add': '新增行',
   'field.row.add.label': '+ 行',
   'field.row.empty': '暂无项',
@@ -202,8 +202,8 @@ const zh: Dict = {
   'field.row.delete.label': '删除该行',
   'field.array.rows': 'array · {n} 行',
   'field.object.keys': 'object · {n} 个 key',
-  'field.adopt.aria': '采用此预测作为已 review',
-  'field.adopt.title': '用这些值覆盖 reviewed 副本并切换到它',
+  'field.adopt.aria': '采用此预测作为校订稿',
+  'field.adopt.title': '用这些值覆盖校订稿并切换到它',
   'field.confidence.high': '置信度：高',
 
   // ── PdfViewer toolbar ──────────────────────────────────────────────────
