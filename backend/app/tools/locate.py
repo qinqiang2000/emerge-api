@@ -572,7 +572,14 @@ async def _spans_for_page(
     if page in cache:
         return cache[page]
     try:
-        tl = await extract_textlayer(workspace, project_id, filename, page=page)
+        # skip_ocr: locate never triggers a Gemini OCR pass itself. OCR on the
+        # locate hot path put a multi-second network call (and, when the OCR
+        # client is misconfigured, a failing one) on every cold scanned page —
+        # the dominant "卡死" cost when scanning a doc whose sidecars aren't warm
+        # yet. The review viewer warms OCR sidecars separately (GET /textlayer);
+        # locate reads whatever is warm and stays pure-CPU otherwise, so it can
+        # run off the event loop (see the route's to_thread offload).
+        tl = await extract_textlayer(workspace, project_id, filename, page=page, skip_ocr=True)
         spans = tl.get("spans", []) or []
     except Exception:
         spans = []

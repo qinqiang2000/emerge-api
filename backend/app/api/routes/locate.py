@@ -14,6 +14,7 @@ tool is legitimate and needs no exempt entry. See INSIGHTS.md #7.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -69,15 +70,27 @@ async def post_locate(
             },
         )
 
-    try:
-        locations = await locate_fields(
-            workspace,
-            slug,
-            filename,
-            entities=body.entities,
-            evidence=body.evidence,
-            target_lang=lang,
+    # locate is CPU-bound (rapidfuzz / clustering / dateparser) and its textlayer
+    # reads are warm-sidecar file reads — i.e. it does NO real async I/O and would
+    # otherwise run start-to-finish WITHOUT yielding, blocking the event loop for
+    # its full duration. Under rapid doc-switching that froze the whole backend
+    # (review-form GETs queued behind it → "加载中…" / "正在定位来源…" stuck). Run it
+    # on a worker thread so the loop stays responsive; with skip_ocr the work is
+    # pure-CPU + file reads, so a fresh per-call loop in the thread is safe.
+    def _run() -> list[FieldLocation]:
+        return asyncio.run(
+            locate_fields(
+                workspace,
+                slug,
+                filename,
+                entities=body.entities,
+                evidence=body.evidence,
+                target_lang=lang,
+            )
         )
+
+    try:
+        locations = await asyncio.to_thread(_run)
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=404,

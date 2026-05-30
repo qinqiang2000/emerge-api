@@ -440,3 +440,23 @@ so derive it — `const locateHint = focusStatus === 'unlocated' ? ... : null` �
 no state, no timer. It then shows exactly while that field is the focused one and
 clears when focus moves, which is also the better contract (the pill is the
 answer to "where's the source?", so it lives as long as the question does).
+
+## /locate must run OFF the event loop — its async reads don't actually await
+
+Rapid doc-switching froze the whole backend: review-form GETs and the next
+doc's locate hung ("加载中…" / "正在定位来源…" stuck). Root cause: `locate_fields`
+is CPU-bound (rapidfuzz / clustering / dateparser) and its only "async" calls —
+`extract_textlayer` on a WARM sidecar — are `json.loads(read_text())` with no
+real `await` inside. So `await locate_fields(...)` runs start-to-finish without
+ever yielding, blocking the single event loop for its full duration; a backlog
+of switched-away locates blocked it for the sum. Fixes:
+- the route runs locate via `asyncio.to_thread(lambda: asyncio.run(locate_fields
+  (...)))` — a worker thread + fresh loop, so the main loop stays responsive.
+- `_spans_for_page` passes `skip_ocr=True`: locate never makes the per-cold-page
+  Gemini OCR call (multi-second, and a hard error when the OCR client is
+  misconfigured). It reads warm sidecars + fitz only, so the threaded work is
+  pure-CPU/file-IO (no provider client → safe across the fresh loop). The viewer
+  still warms OCR sidecars via GET /textlayer; locate self-heals as pages warm.
+  Caveat: on a genuinely-scanned doc whose pages the viewer hasn't shown yet,
+  locate fitz-only under-matches those pages until they're warmed — acceptable
+  for a best-effort render aid; electronic PDFs (fitz-readable) are unaffected.
