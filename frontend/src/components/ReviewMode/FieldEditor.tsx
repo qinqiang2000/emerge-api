@@ -78,6 +78,9 @@ export default function FieldEditor({
   const focusLocate = useLocate(s => s.focus)
   const requestScroll = useLocate(s => s.requestScroll)
   const loadFor = useLocate(s => s.loadFor)
+  const warmAndRelocate = useLocate(s => s.warmAndRelocate)
+  const locateLoading = useLocate(s => s.loading)
+  const tabLocations = useLocate(s => s.byKey[`${filename}::${activeTabKey}`])
 
   const isPending = useReview(s => s.isPending)
   // Debounce the locate trigger: a doc the user just paged past should NOT fire
@@ -101,6 +104,34 @@ export default function FieldEditor({
     }, 400)
     return () => window.clearTimeout(id)
   }, [projectId, filename, activeTabKey, entities, evidence, isPending, loadFor])
+
+  // On-demand single-page OCR: when the focused field settled to `none` but has
+  // a page hint, its value likely lives in that page's letterhead IMAGE (absent
+  // from a cold fitz-only text layer). Warm just that page's OCR + re-locate so
+  // the highlight appears — instead of stranding the user on a page-level button.
+  // Fires only after locate settles (not mid-load) and is idempotent per page.
+  const focusedPath = useLocate(s => s.focusedPath)
+  const focusedEntity = useLocate(s => s.focusedEntity)
+  useEffect(() => {
+    if (!projectId || !filename || !focusedPath || focusedEntity == null) return
+    if (locateLoading || !tabLocations) return  // wait for locate to settle
+    const hit = tabLocations.find(
+      (l) => l.entity_index === focusedEntity && l.path === focusedPath,
+    )
+    const resolved = !!hit && hit.status !== 'none' && hit.rects.length > 0 && hit.page != null
+    if (resolved) return
+    const evEntry = evidence?.[focusedEntity] ?? undefined
+    const evPage = evidencePageOf(evEntry?.[focusedPath] as EvidenceValue)
+    if (evPage == null) return
+    void warmAndRelocate(
+      projectId,
+      filename,
+      activeTabKey,
+      evPage,
+      entities as Record<string, unknown>[],
+      (evidence ?? null) as (Record<string, unknown> | null)[] | null,
+    )
+  }, [projectId, filename, activeTabKey, focusedPath, focusedEntity, tabLocations, locateLoading, evidence, entities, warmAndRelocate])
 
   // Field click → existing select + new source-grounding focus. If the field's
   // resolved source sits on another page, scroll there (off-page jump lives in
@@ -141,7 +172,14 @@ export default function FieldEditor({
           l.rects.length > 0 &&
           l.page != null,
       )
+      // Navigate to the located page; when the field hasn't resolved (still
+      // loading, or `none` because its value lives in a letterhead image absent
+      // from the cold text layer), fall back to the evidence page hint so the
+      // viewer still lands on the RIGHT page — never leaves the user stranded.
+      // The reactive effect below then warms that page's OCR + re-locates.
+      const evPage = evidencePageOf(evidenceForEntity?.[path] as EvidenceValue)
       if (hit?.page != null) onJumpToPage?.(hit.page)
+      else if (evPage != null) onJumpToPage?.(evPage)
     }
     // Bump the pan request so the focused field's source rect scrolls to center
     // once its page overlay is mounted (LocateHighlight claims it). No-op when

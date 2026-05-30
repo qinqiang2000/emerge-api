@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { fetchLocate, type FieldLocation } from '../lib/locate'
+import { fetchTextlayer } from '../lib/api'
 
 /**
  * Field source-grounding state.
@@ -21,6 +22,16 @@ function cacheKey(filename: string, tabKey: string): string {
 // field-click force-load) would both pass the `key in byKey` guard and fire a
 // duplicate ground+locate (and a duplicate ground is a duplicate LLM call).
 const _inflight = new Set<string>()
+
+// (filename, tabKey, page) we've already warmed-OCR + re-located for. locate
+// reads warm textlayer sidecars but never warms them itself (skip_ocr=True keeps
+// it fast + freeze-free + provider-free, see INSIGHTS "/locate must run OFF the
+// event loop"). So when a field's value lives only in a letterhead IMAGE (absent
+// from the page's native text layer), its hint page resolves to `none` until that
+// page's OCR sidecar is warm. This set bounds the on-demand warm to once per page
+// per tab — a page whose image genuinely has no recoverable text stays none
+// instead of looping warm→relocate→none forever.
+const _ocrRelocated = new Set<string>()
 
 interface LocateState {
   byKey: Record<string, FieldLocation[]>
@@ -54,6 +65,21 @@ interface LocateState {
      *  ground LLM pass on this render path, so it is ignored; kept so callers
      *  needn't change and to document the removed coupling. */
     activeBacking?: '_draft' | '_pending',
+  ) => Promise<void>
+  /**
+   * On-demand single-page OCR + re-locate. Call when a focused field resolved to
+   * `none` but has a page hint: the value may live in that page's letterhead
+   * image, invisible to locate's fitz-only read of a cold sidecar. We warm that
+   * ONE page's OCR (the existing /textlayer route does OCR), then re-run locate
+   * for the tab so it reads the now-warm sidecar. Idempotent per (tab, page).
+   */
+  warmAndRelocate: (
+    projectId: string,
+    filename: string,
+    tabKey: string,
+    page: number,
+    entities: Record<string, unknown>[],
+    evidence: (Record<string, unknown> | null)[] | null,
   ) => Promise<void>
   reset: () => void
 }
@@ -103,6 +129,29 @@ export const useLocate = create<LocateState>((set, get) => ({
       set((s) => ({ byKey: { ...s.byKey, [key]: locations }, loading: false }))
     } finally {
       _inflight.delete(key)
+    }
+  },
+
+  warmAndRelocate: async (projectId, filename, tabKey, page, entities, evidence) => {
+    const guard = `${filename}::${tabKey}::${page}`
+    if (_ocrRelocated.has(guard) || !entities.length) return
+    _ocrRelocated.add(guard)
+    set({ loading: true })
+    try {
+      // Warm the hint page's OCR sidecar (the /textlayer route runs OCR; this is
+      // the ONE network call, bounded to the page the user actually inspected).
+      await fetchTextlayer(projectId, filename, page)
+      // Re-run locate: it now reads the warm sidecar (skip_ocr=True still — the
+      // warming happened in /textlayer, not in locate). Overwrite the tab cache.
+      const locations = await fetchLocate(projectId, filename, entities, evidence)
+      set((s) => ({ byKey: { ...s.byKey, [cacheKey(filename, tabKey)]: locations }, loading: false }))
+      // Re-pan to the freshly-resolved rect: the click-time scroll request was
+      // consumed while the field was still `none`, so bump it again so the now-
+      // located rect scrolls to centre.
+      const fp = get().focusedPath
+      if (fp) set((s) => ({ scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, path: fp } }))
+    } catch {
+      set({ loading: false })
     }
   },
 
