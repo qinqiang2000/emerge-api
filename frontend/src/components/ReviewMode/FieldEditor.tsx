@@ -80,18 +80,26 @@ export default function FieldEditor({
   const loadFor = useLocate(s => s.loadFor)
 
   const isPending = useReview(s => s.isPending)
+  // Debounce the locate trigger: a doc the user just paged past should NOT fire
+  // a (CPU-heavy) locate. Without this, fast doc-switching dispatched one locate
+  // per doc; the backlog saturated the backend's worker pool / GIL and froze the
+  // review-form loads ("加载中…" stuck). The cleanup cancels the pending fire when
+  // the doc changes, so only a doc the user settles on (>~400ms) is resolved.
   useEffect(() => {
     if (!projectId || !filename || !entities.length) return
-    void loadFor(
-      projectId,
-      filename,
-      activeTabKey,
-      entities as Record<string, unknown>[],
-      (evidence ?? null) as (Record<string, unknown> | null)[] | null,
-      // the editable `active` tab is backed by pending when verifying a
-      // pre-label, else by the draft — the grounding cache target.
-      isPending ? '_pending' : '_draft',
-    )
+    const id = window.setTimeout(() => {
+      void loadFor(
+        projectId,
+        filename,
+        activeTabKey,
+        entities as Record<string, unknown>[],
+        (evidence ?? null) as (Record<string, unknown> | null)[] | null,
+        // the editable `active` tab is backed by pending when verifying a
+        // pre-label, else by the draft — the grounding cache target.
+        isPending ? '_pending' : '_draft',
+      )
+    }, 400)
+    return () => window.clearTimeout(id)
   }, [projectId, filename, activeTabKey, entities, evidence, isPending, loadFor])
 
   // Field click → existing select + new source-grounding focus. If the field's
@@ -106,6 +114,21 @@ export default function FieldEditor({
     focusLocate(path, safeIdx)
     if (wasFocused) return
     if (projectId && filename) {
+      // Clicking a field is itself "settling" on this doc — if the debounced
+      // pre-load hasn't fired yet, kick locate now (idempotent: loadFor no-ops
+      // when the key is already cached) so a within-window click still resolves
+      // instead of falsely showing the no-source hint. The pan then lands
+      // reactively once the rect mounts (requestScroll seq).
+      if (!(`${filename}::${activeTabKey}` in ls.byKey)) {
+        void loadFor(
+          projectId,
+          filename,
+          activeTabKey,
+          entities as Record<string, unknown>[],
+          (evidence ?? null) as (Record<string, unknown> | null)[] | null,
+          isPending ? '_pending' : '_draft',
+        )
+      }
       const locations = ls.byKey[`${filename}::${activeTabKey}`] ?? []
       // Scope to the displayed entity — the same leaf path repeats once per
       // entity (each on its own page), so an unscoped find always lands on
@@ -124,7 +147,7 @@ export default function FieldEditor({
     // once its page overlay is mounted (LocateHighlight claims it). No-op when
     // the field has no located source — the doc-pane hint covers that case.
     requestScroll(path)
-  }, [setActiveField, focusLocate, requestScroll, projectId, filename, activeTabKey, onJumpToPage, safeIdx])
+  }, [setActiveField, focusLocate, requestScroll, projectId, filename, activeTabKey, onJumpToPage, safeIdx, loadFor, entities, evidence, isPending])
 
   // T11.1: Synthetic single-section — one section labelled "fields" containing all SchemaFields
   const sections = useMemo(() => {

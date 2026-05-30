@@ -31,6 +31,12 @@ function cacheKey(filename: string, tabKey: string): string {
   return `${filename}::${tabKey}`
 }
 
+// Keys with a loadFor pass in flight. `byKey` only records a *completed* attempt,
+// so without this two near-simultaneous triggers (the debounced pre-load + a
+// field-click force-load) would both pass the `key in byKey` guard and fire a
+// duplicate ground+locate (and a duplicate ground is a duplicate LLM call).
+const _inflight = new Set<string>()
+
 interface LocateState {
   byKey: Record<string, FieldLocation[]>
   focusedPath: string | null
@@ -89,26 +95,32 @@ export const useLocate = create<LocateState>((set, get) => ({
   loadFor: async (projectId, filename, tabKey, entities, evidence, activeBacking = '_draft') => {
     const key = cacheKey(filename, tabKey)
     // `in` check (not truthiness): an empty-array cache still counts as attempted.
-    if (key in get().byKey) return
+    // `_inflight` dedupes a concurrent pass so we never double-fire ground+locate.
+    if (key in get().byKey || _inflight.has(key)) return
     if (!entities.length) {
       // nothing to resolve; mark attempted so we don't re-fire on every render
       set((s) => ({ byKey: { ...s.byKey, [key]: [] } }))
       return
     }
+    _inflight.add(key)
     set({ loading: true })
-    // High-precision locate needs the verbatim source quote as its anchor. When
-    // the displayed tab carries no evidence, run the grounding pass first (one
-    // LLM call, cached server-side) on the displayed entities and locate with it.
-    let effective = evidence
-    if (!hasEvidenceSignal(evidence)) {
-      const tab = groundTabFor(tabKey, activeBacking)
-      if (tab) {
-        const grounded = await fetchGround(projectId, filename, tab, entities)
-        if (grounded) effective = grounded
+    try {
+      // High-precision locate needs the verbatim source quote as its anchor. When
+      // the displayed tab carries no evidence, run the grounding pass first (one
+      // LLM call, cached server-side) on the displayed entities and locate with it.
+      let effective = evidence
+      if (!hasEvidenceSignal(evidence)) {
+        const tab = groundTabFor(tabKey, activeBacking)
+        if (tab) {
+          const grounded = await fetchGround(projectId, filename, tab, entities)
+          if (grounded) effective = grounded
+        }
       }
+      const locations = await fetchLocate(projectId, filename, entities, effective)
+      set((s) => ({ byKey: { ...s.byKey, [key]: locations }, loading: false }))
+    } finally {
+      _inflight.delete(key)
     }
-    const locations = await fetchLocate(projectId, filename, entities, effective)
-    set((s) => ({ byKey: { ...s.byKey, [key]: locations }, loading: false }))
   },
 
   reset: () => {
