@@ -460,3 +460,16 @@ of switched-away locates blocked it for the sum. Fixes:
   Caveat: on a genuinely-scanned doc whose pages the viewer hasn't shown yet,
   locate fitz-only under-matches those pages until they're warmed — acceptable
   for a best-effort render aid; electronic PDFs (fitz-readable) are unaffected.
+
+## the locate render path is LLM-free — ground belongs in the extract pipeline
+
+`loadFor` used to run a ground LLM pass (fetchGround) before locate whenever the
+displayed blob carried no evidence, to mint verbatim source quotes for precise
+highlights. But this is the click-to-pan render path: a render aid must never
+block on an LLM. When the provider was slow/unreachable the ground call retried
+the whole backoff window (~10s, then 500), stalling "正在定位来源…" — looking
+exactly like a freeze. locate now calls fetchLocate directly with whatever
+evidence already exists; no-evidence docs fall back to the (LLM-free) value
+matcher, which is already capable. Producing source quotes is the extract/label
+pipeline's job (warmed into the blob at creation), not a lazy review-time call.
+`loadFor`'s `activeBacking` arg (the old ground cache target) is now ignored.

@@ -1,20 +1,5 @@
 import { create } from 'zustand'
-import { fetchGround, fetchLocate, hasEvidenceSignal, type FieldLocation } from '../lib/locate'
-
-/**
- * Which prediction blob the grounding result caches into. `_draft` / `_pending`
- * map to themselves; the editable `active` tab is backed by pending when a
- * pre-label is awaiting verification, else by the draft (caller passes the
- * resolved hint). Experiment tabs have their own extracts dir (not groundable
- * here) → null, keep page-level fallback. The entities we actually ground are
- * always the displayed ones, so this is only a cache target, not the source.
- */
-function groundTabFor(tabKey: string, activeBacking: '_draft' | '_pending' = '_draft'): '_draft' | '_pending' | null {
-  if (tabKey === '_pending') return '_pending'
-  if (tabKey === '_draft') return '_draft'
-  if (tabKey === 'active') return activeBacking
-  return null
-}
+import { fetchLocate, type FieldLocation } from '../lib/locate'
 
 /**
  * Field source-grounding state.
@@ -65,8 +50,9 @@ interface LocateState {
     tabKey: string,
     entities: Record<string, unknown>[],
     evidence: (Record<string, unknown> | null)[] | null,
-    /** For the `active` tab, which blob backs it: '_pending' when verifying a
-     *  pre-label, else '_draft'. Used only as the grounding cache target. */
+    /** Reserved (formerly the ground-pass cache target). locate no longer runs a
+     *  ground LLM pass on this render path, so it is ignored; kept so callers
+     *  needn't change and to document the removed coupling. */
     activeBacking?: '_draft' | '_pending',
   ) => Promise<void>
   reset: () => void
@@ -92,7 +78,7 @@ export const useLocate = create<LocateState>((set, get) => ({
     set((s) => ({ scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, path } }))
   },
 
-  loadFor: async (projectId, filename, tabKey, entities, evidence, activeBacking = '_draft') => {
+  loadFor: async (projectId, filename, tabKey, entities, evidence, _activeBacking = '_draft') => {
     const key = cacheKey(filename, tabKey)
     // `in` check (not truthiness): an empty-array cache still counts as attempted.
     // `_inflight` dedupes a concurrent pass so we never double-fire ground+locate.
@@ -105,18 +91,15 @@ export const useLocate = create<LocateState>((set, get) => ({
     _inflight.add(key)
     set({ loading: true })
     try {
-      // High-precision locate needs the verbatim source quote as its anchor. When
-      // the displayed tab carries no evidence, run the grounding pass first (one
-      // LLM call, cached server-side) on the displayed entities and locate with it.
-      let effective = evidence
-      if (!hasEvidenceSignal(evidence)) {
-        const tab = groundTabFor(tabKey, activeBacking)
-        if (tab) {
-          const grounded = await fetchGround(projectId, filename, tab, entities)
-          if (grounded) effective = grounded
-        }
-      }
-      const locations = await fetchLocate(projectId, filename, entities, effective)
+      // locate uses the evidence already on the displayed blob (page hints +
+      // verbatim source quotes that extraction emitted). It deliberately does NOT
+      // run a ground LLM pass here: this is the click-to-pan render path, and a
+      // render aid must never block on an LLM (a slow/unreachable provider would
+      // stall "正在定位来源…" for the whole retry window). Docs whose extraction
+      // emitted no evidence fall back to the LLM-free value matcher, which is
+      // already quite capable; producing source quotes belongs in the
+      // extract/label pipeline (warmed into the blob), not lazily on review.
+      const locations = await fetchLocate(projectId, filename, entities, evidence)
       set((s) => ({ byKey: { ...s.byKey, [key]: locations }, loading: false }))
     } finally {
       _inflight.delete(key)

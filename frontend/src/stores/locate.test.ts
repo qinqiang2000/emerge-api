@@ -53,20 +53,21 @@ describe('useLocate', () => {
     expect(useLocate.getState().focusedEntity).toBeNull()
   })
 
-  it('empty evidence triggers a ground pass before locate, then caches', async () => {
+  it('empty evidence locates directly — no ground LLM pass on the render path', async () => {
     const fetchMock = routedFetch()
     vi.stubGlobal('fetch', fetchMock)
 
     await useLocate.getState().loadFor('s', 'f.pdf', 'active', [{ invoice_number: 'A' }], null)
     expect(useLocate.getState().byKey['f.pdf::active']).toEqual(sample)
     const urls = calls(fetchMock)
-    // ground fires first, then locate
-    expect(urls[0].url).toContain('/ground')
-    expect(urls[1].url).toContain('/locate')
+    // straight to locate; locate never blocks on a ground LLM call
+    expect(urls.length).toBe(1)
+    expect(urls.some((u) => u.url.includes('/ground'))).toBe(false)
+    expect(urls[0].url).toContain('/locate')
 
-    // Second call with the same key must not re-fetch (no ground, no locate).
+    // Second call with the same key must not re-fetch.
     await useLocate.getState().loadFor('s', 'f.pdf', 'active', [{ invoice_number: 'A' }], null)
-    expect(calls(fetchMock).length).toBe(2)
+    expect(calls(fetchMock).length).toBe(1)
   })
 
   it('non-empty evidence skips the ground pass and locates directly', async () => {
