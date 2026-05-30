@@ -121,9 +121,14 @@ async def test_pdf_render_page_caches_under_meta_render(workspace: Path) -> None
     out = await pdf_render_page(workspace, pid, meta["filename"], page=1)
     assert out.exists()
     assert out.suffix == ".png"
-    # Cache lives under docs/.meta/_render/<filename>/p1.png — not the old
-    # `_render/{doc_id}_p1.png` flat scheme.
-    assert out.parent == workspace / pid / "docs" / ".meta" / "_render" / "sample.pdf"
+    # Cache is content-addressed: `.cache/_render/{sha}/p1.png` at the
+    # workspace level — shared by the same bytes across projects, not nested
+    # under the project's docs/.meta.
+    import json
+    sha = json.loads(
+        (workspace / pid / "docs" / ".meta" / "sample.pdf.json").read_text()
+    )["sha256"]
+    assert out.parent == workspace / ".cache" / "_render" / sha
     assert out.name == "p1.png"
     # Magic-byte sanity check.
     assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

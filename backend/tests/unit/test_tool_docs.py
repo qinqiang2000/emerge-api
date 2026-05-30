@@ -119,7 +119,8 @@ async def test_read_doc_image_pdf_uses_render_cache(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
     out = await read_doc_image(workspace, pid, meta["filename"], page=1)
-    cached = workspace / pid / "docs" / ".meta" / "_render" / "invoice.pdf" / "p1.png"
+    sha = meta["sha256"]
+    cached = workspace / ".cache" / "_render" / sha / "p1.png"
     assert cached.exists(), "pdf_render_page should have written the cache"
     # The bytes we returned are exactly the cached PNG (base64-decoded).
     assert base64.b64decode(out["data"]) == cached.read_bytes()

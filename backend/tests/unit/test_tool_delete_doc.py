@@ -35,15 +35,19 @@ async def test_delete_doc_removes_file_and_sidecar(workspace: Path) -> None:
     assert listed == []
 
 
-async def test_delete_doc_wipes_render_cache(workspace: Path) -> None:
+async def test_delete_doc_preserves_content_cache(workspace: Path) -> None:
+    # The render/textlayer/translate caches are content-addressed at the
+    # workspace level (`.cache/_render/{sha}/`) and may be shared by the same
+    # bytes in another project — so a per-project delete must NOT wipe them.
     pid = (await create_project(workspace, name="x"))["slug"]
     await upload_doc(workspace, pid, SAMPLE_PDF, "a.pdf")
     render_d = doc_render_dir(workspace, pid, "a.pdf")
     render_d.mkdir(parents=True)
-    (render_d / "p1.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    seeded = render_d / "p1.png"
+    seeded.write_bytes(b"\x89PNG\r\n\x1a\n")
     result = await delete_doc(workspace, pid, "a.pdf")
-    assert "render_cache" in result["artifacts"]
-    assert not render_d.exists()
+    assert "render_cache" not in result["artifacts"]
+    assert seeded.exists()
 
 
 async def test_delete_doc_wipes_predictions_and_reviewed(workspace: Path) -> None:

@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import json
 import re
 
 
@@ -42,20 +44,58 @@ def doc_meta_path(workspace: Path, slug: str, filename: str) -> Path:
     return docs_meta_dir(workspace, slug) / f"{filename}.json"
 
 
+def content_cache_root(workspace: Path) -> Path:
+    """Workspace-level, content-addressed cache root: `{workspace}/.cache/`.
+
+    Holds the three *content-derived* sidecar families — `_render` (PNG
+    raster), `_textlayer` (fitz/OCR spans), `_translate` (per-page
+    translations). Each is a pure function of the doc bytes (+ page, and for
+    translate +lang/mode/model) and is **project-agnostic**: the same PDF
+    copied / forked / re-uploaded into any project shares the same entries,
+    so the work is paid once. Dotfile dir → skipped by every workspace
+    scanner (`pid_index._scan`, `orphans.cleanup`, `fork`)."""
+    return workspace / ".cache"
+
+
+def doc_content_sha(workspace: Path, slug: str, filename: str) -> str:
+    """Resolve the content-cache key for a doc: its sha256.
+
+    Reads the sha from the doc's meta sidecar (written at upload/ingest).
+    Falls back to hashing the on-disk bytes only if the sidecar is missing
+    the field (predates `sha256`) — keeps the cache correct for old docs
+    without a migration. Raises if the doc itself is gone."""
+    meta_p = doc_meta_path(workspace, slug, filename)
+    try:
+        sha = json.loads(meta_p.read_text()).get("sha256")
+        if sha:
+            return str(sha)
+    except (OSError, json.JSONDecodeError):
+        pass
+    return hashlib.sha256(
+        doc_path(workspace, slug, filename).read_bytes()
+    ).hexdigest()
+
+
 def doc_render_dir(workspace: Path, slug: str, filename: str) -> Path:
-    """Per-doc PDF page render cache root: `docs/.meta/_render/{filename}/`."""
-    return docs_meta_dir(workspace, slug) / "_render" / filename
+    """Content-addressed PDF page render cache root: `.cache/_render/{sha}/`.
+
+    Keyed by doc content (sha256), not by project/filename — see
+    `content_cache_root`. Same bytes across projects → one shared render."""
+    sha = doc_content_sha(workspace, slug, filename)
+    return content_cache_root(workspace) / "_render" / sha
 
 
 def doc_textlayer_dir(workspace: Path, slug: str, filename: str) -> Path:
-    """Per-doc PDF text-layer sidecar root: `docs/.meta/_textlayer/{filename}/`.
+    """Content-addressed text-layer sidecar root: `.cache/_textlayer/{sha}/`.
 
     Sibling to `doc_render_dir`. Each PDF page lands a `p{n}.json` sidecar
     holding fitz spans + bbox + scanned flag — see
     `app/tools/textlayer.py:extract_textlayer`. Lets review-mode show the
     raster bitmap (for evidence) while still letting the user select / copy
-    the underlying text (PDF.js-style transparent overlay)."""
-    return docs_meta_dir(workspace, slug) / "_textlayer" / filename
+    the underlying text (PDF.js-style transparent overlay). Keyed by content
+    (sha256) so a doc copied between projects reuses the OCR/span work."""
+    sha = doc_content_sha(workspace, slug, filename)
+    return content_cache_root(workspace) / "_textlayer" / sha
 
 
 def doc_textlayer_path(
@@ -78,15 +118,18 @@ def _safe_model_segment(model_id: str) -> str:
 
 
 def doc_translate_dir(workspace: Path, slug: str, filename: str) -> Path:
-    """Per-doc translation sidecar root: `docs/.meta/_translate/{filename}/`.
+    """Content-addressed translation sidecar root: `.cache/_translate/{sha}/`.
 
     Sibling to `doc_textlayer_dir` and `doc_render_dir`. Each translated page
     lands a per-(page, target_lang, mode, model_id) JSON sidecar — see
     `app/tools/translate.py:translate_page`. Cache keys include `mode` (the
     branch the translator took — text-only vs vision) and `model_safe` (the
     sanitised model_id) so switching model or branch never returns a stale
-    payload."""
-    return docs_meta_dir(workspace, slug) / "_translate" / filename
+    payload. Keyed by content (sha256), so the same PDF in any project shares
+    one translation — translation is a pure function of bytes + lang + model,
+    independent of the project's schema."""
+    sha = doc_content_sha(workspace, slug, filename)
+    return content_cache_root(workspace) / "_translate" / sha
 
 
 def doc_translate_path(

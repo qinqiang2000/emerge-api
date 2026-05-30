@@ -263,11 +263,13 @@ async def delete_doc(
             side.unlink()
             removed.append("meta")
 
-        render_d = doc_render_dir(workspace, project_id, filename)
-        if render_d.exists():
-            _rm_tree(render_d)
-            removed.append("render_cache")
-
+        # NOTE: the render / textlayer / translate caches are deliberately
+        # NOT wiped here. They moved to a workspace-level, content-addressed
+        # store (`.cache/_render|_textlayer|_translate/{sha}/`) that may be
+        # shared by the same bytes in other projects — and they're pure
+        # functions of the doc, cheap to regenerate. Wiping on a per-project
+        # delete would corrupt a sibling project's cache. Orphan entries are
+        # harmless and can be GC'd workspace-wide later.
         draft = prediction_draft_path(workspace, project_id, filename)
         if draft.exists():
             draft.unlink()
@@ -296,17 +298,6 @@ async def delete_doc(
     return {"removed": True, "filename": filename, "artifacts": removed}
 
 
-def _rm_tree(root: Path) -> None:
-    """Best-effort recursive directory removal. Used by `delete_doc` for the
-    per-doc render cache (`docs/.meta/_render/<filename>/`)."""
-    for child in root.iterdir():
-        if child.is_dir():
-            _rm_tree(child)
-        else:
-            child.unlink()
-    root.rmdir()
-
-
 async def pdf_render_page(
     workspace: Path,
     project_id: str,
@@ -315,11 +306,11 @@ async def pdf_render_page(
     page: int,
     dpi: int = 150,
 ) -> Path:
-    """Render a PDF page as PNG, cached at `docs/.meta/_render/{filename}/p{n}.png`.
+    """Render a PDF page as PNG, cached at `.cache/_render/{sha}/p{n}.png`.
 
-    Re-renders only when the cache miss; the file path is keyed by the
-    real filename so callers can hit this for the same doc across UI
-    sessions without re-rendering."""
+    Re-renders only on a cache miss; the path is content-addressed (keyed by
+    the doc's sha256, not project/filename) so the same bytes across UI
+    sessions — or copied into another project — hit one shared render."""
     import fitz  # PyMuPDF
 
     meta = json.loads(doc_meta_path(workspace, project_id, filename).read_text())
