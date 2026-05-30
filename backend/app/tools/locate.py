@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -252,14 +253,47 @@ def _looks_like_date(value_n: str) -> bool:
     return bool(_ISO_DATE.search(value_n) or _MONTH_WORD.search(value_n))
 
 
-def _date_equivalent(value_n: str, span_n: str) -> bool:
-    """Heuristic date equality. Spans are line-level ("Date: March 20, 2024"),
-    so also try the substring after the last colon."""
+# Cheap pre-filter for the dateparser call below. A span is worth a (slow,
+# ~10ms) dateparser invocation only if it carries a date-SHAPED token; the 99%
+# of spans that are amounts / codes / names get skipped — dateparser would chew
+# on them and reject anyway. Deliberately inclusive: separator dates
+# (2025-09-23, 23/09/2025, 07-02-25), CJK dates (2025年9月23日), month-word
+# dates, and bare yyyymmdd / ddmmyy runs — so the gate never drops a span the
+# unfiltered path used to match.
+_DATE_GATE = re.compile(
+    r"\d{1,4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,4}"
+    r"|\b\d{6,8}\b"
+    r"|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec",
+    re.IGNORECASE,
+)
+
+
+def _span_maybe_date(s: str) -> bool:
+    return bool(_DATE_GATE.search(s))
+
+
+@lru_cache(maxsize=8192)
+def _parse_date(s: str):
+    """``dateparser.parse`` (YMD order), memoised.
+
+    locate scans one field's value against hundreds of spans, and the same value
+    + the same spans recur across every entity of a multi-entity doc. dateparser
+    is ~10ms/call, so without memoisation a multi-page / multi-entity doc spends
+    *minutes* here (cProfile: 84% of locate time). Date parsing is pure, so a
+    process-lifetime cache is safe."""
     try:
         import dateparser
     except Exception:  # pragma: no cover - dateparser is a hard dep
-        return False
-    vd = dateparser.parse(value_n, settings={"DATE_ORDER": "YMD"})
+        return None
+    return dateparser.parse(s, settings={"DATE_ORDER": "YMD"})
+
+
+def _date_equivalent(value_n: str, span_n: str) -> bool:
+    """Heuristic date equality. Spans are line-level ("Date: March 20, 2024"),
+    so also try the substring after the last colon. The span is gated by the
+    cheap :data:`_DATE_GATE` regex before the (slow) parse — only date-shaped
+    spans reach dateparser."""
+    vd = _parse_date(value_n)
     if vd is None:
         return False
     candidates = [span_n]
@@ -268,7 +302,9 @@ def _date_equivalent(value_n: str, span_n: str) -> bool:
         if rhs and rhs != span_n:
             candidates.append(rhs)
     for cand in candidates:
-        pd_ = dateparser.parse(cand, settings={"DATE_ORDER": "YMD"})
+        if not _span_maybe_date(cand):
+            continue
+        pd_ = _parse_date(cand)
         if pd_ is not None and pd_.date() == vd.date():
             return True
     return False
@@ -909,14 +945,17 @@ async def locate_fields(
     total_pages = await _page_count(workspace, project_id, filename)
     results: list[FieldLocation] = []
 
+    # Span cache is document-global — page spans don't depend on the entity, so
+    # share it across ALL entities. Per-entity it would re-read (json.loads) each
+    # page's textlayer sidecar once per entity; a 14-entity × 28-page doc thus
+    # re-parsed sidecars ~hundreds of times for no reason.
+    span_cache: dict[int, list[dict]] = {}
     for idx, entity in enumerate(entities):
         ev_entry = (
             evidence[idx]
             if evidence is not None and idx < len(evidence)
             else None
         )
-        # per-document span cache shared across this entity's fields
-        span_cache: dict[int, list[dict]] = {}
         field_meta: list[dict] = []
         for path, value, leaf in _flatten_entity(entity, schema):
             # Evidence is keyed by the collapsed `items[].child` form (ground.py
