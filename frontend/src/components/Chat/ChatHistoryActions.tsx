@@ -139,7 +139,7 @@ export default function ChatHistoryActions({
     window.addEventListener('keydown', onKey)
     return () => {
       clearTimeout(id)
-      window.removeEventListener('mousedown', onKey)
+      window.removeEventListener('mousedown', onClick)
       window.removeEventListener('keydown', onKey)
     }
   }, [open])

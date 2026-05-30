@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { evalMatrixCsvUrl, getLatestEval } from '../../lib/api'
-import { navigateToReview, pathForEvalCompare, pathForEvalMatrix } from '../../lib/slugUrl'
+import { navigateToReview, pathForEvalCompare, pathForEvalMatrix, pathForSlug } from '../../lib/slugUrl'
 import { useEval } from '../../stores/eval'
 import { useEvalSurface } from '../../stores/evalSurface'
 import { useReview } from '../../stores/review'

@@ -13,7 +13,6 @@ import {
   type UnboundChatSummary,
 } from '../lib/api'
 import { newChatId } from '../lib/ids'
-import { pathForChatId, pathForSlug } from '../lib/slugUrl'
 import { dispatchUiAction } from '../lib/surfaceRouter'
 import { attachStream, cancelTurn, fetchTurnState, startTurn, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'

@@ -17,6 +17,18 @@ import Composer from './Composer'
 // reader hands out batches and returns [] when exhausted, so the recursive
 // walker must keep calling until empty). The composer also reads `entry.name`
 // for path stitching. We model both shapes minimally.
+// Explicit mock entry types — `dirEntry` is recursive (a dir holds dirs), so
+// an explicit return annotation is required to break the self-referential
+// `ReturnType<typeof dirEntry>` inference cycle.
+type FileEntryMock = ReturnType<typeof fileEntry>
+type DirEntryMock = {
+  isFile: false
+  isDirectory: true
+  name: string
+  createReader: () => { readEntries: (cb: (entries: FsEntryMock[]) => void) => void }
+}
+type FsEntryMock = FileEntryMock | DirEntryMock
+
 function fileEntry(name: string, content = '') {
   const file = new File([content], name, { type: 'text/plain' })
   return {
@@ -27,7 +39,7 @@ function fileEntry(name: string, content = '') {
   }
 }
 
-function dirEntry(name: string, children: Array<ReturnType<typeof fileEntry> | ReturnType<typeof dirEntry>>) {
+function dirEntry(name: string, children: FsEntryMock[]): DirEntryMock {
   // readEntries hands out children in one batch then [] — matches the
   // browser's contract closely enough for the walker (which keeps calling
   // until an empty batch). Multi-batch behavior is exercised via a separate
@@ -47,7 +59,7 @@ function dirEntry(name: string, children: Array<ReturnType<typeof fileEntry> | R
   }
 }
 
-function makeDataTransfer(items: Array<ReturnType<typeof fileEntry> | ReturnType<typeof dirEntry> | null>) {
+function makeDataTransfer(items: Array<FsEntryMock | null>) {
   // Mirror enough of DataTransfer for the drop handler — `files` is empty
   // (the entries API is what carries the structure) and `items[i]` exposes
   // `webkitGetAsEntry()` returning the canned entry. `kind: 'file'` matches
