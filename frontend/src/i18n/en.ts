@@ -92,6 +92,8 @@ const en: Dict = {
   'chathistory.yesterday': 'Yesterday',
   'convheader.newChat': 'New chat',
   'convheader.openHistory': 'Open chat history',
+  // ── Chat column project anchor (top-left) ──────────────────────────────
+  'convproj.none': 'No project selected',
 
   // ── Chat message actions ───────────────────────────────────────────────
   'msg.actions.aria': 'Message actions',

@@ -343,6 +343,18 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
   return (
     <>
       {!compact && (
+        <div className="conv-proj" aria-live="polite">
+          {selectedSlug ? (
+            <>
+              <span className="dot" aria-hidden="true" />
+              <span className="name" title={projectName}>{projectName}</span>
+            </>
+          ) : (
+            <span className="none">{t('convproj.none')}</span>
+          )}
+        </div>
+      )}
+      {!compact && (
         <ConvHeader
           activeProject={selectedSlug ? projectName : ''}
           scope={selectedSlug ? 'project' : 'unbound'}

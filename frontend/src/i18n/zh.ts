@@ -92,6 +92,8 @@ const zh: Dict = {
   'chathistory.yesterday': '昨天',
   'convheader.newChat': '新对话',
   'convheader.openHistory': '打开会话历史',
+  // ── Chat column project anchor (top-left) ──────────────────────────────
+  'convproj.none': '未选择项目',
 
   // ── Chat message actions ───────────────────────────────────────────────
   'msg.actions.aria': '消息操作',
