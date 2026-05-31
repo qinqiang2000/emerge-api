@@ -17,6 +17,7 @@ from app.provider.base import (
 )
 from app.schemas.schema_field import FieldType, SchemaField
 from app.tools.docs import list_docs, read_doc
+from app.workspace.jsonschema_transcode import transcode_to_schema_fields
 from app.workspace.paths import chat_attachment_path, doc_meta_path
 
 
@@ -243,6 +244,21 @@ async def derive_schema(
 _IMPORT_SCHEMA_EXTS = {"yml", "yaml", "json"}
 
 
+def _format_field_error(idx: int, item: Any, exc: ValidationError) -> str:
+    """Render one field's pydantic errors as a compact, agent-fixable line:
+    `field[3] 'invoiceDate': items.description: Field required; ...`. Naming the
+    field + every sub-error lets the agent fix them all before re-importing,
+    instead of one error per round-trip."""
+    label = item.get("name") if isinstance(item, dict) else None
+    head = f"field[{idx}]" + (f" {label!r}" if label else "")
+    parts = []
+    for e in exc.errors():
+        loc = ".".join(str(p) for p in e.get("loc", ()) if p != "__root__")
+        msg = e.get("msg", "invalid")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return f"{head}: " + "; ".join(parts)
+
+
 async def import_schema_from_yaml(
     workspace: Path,
     project_id: str,
@@ -312,21 +328,41 @@ async def import_schema_from_yaml(
             f"yaml parse failed: {exc}",
         ) from exc
 
+    # A non-list root is usually a foreign prompt bundle (Gemini/OpenAI
+    # JSON-Schema). Try to transcode it into emerge's field-list shape rather
+    # than bouncing the agent into a hand-conversion loop. On success we still
+    # run the transcoded dicts through the same validation path below.
+    converted_note: str | None = None
     if not isinstance(parsed, list):
-        raise SchemaImportError(
-            "invalid_schema_yaml",
-            f"schema root must be a list of field dicts; got {type(parsed).__name__}",
-        )
+        result = transcode_to_schema_fields(parsed)
+        if result is None:
+            raise SchemaImportError(
+                "invalid_schema_yaml",
+                "schema root must be a list of field dicts "
+                f"(got {type(parsed).__name__}). This file is neither an emerge "
+                "field list nor a recognizable JSON-Schema. emerge expects "
+                "`[{name, type, description, ...}]`; if this is a Gemini/OpenAI "
+                "prompt config, its field schema should sit under "
+                "`prompt_template.json_schema` (or a top-level `json_schema` / "
+                "`response_schema`) as an object with `properties`.",
+            )
+        parsed = result.fields
+        converted_note = result.summary
 
+    # Aggregate ALL field validation errors in one pass — fail-fast (one error
+    # per re-import) is what turned a single bad import into a 21-turn loop.
     fields: list[SchemaField] = []
-    try:
-        for item in parsed:
+    field_errors: list[str] = []
+    for idx, item in enumerate(parsed):
+        try:
             fields.append(SchemaField.model_validate(item))
-    except ValidationError as exc:
+        except ValidationError as exc:
+            field_errors.append(_format_field_error(idx, item, exc))
+    if field_errors:
         raise SchemaImportError(
             "invalid_schema_yaml",
-            f"schema field validation failed: {exc}",
-        ) from exc
+            "schema field validation failed:\n" + "\n".join(field_errors),
+        )
 
     if as_new_variant:
         from app.tools.prompt import (
@@ -348,7 +384,7 @@ async def import_schema_from_yaml(
             schema=fields,
             global_notes=active.global_notes,
         )
-        return {
+        out = {
             "ok": True,
             "as_new_variant": True,
             "prompt_id": new_id,
@@ -356,6 +392,10 @@ async def import_schema_from_yaml(
             "field_count": len(fields),
             "names": [f.name for f in fields if f.name],
         }
+        if converted_note:
+            out["converted_from"] = "json-schema"
+            out["notes"] = converted_note
+        return out
 
     await write_schema(
         workspace,
@@ -364,8 +404,12 @@ async def import_schema_from_yaml(
         reason=f"import_schema_from_yaml({filename})",
         allow_structural=allow_structural,
     )
-    return {
+    out = {
         "ok": True,
         "field_count": len(fields),
         "names": [f.name for f in fields if f.name],
     }
+    if converted_note:
+        out["converted_from"] = "json-schema"
+        out["notes"] = converted_note
+    return out

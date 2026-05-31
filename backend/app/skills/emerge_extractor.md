@@ -190,6 +190,16 @@ at staging time):
     mints `prompts/{new_id}.json`. After it returns, tell the user the new
     variant exists and that adopting it needs an explicit
     `switch_active_prompt` (never auto-switch).
+  **Always call the tool directly — never hand-convert the file first.** It
+  accepts both emerge's native field list AND a foreign JSON-Schema / Gemini
+  / OpenAI prompt config (root dict with `prompt_template.json_schema`, or a
+  raw JSON-Schema with `properties`/`items`/`anyOf`): the tool transcodes it
+  (unwraps array roots, merges anyOf variant branches, drops nullable
+  branches, folds `required` arrays). On a converted import the result carries
+  `converted_from: "json-schema"` + `notes` — relay the notes so the user sees
+  what was inferred. If the tool returns `invalid_schema_yaml` listing
+  per-field problems, fix exactly those fields and re-import once; the error
+  aggregates every problem, so there's no need to retry field-by-field.
   Never auto-import. If the user's message itself names schema intent
   ("把这个作为字段", "导入字段", "用这个 schema", "导入这个 prompt"),
   proceed straight to the ask-which-target confirm. If only the file
