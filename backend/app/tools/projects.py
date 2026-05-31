@@ -378,6 +378,34 @@ async def update_project(workspace: Path, slug: str, patch: dict[str, Any]) -> N
         atomic_write_json(pj, blob)
 
 
+def bump_corrections_since_tune_in_blob(blob: dict[str, Any], delta: int) -> int:
+    """In-place increment of the `corrections_since_tune` denormalized counter
+    on an already-loaded `project.json` dict. Missing key defaults to 0; the
+    result is clamped at >= 0. Returns the new value.
+
+    Used by callers that already hold `project_lock` and have the project.json
+    dict in hand (e.g. `save_reviewed`), so we don't re-take the non-reentrant
+    flock and deadlock. For standalone use see `set_corrections_since_tune`."""
+    try:
+        current = int(blob.get("corrections_since_tune") or 0)
+    except (TypeError, ValueError):
+        current = 0
+    new_val = max(0, current + delta)
+    blob["corrections_since_tune"] = new_val
+    return new_val
+
+
+async def set_corrections_since_tune(workspace: Path, slug: str, value: int) -> None:
+    """Locked read-modify-write of `corrections_since_tune` to an absolute
+    value (e.g. reset to 0 after a candidate is accepted). Takes its own
+    `project_lock`; never call from inside an existing lock."""
+    async with project_lock(workspace, slug):
+        pj = project_json_path(workspace, slug)
+        blob = json.loads(pj.read_text())
+        blob["corrections_since_tune"] = max(0, int(value))
+        atomic_write_json(pj, blob)
+
+
 async def delete_project(workspace: Path, slug: str) -> dict[str, str]:
     """Permanently delete a whole project: `rmtree` its directory and drop the
     `pid` from the in-memory index. Raises `FileNotFoundError` if the slug does

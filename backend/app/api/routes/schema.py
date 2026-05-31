@@ -13,10 +13,18 @@ from app.api.routes._safety import safe_chat_id, safe_filename, safe_job_id, saf
 from app.config import get_settings
 from app.schemas.reviewed import NoteConsumption, ReviewedSource
 from app.schemas.schema_field import SchemaField
+from app.tools.projects import set_corrections_since_tune
+from app.tools.prompt import (
+    create_prompt,
+    read_active_prompt,
+    switch_active_prompt,
+    write_prompt,
+)
 from app.tools.reviewed import get_reviewed, save_reviewed
 from app.tools.schema import (
     SchemaImportError,
     StructuralChangeError,
+    _is_structural_change,
     derive_schema,
     import_schema_from_yaml,
     write_schema,
@@ -37,6 +45,15 @@ class AcceptBody(BaseModel):
 
 @router.post("/lab/projects/{slug}/schema/accept-candidate")
 async def accept_candidate(slug: str, body: AcceptBody) -> dict:
+    """Accept an AutoResearch candidate by **minting a new PromptVariant** and
+    switching active to it (never an in-place mutation of the current prompt).
+
+    This closes the review-correction → tune → version loop: each accept is an
+    addressable, rollback-able version (clone active for lineage, overwrite its
+    schema with the candidate, switch active). Rollback = `switch_active_prompt`
+    back to the prior variant — `list_prompts` already surfaces lineage via
+    `derived_from`, so no extra bookkeeping is needed here.
+    """
     safe_slug(slug)
     safe_job_id(body.job_id)
     settings = get_settings()
@@ -46,24 +63,78 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     blob = json.loads(cp.read_text())
     fields_blob = blob.get("schema") or []
     fields = [SchemaField(**f) for f in fields_blob]
-    try:
-        await write_schema(
-            settings.workspace_root, slug, fields,
-            reason=f"accept candidate j={body.job_id} turn={body.turn}",
-            allow_structural=False,
-        )
-    except StructuralChangeError as exc:
+
+    # Capture the active prompt BEFORE any mutation: we need its global_notes
+    # (candidate JSON never carries notes) and its schema for the structural
+    # guard below.
+    active = await read_active_prompt(settings.workspace_root, slug)
+
+    # Preserve the structural guard. The proposer is only allowed to reword
+    # `description`, so a field add/remove/rename/retype in the candidate JSON
+    # means it was hand-edited or came from a broken path — reject the same way
+    # the old write_schema path did.
+    if _is_structural_change(active.schema, fields):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": "structural_change_in_candidate", "error_message_en": str(exc)},
+            detail={
+                "error_code": "structural_change_in_candidate",
+                "error_message_en": (
+                    "candidate adds/removes/renames a field or changes a type; "
+                    "accept only applies description-level changes"
+                ),
+            },
         )
+
+    # Compute the accuracy delta vs the job's baseline (turn_0) so the new
+    # variant's label is self-describing. Baseline turn may be missing on
+    # legacy / hand-built jobs — fall back to a suffix-less label.
+    candidate_macro = blob.get("field_accuracy_macro")
+    if candidate_macro is None:
+        candidate_macro = blob.get("macro_f1")
+    delta: float | None = None
+    baseline_macro: float | None = None
+    bp = candidate_turn_path(settings.workspace_root, slug, body.job_id, 0)
+    if bp.exists():
+        try:
+            baseline_blob = json.loads(bp.read_text())
+            baseline_macro = baseline_blob.get("field_accuracy_macro")
+            if baseline_macro is None:
+                baseline_macro = baseline_blob.get("macro_f1")
+        except (OSError, json.JSONDecodeError):
+            baseline_macro = None
+    if isinstance(candidate_macro, (int, float)) and isinstance(baseline_macro, (int, float)):
+        delta = float(candidate_macro) - float(baseline_macro)
+
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if delta is not None:
+        # Render as a signed percentage-point delta, e.g. `tune 2026-05-31 (+4%)`.
+        delta_pct = round(delta * 100)
+        label = f"tune {date_str} ({'+' if delta_pct >= 0 else ''}{delta_pct}% acc)"
+    else:
+        label = f"tune {date_str}"
+
+    # Mint the new variant (clones active → records derived_from lineage), then
+    # overwrite its schema with the candidate. CRITICAL: pass
+    # global_notes=active.global_notes explicitly — write_prompt defaults it to
+    # "" and would otherwise wipe the project-level guidance.
+    new_id = await create_prompt(
+        settings.workspace_root, slug, label=label, derived_from=None,
+    )
+    await write_prompt(
+        settings.workspace_root, slug,
+        prompt_id=new_id,
+        schema=fields,
+        global_notes=active.global_notes,
+    )
+    await switch_active_prompt(settings.workspace_root, slug, new_id)
 
     # Phase B: write `_notes_consumed` entries for the reviewed files whose
     # inline notes drove this candidate's description changes. `notes_hit`
     # was already sanity-filtered by the proposer pipeline, but we still
     # gate per-field on the reviewed file actually having that note in
     # `_notes` (defensive against any candidate JSON that got hand-edited or
-    # came from an older code path).
+    # came from an older code path). Runs AFTER switch so the consumption
+    # record anchors to the new active_prompt_id (= new_id).
     consumed_summary = await _mark_notes_consumed(
         workspace=settings.workspace_root,
         slug=slug,
@@ -71,7 +142,18 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
         job_id=body.job_id,
         turn=body.turn,
     )
-    out: dict = {"ok": True, "rationale": blob.get("rationale", "")}
+
+    # The correction backlog that motivated this tune is now folded into the
+    # new variant — reset the nudge counter so the ambient prompt stops nagging.
+    await set_corrections_since_tune(settings.workspace_root, slug, 0)
+
+    out: dict = {
+        "ok": True,
+        "rationale": blob.get("rationale", ""),
+        "new_prompt_id": new_id,
+        "field_accuracy_macro": candidate_macro,
+        "delta": delta,
+    }
     if consumed_summary:
         out["notes_consumed"] = consumed_summary
     return out

@@ -842,6 +842,7 @@ def build_emerge_mcp(
                 "source": {"type": "string"},
                 "notes": {"type": "object"},
                 "notes_consumed": {"type": "object"},
+                "corrections": {"type": "object"},
             },
             "required": ["slug", "filename", "entities"],
         },
@@ -862,6 +863,11 @@ def build_emerge_mcp(
         }
         if "notes_consumed" in args:
             save_kwargs["notes_consumed"] = args["notes_consumed"]
+        # `corrections` is the per-field before/after diff; when present it both
+        # lands in the reviewed file and bumps the tune-nudge counter. Only pass
+        # through when non-empty so an absent/empty value doesn't move the counter.
+        if args.get("corrections"):
+            save_kwargs["corrections"] = args["corrections"]
         await reviewed_mod.save_reviewed(
             workspace,
             args["slug"],

@@ -150,6 +150,15 @@ const zh: Dict = {
   'job.line': 'turn {turn} · best acc {best} (turn {bestTurn}) · baseline {baseline} (Δ {delta})',
   'job.ended': '已结束（{reason}）',
   'job.baselineBest': '基线仍是最佳 — schema 未变',
+  // ── Candidate Δ + changed fields (shown before accept) ─────────────────
+  'job.candidate.delta': '候选 +{delta} acc vs 基线（{best} ← {baseline}）',
+  'job.candidate.fields': '提升字段：{fields}',
+  'job.candidate.rationale': '理由：{rationale}',
+  // ── Accept confirmation (inline toast on the card) ─────────────────────
+  'job.accepted.title': '已采纳新 prompt 版本',
+  'job.accepted.deltaLine': '{variant} · +{delta} acc vs 基线 — 已切为 active',
+  'job.accepted.noDelta': '{variant} — 已切为 active',
+  'job.accepted.hint': '可在 Prompts 标签页查看或回滚版本',
   'improve.banner.open': '查看',
   'improve.banner.label': '运行中 · 第 {turn} 轮',
 

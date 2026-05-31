@@ -48,6 +48,11 @@ export interface ReviewedPayload {
   source: 'manual' | 'feedback'
   _notes?: Record<string, string>
   _evidence?: Record<string, unknown>[]
+  /** Phase B — per-field before/after for the fields the human changed this
+   *  save pass, keyed by top-level field name. Backend body has
+   *  `extra="forbid"`, so send exactly this key and nothing else extra.
+   *  Omitted entirely when no field changed. */
+  _corrections?: Record<string, { before: unknown; after: unknown }>
 }
 
 /** Pro-labeler draft sitting at `reviewed/_pending/{filename}.json`. Same

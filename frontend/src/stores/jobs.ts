@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import { jobEventsUrl, pauseJob, resumeJob, cancelJob, acceptCandidate } from '../lib/api'
+import type { AcceptCandidateResult } from '../lib/api'
 import { streamSSE } from '../lib/sse'
 import type { JobEvent, JobStatus, TurnEvent } from '../types/job'
 
@@ -12,6 +13,11 @@ export interface JobSlice {
   bestTurn: TurnEvent | null
   endedReason: string | null
   err: string | null
+  /** True while an accept request is in flight (disables the accept button). */
+  accepting: boolean
+  /** Set on a successful accept — drives the inline "new variant adopted"
+   *  confirmation on the card (Phase D). */
+  accepted: AcceptCandidateResult | null
   _abort: AbortController | null
 }
 
@@ -34,6 +40,8 @@ const empty = (jobId: string, projectId: string): JobSlice => ({
   bestTurn: null,
   endedReason: null,
   err: null,
+  accepting: false,
+  accepted: null,
   _abort: null,
 })
 
@@ -102,7 +110,13 @@ export const useJob = create<State>((set, get) => ({
   cancel: async (jobId) => { await cancelJob(jobId) },
   accept: async (jobId, turn) => {
     const slice = get().byId[jobId]
-    if (!slice) return
-    await acceptCandidate(slice.projectId, jobId, turn)
+    if (!slice || slice.accepting) return
+    patch(set, jobId, { accepting: true })
+    try {
+      const result = await acceptCandidate(slice.projectId, jobId, turn)
+      patch(set, jobId, { accepting: false, accepted: result })
+    } catch (e) {
+      patch(set, jobId, { accepting: false, err: String(e) })
+    }
   },
 }))

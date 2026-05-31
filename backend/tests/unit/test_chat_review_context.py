@@ -132,6 +132,52 @@ def test_surface_context_block_no_experiment_warning_for_active_tab() -> None:
     assert "experiment" not in block
 
 
+async def test_surface_context_block_renders_tune_nudge_counters(tmp_path: Path) -> None:
+    """When workspace+slug are threaded, the review block surfaces the
+    `corrections_since_tune` + `reviewed_count` counters the skill uses to
+    decide whether to offer /improve."""
+    import json
+
+    from app.tools.projects import create_project
+    from app.tools.reviewed import save_reviewed
+    from app.workspace.paths import project_json_path
+
+    pid = (await create_project(tmp_path, name="t"))["slug"]
+    # 2 reviewed docs; seed the counter directly.
+    await save_reviewed(tmp_path, pid, "a.pdf", entities=[{}])
+    await save_reviewed(tmp_path, pid, "b.pdf", entities=[{}])
+    pj = project_json_path(tmp_path, pid)
+    blob = json.loads(pj.read_text())
+    blob["corrections_since_tune"] = 6
+    pj.write_text(json.dumps(blob))
+
+    block = _build_surface_context_block(
+        {
+            "surface": "review",
+            "filename": "a.pdf",
+            "field": "buyer_name",
+            "current_value": "X",
+            "entity_index": 0,
+        },
+        workspace=tmp_path,
+        slug=pid,
+    )
+    assert "corrections_since_tune: 6" in block
+    assert "reviewed_count: 2" in block
+
+
+def test_surface_context_block_omits_nudge_without_workspace() -> None:
+    """No workspace/slug → no counter lines (backward compatible)."""
+    block = _build_surface_context_block({
+        "surface": "review",
+        "filename": "a.pdf",
+        "field": "buyer_name",
+        "current_value": "X",
+        "entity_index": 0,
+    })
+    assert "corrections_since_tune" not in block
+
+
 def test_build_system_prompt_includes_surface_context_when_present(tmp_path: Path) -> None:
     svc = _make_service(tmp_path)
     prompt = svc._build_system_prompt(

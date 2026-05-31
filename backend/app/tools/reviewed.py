@@ -7,7 +7,12 @@ from typing import Any, Optional
 from app.schemas.reviewed import NoteConsumption, Reviewed, ReviewedSource
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
-from app.workspace.paths import pending_reviewed_path, reviewed_dir, reviewed_path
+from app.workspace.paths import (
+    pending_reviewed_path,
+    project_json_path,
+    reviewed_dir,
+    reviewed_path,
+)
 
 
 # Sentinel to distinguish "caller omitted notes_consumed" (preserve existing
@@ -27,6 +32,7 @@ async def save_reviewed(
     notes: Optional[dict[str, str]] = None,
     evidence: Optional[list[dict[str, Optional[int]]]] = None,
     notes_consumed: Any = _OMITTED,
+    corrections: Optional[dict[str, dict[str, Any]]] = None,
 ) -> None:
     """Persist a corrected extraction as ground truth for a doc.
 
@@ -45,6 +51,13 @@ async def save_reviewed(
 
     `notes_consumed` accepts either `dict[str, NoteConsumption]` or
     `dict[str, dict[str, str]]` (raw kwargs from the MCP tool boundary).
+
+    `corrections` is the per-field before/after diff of what the human changed
+    in this save (shape `{field: {"before", "after"}}`). When non-empty it is
+    persisted under `_corrections` AND increments the project-level
+    `corrections_since_tune` counter (by the number of corrected fields) inside
+    the same `project_lock` — that counter feeds the ambient "want me to
+    /improve?" nudge. Absent / empty → no counter movement (backward compatible).
     """
     # Resolve notes_consumed against the existing on-disk map.
     resolved_consumed: Optional[dict[str, NoteConsumption]]
@@ -77,6 +90,7 @@ async def save_reviewed(
         source=source,
         notes=notes,
         notes_consumed=resolved_consumed,
+        corrections=corrections or None,
         evidence=evidence,
     ).model_dump(by_alias=True, exclude_none=True, mode="json")
     async with project_lock(workspace, project_id):
@@ -90,6 +104,21 @@ async def save_reviewed(
             try:
                 pending.unlink()
             except FileNotFoundError:
+                pass
+        # Bump the denormalized correction counter that drives the ambient
+        # tune nudge. Done inside THIS lock (the flock is non-reentrant, so we
+        # mutate the project.json dict directly rather than re-locking via a
+        # helper). Best-effort: a missing/garbled project.json never fails the
+        # reviewed save.
+        if corrections:
+            from app.tools.projects import bump_corrections_since_tune_in_blob
+
+            pj = project_json_path(workspace, project_id)
+            try:
+                proj_blob = json.loads(pj.read_text())
+                bump_corrections_since_tune_in_blob(proj_blob, len(corrections))
+                atomic_write_json(pj, proj_blob)
+            except (OSError, json.JSONDecodeError):
                 pass
 
 

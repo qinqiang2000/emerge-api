@@ -150,6 +150,15 @@ const en: Dict = {
   'job.line': 'turn {turn} · best acc {best} (turn {bestTurn}) · baseline {baseline} (Δ {delta})',
   'job.ended': 'ended ({reason})',
   'job.baselineBest': 'baseline still best — schema unchanged',
+  // ── Candidate Δ + changed fields (shown before accept) ─────────────────
+  'job.candidate.delta': 'candidate +{delta} acc vs baseline ({best} ← {baseline})',
+  'job.candidate.fields': 'fields improved: {fields}',
+  'job.candidate.rationale': 'why: {rationale}',
+  // ── Accept confirmation (inline toast on the card) ─────────────────────
+  'job.accepted.title': 'new prompt variant adopted',
+  'job.accepted.deltaLine': '{variant} · +{delta} acc vs baseline — now active',
+  'job.accepted.noDelta': '{variant} — now active',
+  'job.accepted.hint': 'review or roll back variants in the Prompts tab',
   'improve.banner.open': 'open',
   'improve.banner.label': 'running · turn {turn}',
 

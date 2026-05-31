@@ -49,6 +49,13 @@ class Reviewed(BaseModel):
     an `accept_candidate` (or a manual chat edit). Missing key → all notes
     are unconsumed; this keeps old reviewed files (pre-Phase-B) parsing
     without migration.
+
+    `corrections` (wire alias `_corrections`) is the per-field before/after
+    diff of what the human actually changed in this review pass — the raw
+    signal that drives the correction → tune loop's ambient nudge counter.
+    Shape: `{field: {"before": <any>, "after": <any>}}`. Missing key → no
+    tracked corrections (e.g. pre-Phase-B files, or a save that touched
+    nothing); keeps old files parsing without migration.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -58,6 +65,9 @@ class Reviewed(BaseModel):
     notes: Optional[dict[str, str]] = Field(default=None, alias="_notes")
     notes_consumed: Optional[dict[str, NoteConsumption]] = Field(
         default=None, alias="_notes_consumed"
+    )
+    corrections: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None, alias="_corrections"
     )
     # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
     # Validation and normalization live in ExtractionOutput (extract time only).

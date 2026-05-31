@@ -18,6 +18,12 @@ class ReviewedBody(BaseModel):
     entities: list[dict[str, Any]]
     source: ReviewedSource = ReviewedSource.MANUAL
     notes: Optional[dict[str, str]] = None
+    # Per-field before/after diff of what the human changed this pass. Optional
+    # (absent → None) for backward compat; when present it both lands in the
+    # reviewed file and bumps `corrections_since_tune` (see save_reviewed).
+    corrections: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None, alias="_corrections"
+    )
     # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
     evidence: Optional[list[dict[str, Any]]] = Field(default=None, alias="_evidence")
 
@@ -41,6 +47,7 @@ async def post_reviewed(
         source=body.source,
         notes=body.notes,
         evidence=body.evidence,
+        corrections=body.corrections,
     )
     return {"ok": True}
 

@@ -292,7 +292,23 @@ export async function cancelJob(jobId: string): Promise<void> {
   if (!r.ok) throw new Error(`cancelJob ${r.status}`)
 }
 
-export async function acceptCandidate(slug: string, jobId: string, turn: number): Promise<{ ok: boolean }> {
+/** Response from accepting a candidate. Accepting mints a new prompt variant
+ *  and switches active to it; `delta` is candidate macro − turn_0 baseline
+ *  macro (null when baseline is unavailable). */
+export interface AcceptCandidateResult {
+  ok: boolean
+  rationale: string
+  new_prompt_id: string
+  field_accuracy_macro: number
+  delta: number | null
+  notes_consumed?: Record<string, unknown>
+}
+
+export async function acceptCandidate(
+  slug: string,
+  jobId: string,
+  turn: number,
+): Promise<AcceptCandidateResult> {
   const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/schema/accept-candidate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

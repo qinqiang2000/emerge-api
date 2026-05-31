@@ -17,6 +17,58 @@ import type { EvidenceValue } from '../lib/locate'
 
 type FieldsValue = Record<string, unknown>
 
+/** Per-field before/after the human changed this save pass. Keyed by
+ *  top-level field name; the backend proposer reads it as
+ *  `_corrections[fieldName]` on entity[0]. */
+type Corrections = Record<string, { before: unknown; after: unknown }>
+
+/** Deep copy entity rows so the loaded baseline can't be mutated by later
+ *  setField calls. Values are JSON-serializable (extraction output), so
+ *  structuredClone-equivalent via JSON round-trip is sufficient and stable. */
+function deepCopyEntities(entities: FieldsValue[]): FieldsValue[] {
+  return entities.map((e) => JSON.parse(JSON.stringify(e ?? {})) as FieldsValue)
+}
+
+/** Stable deep-equality for JSON-serializable values. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** Diff loaded baseline vs final entities, keyed by top-level field name.
+ *  The backend keys corrections by field name on the representative entity[0],
+ *  so we collapse multi-entity docs to a single before/after per field name:
+ *  use entity[0]'s values when present, otherwise the first entity whose value
+ *  changed. Only changed fields are emitted. */
+function diffCorrections(baseline: FieldsValue[], final: FieldsValue[]): Corrections {
+  const out: Corrections = {}
+  // Union of all top-level field names seen across both snapshots, anchored on
+  // entity[0] first so the representative entity's keys lead.
+  const names = new Set<string>()
+  for (const ent of [final[0], baseline[0], ...final, ...baseline]) {
+    for (const k of Object.keys(ent ?? {})) names.add(k)
+  }
+  for (const name of names) {
+    const beforeRep = (baseline[0] ?? {})[name]
+    const afterRep = (final[0] ?? {})[name]
+    if (!deepEqual(beforeRep, afterRep)) {
+      out[name] = { before: beforeRep, after: afterRep }
+      continue
+    }
+    // entity[0] unchanged for this field — fall back to the first entity whose
+    // value moved, so corrections in multi-entity docs aren't silently dropped.
+    const n = Math.max(baseline.length, final.length)
+    for (let i = 1; i < n; i++) {
+      const before = (baseline[i] ?? {})[name]
+      const after = (final[i] ?? {})[name]
+      if (!deepEqual(before, after)) {
+        out[name] = { before, after }
+        break
+      }
+    }
+  }
+  return out
+}
+
 interface State {
   activeProjectId: string | null
   /** On-disk filename of the open doc — the only doc handle now. */
@@ -27,6 +79,12 @@ interface State {
   saving: boolean
   err: string | null
   entities: FieldsValue[]
+  /** Deep-copied snapshot of the entities as first loaded into the editable
+   *  annotation tab — the "before" the human started correcting. save() diffs
+   *  the final entities against this to emit `_corrections` (Phase B of the
+   *  review-correction → prompt-tune loop). Reset on doc open and re-anchored
+   *  to the just-saved entities after each successful save. */
+  baselineEntities: FieldsValue[]
   evidence: Record<string, EvidenceValue>[] | null
   notes: Record<string, string>
   /** Path of the field row currently highlighted in the FieldEditor — hoisted
@@ -101,6 +159,7 @@ export const useReview = create<State>((set, get) => ({
   saving: false,
   err: null,
   entities: [],
+  baselineEntities: [],
   evidence: null,
   notes: {},
   activeField: null,
@@ -135,6 +194,7 @@ export const useReview = create<State>((set, get) => ({
       loading: true,
       err: null,
       entities: [],
+      baselineEntities: [],
       evidence: null,
       notes: {},
       activeField: null,
@@ -179,6 +239,11 @@ export const useReview = create<State>((set, get) => ({
       })
       set({
         entities,
+        // Snapshot the loaded entities as the per-doc "before" baseline so
+        // save() can diff out which top-level fields the human actually
+        // changed (Phase B → `_corrections`). Deep copy so later setField
+        // mutations don't bleed into it.
+        baselineEntities: deepCopyEntities(entities),
         evidence: (reviewed?._evidence ?? pending?._evidence ?? pred?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
         notes: reviewed?._notes ?? {},
         isPending: !reviewed && !!pending,
@@ -197,7 +262,7 @@ export const useReview = create<State>((set, get) => ({
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -217,23 +282,36 @@ export const useReview = create<State>((set, get) => ({
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
   save: async () => {
-    const { activeProjectId, activeFilename, entities, evidence, notes } = get()
+    const { activeProjectId, activeFilename, entities, baselineEntities, evidence, notes } = get()
     if (!activeProjectId || !activeFilename) return
     set({ saving: true, err: null })
     try {
+      // Diff the loaded baseline against the final entities to surface which
+      // top-level fields the human actually corrected this pass (Phase B).
+      // Only non-empty diffs add `_corrections`; the backend body forbids
+      // unknown keys, so omit it entirely when nothing changed.
+      const corrections = diffCorrections(baselineEntities, entities)
       const payload: ReviewedPayload = {
         entities,
         source: 'manual',
         ...(evidence ? { _evidence: evidence } : {}),
         ...(Object.keys(notes).length > 0 ? { _notes: notes } : {}),
+        ...(Object.keys(corrections).length > 0 ? { _corrections: corrections } : {}),
       }
       await saveReviewed(activeProjectId, activeFilename, payload)
       // refresh the doc-list status so the badge flips to "reviewed"
       void useDocs.getState().refresh(activeProjectId)
       // Backend deleted the matching pending file inside the same project_lock
       // as the reviewed write — mirror that here so the banner disappears
-      // without waiting for a re-open of the doc.
-      set({ saving: false, isPending: false, labelerModel: null })
+      // without waiting for a re-open of the doc. Re-anchor the baseline to the
+      // just-saved entities so a second save in this session diffs from here,
+      // not from the original load.
+      set({
+        saving: false,
+        isPending: false,
+        labelerModel: null,
+        baselineEntities: deepCopyEntities(entities),
+      })
     } catch (e: unknown) {
       set({ err: String(e), saving: false })
     }

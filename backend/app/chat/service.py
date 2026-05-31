@@ -42,6 +42,7 @@ from app.workspace.paths import (
     chat_attachment_path,
     doc_path,
     project_json_path,
+    reviewed_dir,
     unbound_chat_attachment_path,
 )
 from app.workspace.pid_index import get_index
@@ -364,7 +365,43 @@ def _build_eval_cell_surface_block(surface_context: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
+def _build_review_nudge_block(workspace: Path, slug: str) -> str | None:
+    """Render an ambient "tune nudge" line for the review surface, or None.
+
+    Reads the denormalized `corrections_since_tune` counter (bumped by
+    `save_reviewed` whenever the human changed fields) plus the reviewed-doc
+    count, and — only when BOTH clear the thresholds the autoresearch skill
+    already gates on — appends them so the agent can proactively offer
+    `/improve`. The decision to offer (and the wording) lives in the skill;
+    this block only supplies the two numbers. Best-effort: any read error
+    yields None so a missing/garbled project never breaks the turn.
+    """
+    if slug in (_UNSET_SLUG, _UNBOUND_SLUG):
+        return None
+    try:
+        blob = json.loads(project_json_path(workspace, slug).read_text())
+        corrections = int(blob.get("corrections_since_tune") or 0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    # Reviewed count = number of *.json files under reviewed/. Cheap glob count;
+    # no need to parse each file.
+    try:
+        rd = reviewed_dir(workspace, slug)
+        reviewed_count = sum(1 for _ in rd.glob("*.json")) if rd.exists() else 0
+    except OSError:
+        reviewed_count = 0
+    return (
+        f"corrections_since_tune: {corrections}\n"
+        f"reviewed_count: {reviewed_count}"
+    )
+
+
+def _build_surface_context_block(
+    surface_context: dict[str, Any],
+    *,
+    workspace: Path | None = None,
+    slug: str | None = None,
+) -> str:
     """Render the "## Surface context" block that gets appended to the system
     prompt for any turn submitted from a surface that snapshots state.
 
@@ -479,6 +516,14 @@ def _build_surface_context_block(surface_context: dict[str, Any]) -> str:
         lines.append(
             f"User is on tab `{active_tab_key}` (non-annotation view)."
         )
+
+    # Ambient tune-nudge signals (corrections backlog + reviewed coverage).
+    # The skill decides whether to offer /improve based on these two numbers.
+    if workspace is not None and slug is not None:
+        nudge = _build_review_nudge_block(workspace, slug)
+        if nudge:
+            lines.append("")
+            lines.append(nudge)
     return "\n".join(lines)
 
 
@@ -552,7 +597,11 @@ class ChatService:
         ]
         if surface_context is not None:
             parts.append("---")
-            parts.append(_build_surface_context_block(surface_context))
+            parts.append(
+                _build_surface_context_block(
+                    surface_context, workspace=self.workspace, slug=slug,
+                )
+            )
         return "\n\n".join(parts)
 
     def _build_options(

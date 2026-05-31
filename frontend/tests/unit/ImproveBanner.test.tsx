@@ -16,6 +16,8 @@ const baseJob: JobSlice = {
   endedReason: null,
   err: null,
   _abort: null,
+  accepting: false,
+  accepted: null,
 }
 
 describe('ImproveBanner', () => {

@@ -192,3 +192,90 @@ async def test_get_reviewed_returns_notes_consumed(workspace: Path) -> None:
     payload = await get_reviewed(workspace, "p_a", "inv-001.pdf")
     assert payload is not None
     assert payload["_notes_consumed"]["buyer_name"]["consumed_via"] == "accept_candidate"
+
+
+# --- Phase B: _corrections passthrough + corrections_since_tune counter ---
+
+
+def test_reviewed_model_round_trips_corrections() -> None:
+    blob = {
+        "entities": [{"buyer_name": "ACME"}],
+        "source": "manual",
+        "_corrections": {
+            "buyer_name": {"before": "ACM", "after": "ACME"},
+            "total": {"before": 100, "after": 120},
+        },
+    }
+    r = Reviewed(**blob)
+    assert r.corrections is not None
+    assert r.corrections["buyer_name"]["after"] == "ACME"
+    out = r.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert out["_corrections"]["total"]["before"] == 100
+    # exclude_none drops the key entirely when there are no corrections.
+    r2 = Reviewed(entities=[{}])
+    assert "_corrections" not in r2.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+
+async def test_save_reviewed_round_trips_corrections(workspace: Path) -> None:
+    await save_reviewed(
+        workspace,
+        "p_a",
+        "inv-001.pdf",
+        entities=[{"buyer_name": "ACME"}],
+        corrections={"buyer_name": {"before": "ACM", "after": "ACME"}},
+    )
+    blob = json.loads(reviewed_path(workspace, "p_a", "inv-001.pdf").read_text())
+    assert blob["_corrections"]["buyer_name"]["after"] == "ACME"
+
+
+async def test_save_reviewed_corrections_bump_counter(workspace: Path) -> None:
+    """A non-empty `corrections` map increments project.json.corrections_since_tune
+    by the number of corrected fields, inside the same save lock."""
+    from app.tools.projects import create_project
+    from app.workspace.paths import project_json_path
+
+    pid = (await create_project(workspace, name="t"))["slug"]
+    # First save: 2 corrected fields → counter 0 → 2.
+    await save_reviewed(
+        workspace,
+        pid,
+        "inv-001.pdf",
+        entities=[{"buyer_name": "ACME", "total": 120}],
+        corrections={
+            "buyer_name": {"before": "ACM", "after": "ACME"},
+            "total": {"before": 100, "after": 120},
+        },
+    )
+    blob = json.loads(project_json_path(workspace, pid).read_text())
+    assert blob["corrections_since_tune"] == 2
+    # Second save on another doc: 1 corrected field → 2 → 3.
+    await save_reviewed(
+        workspace,
+        pid,
+        "inv-002.pdf",
+        entities=[{"buyer_name": "Globex"}],
+        corrections={"buyer_name": {"before": "Glob", "after": "Globex"}},
+    )
+    blob = json.loads(project_json_path(workspace, pid).read_text())
+    assert blob["corrections_since_tune"] == 3
+
+
+async def test_save_reviewed_no_corrections_does_not_move_counter(workspace: Path) -> None:
+    """Omitting / empty corrections leaves the counter untouched."""
+    from app.tools.projects import create_project
+    from app.workspace.paths import project_json_path
+
+    pid = (await create_project(workspace, name="t"))["slug"]
+    pj = project_json_path(workspace, pid)
+    seed = json.loads(pj.read_text())
+    seed["corrections_since_tune"] = 4
+    pj.write_text(json.dumps(seed))
+    await save_reviewed(
+        workspace,
+        pid,
+        "inv-001.pdf",
+        entities=[{"buyer_name": "ACME"}],
+        # no corrections kwarg
+    )
+    blob = json.loads(pj.read_text())
+    assert blob["corrections_since_tune"] == 4

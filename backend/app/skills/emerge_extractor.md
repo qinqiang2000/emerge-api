@@ -514,6 +514,15 @@ the user to escalate when they want.
 to any filename the user mentions later in the same turn. The user may
 navigate to the next doc mid-response.
 
+### Ambient tune nudge
+
+The review `## Surface context` carries two counters: `corrections_since_tune`
+(fields the user has changed since the last accepted tune) and
+`reviewed_count`. When `corrections_since_tune >= 5` AND `reviewed_count >= 5`,
+add ONE short line after handling the user's actual message, offering to tune:
+"你已修正 N 处跨 M 篇文档，要我 `/improve` 一下 prompt 吗？" Just offer —
+never auto-run `/improve` or `start_job`. Below either threshold, say nothing.
+
 ## Driving the review UI
 
 When the surface context is `review`, four `ui_*` tools push navigation

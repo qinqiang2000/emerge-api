@@ -17,6 +17,8 @@ const baseSlice: JobSlice = {
   endedReason: null,
   err: null,
   _abort: null,
+  accepting: false,
+  accepted: null,
 }
 
 beforeEach(() => {
@@ -34,7 +36,7 @@ describe('JobProgressCard', () => {
   it('renders turn and best-f1 line', () => {
     render(<JobProgressCard jobId="j_xyz" />)
     expect(screen.getByText(/turn 1/i)).toBeInTheDocument()
-    expect(screen.getByText(/0\.70/)).toBeInTheDocument()
+    expect(screen.getByText(/best acc 0\.70/)).toBeInTheDocument()
   })
 
   it('shows pause button when running, hides resume', () => {
