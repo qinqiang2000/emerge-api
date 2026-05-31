@@ -113,13 +113,15 @@ class JobRunner:
                 handle.info.best_macro_f1 = final.best_macro_f1
                 return handle.info
             except Exception as exc:
+                log.exception("autoresearch job %s failed", job_id)
+                _err = f"{type(exc).__name__}: {exc}"
                 handle.info.status = JobStatus.ERROR
                 handle.info.error_code = "autoresearch_failure"
-                handle.info.error_message_en = str(exc)
+                handle.info.error_message_en = _err
                 await append_event_jsonl(
                     log_path,
                     JobEvent(type="ended", ts=now_iso_filename_safe(),
-                             reason="error", error=str(exc)),
+                             reason="error", error=_err),
                 )
                 return handle.info
 
