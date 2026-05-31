@@ -88,7 +88,9 @@ start_backend() {
   mkdir -p "$LOG_DIR"
   rotate_log "$LOG_DIR/backend.log"
   cd "$ROOT/backend"
-  nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload \
+  # setsid: new session → new process group → Ctrl+C SIGINT won't reach this process
+  python3 -c "import os,sys; os.setsid(); os.execvp(sys.argv[1],sys.argv[1:])" \
+    uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload \
     > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
   echo $! > "$BACKEND_PID"
   disown
@@ -110,7 +112,8 @@ start_frontend() {
   mkdir -p "$LOG_DIR"
   rotate_log "$LOG_DIR/frontend.log"
   cd "$ROOT/frontend"
-  nohup npm run dev > "$LOG_DIR/frontend.log" 2>&1 < /dev/null &
+  python3 -c "import os,sys; os.setsid(); os.execvp(sys.argv[1],sys.argv[1:])" \
+    npm run dev > "$LOG_DIR/frontend.log" 2>&1 < /dev/null &
   echo $! > "$FRONTEND_PID"
   disown
   sleep 1
