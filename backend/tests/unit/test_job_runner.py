@@ -138,6 +138,34 @@ async def test_runner_unknown_skill_raises(workspace: Path) -> None:
         await runner.start(skill="not_a_skill", project_id=pid, params={})
 
 
+async def test_runner_error_includes_type(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pid = (await create_project(workspace, name="t"))["slug"]
+    await write_schema(
+        workspace, pid,
+        [SchemaField(name="x", type=FieldType.STRING, description="d")],
+        reason="seed", allow_structural=True,
+    )
+
+    async def _score(**kwargs):
+        raise ValueError("")  # empty message — the case that was hard to diagnose
+    async def _propose(**kwargs):
+        return kwargs["schema"], "rat", [], []
+    monkeypatch.setattr(ar, "score_with_schema", _score)
+    monkeypatch.setattr(ar, "propose_schema", _propose)
+
+    runner = JobRunner(workspace=workspace, provider=AsyncMock())
+    job_id = await runner.start(skill="autoresearch", project_id=pid, params={"max_turn": 1})
+    info = await runner.wait(job_id, timeout=5.0)
+
+    assert info.status == JobStatus.ERROR
+    assert info.error_message_en == "ValueError: "
+
+    events_file = workspace / pid / "jobs" / f"{job_id}.jsonl"
+    ended = json.loads(events_file.read_text().splitlines()[-1])
+    assert ended["type"] == "ended"
+    assert ended["error"] == "ValueError: "
+
+
 def test_safe_job_id_validates() -> None:
     from app.api.routes._safety import safe_job_id
     from fastapi import HTTPException

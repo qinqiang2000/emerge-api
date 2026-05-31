@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from app.jobs import autoresearch as ar
 from app.jobs.events import append_event_jsonl, now_iso_filename_safe
