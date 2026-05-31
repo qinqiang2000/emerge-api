@@ -114,6 +114,7 @@ const zh: Dict = {
   'ask.multiSelectHint': '（多选）',
   'ask.redirected': '已转向',
   'ask.noAnswer': '（未回答）',
+  'ask.redirectHint': '或直接输入消息改变主意',
 
   // ── PermissionCard ─────────────────────────────────────────────────────
   'perm.aria': '需要工具授权',

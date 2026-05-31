@@ -250,23 +250,35 @@ async def import_schema_from_yaml(
     filename: str,
     *,
     allow_structural: bool = True,
+    as_new_variant: bool = False,
+    new_label: str | None = None,
 ) -> dict[str, Any]:
     """Read a chat attachment (yml/yaml/json), parse as `list[SchemaField]`,
-    and replace the project's active prompt schema.
+    and write it into the project as a prompt schema.
 
     The file must already live in `chats/<chat_id>/attachments/<filename>`
     (i.e. dropped/pasted into the composer and persisted by the staging /
     attach pipeline). Refuses upfront if the filename's extension isn't in
     `_IMPORT_SCHEMA_EXTS`.
 
-    Atomic via the existing `write_schema` writer + lock — same path a normal
-    agent edit takes. `allow_structural=True` by default because import is
-    inherently structural; a user who wants the structural gate to bite can
-    pass `False` and the existing `StructuralChangeError` surfaces.
+    Two write targets:
 
-    Returns `{ok: True, field_count, names}` on success. Surfaces parse /
-    validation failures via `SchemaImportError` so the tool / HTTP envelope
-    layers can render `{ok: false, error: {error_code, error_message_en}}`.
+    - `as_new_variant=False` (default): atomically **replace the active
+      prompt's schema** via the existing `write_schema` writer + lock — same
+      path a normal agent edit takes. `allow_structural=True` because import
+      is inherently structural; pass `False` to surface the structural gate
+      via `StructuralChangeError`. Returns `{ok, field_count, names}`.
+    - `as_new_variant=True`: mint a **new prompt variant** (clone active for
+      lineage, then overwrite its schema with the import) and leave the active
+      prompt untouched — the user must `switch_active_prompt` to adopt it.
+      `allow_structural` is irrelevant here (a fresh variant has no prior
+      schema to gate against). `new_label` names the variant; defaults to
+      `imported:<filename>`. Returns `{ok, as_new_variant, prompt_id, label,
+      field_count, names}`.
+
+    Surfaces parse / validation failures via `SchemaImportError` so the tool /
+    HTTP envelope layers can render `{ok: false, error: {error_code,
+    error_message_en}}`.
     """
     raw_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if raw_ext not in _IMPORT_SCHEMA_EXTS:
@@ -315,6 +327,35 @@ async def import_schema_from_yaml(
             "invalid_schema_yaml",
             f"schema field validation failed: {exc}",
         ) from exc
+
+    if as_new_variant:
+        from app.tools.prompt import (
+            create_prompt,
+            read_active_prompt,
+            write_prompt,
+        )
+
+        active = await read_active_prompt(workspace, project_id)
+        label = new_label or f"imported:{filename}"
+        # create_prompt clones the active variant (records derived_from lineage);
+        # we then overwrite its schema with the import, keeping the cloned
+        # global_notes so the new variant inherits project-level guidance.
+        new_id = await create_prompt(workspace, project_id, label=label)
+        await write_prompt(
+            workspace,
+            project_id,
+            prompt_id=new_id,
+            schema=fields,
+            global_notes=active.global_notes,
+        )
+        return {
+            "ok": True,
+            "as_new_variant": True,
+            "prompt_id": new_id,
+            "label": label,
+            "field_count": len(fields),
+            "names": [f.name for f in fields if f.name],
+        }
 
     await write_schema(
         workspace,

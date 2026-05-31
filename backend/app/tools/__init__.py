@@ -536,16 +536,20 @@ def build_emerge_mcp(
 
     @tool(
         "import_schema_from_yaml",
-        "Import a chat-attached yml/yaml/json file as the project's schema. "
+        "Import a chat-attached yml/yaml/json file as a project prompt schema. "
         "The file must already live at chats/<chat_id>/attachments/<filename> "
         "(dropped/pasted into the composer). Parses as a list of SchemaField "
-        "dicts and atomically replaces the active prompt's schema via the "
-        "same writer write_schema uses. allow_structural defaults to true "
-        "(import is inherently structural). Returns {ok: true, field_count, "
-        "names: [...]} on success; on parse/validation failure returns "
-        "{ok: false, error: {error_code: 'invalid_schema_yaml', "
-        "error_message_en}}. ALWAYS confirm with the user before invoking — "
-        "this overwrites the active prompt's schema.",
+        "dicts. Two targets: as_new_variant=false (default) atomically REPLACES "
+        "the active prompt's schema via the same writer write_schema uses "
+        "(allow_structural defaults true, import is inherently structural); "
+        "as_new_variant=true mints a NEW prompt variant (cloned from active for "
+        "lineage) without touching the active prompt — use when the user wants "
+        "the import to coexist for A/B rather than overwrite. new_label names "
+        "the variant (defaults imported:<filename>). On success returns {ok: "
+        "true, field_count, names: [...]} (plus prompt_id, label when "
+        "as_new_variant); on parse/validation failure returns {ok: false, "
+        "error: {error_code: 'invalid_schema_yaml', error_message_en}}. ALWAYS "
+        "confirm with the user before invoking.",
         {
             "type": "object",
             "properties": {
@@ -553,6 +557,8 @@ def build_emerge_mcp(
                 "chat_id": {"type": "string"},
                 "filename": {"type": "string"},
                 "allow_structural": {"type": "boolean"},
+                "as_new_variant": {"type": "boolean"},
+                "new_label": {"type": "string"},
             },
             "required": ["slug", "chat_id", "filename"],
         },
@@ -569,6 +575,8 @@ def build_emerge_mcp(
                 args["chat_id"],
                 args["filename"],
                 allow_structural=bool(args.get("allow_structural", True)),
+                as_new_variant=bool(args.get("as_new_variant", False)),
+                new_label=args.get("new_label") or None,
             )
         except FileNotFoundError as exc:
             out = {

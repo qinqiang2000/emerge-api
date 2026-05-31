@@ -178,14 +178,24 @@ at staging time):
 - `doc` (pdf/png/jpg) — same as before. Promote to `docs/` only on
   explicit user intent.
 - `schema` (yml/yaml; or json that looks like a `[{name,type,...}]`
-  list) — likely a schema definition (often exported from another
-  emerge project, or hand-written). **Ask first**: "看到一份 schema
-  文件 `<name>`。要把它作为本项目字段定义导入吗？这会替换当前 schema."
-  On confirm: call `import_schema_from_yaml(slug, chat_id, filename)`.
+  list) — likely a schema/prompt definition (often exported from another
+  emerge project, or hand-written; in emerge a prompt = schema fields +
+  global_notes, so "导入 prompt" and "导入 schema" mean this same object).
+  **Ask first**, and offer two targets, not just replace:
+  "看到一份 schema 文件 `<name>`。① 替换当前 active prompt 的 schema，或
+  ② 导入为一个新的 prompt 变体（保留现有的，便于 A/B）？"
+  - 替换 → `import_schema_from_yaml(slug, chat_id, filename)` (default).
+  - 新变体 → `import_schema_from_yaml(slug, chat_id, filename,
+    as_new_variant=True)`; this leaves the active prompt untouched and
+    mints `prompts/{new_id}.json`. After it returns, tell the user the new
+    variant exists and that adopting it needs an explicit
+    `switch_active_prompt` (never auto-switch).
   Never auto-import. If the user's message itself names schema intent
-  ("把这个作为字段", "导入字段", "用这个 schema"), proceed straight to
-  ask-confirm-import. If only the file dropped with no NL intent, ask
-  first.
+  ("把这个作为字段", "导入字段", "用这个 schema", "导入这个 prompt"),
+  proceed straight to the ask-which-target confirm. If only the file
+  dropped with no NL intent, ask first. When the user's wording implies
+  replacement ("这是最新的 / 更新一下"), default the recommendation to
+  替换; when it implies comparison ("再加一个 / 对比一下"), recommend 新变体.
 - `data` (csv) — possibly a truth-set or sample list. Ask the user what
   to do; no tool wired yet.
 - `note` (txt/md) — read with `Read` tool when relevant; conversational.

@@ -114,6 +114,7 @@ const en: Dict = {
   'ask.multiSelectHint': '(multi-select)',
   'ask.redirected': 'redirected',
   'ask.noAnswer': '(no answer)',
+  'ask.redirectHint': 'or just type a message to change course',
 
   // ── PermissionCard ─────────────────────────────────────────────────────
   'perm.aria': 'Tool permission required',

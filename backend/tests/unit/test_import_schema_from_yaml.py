@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.tools.projects import create_project
+from app.tools.prompt import list_prompts, read_active_prompt, read_prompt
 from app.tools.schema import (
     SchemaImportError,
     import_schema_from_yaml,
@@ -77,6 +78,68 @@ async def test_import_schema_from_yaml_replaces_schema(workspace: Path) -> None:
     assert [f.name for f in schema] == [
         "invoice_number", "total_amount", "line_items",
     ]
+
+
+async def test_import_schema_from_yaml_as_new_variant_keeps_active(workspace: Path) -> None:
+    """as_new_variant=True mints a new prompt variant and leaves the active
+    prompt's schema untouched — the user must switch_active_prompt to adopt."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    _seed_attachment(workspace, pid, chat_id, "fields.yaml", _VALID_YAML.encode("utf-8"))
+
+    active_before = await read_active_prompt(workspace, pid)
+
+    out = await import_schema_from_yaml(
+        workspace, pid, chat_id, "fields.yaml", as_new_variant=True,
+    )
+
+    assert out["ok"] is True
+    assert out["as_new_variant"] is True
+    assert out["field_count"] == 3
+    new_id = out["prompt_id"]
+    assert out["label"] == "imported:fields.yaml"
+
+    # Active prompt is unchanged on disk.
+    active_after = await read_active_prompt(workspace, pid)
+    assert active_after.prompt_id == active_before.prompt_id
+    assert [f.name for f in active_after.schema] == [f.name for f in active_before.schema]
+
+    # The new variant exists, carries the imported schema, and is NOT active.
+    new_variant = await read_prompt(workspace, pid, new_id)
+    assert [f.name for f in new_variant.schema] == [
+        "invoice_number", "total_amount", "line_items",
+    ]
+    rows = {r["prompt_id"]: r for r in await list_prompts(workspace, pid)}
+    assert rows[new_id]["is_active"] is False
+    assert rows[active_before.prompt_id]["is_active"] is True
+
+
+async def test_import_schema_from_yaml_as_new_variant_custom_label(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    _seed_attachment(workspace, pid, chat_id, "fields.yaml", _VALID_YAML.encode("utf-8"))
+    out = await import_schema_from_yaml(
+        workspace, pid, chat_id, "fields.yaml",
+        as_new_variant=True, new_label="chinhin v2",
+    )
+    assert out["label"] == "chinhin v2"
+    assert (await read_prompt(workspace, pid, out["prompt_id"])).label == "chinhin v2"
+
+
+async def test_http_import_schema_from_yaml_as_new_variant(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    _seed_attachment(workspace, pid, chat_id, "fields.yaml", _VALID_YAML.encode("utf-8"))
+    client = TestClient(app)
+    r = client.post(
+        f"/lab/projects/{pid}/chats/{chat_id}/attachments/fields.yaml/import-schema",
+        json={"as_new_variant": True, "new_label": "from http"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["as_new_variant"] is True
+    assert body["label"] == "from http"
+    assert body["field_count"] == 3
 
 
 async def test_import_schema_from_yaml_handles_json_payload(workspace: Path) -> None:

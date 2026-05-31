@@ -220,6 +220,13 @@ export default function AskUserCard({ event }: Props) {
           </button>
         </div>
       )}
+
+      {/* Universal escape hint: typing in the composer redirects/cancels any
+          pending ask_user (see chat store mid-prompt redirect). Surfaced here
+          so the option list never needs a per-question "cancel" entry. */}
+      <span className="font-sans text-[11.5px] text-ink-4 leading-snug">
+        {t('ask.redirectHint')}
+      </span>
     </div>
   )
 }

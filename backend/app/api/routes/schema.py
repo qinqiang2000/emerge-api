@@ -301,12 +301,16 @@ async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
 
 class _ImportSchemaFromYamlBody(BaseModel):
     """HTTP mirror of the `import_schema_from_yaml` tool input. The slug,
-    chat_id, and filename are URL path components; this body carries only the
-    optional `allow_structural` toggle. Defaults to `True` because import is
-    inherently structural; pass `False` to surface the structural-change gate
-    if the caller wants the safety net."""
+    chat_id, and filename are URL path components; this body carries the write
+    toggles. `allow_structural` defaults `True` because import is inherently
+    structural; pass `False` to surface the structural-change gate. Set
+    `as_new_variant=True` to mint a new prompt variant instead of replacing the
+    active prompt (active is left untouched; adopt via switch_active_prompt).
+    `new_label` names that variant (defaults imported:<filename>)."""
 
     allow_structural: bool = True
+    as_new_variant: bool = False
+    new_label: str | None = None
 
 
 @router.post("/lab/projects/{slug}/chats/{chat_id}/attachments/{filename:path}/import-schema")
@@ -338,6 +342,8 @@ async def post_import_schema_from_yaml(
             detail={"error_code": "project_not_found"},
         )
     allow_structural = bool(body.allow_structural) if body is not None else True
+    as_new_variant = bool(body.as_new_variant) if body is not None else False
+    new_label = body.new_label if body is not None else None
     try:
         out = await import_schema_from_yaml(
             settings.workspace_root,
@@ -345,6 +351,8 @@ async def post_import_schema_from_yaml(
             chat_id,
             filename,
             allow_structural=allow_structural,
+            as_new_variant=as_new_variant,
+            new_label=new_label,
         )
     except FileNotFoundError as exc:
         raise HTTPException(
