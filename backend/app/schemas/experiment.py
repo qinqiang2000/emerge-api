@@ -38,6 +38,12 @@ class Experiment(BaseModel):
     experiment_id: str
     label: str
     prompt_id: str
+    # Content version of `prompt_id` at creation time (PromptVariant.version).
+    # Frozen — pins which prompt snapshot this experiment's predictions came
+    # from, so re-running after a tune mints a NEW experiment instead of
+    # silently overwriting an older version's results under the same tab.
+    # None for pre-versioning experiments.
+    prompt_version: Optional[int] = None
     model_id: str
     status: Literal["draft", "ran", "archived", "promoted"] = "draft"
     created_at: str

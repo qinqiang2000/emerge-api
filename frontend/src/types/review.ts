@@ -80,6 +80,10 @@ export interface ExperimentSummary {
   experiment_id: string
   label: string
   prompt_id: string
+  /** Content version of `prompt_id` pinned at experiment-creation time. The
+   *  derived `label` already embeds it ("Baseline v2 × …"); this is the
+   *  structured form. null for pre-versioning experiments. */
+  prompt_version: number | null
   model_id: string
   status: ExperimentStatus
   created_at: string

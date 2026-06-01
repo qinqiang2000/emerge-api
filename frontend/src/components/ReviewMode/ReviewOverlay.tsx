@@ -192,6 +192,20 @@ export default function ReviewOverlay({
     }
   }, [activeProjectId, activeFilename, experimentList, loadExperimentPrediction])
 
+  // An experiment only earns a tab on THIS doc if it actually produced a
+  // prediction for it. The eager probe above stores `null` in predictionsByExp
+  // when the GET 404s (experiment never ran on this doc) — hide those rather
+  // than render a 0-entity tab that looks like a bug. `undefined` = not yet
+  // probed; keep it visible so a covering tab doesn't flicker out before its
+  // fetch resolves. open() resets activeTabKey to 'active' on every doc switch,
+  // so a hidden tab can never be the active one.
+  const visibleExperiments = useMemo(
+    () => experimentList.filter(
+      (e) => e.status !== 'archived' && predictionsByExp[e.experiment_id] !== null,
+    ),
+    [experimentList, predictionsByExp],
+  )
+
   // ── neighbor + delete + key-nav helpers ──
   // Centralized so the trash button and the ← / → key handler share one
   // navigation rule: prefer the next doc, fall back to prev, otherwise close.
@@ -335,7 +349,7 @@ export default function ReviewOverlay({
         deletingDoc={deletingDoc}
         onDeleteTrigger={armOrConfirmDelete}
         activeTabKey={activeTabKey}
-        availableExperiments={experimentList}
+        availableExperiments={visibleExperiments}
         onSwitchTab={setActiveTab}
         modelLabels={modelLabels}
         baselineRun={draftRun}

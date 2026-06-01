@@ -67,11 +67,13 @@ async def create_experiment(
     prompt_id: str | None = None,
     model_id: str | None = None,
 ) -> str:
-    """Upsert an experiment by (prompt_id, model_id) pair.
+    """Upsert an experiment by (prompt_id, prompt_version, model_id).
 
-    If an experiment with this exact (prompt, model) pair already exists (any
-    status, incl. archived/promoted), returns its existing experiment_id. Else
-    mints a new one with derived label `{prompt.label} × {model.label}`.
+    If an experiment with this exact (prompt, version, model) triple already
+    exists (any status, incl. archived/promoted), returns its existing
+    experiment_id. Else mints a new one with derived label
+    `{prompt.label} v{version} × {model.provider_model_id}`. Re-running after a
+    prompt tune (which bumps the version) therefore mints a distinct experiment.
 
     Both axes default to the project's active. Validates that referenced prompt
     and model exist (raises PromptNotFoundError / ModelNotFoundError otherwise).
@@ -101,7 +103,15 @@ async def create_experiment(
                     existing = Experiment(**json.loads(meta.read_text(encoding="utf-8")))
                 except (json.JSONDecodeError, OSError):
                     continue
-                if existing.prompt_id == pid_resolved and existing.model_id == mid_resolved:
+                # Upsert key includes prompt_version: re-running after a tune
+                # (which bumps the prompt's version) must mint a NEW experiment,
+                # not silently overwrite the older version's predictions under
+                # the same tab. Same content version → same experiment.
+                if (
+                    existing.prompt_id == pid_resolved
+                    and existing.model_id == mid_resolved
+                    and existing.prompt_version == prompt.version
+                ):
                     return existing.experiment_id
 
         # No match — mint new
@@ -109,8 +119,9 @@ async def create_experiment(
         now = _now_iso()
         ex = Experiment(
             experiment_id=new_id,
-            label=f"{prompt.label} × {model.provider_model_id}",
+            label=f"{prompt.label} v{prompt.version} × {model.provider_model_id}",
             prompt_id=pid_resolved,
+            prompt_version=prompt.version,
             model_id=mid_resolved,
             status="draft",
             created_at=now,
@@ -137,8 +148,8 @@ async def list_experiments(
 ) -> list[dict]:
     """Return summary rows for experiments in this project.
 
-    Each row: {experiment_id, label, prompt_id, model_id, status, created_at,
-               score | None}. Newest-first by created_at.
+    Each row: {experiment_id, label, prompt_id, prompt_version, model_id,
+               status, created_at, score | None}. Newest-first by created_at.
     """
     edir = experiments_dir(workspace, project_id)
     if not edir.exists():
@@ -160,6 +171,7 @@ async def list_experiments(
             "experiment_id": ex.experiment_id,
             "label": ex.label,
             "prompt_id": ex.prompt_id,
+            "prompt_version": ex.prompt_version,
             "model_id": ex.model_id,
             "status": ex.status,
             "created_at": ex.created_at,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ from app.workspace.lock import project_lock
 from app.workspace.paths import (
     project_json_path,
     prompt_path,
+    prompt_version_path,
+    prompt_versions_dir,
     prompts_dir,
 )
 
@@ -27,6 +30,32 @@ class PromptClearError(Exception):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _content_hash(schema: list[SchemaField], global_notes: str) -> str:
+    """Stable fingerprint of a prompt's *content* — schema + global_notes only.
+
+    Label is excluded on purpose: renaming a prompt is cosmetic and must not
+    bump its version. Used by `write_prompt` to decide whether a save is a real
+    change (bump) or a no-op (keep version)."""
+    payload = {
+        "schema": [f.model_dump(mode="json", exclude_none=True) for f in schema],
+        "global_notes": global_notes,
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
+
+
+def _snapshot_version(workspace: Path, project_id: str, pv: PromptVariant) -> None:
+    """Append `pv` to its prompt's version history (prompts/_versions/{id}/v{n}.json).
+
+    Idempotent per (prompt_id, version): re-snapshotting an existing version is a
+    harmless overwrite with identical content."""
+    vp = prompt_version_path(workspace, project_id, pv.prompt_id, pv.version)
+    prompt_versions_dir(workspace, project_id, pv.prompt_id).mkdir(
+        parents=True, exist_ok=True,
+    )
+    atomic_write_json(vp, pv.model_dump(mode="json", exclude_none=True))
 
 
 async def _resolve_prompt_id(workspace: Path, project_id: str, prompt_id: str | None) -> str:
@@ -70,6 +99,8 @@ async def write_prompt(
     - preserves prompt_id, label, derived_from, created_at; refreshes updated_at
     - refuses to overwrite a non-empty schema with an empty one unless
       allow_clear=True — guards against accidental wipes via agent tool calls
+    - versions content: bumps `version` + snapshots to prompts/_versions/ only
+      when schema/global_notes actually change; a no-op save keeps the version
     """
     if prompt_id is None:
         from app.workspace.migrate import migrate_project_if_needed
@@ -85,6 +116,20 @@ async def write_prompt(
                 f"refusing to clear non-empty schema on {resolved} "
                 f"({len(existing.schema)} fields → 0); pass allow_clear=True to override"
             )
+        # Version bookkeeping. First time versioning touches a legacy blob
+        # (content_hash is None), snapshot its current state so the pre-edit
+        # content isn't lost when we mutate the head in place.
+        existing_hash = existing.content_hash or _content_hash(
+            existing.schema, existing.global_notes,
+        )
+        if existing.content_hash is None:
+            _snapshot_version(
+                workspace, project_id,
+                existing.model_copy(update={"content_hash": existing_hash}),
+            )
+        new_hash = _content_hash(schema, global_notes)
+        changed = new_hash != existing_hash
+        new_version = existing.version + 1 if changed else existing.version
         updated = PromptVariant(
             prompt_id=existing.prompt_id,
             label=existing.label,
@@ -93,8 +138,12 @@ async def write_prompt(
             derived_from=existing.derived_from,
             created_at=existing.created_at,
             updated_at=_now_iso(),
+            version=new_version,
+            content_hash=new_hash,
         )
         atomic_write_json(pp, updated.model_dump(mode="json", exclude_none=True))
+        if changed:
+            _snapshot_version(workspace, project_id, updated)
     return resolved
 
 
@@ -180,9 +229,12 @@ async def create_prompt(
             derived_from=lineage,
             created_at=now,
             updated_at=now,
+            version=1,
+            content_hash=_content_hash(cloned_schema, cloned_notes),
         )
         prompts_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(prompt_path(workspace, project_id, new_id), pv.model_dump(mode="json", exclude_none=True))
+        _snapshot_version(workspace, project_id, pv)
     return new_id
 
 
@@ -276,10 +328,13 @@ async def import_prompt(
             derived_from=f"{src_slug}/{src_prompt_id}",
             created_at=now,
             updated_at=now,
+            version=1,
+            content_hash=_content_hash(src.schema, src.global_notes),
         )
         prompts_dir(workspace, into_slug).mkdir(parents=True, exist_ok=True)
         atomic_write_json(
             prompt_path(workspace, into_slug, new_id),
             pv.model_dump(mode="json", exclude_none=True),
         )
+        _snapshot_version(workspace, into_slug, pv)
     return new_id

@@ -172,6 +172,16 @@ def prompt_path(workspace: Path, slug: str, prompt_id: str) -> Path:
     return prompts_dir(workspace, slug) / f"{prompt_id}.json"
 
 
+def prompt_versions_dir(workspace: Path, slug: str, prompt_id: str) -> Path:
+    """Append-only snapshot history for one prompt. Lives under `prompts/` as a
+    DIR (not a `.json` file) so `list_prompts`' file-only scan skips it."""
+    return prompts_dir(workspace, slug) / "_versions" / prompt_id
+
+
+def prompt_version_path(workspace: Path, slug: str, prompt_id: str, version: int) -> Path:
+    return prompt_versions_dir(workspace, slug, prompt_id) / f"v{version}.json"
+
+
 def models_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "models"
 

@@ -345,3 +345,93 @@ async def test_delete_prompt_blocked_by_non_archived_experiment_reference(
     # after archive, the deletion succeeds
     await archive_experiment(workspace, pid, exp_id)
     await delete_prompt(workspace, pid, variant_id)
+
+
+# ── content versioning (M-versions) ────────────────────────────────────────
+
+
+async def test_write_prompt_bumps_version_on_content_change(workspace: Path) -> None:
+    """A real content change bumps version and snapshots; the head carries the
+    new version + a content_hash."""
+    from app.workspace.paths import prompt_version_path
+
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "a", "type": "string", "description": "d", "required": False},
+    ])
+    new_schema = [SchemaField(name="a", type=FieldType.STRING, description="changed!", required=False)]
+    await write_prompt(workspace, pid, prompt_id="pr_baseline", schema=new_schema)
+
+    pv = await read_prompt(workspace, pid, "pr_baseline")
+    assert pv.version == 2
+    assert pv.content_hash is not None
+    # legacy v1 (pre-change) + new v2 are both snapshotted
+    assert prompt_version_path(workspace, pid, "pr_baseline", 1).exists()
+    assert prompt_version_path(workspace, pid, "pr_baseline", 2).exists()
+    v1 = PromptVariant(**json.loads(prompt_version_path(workspace, pid, "pr_baseline", 1).read_text()))
+    assert v1.schema[0].description == "d"  # pre-change content preserved
+
+
+async def test_write_prompt_noop_keeps_version(workspace: Path) -> None:
+    """Re-saving identical content does not bump the version."""
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "a", "type": "string", "description": "d", "required": False},
+    ])
+    same = [SchemaField(name="a", type=FieldType.STRING, description="d", required=False)]
+    await write_prompt(workspace, pid, prompt_id="pr_baseline", schema=same)
+    pv = await read_prompt(workspace, pid, "pr_baseline")
+    assert pv.version == 1  # unchanged content → no bump
+    assert pv.content_hash is not None  # but legacy blob gets stamped
+
+
+async def test_write_prompt_label_change_alone_does_not_bump(workspace: Path) -> None:
+    """version tracks schema+global_notes, not the cosmetic label. write_prompt
+    preserves label, so this asserts the hash ignores it: a notes-only change
+    bumps, a re-save of identical content+notes does not."""
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "a", "type": "string", "description": "d", "required": False},
+    ])
+    same = [SchemaField(name="a", type=FieldType.STRING, description="d", required=False)]
+    # notes change → bump
+    await write_prompt(workspace, pid, prompt_id="pr_baseline", schema=same, global_notes="hello")
+    assert (await read_prompt(workspace, pid, "pr_baseline")).version == 2
+    # identical re-save → no bump
+    await write_prompt(workspace, pid, prompt_id="pr_baseline", schema=same, global_notes="hello")
+    assert (await read_prompt(workspace, pid, "pr_baseline")).version == 2
+
+
+async def test_create_experiment_after_tune_mints_new_experiment(workspace: Path) -> None:
+    """Re-running the same (prompt, model) after a tune bumps the prompt version,
+    so create_experiment mints a distinct experiment instead of upserting."""
+    from app.tools.experiment import create_experiment, read_experiment
+    from app.tools.model import read_model  # noqa: F401 — ensure model module import path
+    from app.workspace.atomic import atomic_write_json
+    from app.workspace.paths import model_path
+
+    pid = "p_test12345678"
+    _seed_active_project(workspace, pid, schema=[
+        {"name": "a", "type": "string", "description": "d", "required": False},
+    ])
+    atomic_write_json(model_path(workspace, pid, "m_default"), {
+        "model_id": "m_default", "label": "Default", "provider": "google",
+        "provider_model_id": "gemini-2.5-flash", "params": {}, "created_at": _now(),
+    })
+
+    eid_v1 = await create_experiment(workspace, pid)
+    assert (await read_experiment(workspace, pid, eid_v1)).prompt_version == 1
+
+    # tune the prompt → version 2
+    await write_prompt(
+        workspace, pid, prompt_id="pr_baseline",
+        schema=[SchemaField(name="a", type=FieldType.STRING, description="tuned", required=False)],
+    )
+    eid_v2 = await create_experiment(workspace, pid)
+    assert eid_v2 != eid_v1
+    ex_v2 = await read_experiment(workspace, pid, eid_v2)
+    assert ex_v2.prompt_version == 2
+    assert ex_v2.label == "Baseline v2 × gemini-2.5-flash"
+
+    # re-running v2 again is still an upsert (same version) → same id
+    assert await create_experiment(workspace, pid) == eid_v2
