@@ -9,6 +9,64 @@ import { describe, expect, it, vi } from 'vitest'
 
 import Composer from './Composer'
 
+describe('Composer draft persistence', () => {
+  it('same draftKey → text survives unmount/remount (chat → review → back)', () => {
+    const { unmount } = render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} draftKey="main:p_a:c1" />,
+    )
+    const ta = () => screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(ta(), { target: { value: '123' } })
+    // Opening a review doc unmounts ChatPanel + this composer.
+    unmount()
+    // Esc back → composer remounts with the same key.
+    render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} draftKey="main:p_a:c1" />,
+    )
+    expect(ta().value).toBe('123')
+  })
+
+  it('different draftKey → independent drafts (per conversation)', () => {
+    const { unmount } = render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} draftKey="main:p_a:c1" />,
+    )
+    const ta = () => screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(ta(), { target: { value: 'hello c1' } })
+    unmount()
+    // A different conversation's composer must not inherit c1's draft.
+    render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} draftKey="main:p_a:c2" />,
+    )
+    expect(ta().value).toBe('')
+  })
+
+  it('submit clears the persisted draft', () => {
+    const onSubmit = vi.fn()
+    const { unmount } = render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={onSubmit} draftKey="main:p_a:c3" />,
+    )
+    const ta = () => screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(ta(), { target: { value: 'sent message' } })
+    fireEvent.keyDown(ta(), { key: 'Enter' })
+    expect(onSubmit).toHaveBeenCalledWith('sent message')
+    unmount()
+    render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} draftKey="main:p_a:c3" />,
+    )
+    expect(ta().value).toBe('')
+  })
+
+  it('no draftKey → ephemeral, nothing persists across remount', () => {
+    const { unmount } = render(
+      <Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} />,
+    )
+    const ta = () => screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(ta(), { target: { value: 'transient' } })
+    unmount()
+    render(<Composer disabled={false} pending={[]} onAttach={vi.fn()} onSubmit={vi.fn()} />)
+    expect(ta().value).toBe('')
+  })
+})
+
 // --- Tiny FileSystemEntry mock harness -------------------------------------
 //
 // The entries API is `webkitGetAsEntry()` returning either a `FileSystemFileEntry`

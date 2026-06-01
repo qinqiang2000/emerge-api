@@ -63,6 +63,14 @@ const FAILED_INLINE_MAX = 6
 // value when a project has no models loaded yet (avoids a render loop).
 const EMPTY_ROWS: ModelRow[] = []
 
+// Module-level draft scratch, keyed by `draftKey` (conversation + surface).
+// The composer's `text` lives in component state, which dies whenever
+// ChatPanel unmounts — and ChatPanel *does* unmount when you open a review doc
+// (App swaps the center column to ReviewOverlay). Stashing the draft here lets
+// it survive that round-trip (chat → review → Esc back). Deliberately
+// in-memory only: a half-typed message shouldn't resurrect after a full reload.
+const draftStore = new Map<string, string>()
+
 interface PendingChip {
   filename: string
   /** 'uploading' / 'staging' = still in flight; 'uploaded' / 'staged' = ready;
@@ -120,6 +128,13 @@ interface Props {
    *  surfaces (drilldown, review side-chat) pass shorter copy so a long
    *  default doesn't wrap into a second line when width is narrow. */
   placeholder?: string
+  /** Persist the in-progress draft under this key so it survives the
+   *  composer's unmount (e.g. opening a review doc, which swaps ChatPanel out
+   *  for ReviewOverlay) and reload-free navigation back. Scope it per
+   *  conversation + surface so each chat keeps its own draft and the main
+   *  shell vs. compact side-chat don't bleed into each other. Omit (tests /
+   *  legacy) → the textarea behaves as plain ephemeral local state. */
+  draftKey?: string
 }
 
 // Per-chip status indicator. Lives next to the filename so the row reads
@@ -159,9 +174,12 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRemoveAll, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder }: Props) {
+export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRemoveAll, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder, draftKey }: Props) {
   const t = useT()
-  const [text, setText] = useState('')
+  // Seed from the persisted draft so a remount (chat → review → back) shows the
+  // half-typed message instead of an empty box. Write-through + key-swap are
+  // handled by the effect below.
+  const [text, setText] = useState(() => (draftKey ? draftStore.get(draftKey) ?? '' : ''))
   const [dragOver, setDragOver] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const [plusOpen, setPlusOpen] = useState(false)
@@ -426,6 +444,26 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     if (el.parentElement) ro.observe(el.parentElement)
     return () => ro.disconnect()
   }, [text])
+
+  // Draft persistence. Two jobs, disambiguated by whether `draftKey` changed:
+  //  - same key  → write-through the current text (empty clears the entry so
+  //                the store doesn't accumulate blank drafts).
+  //  - key swap  → load the new key's draft into the textarea. Happens when the
+  //                user switches chats without unmounting (the popover switch
+  //                keeps ChatPanel mounted), so each conversation keeps its own
+  //                draft. We `return` before the write-through so the freshly
+  //                loaded draft isn't clobbered by the outgoing key's text.
+  const draftKeyRef = useRef(draftKey)
+  useEffect(() => {
+    if (draftKeyRef.current !== draftKey) {
+      draftKeyRef.current = draftKey
+      setText(draftKey ? draftStore.get(draftKey) ?? '' : '')
+      return
+    }
+    if (!draftKey) return
+    if (text) draftStore.set(draftKey, text)
+    else draftStore.delete(draftKey)
+  }, [text, draftKey])
 
   // Reset active index when slash menu opens/closes
   useEffect(() => { setActiveIdx(0) }, [showSlash])

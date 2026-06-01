@@ -417,6 +417,11 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
         disabled={busy && !pendingAskUser}
         pending={pending.map(p => ({ filename: p.filename, status: p.status, error: p.error, kind: p.kind }))}
         focusOnMount={!compact}
+        // Persist the draft per conversation + surface so opening a review doc
+        // (which unmounts this panel) and Esc-ing back doesn't wipe a half-typed
+        // message. `compact` segregates the review/drilldown side-chat from the
+        // main shell so their drafts don't bleed.
+        draftKey={`${compact ? 'compact' : 'main'}:${selectedSlug ?? UNBOUND_SLUG}:${chatId}`}
         projectId={selectedSlug ?? undefined}
         unbound={!selectedSlug}
         onPromote={isUnbound ? handlePromote : undefined}
