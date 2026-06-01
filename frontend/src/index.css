@@ -556,7 +556,7 @@ html, body, #root {
    doesn't escape to the overlay root. Tighter padding too — the 56px the
    main shell uses doesn't fit in a 360–560px column. */
 .rev-chat-body .composer-wrap{padding:12px 14px 12px}
-.rev-chat-body .conv-scroll{padding:18px 14px 100px}
+.rev-chat-body .conv-scroll{padding:18px 14px 148px}
 .rev-chat-body .conv-inner{max-width:none}
 /* ChatPanel compact-mode placeholder (replaces EmptyHero in third column) */
 .chat-compact-empty{flex:1;display:flex;align-items:center;justify-content:center;padding:24px 14px;font-family:var(--serif);font-size:13px;font-style:italic;color:var(--ink-5);text-align:center;line-height:1.5}
