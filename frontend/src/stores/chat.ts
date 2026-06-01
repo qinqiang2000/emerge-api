@@ -928,6 +928,27 @@ async function _consumeStream(
   projectId: string,
   mintedPidRef: { value: string | null },
 ): Promise<{ streamEndedNaturally: boolean }> {
+  // A mid-turn disconnect (clean EOF or a transport error *before* `turn_end`)
+  // means the backend went away while the turn was still live — a crash,
+  // redeploy, or dev hot-reload bouncing the server mid-stream. Surface it as a
+  // visible error instead of silently re-enabling the composer (the old
+  // behaviour looked exactly like the agent "just stopped responding"), and arm
+  // `interrupted` so the next send rewinds the orphaned partial and retries —
+  // identical recovery to the Stop button. Guarded on focus: if the user
+  // navigated away the stream was aborted, not disconnected, so we never reach
+  // here for that chat.
+  const surfaceDisconnect = () => {
+    if (useChat.getState().chatId !== cid) return
+    useChat.setState(s => ({
+      events: [...s.events, {
+        type: 'error',
+        error_code: 'stream_disconnected',
+        error_message_en:
+          'Lost the connection to the agent before this turn finished. Send again to retry.',
+      }],
+      interrupted: true,
+    }))
+  }
   try {
     for await (const ev of attachStream(cid, turnId, {
       after_offset: afterOffset,
@@ -1062,15 +1083,21 @@ async function _consumeStream(
   } catch (e) {
     // User-initiated abort (`_detachStream` or `cancel`) surfaces as
     // AbortError — return cleanly so the caller can branch on
-    // `streamEndedNaturally=false`. Anything else propagates.
+    // `streamEndedNaturally=false`.
     const aborted = abortCtrl.signal.aborted
       || (e instanceof DOMException && e.name === 'AbortError')
       || (e instanceof Error && e.name === 'AbortError')
-    if (!aborted) throw e
-    return { streamEndedNaturally: false }
+    if (aborted) return { streamEndedNaturally: false }
+    // Any other error is a transport-level drop before `turn_end` (fetch
+    // reject / connection reset) — same class as the clean mid-turn EOF below.
+    console.warn('chat stream error before turn_end', e)
+    surfaceDisconnect()
+    return { streamEndedNaturally: true }
   }
-  // Iterator exhausted without seeing turn_end (shouldn't happen — registry
-  // always sends a sentinel — but treat as natural close).
+  // Iterator exhausted without seeing turn_end. The backend's stream route
+  // always closes a finished turn with a `turn_end` sentinel, so reaching here
+  // means the connection dropped while the turn was still live.
+  surfaceDisconnect()
   return { streamEndedNaturally: true }
 }
 

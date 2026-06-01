@@ -288,6 +288,46 @@ describe('chat store: send() split + lifecycle detach', () => {
 
     startTurnSpy.mockRestore()
   })
+
+  it('test_stream_disconnect_surfaces: mid-turn EOF without turn_end → error event + interrupted, not silent', async () => {
+    useChat.setState({ chatId: 'c_d000000001', loadedProjectId: 'p_d' })
+    localStorage.setItem('emerge.activeChatId.p_d', 'c_d000000001')
+
+    const startTurnSpy = vi.spyOn(turn, 'startTurn').mockResolvedValue({
+      turn_id: 't_drop',
+      status: 'running',
+    })
+
+    const sendP = useChat.getState().send('p_d', 'do a thing')
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+
+    // Agent streams a partial response, then the backend goes away mid-turn:
+    // the stream closes (null sentinel = clean EOF) BEFORE any turn_end.
+    pushEvent('t_drop', { event: 'agent_text', data: { text: 'partial work' } })
+    pushEvent('t_drop', null)
+
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await sendP
+
+    const after = useChat.getState()
+    // The partial agent_text is still there...
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /partial work/.test(e.text),
+    )).toBe(true)
+    // ...and the disconnect is now VISIBLE (not a silent re-enable).
+    expect(after.events.some(
+      e => e.type === 'error' && e.error_code === 'stream_disconnected',
+    )).toBe(true)
+    // Composer released; `interrupted` armed so the next send rewinds the
+    // orphaned partial and retries (same recovery as the Stop button).
+    expect(after.busy).toBe(false)
+    expect(after.interrupted).toBe(true)
+    // Inflight cleared — the dead turn isn't re-attachable.
+    expect(after.inflightTurnId).toBeNull()
+    expect(localStorage.getItem('turn:c_d000000001')).toBeNull()
+
+    startTurnSpy.mockRestore()
+  })
 })
 
 // T9 — cross-store invalidation: when a Bench-mutating tool succeeds, the
