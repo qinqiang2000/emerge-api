@@ -265,11 +265,22 @@ async def test_ingest_local_endpoint_imports_directory(
 
 
 async def test_ingest_local_endpoint_rejects_outside_allowlist(
-    workspace: Path, tmp_path: Path,
+    workspace: Path, tmp_path: Path, monkeypatch,
 ) -> None:
-    """No env override → tmp_path is NOT under the built-in defaults
-    (/tmp, ~/Downloads, ..., repo root), so the route must 400."""
-    src = tmp_path / "scans"
+    """A path outside the allowlist must 400.
+
+    The built-in defaults are pinned to a controlled dir (and the env extra-roots
+    cleared) so this is host-independent: relying on the *real* defaults made the
+    test flaky because macOS pytest tmp_path lives under `/private/tmp` == the
+    `/tmp` default root, which legitimately ADMITS it (→ 200, not 400)."""
+    import app.config as config_mod
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setattr(config_mod, "_default_ingest_roots", lambda: (allowed,))
+    monkeypatch.delenv("EMERGE_INGEST_LOCAL_EXTRA_ROOTS", raising=False)
+
+    src = tmp_path / "scans"  # sibling of `allowed`, so outside the allowlist
     src.mkdir()
     (src / "a.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
     pid = (await create_project(workspace, name="x"))["slug"]

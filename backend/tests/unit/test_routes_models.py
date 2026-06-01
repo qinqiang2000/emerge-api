@@ -21,11 +21,10 @@ def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -
     from app.tools.projects import create_project as _create
     from app.tools.model import create_model as _create_model
 
-    # Post-Phase-3 plan: m_default's label is just "Default" (no env-baked
-    # provider name suffix). The provider id lives on `provider_model_id`,
-    # which the UI renders separately.
-    default_label = "Default"
-
+    # The seeded default model is keyed by the stable id `m_default`; its *label*
+    # is the provider model id (e.g. "gemini-2.5-flash"), not the old engineering-
+    # internal "Default" wording (rewritten by migrate._backfill_m_default_label),
+    # so assert the active marker by model_id, not label.
     pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
     asyncio.run(_create_model(
         tmp_path, pid,
@@ -34,8 +33,9 @@ def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -
     r = client.get(f"/lab/projects/{pid}/models")
     assert r.status_code == 200
     rows = r.json()
+    by_id = {row["model_id"]: row for row in rows}
+    assert by_id["m_default"]["is_active"] is True
     by_label = {row["label"]: row for row in rows}
-    assert by_label[default_label]["is_active"] is True
     assert by_label["Sonnet 4.6"]["is_active"] is False
 
 

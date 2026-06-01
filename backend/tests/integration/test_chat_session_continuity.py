@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from claude_agent_sdk import AssistantMessage, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from fastapi.testclient import TestClient
 
 from app.chat.log import append_event, read_chat_session_id
@@ -19,6 +18,23 @@ from app.workspace.paths import chat_meta_path
 
 PID = "p_abc123def456"
 CID = "c_abc123def456"
+
+
+def _result_msg(session_id: str) -> ResultMessage:
+    """A successful terminal ResultMessage carrying the SDK session id.
+
+    The service captures the session id ONLY from `ResultMessage.session_id` (the
+    documented SDK contract — see service.py `_run_into_queue`); a bare object that
+    merely has a `.session_id` attribute is no longer honored. `is_error=False`
+    so it emits no SSE event, just seeds the resume sidecar."""
+    return ResultMessage(
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=1,
+        session_id=session_id,
+    )
 
 
 @pytest.fixture
@@ -87,7 +103,7 @@ def _reset_fakes() -> None:
 
 
 async def test_first_turn_persists_session_id(workspace: Path, project_skel: Path) -> None:
-    _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
+    _FAKE_MESSAGES.append(_result_msg("sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         await _drain(svc, slug=PID, chat_id=CID, user_message="hi")
@@ -102,7 +118,7 @@ async def test_first_turn_persists_session_id(workspace: Path, project_skel: Pat
 
 
 async def test_second_turn_resumes_prior_session(workspace: Path, project_skel: Path) -> None:
-    _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-abc"))
+    _FAKE_MESSAGES.append(_result_msg("sess-abc"))
     svc = _make_service(workspace)
     with patch("app.chat.service.ClaudeSDKClient", _FakeClient):
         await _drain(svc, slug=PID, chat_id=CID, user_message="first")
@@ -117,7 +133,7 @@ async def test_self_heal_on_dead_resume(workspace: Path, project_skel: Path) -> 
     from app.chat.log import write_chat_session_id
 
     write_chat_session_id(workspace, PID, CID, "sess-dead")
-    _FAKE_MESSAGES.append(SimpleNamespace(session_id="sess-new"))
+    _FAKE_MESSAGES.append(_result_msg("sess-new"))
 
     constructed: list[Any] = []
 
