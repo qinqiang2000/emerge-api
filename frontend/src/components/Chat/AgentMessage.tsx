@@ -23,10 +23,16 @@ export default function AgentMessage({ text }: Props) {
   // secondary key for the case where the agent shows the pre-dedupe name, but
   // navigation always uses the canonical on-disk `filename`.
   const selectedSlug = useProjects(s => s.selectedSlug)
-  const docs = useDocs(s => (selectedSlug ? s.byProject[selectedSlug] : undefined) ?? [])
+  // Select the raw stored array (or undefined) — DON'T `?? []` inside the
+  // selector: an empty-array literal is a fresh reference every render, which
+  // trips useSyncExternalStore's cached-snapshot contract and infinite-loops
+  // ("Maximum update depth exceeded"). This fires for new/empty projects and
+  // unbound chats where docs were never loaded (`byProject[slug]` undefined).
+  // Coalesce in the useMemo instead — same pattern as TaskChecklist.
+  const docs = useDocs(s => (selectedSlug ? s.byProject[selectedSlug] : undefined))
   const docNames = useMemo(() => {
     const m = new Map<string, string>()
-    for (const d of docs) {
+    for (const d of docs ?? []) {
       m.set(d.filename, d.filename)
       if (d.original_name && !m.has(d.original_name)) m.set(d.original_name, d.filename)
     }
