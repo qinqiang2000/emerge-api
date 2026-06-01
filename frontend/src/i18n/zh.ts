@@ -65,16 +65,18 @@ const zh: Dict = {
   'menu.mention.noDir': '目录不存在',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': '一个空文件夹，一个就绪的 agent，',
-  'empty.headline.em': '以及一摞 PDF。',
-  'empty.tagline': '把文档拖进来，告诉 agent 你想要什么。它会先推导 schema、跑第一轮提取，然后回来找你 review。',
-  'empty.init.hint': '从前几篇文档里推导 schema',
-  'empty.drop.headline': '把 PDF 或图片拖到这里',
-  'empty.drop.orRun': '或运行',
-  'empty.starters.label': '或试试说 ·',
-  'empty.starter.invoices': '从这些 PDF 里抽发票 — 供应商、合计、行项目',
-  'empty.starter.schemaThenEdit': '先给我一个 schema，我会改了再提取',
-  'empty.starter.contracts': '抽合同条款 — 双方、生效日期、续约条款',
+  'empty.headline.before': '给我几份文档，我就把它们变成',
+  'empty.headline.em': '一个能读懂它们的 API。',
+  'empty.tagline': '拖几份进来。我会抽出字段、把结果摆给你看，错的地方你纠正我 —— 你纠正得越多，我越准。觉得稳了，就发布成你系统能直接调用的 API。',
+  'empty.guide.title': '不确定从哪开始？',
+  'empty.guide.hint': '告诉我你手上有什么文档，我带你走一遍。',
+  'empty.guide.prompt': '我是新手 —— 手上有些文档要处理，但不太清楚怎么开始，带我走一遍。',
+  'empty.drop.headline': '把文档拖到这里',
+  'empty.drop.orRun': '或用下方的 + 添加',
+  'empty.starters.label': '或者直接跟我说 ·',
+  'empty.starter.fork': '基于我已有的项目改一个 —— 我不想从零定义每个字段',
+  'empty.starter.invoices': '从这些 PDF 里抽发票 —— 供应商、合计、行项目',
+  'empty.starter.schemaThenEdit': '先给我一份字段草稿，我改一改再开始提取',
 
   // ── relative time ──────────────────────────────────────────────────────
   'time.yesterday': '昨天',

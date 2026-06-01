@@ -65,16 +65,18 @@ const en: Dict = {
   'menu.mention.noDir': 'no such directory',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': 'An empty folder, a willing agent,',
-  'empty.headline.em': 'and a stack of PDFs.',
-  'empty.tagline': "Drop documents in. Tell the agent what you want. It'll derive a schema, run the first extractions, and come back to you for review.",
-  'empty.init.hint': 'derive a schema from the first few documents',
-  'empty.drop.headline': 'drop PDFs or images here',
-  'empty.drop.orRun': 'or run',
-  'empty.starters.label': 'or try saying ·',
-  'empty.starter.invoices': 'Extract invoices from these PDFs — vendor, totals, line items',
-  'empty.starter.schemaThenEdit': "Build me a schema, then I'll edit it before extraction",
-  'empty.starter.contracts': 'Pull contract terms — parties, effective date, renewal clause',
+  'empty.headline.before': "Show me a few documents and I'll turn them into",
+  'empty.headline.em': 'an API that reads them for you.',
+  'empty.tagline': "Drop a few in. I'll pull out the fields, show you what I found, and fix whatever I get wrong — the more you correct me, the sharper I get. When it's solid, publish it as an API your systems can call.",
+  'empty.guide.title': 'Not sure where to start?',
+  'empty.guide.hint': "Tell me what documents you have and I'll walk you through it.",
+  'empty.guide.prompt': "I'm new here — I've got some documents to process but I'm not sure where to begin. Walk me through it.",
+  'empty.drop.headline': 'Drag your documents here',
+  'empty.drop.orRun': 'or add them with the + below',
+  'empty.starters.label': 'or just tell me ·',
+  'empty.starter.fork': "Start from one of my existing projects — I don't want to define every field from scratch",
+  'empty.starter.invoices': 'Pull invoices out of these PDFs — vendor, totals, line items',
+  'empty.starter.schemaThenEdit': "Draft the fields first, I'll tweak them before we extract",
 
   // ── relative time (short labels) ───────────────────────────────────────
   'time.yesterday': 'yesterday',

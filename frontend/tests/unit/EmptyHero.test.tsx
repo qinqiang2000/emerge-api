@@ -20,16 +20,16 @@ describe('EmptyHero', () => {
     render(<EmptyHero onAttach={noop} onStarter={noop} />)
     expect(screen.getByRole('heading')).toBeInTheDocument()
     const h1 = screen.getByRole('heading')
-    expect(h1.textContent).toContain('An empty folder, a willing agent,')
-    expect(h1.textContent).toContain('and a stack of PDFs.')
+    expect(h1.textContent).toContain("Show me a few documents and I'll turn them into")
+    expect(h1.textContent).toContain('an API that reads them for you.')
     const em = h1.querySelector('em')
     expect(em).toBeTruthy()
-    expect(em?.textContent).toBe('and a stack of PDFs.')
+    expect(em?.textContent).toBe('an API that reads them for you.')
   })
 
   it('renders drop zone', () => {
     render(<EmptyHero onAttach={noop} onStarter={noop} />)
-    expect(screen.getByText('drop PDFs or images here')).toBeInTheDocument()
+    expect(screen.getByText('Drag your documents here')).toBeInTheDocument()
   })
 
   it('renders three starter buttons', () => {
@@ -40,48 +40,50 @@ describe('EmptyHero', () => {
     expect(starterButtons).toHaveLength(3)
   })
 
-  it('calls onStarter with correct text when starter clicked', async () => {
+  it('calls onStarter with the fork text when first starter clicked', async () => {
     const onStarter = vi.fn()
     render(<EmptyHero onAttach={noop} onStarter={onStarter} />)
     const starters = screen.getAllByRole('button').filter(b => b.classList.contains('starter'))
     await userEvent.click(starters[0])
     expect(onStarter).toHaveBeenCalledWith(
-      'Extract invoices from these PDFs — vendor, totals, line items',
+      "Start from one of my existing projects — I don't want to define every field from scratch",
     )
   })
 
-  it('calls onStarter with second starter text', async () => {
+  it('calls onStarter with the invoices text when second starter clicked', async () => {
     const onStarter = vi.fn()
     render(<EmptyHero onAttach={noop} onStarter={onStarter} />)
     const starters = screen.getAllByRole('button').filter(b => b.classList.contains('starter'))
     await userEvent.click(starters[1])
     expect(onStarter).toHaveBeenCalledWith(
-      "Build me a schema, then I'll edit it before extraction",
+      'Pull invoices out of these PDFs — vendor, totals, line items',
     )
   })
 
-  it('calls onStarter with third starter text', async () => {
+  it('calls onStarter with the draft-fields text when third starter clicked', async () => {
     const onStarter = vi.fn()
     render(<EmptyHero onAttach={noop} onStarter={onStarter} />)
     const starters = screen.getAllByRole('button').filter(b => b.classList.contains('starter'))
     await userEvent.click(starters[2])
     expect(onStarter).toHaveBeenCalledWith(
-      'Pull contract terms — parties, effective date, renewal clause',
+      "Draft the fields first, I'll tweak them before we extract",
     )
   })
 
-  it('calls onStarter with /init when invite chip is clicked', async () => {
+  it('calls onStarter with the guide prompt when the invite is clicked', async () => {
     const onStarter = vi.fn()
     render(<EmptyHero onAttach={noop} onStarter={onStarter} />)
-    const inviteChip = screen.getByRole('button', { name: /\/init/i })
-    await userEvent.click(inviteChip)
-    expect(onStarter).toHaveBeenCalledWith('/init')
+    const invite = screen.getByRole('button', { name: /not sure where to start/i })
+    await userEvent.click(invite)
+    expect(onStarter).toHaveBeenCalledWith(
+      "I'm new here — I've got some documents to process but I'm not sure where to begin. Walk me through it.",
+    )
   })
 
   it('calls onAttach when files are dropped on drop zone', () => {
     const onAttach = vi.fn()
     render(<EmptyHero onAttach={onAttach} onStarter={noop} />)
-    const dropZone = screen.getByText('drop PDFs or images here').closest('.drop')!
+    const dropZone = screen.getByText('Drag your documents here').closest('.drop')!
     const file = new File(['content'], 'test.pdf', { type: 'application/pdf' })
     fireEvent.drop(dropZone, {
       dataTransfer: { files: [file] },

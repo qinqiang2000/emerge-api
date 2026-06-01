@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { useT } from '../../i18n'
 
 const STARTER_KEYS = [
+  'empty.starter.fork',
   'empty.starter.invoices',
   'empty.starter.schemaThenEdit',
-  'empty.starter.contracts',
 ] as const
 
 interface Props {
@@ -50,13 +50,13 @@ export default function EmptyHero({
       <p>{t('empty.tagline')}</p>
       <div
         className="invite"
-        onClick={() => onStarter('/init')}
+        onClick={() => onStarter(t('empty.guide.prompt'))}
         role="button"
         tabIndex={0}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onStarter('/init') }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onStarter(t('empty.guide.prompt')) }}
       >
-        <span className="cmd">/init</span>
-        <span style={{ color: 'var(--ink-3)' }}>{t('empty.init.hint')}</span>
+        <span className="cmd">{t('empty.guide.title')}</span>
+        <span style={{ color: 'var(--ink-3)' }}>{t('empty.guide.hint')}</span>
         <span style={{ color: 'var(--ink-5)', marginLeft: 'auto' }}>↵</span>
       </div>
       <div
@@ -67,12 +67,7 @@ export default function EmptyHero({
         onDrop={handleDrop}
       >
         <b>{t('empty.drop.headline')}</b>
-        <span>
-          {t('empty.drop.orRun')}{' '}
-          <span style={{ color: 'var(--ochre-2)', fontWeight: 500 }}>
-            cp ~/Downloads/*.pdf docs/
-          </span>
-        </span>
+        <span>{t('empty.drop.orRun')}</span>
       </div>
       <div className="starters">
         <div className="lbl">{t('empty.starters.label')}</div>
