@@ -21,8 +21,11 @@ from app.tools.experiment import (
     read_experiment,
     run_experiment_eval,
 )
+from app.tools.ground import ground_entities, has_evidence
 from app.tools.model import ModelNotFoundError, read_model
 from app.tools.prompt import PromptNotFoundError
+from app.workspace.atomic import atomic_write_json
+from app.workspace.lock import project_lock
 from app.workspace.migrate import migrate_project_if_needed
 from app.workspace.paths import experiment_prediction_path, project_json_path
 
@@ -90,6 +93,104 @@ async def get_experiment_prediction(
             detail={"error_code": "experiment_prediction_not_found"},
         )
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+class _GroundExperimentBody(BaseModel):
+    """Re-ground an experiment prediction's EXISTING entities (no re-extract).
+    `force` re-runs even when the blob already carries evidence."""
+    force: bool = False
+
+
+@router.post(
+    "/lab/projects/{slug}/experiments/{experiment_id}/predictions/{filename:path}/ground",
+)
+async def ground_experiment_prediction(
+    slug: str, experiment_id: str, filename: str,
+    body: _GroundExperimentBody | None = None,
+) -> dict:
+    """Render-support: ground an experiment prediction's ALREADY-extracted
+    entities → per-field ``{page, source}`` evidence, cached back into the blob.
+
+    Distinct from ``POST .../predictions/{filename}`` (which RE-EXTRACTS — double
+    LLM call, mutates entities, slow enough to time the client out): this runs
+    only the single grounding pass over the existing entities and never touches
+    them. It is the experiment-tab analogue of ``/ground`` (whose ``_blob_path``
+    covers ``_draft``/``_pending`` only), letting un-grounded experiment blobs
+    catch up to the eager produce-time grounding without a re-extract.
+
+    Registered BEFORE ``run_experiment_prediction`` because that route's greedy
+    ``{filename:path}`` would otherwise swallow the ``/ground`` suffix.
+
+    NOT a @tool — like ``/ground`` and ``/locate`` it backs the review render
+    layer only (output is page + verbatim quote, NEVER coordinates). The symmetry
+    invariant enforces "@tool ⇒ route"; a route with no tool is legitimate and
+    needs no exempt entry. See app/api/routes/ground.py header + INSIGHTS.md #7.
+    """
+    body = body or _GroundExperimentBody()
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    safe_filename(filename)
+    try:
+        ex = await read_experiment(workspace, slug, experiment_id)
+    except ExperimentNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "experiment_not_found"},
+        )
+    path = experiment_prediction_path(workspace, slug, experiment_id, filename)
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "experiment_prediction_not_found"},
+        )
+    blob = json.loads(path.read_text(encoding="utf-8"))
+    if not body.force and has_evidence(blob):
+        return {"evidence": blob.get("_evidence") or []}
+    entities = blob.get("entities") or []
+    if not entities:
+        return {"evidence": []}
+
+    try:
+        model = await read_model(workspace, slug, ex.model_id)
+    except ModelNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "model_not_found", "error_message_en": str(exc)},
+        )
+    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
+    try:
+        evidence = await ground_entities(
+            workspace, slug, filename, entities,
+            provider=provider, model_id=model.provider_model_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — provider failure envelope
+        # Mirror the /ground route: a transient upstream blip (振兴 proxy →
+        # httpx.ConnectError) returns a structured 503 with `transient`, not a
+        # raw 500, so a retry-capable client knows to re-run.
+        from app.provider.retry import is_transient
+
+        transient = is_transient(exc)
+        raise HTTPException(
+            status_code=503 if transient else 502,
+            detail={
+                "error_code": (
+                    "ground_provider_unavailable" if transient
+                    else "ground_provider_failed"
+                ),
+                "error_message_en": str(exc) or type(exc).__name__,
+                "transient": transient,
+            },
+        ) from exc
+
+    # Write evidence back under the project lock: re-read so a concurrent save
+    # isn't clobbered, and only stamp when the entity count still lines up
+    # (mirror ground_prediction's write guard).
+    async with project_lock(workspace, slug):
+        current = json.loads(path.read_text(encoding="utf-8"))
+        if len(current.get("entities") or []) == len(entities):
+            current["_evidence"] = evidence
+            atomic_write_json(path, current)
+    return {"evidence": evidence}
 
 
 @router.post(

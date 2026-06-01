@@ -101,7 +101,7 @@ def _blob_path(workspace: Path, project_id: str, filename: str, tab: str) -> Pat
     raise ValueError(f"ground: unsupported tab {tab!r} (expected _draft or _pending)")
 
 
-def _has_evidence(blob: dict) -> bool:
+def has_evidence(blob: dict) -> bool:
     """True if the blob already carries non-empty per-entity evidence."""
     ev = blob.get("_evidence")
     if not isinstance(ev, list) or not ev:
@@ -267,7 +267,7 @@ async def ground_prediction(
     path = _blob_path(workspace, project_id, filename, tab)
     blob = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    if not force and blob is not None and _has_evidence(blob):
+    if not force and blob is not None and has_evidence(blob):
         return blob.get("_evidence") or []
 
     if entities is None:

@@ -17,11 +17,11 @@ import pytest
 from app.tools.docs import upload_doc
 from app.tools.ground import (
     _collapse,
-    _has_evidence,
     _reshape,
     _value_lines,
     _walk_values,
     ground_prediction,
+    has_evidence,
 )
 from app.tools.projects import create_project
 from app.tools.schema import write_schema
@@ -84,12 +84,12 @@ def test_reshape_always_matches_entity_count() -> None:
 
 
 def test_has_evidence_detects_signal() -> None:
-    assert _has_evidence({"_evidence": [{"a": {"page": 1, "source": None}}]}) is True
-    assert _has_evidence({"_evidence": [{"a": {"page": None, "source": "x"}}]}) is True
-    assert _has_evidence({"_evidence": [{"a": 2}]}) is True  # legacy int form
-    assert _has_evidence({"_evidence": [{"a": {"page": None, "source": None}}]}) is False
-    assert _has_evidence({"_evidence": []}) is False
-    assert _has_evidence({}) is False
+    assert has_evidence({"_evidence": [{"a": {"page": 1, "source": None}}]}) is True
+    assert has_evidence({"_evidence": [{"a": {"page": None, "source": "x"}}]}) is True
+    assert has_evidence({"_evidence": [{"a": 2}]}) is True  # legacy int form
+    assert has_evidence({"_evidence": [{"a": {"page": None, "source": None}}]}) is False
+    assert has_evidence({"_evidence": []}) is False
+    assert has_evidence({}) is False
 
 
 def test_value_lines_counts_only_present_scalars() -> None:
