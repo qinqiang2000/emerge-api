@@ -304,11 +304,15 @@ export default function FieldEditor({
                 onSetActiveField={handleSetActiveField}
                 onAdoptField={onAdoptField}
                 getEvidencePage={(p) =>
-                  // array-child paths are concrete-indexed (lines[2].name) but
-                  // evidence is keyed by the collapsed form (lines[].name) —
-                  // collapse the index before the lookup.
+                  // Grounding now keys array-child evidence by the CONCRETE row
+                  // path (lines[2].name) so each row carries its own page+quote.
+                  // Look up concrete-first; fall back to the collapsed form
+                  // (lines[].name) for legacy blobs grounded before that change.
                   evidencePageOf(
-                    evidenceForEntity?.[p.replace(/\[\d+\]/g, '[]')] as EvidenceValue | undefined,
+                    (evidenceForEntity?.[p] ??
+                      evidenceForEntity?.[p.replace(/\[\d+\]/g, '[]')]) as
+                      | EvidenceValue
+                      | undefined,
                   )}
               />
             ))}

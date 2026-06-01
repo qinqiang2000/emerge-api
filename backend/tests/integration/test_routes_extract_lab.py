@@ -103,7 +103,9 @@ async def test_extract_one_happy_path(workspace: Path, monkeypatch) -> None:
     # Side effect on disk — same path the tool wrapper writes to.
     pp = prediction_draft_path(workspace, slug, filename)
     assert pp.exists()
-    stub.extract.assert_awaited_once()
+    # Two provider calls: extraction + the eager grounding pass that warms
+    # `_evidence` into the draft blob.
+    assert stub.extract.await_count == 2
 
 
 def test_extract_one_404_on_unknown_slug() -> None:

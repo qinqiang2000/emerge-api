@@ -58,18 +58,24 @@ def test_collapse_array_index_to_locate_key() -> None:
     assert _collapse("currency") == "currency"
 
 
-def test_reshape_collapses_index_and_drops_empty_rows() -> None:
+def test_reshape_keeps_concrete_row_keys_and_drops_empty_rows() -> None:
     groundings = [
         {"entity": 0, "path": "currency", "page": 1, "source": "USD"},
+        # two rows of the SAME column, each with its OWN quote: must NOT collapse
+        # to one `lines[].name` key (which would last-row-win and make row 0
+        # inherit row 1's quote — the unitPrice→wrong-row bug).
         {"entity": 0, "path": "lines[0].name", "page": 1, "source": "Widget"},
+        {"entity": 0, "path": "lines[1].name", "page": 1, "source": "Gadget"},
         {"entity": 0, "path": "totalAmount", "page": None, "source": None},  # derived → drop
         {"entity": 9, "path": "x", "page": 1, "source": "y"},  # out-of-range → drop
     ]
     ev = _reshape(groundings, n_entities=1)
     assert len(ev) == 1
     assert ev[0]["currency"] == {"page": 1, "source": "USD"}
-    # index collapsed to locate's bracket key
-    assert ev[0]["lines[].name"] == {"page": 1, "source": "Widget"}
+    # concrete per-row keys preserved (locate keys evidence concrete-first)
+    assert ev[0]["lines[0].name"] == {"page": 1, "source": "Widget"}
+    assert ev[0]["lines[1].name"] == {"page": 1, "source": "Gadget"}
+    assert "lines[].name" not in ev[0]
     assert "totalAmount" not in ev[0]
 
 

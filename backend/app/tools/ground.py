@@ -175,7 +175,13 @@ def _reshape(groundings: list[dict], n_entities: int) -> list[dict[str, Any]]:
         path = row.get("path")
         if not isinstance(path, str) or not path or not (0 <= ent < n_entities):
             continue
-        path = _collapse(path)  # `detail[0].x` → `detail[].x` (locate evidence key)
+        # Keep the model's CONCRETE per-row path (`detail[0].x`, `detail[1].x`)
+        # so each array row carries its OWN page + quote. The previous
+        # `_collapse` to `detail[].x` merged every row under one key
+        # (last-row-wins): row 0 inherited row 1's quote and the highlight
+        # teleported to the wrong row (the unitPrice→10.4900 bug). locate keys
+        # evidence concrete-first (collapsed-fallback only for legacy blobs); the
+        # frontend p-chip lookup mirrors that.
         page = row.get("page")
         source = row.get("source")
         if page is None and not source:
@@ -185,6 +191,47 @@ def _reshape(groundings: list[dict], n_entities: int) -> list[dict[str, Any]]:
             "source": source if isinstance(source, str) and source.strip() else None,
         }
     return out
+
+
+async def ground_entities(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    entities: list[dict],
+    *,
+    provider: Provider,
+    model_id: str,
+) -> list[dict[str, Any]]:
+    """Resolve per-field grounding evidence for ``entities`` — pure compute, no
+    blob cache.
+
+    One grounding provider call over the doc: build the worklist, ask the model
+    for each value's ``{page, source}``, reshape to the per-entity
+    ``{path: {page, source}}`` list (length == ``len(entities)``). Caller supplies
+    the resolved ``provider`` + ``model_id`` (the active extract model, or the
+    experiment's model). Shared by the lazy/cached :func:`ground_prediction` and
+    by the eager extract / experiment write paths that stamp ``_evidence`` into
+    the prediction blob at produce time (so the LLM-free review render path always
+    finds warm evidence — see app/tools/locate.py and stores/locate.ts)."""
+    if not entities:
+        return []
+    worklist, n_items = _value_lines(entities)
+    if n_items == 0:
+        return [{} for _ in entities]
+
+    doc_block = await _doc_to_block(workspace, project_id, filename)
+    user_blocks: list[ContentBlock] = [
+        TextBlock(text="Values to locate in the document:\n" + worklist),
+        doc_block,
+    ]
+    result = await provider.extract(
+        model_id=model_id,
+        system_prompt=_GROUND_SYSTEM,
+        user_content=user_blocks,
+        response_schema=_groundings_response_schema(),
+    )
+    groundings = (result.raw_json or {}).get("groundings", [])
+    return _reshape(groundings if isinstance(groundings, list) else [], len(entities))
 
 
 async def ground_prediction(
@@ -232,10 +279,6 @@ async def ground_prediction(
     if not entities:
         return []
 
-    worklist, n_items = _value_lines(entities)
-    if n_items == 0:
-        return [{} for _ in entities]
-
     if model_id is None:
         mc = await read_active_model(workspace, project_id)
     else:
@@ -246,19 +289,9 @@ async def ground_prediction(
 
         provider = get_provider_for_model(mid, provider=mc.provider)
 
-    doc_block = await _doc_to_block(workspace, project_id, filename)
-    user_blocks: list[ContentBlock] = [
-        TextBlock(text="Values to locate in the document:\n" + worklist),
-        doc_block,
-    ]
-    result = await provider.extract(
-        model_id=mid,
-        system_prompt=_GROUND_SYSTEM,
-        user_content=user_blocks,
-        response_schema=_groundings_response_schema(),
+    evidence = await ground_entities(
+        workspace, project_id, filename, entities, provider=provider, model_id=mid
     )
-    groundings = (result.raw_json or {}).get("groundings", [])
-    evidence = _reshape(groundings if isinstance(groundings, list) else [], len(entities))
 
     # Cache into the tab blob only when it exists and lines up with what we
     # grounded (so grounding the merged `active` view doesn't stamp mismatched

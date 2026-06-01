@@ -27,16 +27,24 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
     did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
     await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
 
-    stub_provider.extract.return_value = make_provider_result(
-        {
-            "entities": [{"invoice_no": "INV-1", "total_amount": 1250.5}],
-            "_evidence": [{"invoice_no": 1, "total_amount": 1}],
-        }
-    )
+    # Two provider calls now: (1) extraction, then (2) eager grounding, which
+    # warms `_evidence` into the blob. The extract response carries NO `_evidence`
+    # (grounding owns it); the grounding response is the flat groundings shape.
+    stub_provider.extract.side_effect = [
+        make_provider_result(
+            {"entities": [{"invoice_no": "INV-1", "total_amount": 1250.5}]}
+        ),
+        make_provider_result(
+            {"groundings": [
+                {"entity": 0, "path": "invoice_no", "page": 1, "source": "INV-1"},
+            ]}
+        ),
+    ]
 
     out = await extract_one(workspace, pid, did, provider=stub_provider)
     assert out["entities"][0]["invoice_no"] == "INV-1"
-    assert out["_evidence"][0]["invoice_no"]["page"] == 1
+    # `_evidence` is produced by the eager grounding pass, not the extract response.
+    assert out["_evidence"][0]["invoice_no"] == {"page": 1, "source": "INV-1"}
 
     pred = json.loads((workspace / pid / "predictions" / "_draft" / f"{did}.json").read_text())
     assert pred == out
@@ -156,7 +164,8 @@ async def test_extract_one_reads_schema_from_active_prompt(
 
     out = await extract_one(workspace, pid, did, provider=stub_provider)
     assert out["entities"][0]["invoice_no"] == "X-1"
-    stub_provider.extract.assert_awaited_once()
+    # Two provider calls: extraction + the eager grounding pass.
+    assert stub_provider.extract.await_count == 2
 
 
 def test_response_schema_marks_all_fields_required_and_nullable() -> None:

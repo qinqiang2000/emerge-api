@@ -673,6 +673,92 @@ def test_array_child_per_row_distinct_values_resolve(monkeypatch):
     assert by["items[1].item"].rects == [[150, 130, 200, 142]]   # banana
 
 
+def test_array_child_per_row_quote_resolves_each_row(monkeypatch):
+    """Fix RC-A: each row's child must use its OWN source quote, keyed by the
+    CONCRETE row path (`lines[0].unitPrice`, `lines[1].unitPrice`).
+
+    The values repeat (both rows are 111) so value alone is ambiguous → the quote
+    is the disambiguator. With the old collapsed `lines[].unitPrice` key (one
+    last-row-wins quote shared by every row) BOTH rows landed on row 1's line.
+    With per-row concrete-key evidence, row 0 → its line, row 1 → its line."""
+    fields = [
+        SchemaField(
+            name="lines", type="array", description="rows",
+            items=SchemaField(
+                type="object", description="row",
+                properties=[SchemaField(name="unitPrice", type="number", description="p")],
+            ),
+        ),
+    ]
+    pages = {
+        1: [
+            _span("Row A 111.00 USD", bbox=(100, 100, 400, 112)),
+            _span("Row B 111.00 USD", bbox=(100, 200, 400, 212)),
+        ]
+    }
+    locs = _run(
+        [{"lines": [{"unitPrice": 111}, {"unitPrice": 111}]}],
+        [{
+            "lines[0].unitPrice": {"page": 1, "source": "Row A 111.00 USD"},
+            "lines[1].unitPrice": {"page": 1, "source": "Row B 111.00 USD"},
+        }],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    by = {l.path: l for l in locs}
+    assert by["lines[0].unitPrice"].status == "quote"
+    assert min(r[1] for r in by["lines[0].unitPrice"].rects) == 100   # Row A line
+    assert by["lines[1].unitPrice"].status == "quote"
+    assert min(r[1] for r in by["lines[1].unitPrice"].rects) == 200   # Row B line
+
+
+def test_numeric_value_beats_misgrounded_quote(monkeypatch):
+    """Fix RC-B: a numeric value that matches a single cell (modulo formatting:
+    8.165 ⇄ "8.1650") wins step-1 over a MISGROUNDED source quote that points at
+    a different row's cell ("10.4900"). The exact #4 bug: unitPrice 8.165 was
+    highlighting the adjacent row's 10.4900 because the trailing-zero format
+    demoted the value below 1.0, handing control to the wrong quote."""
+    fields = [SchemaField(name="unitPrice", type="number", description="p")]
+    pages = {
+        1: [
+            _span("8.1650", bbox=(300, 100, 360, 112)),    # the right cell
+            _span("10.4900", bbox=(300, 130, 360, 142)),   # adjacent row (the bad quote)
+        ]
+    }
+    locs = _run(
+        [{"unitPrice": 8.165}],
+        [{"unitPrice": {"page": 1, "source": "10.4900"}}],  # mis-grounded at wrong row
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].rects == [[300, 100, 360, 112]]   # 8.1650, not 10.4900
+
+
+def test_hintless_numeric_value_no_full_doc_scan(monkeypatch):
+    """Fix RC-C/RC-D guard: a bare number with NO page hint must NOT roam the
+    whole doc and land on the first spurious "0.00" (the tax=0 → page-1 jump, and
+    the un-grounded-tab "点哪错哪" explosion). Prefer none over a confident-wrong
+    page jump. (A distinctive string with no hint still scans — see
+    test_full_doc_scan_when_no_page_hint.)"""
+    fields = [SchemaField(name="tax", type="number", description="t")]
+    pages = {
+        1: [_span("0.00 USD", bbox=(10, 20, 110, 32))],
+        3: [_span("0.00 USD", bbox=(10, 20, 110, 32))],
+    }
+    locs = _run(
+        [{"tax": 0}],
+        [{"tax": {"page": None, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "none"
+    assert locs[0].rects == []
+
+
 def test_quote_coverage_is_union_not_sum(monkeypatch):
     """A line-item row carries the value twice (net + gross both '111.00 USD').
     Summed coverage would let it (2×) beat the real 'Total 111.00 USD' line; the

@@ -88,4 +88,23 @@ async def post_ground(
             status_code=400,
             detail={"error_code": "invalid_path", "error_message_en": str(e)},
         ) from e
+    except Exception as exc:  # noqa: BLE001 — provider failure envelope
+        # Grounding makes a provider call; a transient upstream blip (the flaky
+        # 振兴 proxy → httpx.ConnectError) used to escape as a raw 500. Mirror the
+        # extract route's envelope so the caller gets a structured, translatable
+        # error (and the `transient` flag tells a retry-capable client to re-run).
+        from app.provider.retry import is_transient
+
+        transient = is_transient(exc)
+        raise HTTPException(
+            status_code=503 if transient else 502,
+            detail={
+                "error_code": (
+                    "ground_provider_unavailable" if transient
+                    else "ground_provider_failed"
+                ),
+                "error_message_en": str(exc) or type(exc).__name__,
+                "transient": transient,
+            },
+        ) from exc
     return GroundResponse(evidence=evidence)

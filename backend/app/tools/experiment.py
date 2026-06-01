@@ -205,7 +205,7 @@ async def extract_with_experiment(
     model — the MCP wrapper / HTTP route uses get_provider_for_model(
     experiment.model.provider_model_id).
     """
-    from app.tools.extract import extract_one_with_schema
+    from app.tools.extract import _ground_payload, extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
 
@@ -227,6 +227,13 @@ async def extract_with_experiment(
 
     stamp = build_stamp("experiment", model, prompt)
     payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
+    # Eager grounding (same policy as the _draft path) so the experiment/compare
+    # tab carries warm `_evidence` and review highlights land right. Best-effort;
+    # grounds with the experiment's OWN model.
+    payload["_evidence"] = await _ground_payload(
+        workspace, project_id, filename, payload,
+        provider=provider, model_id=model.provider_model_id,
+    )
     async with project_lock(workspace, project_id):
         experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
             parents=True, exist_ok=True,
@@ -263,7 +270,7 @@ async def run_experiment_eval(
     """
     from app.eval.score import run_eval as eval_run_eval
     from app.eval.score import score as eval_score
-    from app.tools.extract import extract_one_with_schema
+    from app.tools.extract import _ground_payload, extract_one_with_schema
     from app.tools.model import read_model
     from app.tools.prompt import read_prompt
     from app.workspace.paths import (
@@ -318,6 +325,12 @@ async def run_experiment_eval(
 
             stamp = build_stamp("experiment", model, prompt)
             payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
+            # Eager grounding so the compare/review tab has warm evidence (see
+            # extract_with_experiment). Best-effort; experiment's own model.
+            payload["_evidence"] = await _ground_payload(
+                workspace, project_id, filename, payload,
+                provider=provider, model_id=model.provider_model_id,
+            )
             experiment_predictions_dir(workspace, project_id, experiment_id).mkdir(
                 parents=True, exist_ok=True,
             )

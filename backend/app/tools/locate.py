@@ -347,7 +347,17 @@ def _value_strength(
     if _field_type(field) in _NUMERIC_TYPES and value_dec is not None:
         for tok in _numeric_tokens(span_n):
             if tok == value_dec:
-                return (1.0, "exact") if span_n == value_n else (0.95, "normalized")
+                # Numeric token-equality IS value identity regardless of surface
+                # formatting (8.165 ⇄ "8.1650", 1500 ⇄ "1,500", 489.9 ⇄ "489.90").
+                # BOTH reach the top strength (1.0) so step-1 literal-value-first
+                # can win the right cell over a misleading source quote (the
+                # collapsed / arbitrary-row quote that used to scatter line-item
+                # highlights). A number that genuinely repeats across cells then
+                # ties at the top → ambiguous → none (numerics are never
+                # distinctive, so _select_cluster won't union them) → handed to the
+                # row-anchor / ordinal tie-break. The status keeps the
+                # exact/normalized label for telemetry / cluster ranking.
+                return (1.0, "exact") if span_n == value_n else (1.0, "normalized")
         return 0.0, "none"
 
     if _field_is_date(field):
@@ -678,6 +688,19 @@ async def _locate_one_field(
         hint-less field scans the whole doc. None when the value is absent,
         unmatched, or ambiguous on the searched page(s)."""
         if not has_value:
+            return None
+
+        # No page hint → _ordered_pages roams the WHOLE doc. A bare number or
+        # short value with no hint matches a spurious early-page token (tax=0 →
+        # page-1 "0.00"; quantity 60 → "Net 60 days"; and an entirely un-grounded
+        # tab makes EVERY field do this → "点哪错哪"). Confine the hint-less roam
+        # to a DISTINCTIVE value — a long non-numeric identifier that is the same
+        # entity wherever it appears; everything else with no hint stays none.
+        # Prefer no highlight over a confident-wrong page jump. Hinted fields are
+        # unaffected (they search only their page); once the blob is grounded
+        # every quoted field has a hint, so this only guards derived / un-grounded
+        # values.
+        if page_hint is None and not distinctive:
             return None
 
         def _vfn(txt: str) -> tuple[float, str]:

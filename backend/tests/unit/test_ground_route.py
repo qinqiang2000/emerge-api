@@ -80,3 +80,24 @@ def test_ground_prediction_not_found(client, monkeypatch):
     resp = client.post("/lab/projects/acme/docs/by-name/inv.pdf/ground", json={})
     assert resp.status_code == 404
     assert resp.json()["detail"]["error_code"] == "prediction_not_found"
+
+
+def test_ground_transient_provider_error_envelope(client, monkeypatch):
+    """A flaky-proxy ConnectError out of the grounding provider call must NOT
+    escape as a raw 500 — the route returns a structured envelope (503 +
+    `transient`) like the extract route, not an opaque error."""
+    import httpx
+
+    monkeypatch.setattr(ground_route, "doc_path", lambda ws, s, f: _ExistingPath())
+
+    async def fake_ground(ws, pid, fname, *, tab, entities, force):
+        raise httpx.ConnectError("")  # empty message — the 振兴 proxy blip
+
+    monkeypatch.setattr(ground_route, "ground_prediction", fake_ground)
+    resp = client.post("/lab/projects/acme/docs/by-name/inv.pdf/ground", json={})
+    assert resp.status_code == 503
+    body = resp.json()["detail"]
+    assert body["error_code"] == "ground_provider_unavailable"
+    assert body["transient"] is True
+    # empty str(exc) must not collapse to a blank message
+    assert body["error_message_en"] == "ConnectError"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -26,13 +27,21 @@ Output rules:
 
 Use the emit_extraction tool to return the result."""
 
-# Source-grounding (page + verbatim quote per field) is NOT requested here on
-# purpose: it is resolved by a separate grounding pass (app/tools/ground.py) run
-# lazily at review time. Folding it into this response_schema would either need
-# `additionalProperties` (which Gemini's OpenAPI-3.0 dialect rejects) or a full
-# mirror of the nested field shape — bloating the schema and risking extraction
-# adherence under constrained decoding. Keeping extraction clean protects value
-# accuracy; grounding owns its own flat schema. See 2026-05-29-grounding-pass.md.
+log = logging.getLogger(__name__)
+
+# Source-grounding (page + verbatim quote per field) is NOT part of THIS
+# response_schema on purpose: it is a SEPARATE provider call (app/tools/ground.py).
+# Folding it into this schema would either need `additionalProperties` (which
+# Gemini's OpenAPI-3.0 dialect rejects) or a full mirror of the nested field
+# shape — bloating the schema and risking extraction adherence under constrained
+# decoding. Keeping extraction clean protects value accuracy; grounding owns its
+# own flat schema. See 2026-05-29-grounding-pass.md.
+#
+# Grounding now runs EAGERLY right after the draft is produced (see extract_one),
+# warming `_evidence` into the blob at produce time. The review render path
+# (locate) stays LLM-free and just reads that warm evidence — it no longer
+# grounds lazily (that lazy path was dropped in 04a3730, leaving new predictions
+# un-grounded, which is what scattered the source highlights).
 
 
 def _build_response_schema(schema: list[SchemaField]) -> dict[str, Any]:
@@ -185,6 +194,16 @@ async def extract_one(
     stamp = build_stamp("baseline", mc, pv)
     payload["_run"] = stamp.model_dump(mode="json", exclude_none=False)
 
+    # Eager grounding: resolve per-field {page, source} evidence now and warm it
+    # into the blob, so the LLM-free review render path (locate) always finds a
+    # disambiguating anchor. Best-effort — a grounding failure (provider error,
+    # etc.) must NEVER fail the extraction; the blob just lands without
+    # `_evidence` and locate falls back to the value matcher (+ the hint-less
+    # distinctive-only guard). Reuses the same (provider, model) that extracted.
+    payload["_evidence"] = await _ground_payload(
+        workspace, project_id, filename, payload, provider=provider, model_id=mid
+    )
+
     async with project_lock(workspace, project_id):
         predictions_draft_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
         atomic_write_json(
@@ -192,6 +211,37 @@ async def extract_one(
             payload,
         )
     return payload
+
+
+async def _ground_payload(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    payload: dict[str, Any],
+    *,
+    provider: Provider,
+    model_id: str,
+) -> list[dict] | None:
+    """Best-effort per-field evidence for a just-produced prediction payload.
+
+    Returns the per-entity evidence list, or ``None`` on any failure (caller
+    stamps it onto the blob; ``None`` is omitted by ``exclude_none`` writers and
+    simply means "ungrounded"). Centralises the try/except + import so the draft
+    and experiment write paths share one resilient grounding step."""
+    try:
+        from app.tools.ground import ground_entities
+
+        return await ground_entities(
+            workspace,
+            project_id,
+            filename,
+            payload.get("entities") or [],
+            provider=provider,
+            model_id=model_id,
+        )
+    except Exception:
+        log.exception("grounding failed for %r; prediction lands without evidence", filename)
+        return None
 
 
 async def extract_one_with_schema(
