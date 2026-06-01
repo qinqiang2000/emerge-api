@@ -7,6 +7,42 @@ class RetryableError(Exception):
     """Marker exception. retry_async will catch and retry these."""
 
 
+# Substrings that mark an opaque SDK/API exception as a retryable
+# availability/gateway failure. Kept for the cases that arrive as a bare
+# `Exception` carrying the status in its text (google-genai wraps 429/503
+# into APIError, anthropic/codex surface the status in our own message).
+_TRANSIENT_HINTS = (
+    "rate", "429", "500", "502", "503", "504",
+    "timeout", "timed out", "disconnect", "remoteprotocol",
+    "incomplete", "connection reset", "connection refused",
+    "temporarily unavailable", "overloaded",
+)
+
+
+def is_transient(exc: BaseException) -> bool:
+    """True when `exc` is a retryable transport / upstream-availability failure.
+
+    Classify by EXCEPTION TYPE first: every `httpx.TransportError` subclass
+    (ConnectError, ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout,
+    RemoteProtocolError, ReadError, ...) is a network-layer blip worth a
+    retry. This is the robust path — a bare `httpx.ConnectError` from a flaky
+    proxy carries an EMPTY message, so the old substring-only check classified
+    it as permanent and gave up after one shot (the 振兴_testset proxy bug).
+
+    Fall back to substring sniffing for opaque SDK exceptions that aren't httpx
+    types but still encode a gateway status in their text.
+    """
+    try:
+        import httpx
+
+        if isinstance(exc, httpx.TransportError):
+            return True
+    except ImportError:  # httpx always present in prod; guard test envs
+        pass
+    msg = str(exc).lower()
+    return any(h in msg for h in _TRANSIENT_HINTS)
+
+
 T = TypeVar("T")
 
 

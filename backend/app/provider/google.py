@@ -12,7 +12,7 @@ from app.provider.base import (
     ProviderResult,
     TextBlock,
 )
-from app.provider.retry import RetryableError, retry_async
+from app.provider.retry import RetryableError, is_transient, retry_async
 
 
 class GoogleProvider(Provider):
@@ -85,19 +85,11 @@ class GoogleProvider(Provider):
                     ),
                 )
             except Exception as e:  # noqa: BLE001
-                msg = str(e).lower()
-                retryable = (
-                    "rate" in msg
-                    or "429" in msg
-                    or "503" in msg
-                    or "504" in msg
-                    or "timeout" in msg
-                    or "disconnect" in msg
-                    or "remoteprotocol" in msg
-                    or "incomplete" in msg
-                )
-                if retryable:
-                    raise RetryableError(str(e)) from e
+                if is_transient(e):
+                    # Preserve the type name — a bare httpx.ConnectError from a
+                    # flaky proxy has an empty str(), and an empty RetryableError
+                    # message is what surfaced to the agent as a blank failure.
+                    raise RetryableError(str(e) or type(e).__name__) from e
                 raise
 
             if not resp.text:

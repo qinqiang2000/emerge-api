@@ -93,6 +93,28 @@ async def test_extract_gives_up_after_retries(respx_mock: respx.MockRouter) -> N
 
 
 @pytest.mark.respx(base_url="https://api.anthropic.com")
+async def test_extract_retries_on_transport_connect_error(respx_mock: respx.MockRouter) -> None:
+    """A transport-layer ConnectError (flaky proxy) escapes the `async with`
+    un-classified — retry_async only retries RetryableError, so before the fix
+    it failed on the first shot. is_transient must catch it by TYPE and retry."""
+    payload = {"entities": []}
+    respx_mock.post("/v1/messages").mock(
+        side_effect=[
+            httpx.ConnectError(""),  # empty message — the proxy signature
+            httpx.Response(200, json=_tool_use_response(payload)),
+        ]
+    )
+    p = AnthropicProvider(api_key="sk-test", retry_base_delay=0.0)
+    result = await p.extract(
+        model_id="claude-sonnet-4-6",
+        system_prompt="x",
+        user_content=[TextBlock(text="x")],
+        response_schema=SCHEMA,
+    )
+    assert result.raw_json == payload
+
+
+@pytest.mark.respx(base_url="https://api.anthropic.com")
 async def test_extract_includes_document_block(respx_mock: respx.MockRouter) -> None:
     payload = {"entities": []}
     route = respx_mock.post("/v1/messages").mock(

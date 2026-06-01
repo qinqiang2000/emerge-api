@@ -18,7 +18,7 @@ from app.provider.base import (
     ProviderResult,
     TextBlock,
 )
-from app.provider.retry import RetryableError, retry_async
+from app.provider.retry import RetryableError, is_transient, retry_async
 
 
 _CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
@@ -251,27 +251,37 @@ class CodexCliProvider(Provider):
         async def _call() -> ProviderResult:
             token = await _resolve_codex_cli_access_token()
             events: list[dict[str, Any]] = []
-            async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/responses",
-                    json=body,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                ) as resp:
-                    if resp.status_code in (429, 502, 503, 504):
-                        text = (await resp.aread()).decode(errors="replace")
-                        raise RetryableError(f"codex {resp.status_code}: {text[:200]}")
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data:"):
-                            continue
-                        raw = line[5:].strip()
-                        if not raw or raw == "[DONE]":
-                            continue
-                        events.append(json.loads(raw))
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self._base_url}/responses",
+                        json=body,
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                        },
+                    ) as resp:
+                        if resp.status_code in (429, 502, 503, 504):
+                            text = (await resp.aread()).decode(errors="replace")
+                            raise RetryableError(f"codex {resp.status_code}: {text[:200]}")
+                        resp.raise_for_status()
+                        async for line in resp.aiter_lines():
+                            if not line or not line.startswith("data:"):
+                                continue
+                            raw = line[5:].strip()
+                            if not raw or raw == "[DONE]":
+                                continue
+                            events.append(json.loads(raw))
+            except RetryableError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # Transport-layer blip (ConnectError / ReadError / disconnect
+                # mid-stream) → classify by type so it retries rather than
+                # surfacing an opaque single-shot failure.
+                if is_transient(e):
+                    raise RetryableError(str(e) or type(e).__name__) from e
+                raise
             usage = _stream_usage(events)
             return ProviderResult(
                 raw_json=_extract_tool_payload_from_events(events),

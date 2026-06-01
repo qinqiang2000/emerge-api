@@ -59,6 +59,37 @@ def _chat_not_bound_error(tool_name: str) -> dict[str, Any]:
     }
 
 
+def _extract_provider_error(exc: Exception) -> dict[str, Any]:
+    """Structured envelope for an extract that died in the provider layer.
+
+    Without this, a raw provider exception propagated out of the tool body and
+    the SDK rendered it to the agent as an opaque `Command failed with no
+    output` — zero signal, so the agent debugged the *document* instead of
+    re-running it (the 振兴_testset turn-burn). We split two codes so the agent
+    can tell apart:
+      - `extract_provider_unavailable` (transient): flaky proxy / gateway —
+        the right move is just re-run THIS doc; the doc is fine.
+      - `extract_provider_failed` (permanent): bad schema / parse / config —
+        re-running won't help; surface to the user.
+    Mirrors the {ok, error:{error_code, error_message_en}} shape used by
+    `translate_page` / `label_docs`; `transient` is the agent's retry hint.
+    """
+    from app.provider.retry import is_transient
+
+    transient = is_transient(exc)
+    return {
+        "ok": False,
+        "error": {
+            "error_code": (
+                "extract_provider_unavailable" if transient
+                else "extract_provider_failed"
+            ),
+            "error_message_en": str(exc) or type(exc).__name__,
+            "transient": transient,
+        },
+    }
+
+
 def build_emerge_mcp(
     workspace: Path,
     provider: Provider,
@@ -691,10 +722,14 @@ def build_emerge_mcp(
         exp_provider = get_provider_for_model(
             model.provider_model_id, provider=model.provider,
         )
-        payload = await experiment_mod.extract_with_experiment(
-            workspace, args["slug"], args["experiment_id"], args["filename"],
-            provider=exp_provider,
-        )
+        try:
+            payload = await experiment_mod.extract_with_experiment(
+                workspace, args["slug"], args["experiment_id"], args["filename"],
+                provider=exp_provider,
+            )
+        except Exception as e:  # noqa: BLE001 — provider failure envelope
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _extract_provider_error(e), ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
 
     @tool(
@@ -820,9 +855,13 @@ def build_emerge_mcp(
             return {"content": [{"type": "text", "text": _json.dumps(
                 _chat_not_bound_error("extract_one")
             )}]}
-        out = await extract_mod.extract_one(
-            workspace, args["slug"], args["filename"], provider=provider
-        )
+        try:
+            out = await extract_mod.extract_one(
+                workspace, args["slug"], args["filename"], provider=provider
+            )
+        except Exception as e:  # noqa: BLE001 — provider failure envelope
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _extract_provider_error(e), ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": str(out)}]}
 
     @tool(

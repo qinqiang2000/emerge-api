@@ -12,7 +12,7 @@ from app.provider.base import (
     ProviderResult,
     TextBlock,
 )
-from app.provider.retry import RetryableError, retry_async
+from app.provider.retry import RetryableError, is_transient, retry_async
 
 
 _API_URL = "https://api.anthropic.com/v1/messages"
@@ -91,12 +91,22 @@ class AnthropicProvider(Provider):
             client_kwargs: dict[str, Any] = {"timeout": self._timeout, "trust_env": False}
             if self._proxy:
                 client_kwargs["proxy"] = self._proxy
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                resp = await client.post(_API_URL, json=body, headers=headers)
-                if resp.status_code in (429, 502, 503, 504):
-                    raise RetryableError(f"anthropic {resp.status_code}: {resp.text[:200]}")
-                resp.raise_for_status()
-                data = resp.json()
+            try:
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    resp = await client.post(_API_URL, json=body, headers=headers)
+                    if resp.status_code in (429, 502, 503, 504):
+                        raise RetryableError(f"anthropic {resp.status_code}: {resp.text[:200]}")
+                    resp.raise_for_status()
+                    data = resp.json()
+            except RetryableError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # Transport-layer blip (ConnectError / ReadError / proxy
+                # disconnect) carries an empty/opaque message — classify by
+                # type so it retries instead of failing on the first shot.
+                if is_transient(e):
+                    raise RetryableError(str(e) or type(e).__name__) from e
+                raise
             tool_use = next(
                 (c for c in data.get("content", []) if c.get("type") == "tool_use"),
                 None,

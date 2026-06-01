@@ -110,9 +110,28 @@ async def run_experiment_prediction(
         )
     model = await read_model(workspace, slug, ex.model_id)
     provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
-    payload = await extract_with_experiment(
-        workspace, slug, experiment_id, filename, provider=provider,
-    )
+    try:
+        payload = await extract_with_experiment(
+            workspace, slug, experiment_id, filename, provider=provider,
+        )
+    except Exception as exc:  # noqa: BLE001 — provider failure envelope
+        # Mirror the t_extract_with_experiment tool envelope so a CLI agent
+        # driving HTTP gets the same transient-vs-permanent signal instead of
+        # an opaque 500. Transient = flaky upstream (re-run the doc).
+        from app.provider.retry import is_transient
+
+        transient = is_transient(exc)
+        raise HTTPException(
+            status_code=503 if transient else 502,
+            detail={
+                "error_code": (
+                    "extract_provider_unavailable" if transient
+                    else "extract_provider_failed"
+                ),
+                "error_message_en": str(exc) or type(exc).__name__,
+                "transient": transient,
+            },
+        )
     return payload
 
 

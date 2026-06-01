@@ -77,6 +77,44 @@ async def test_extract_one_model_override_resolves_project_model_id(
     assert stub_provider.extract.await_args.kwargs["model_id"] == "gemini-3.5-flash"
 
 
+async def test_extract_one_tool_returns_envelope_on_transient_provider_error(
+    workspace: Path, stub_provider: AsyncMock
+) -> None:
+    """The 振兴_testset bug: a flaky proxy raised a bare httpx.ConnectError out
+    of the provider, which propagated through the MCP wrapper and the SDK
+    rendered it to the agent as an opaque `Command failed with no output`. The
+    wrapper must instead hand back a structured, agent-readable envelope whose
+    `transient` flag tells the agent to just re-run THIS doc."""
+    import httpx
+    import mcp.types as mcp_types
+    from unittest.mock import MagicMock
+    from app.tools import build_emerge_mcp
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+
+    # Bare ConnectError — empty message, exactly what the proxy produced.
+    stub_provider.extract.side_effect = httpx.ConnectError("")
+
+    server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=MagicMock())
+    call_handler = server["instance"].request_handlers[mcp_types.CallToolRequest]
+    req = mcp_types.CallToolRequest(
+        method="tools/call",
+        params=mcp_types.CallToolRequestParams(
+            name="extract_one", arguments={"slug": pid, "filename": did},
+        ),
+    )
+    result = await call_handler(req)
+    payload = json.loads(result.root.content[0].text)  # type: ignore[index]
+
+    assert payload["ok"] is False
+    assert payload["error"]["error_code"] == "extract_provider_unavailable"
+    assert payload["error"]["transient"] is True
+    # Empty str(exc) must not collapse to a blank message — preserve the type.
+    assert payload["error"]["error_message_en"] == "ConnectError"
+
+
 async def test_extract_one_invalid_json_returns_error(workspace: Path, stub_provider: AsyncMock) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]

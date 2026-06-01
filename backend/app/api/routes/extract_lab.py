@@ -113,6 +113,23 @@ async def post_extract_one(slug: str, body: _ExtractOneBody) -> dict:
             status_code=400,
             detail={"error_code": "invalid_arg", "error_message_en": str(exc)},
         )
+    except Exception as exc:  # noqa: BLE001 — provider failure envelope
+        # Mirror the t_extract_one tool envelope: transient upstream blip
+        # (flaky proxy/gateway) → 503 so the caller knows to re-run the doc.
+        from app.provider.retry import is_transient
+
+        transient = is_transient(exc)
+        raise HTTPException(
+            status_code=503 if transient else 502,
+            detail={
+                "error_code": (
+                    "extract_provider_unavailable" if transient
+                    else "extract_provider_failed"
+                ),
+                "error_message_en": str(exc) or type(exc).__name__,
+                "transient": transient,
+            },
+        )
     return payload
 
 
