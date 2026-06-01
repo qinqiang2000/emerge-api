@@ -538,6 +538,26 @@ def _cluster_hits(
     return out
 
 
+def _rects_overlap(a: list[list[float]], b: list[list[float]]) -> bool:
+    """True if any rect in ``a`` intersects any rect in ``b`` (2D bbox overlap).
+
+    Tells whether the value-first match and the source-quote line anchor point at
+    the SAME place. When they do NOT, a quote that literally contains the value is
+    the model's testimony that the value-first hit is a duplicate elsewhere (the
+    bare value in a D/O-No. cell vs the quoted "NO: <inv>" invoice header)."""
+    for ra in a:
+        if len(ra) < 4:
+            continue
+        ax0, ay0, ax1, ay1 = ra[0], ra[1], ra[2], ra[3]
+        for rb in b:
+            if len(rb) < 4:
+                continue
+            bx0, by0, bx1, by1 = rb[0], rb[1], rb[2], rb[3]
+            if not (ax1 < bx0 or bx1 < ax0 or ay1 < by0 or by1 < ay0):
+                return True
+    return False
+
+
 def _select_cluster(
     clusters: list[dict],
     *,
@@ -715,18 +735,13 @@ async def _locate_one_field(
 
     value_sel = await _value_locate()
 
-    # ---- 1. literal full-value identity first ---------------------------------
-    # A full-span-equal value match (score 1.0) — or a distinctive-repeat union of
-    # them — is the most trustworthy anchor there is. It outranks the source quote,
-    # which the model sometimes points at a logo / letterhead / abbreviation (e.g.
-    # billFromName quoted as "AIRBUS" while the real company line sits unmatched).
-    if value_sel is not None and value_sel["score"] >= 1.0 - _DOMINANCE_EPS:
-        return _result(
-            value_sel["status"], value_sel["score"] * 100.0, value_sel["rects"], value_sel["page"]
-        )
-
-    # ---- 2. source quote: disambiguates a value that repeats / isn't literal ----
+    # Resolve the source-quote line anchor ONCE (the corroboration gate below and
+    # the step-3 quote fallback both read it). Mirrors the old inline step-2 loop:
+    # the first page carrying a single dominant ≥coverage line wins; a page that
+    # carries the quote only ambiguously stops the scan (no anchor → fall to value).
     quote_n = _nfkc(source_quote) if source_quote else ""
+    quote_sel: Optional[dict] = None
+    quote_pg: Optional[int] = None
     if quote_n:
         for pg in _ordered_pages():
             spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
@@ -739,11 +754,54 @@ async def _locate_one_field(
             ]
             sel = _select_cluster(clusters)
             if sel is not None:
-                return _result("quote", sel["score"] * 100.0, sel["rects"], pg)
+                quote_sel, quote_pg = sel, pg
+                break
             if clusters:
-                break  # quote present on this page but ambiguous → fall to value
+                break  # quote present on this page but ambiguous → no anchor
 
-    # ---- 3. non-literal value fallback (substring / normalized / fuzzy) --------
+    # ---- 1. corroborated quote anchor (narrow override of value-first) --------
+    # Fire ONLY when value-first is about to light up a full-span-equal hit on a
+    # line the model did NOT quote, while a source quote that literally CONTAINS
+    # the value resolves to a single OTHER line. That is exactly the repeated-value
+    # bug: invoice number "KB060162" sits full-span (score 1.0) in a D/O-No. cell
+    # *and* as a substring (0.9) inside the quoted "NO: KB060162" header, so the
+    # bare cell would win value-first and the highlight teleports to the wrong row.
+    # The model's own verbatim quote pinpoints which occurrence it read.
+    #
+    # Every guard keeps the blast radius to that one case:
+    #   • `value_n in quote_n` — the quote really contains the value. Preserves the
+    #     misleading-quote case value-first was built for (billFromName quoted as
+    #     the logo "AIRBUS" while the real company line sits elsewhere — the quote
+    #     does NOT contain "Airbus Operations GmbH"), so we fall through unchanged.
+    #   • `not _rects_overlap(...)` — value-first and the quote point at DIFFERENT
+    #     places. When they coincide (the common label:value-on-one-line field),
+    #     this is False and behaviour is byte-identical to before (value-first
+    #     wins, value-only rect, status "exact").
+    if (
+        quote_sel is not None
+        and value_sel is not None
+        and value_sel["score"] >= 1.0 - _DOMINANCE_EPS
+        and has_value and value_n and value_n in quote_n
+        and not _rects_overlap(value_sel["rects"], quote_sel["rects"])
+    ):
+        return _result("quote", quote_sel["score"] * 100.0, quote_sel["rects"], quote_pg)
+
+    # ---- 2. literal full-value identity ---------------------------------------
+    # A full-span-equal value match (score 1.0) — or a distinctive-repeat union of
+    # them — is the most trustworthy anchor when the quote does NOT corroborate a
+    # single OTHER line. It outranks the (uncorroborated) source quote, which the
+    # model sometimes points at a logo / letterhead / abbreviation (billFromName
+    # quoted as "AIRBUS" while the real company line sits unmatched).
+    if value_sel is not None and value_sel["score"] >= 1.0 - _DOMINANCE_EPS:
+        return _result(
+            value_sel["status"], value_sel["score"] * 100.0, value_sel["rects"], value_sel["page"]
+        )
+
+    # ---- 3. source quote: disambiguates a value that repeats / isn't literal ----
+    if quote_sel is not None:
+        return _result("quote", quote_sel["score"] * 100.0, quote_sel["rects"], quote_pg)
+
+    # ---- 4. non-literal value fallback (substring / normalized / fuzzy) --------
     if value_sel is not None:
         return _result(
             value_sel["status"], value_sel["score"] * 100.0, value_sel["rects"], value_sel["page"]

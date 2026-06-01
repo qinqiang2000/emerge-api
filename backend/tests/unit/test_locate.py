@@ -448,6 +448,38 @@ def test_exact_value_beats_wrong_logo_quote(monkeypatch):
     assert locs[0].rects == [[425, 745, 535, 754]]  # company line, not the logo
 
 
+def test_corroborated_quote_beats_offline_value_duplicate(monkeypatch):
+    """A repeated value whose source quote names the RIGHT line must land there,
+    not on a full-span duplicate elsewhere.
+
+    The #14 KB060162 bug: the invoice number sits full-span (score 1.0) in a
+    D/O-No. cell *and* as a substring (0.9) inside the quoted "NO: KB060162"
+    header. Value-first alone picks the bare cell (1.0 > 0.9) and the highlight
+    teleports to the wrong row. Because the quote literally CONTAINS the value and
+    resolves to a DIFFERENT line than the value-first hit, the quote anchor wins —
+    boxing the header line. (Contrast test_exact_value_beats_quote, where the
+    value-first hit sits ON the quote line → overlap → value-first kept; and
+    test_exact_value_beats_wrong_logo_quote, where the quote does NOT contain the
+    value → value-first kept.)"""
+    fields = [SchemaField(name="invoiceNumber", type="string", description="n")]
+    pages = {
+        1: [
+            _span("NO: KB060162", bbox=(300, 40, 460, 52)),     # invoice header line
+            _span("KB060162", bbox=(240, 320, 300, 334)),        # D/O-No. cell (duplicate)
+        ]
+    }
+    locs = _run(
+        [{"invoiceNumber": "KB060162"}],
+        [{"invoiceNumber": {"page": 1, "source": "NO: KB060162"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "quote"
+    assert locs[0].page == 1
+    assert locs[0].rects == [[300, 40, 460, 52]]  # header line, not the D/O cell
+
+
 def test_ordinal_tiebreak_twin_totals(monkeypatch):
     """Two fields share one identical quote ("Total 111.00 USD" — net == grand
     because tax is 0) that matches exactly two equally-good lines. Neither value
