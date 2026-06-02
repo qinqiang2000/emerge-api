@@ -3,9 +3,10 @@ import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEve
 import { listProjectTree, type TreeEntry } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
 import { useModels, type ModelRow } from '../../stores/models'
+import { usePrompts, type PromptRow } from '../../stores/prompts'
 import { useT } from '../../i18n'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
-import { RESOURCE_SOURCES, modelCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
+import { RESOURCE_SOURCES, modelCandidates, promptCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
 import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
@@ -59,9 +60,10 @@ const UPLOAD_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 const BULK_THRESHOLD = 8
 const FAILED_INLINE_MAX = 6
 
-// Stable empty array so the models selector returns a referentially-stable
-// value when a project has no models loaded yet (avoids a render loop).
+// Stable empty arrays so selectors return referentially-stable values when
+// a project has no entries loaded yet (avoids render loops).
 const EMPTY_ROWS: ModelRow[] = []
+const EMPTY_PROMPT_ROWS: PromptRow[] = []
 
 // Module-level draft scratch, keyed by `draftKey` (conversation + surface).
 // The composer's `text` lives in component state, which dies whenever
@@ -330,16 +332,22 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     projectId && projectId !== 'p_unset' ? (s.list[projectId] ?? EMPTY_ROWS) : EMPTY_ROWS,
   )
   const modelsLoading = useModels(s => (projectId ? !!s.loading[projectId] : false))
-  // Lazy-load the models list the first time a mention menu opens in a project
+  const promptRows = usePrompts(s =>
+    projectId && projectId !== 'p_unset' ? (s.list[projectId] ?? EMPTY_PROMPT_ROWS) : EMPTY_PROMPT_ROWS,
+  )
+  const promptsLoading = usePrompts(s => (projectId ? !!s.loading[projectId] : false))
+  // Lazy-load models + prompts the first time a mention menu opens in a project
   // — idempotent + cached in the store, so re-opens don't refetch.
   useEffect(() => {
     if (!showMention || !hasProject || !projectId || projectId === 'p_unset') return
     void useModels.getState().load(projectId)
+    void usePrompts.getState().load(projectId)
   }, [showMention, hasProject, projectId])
   const allModelCands = useMemo(() => modelCandidates(modelRows), [modelRows])
+  const allPromptCands = useMemo(() => promptCandidates(promptRows), [promptRows])
   const candsByKind = useMemo<Record<string, MentionCandidate[]>>(
-    () => ({ model: allModelCands }),
-    [allModelCands],
+    () => ({ model: allModelCands, prompt: allPromptCands }),
+    [allModelCands, allPromptCands],
   )
 
   // The single ordered/filtered list the menu renders and the keyboard handler
@@ -369,11 +377,12 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     return items
   }, [mentionToken, scopedSource, projectMatches, mentionMatches, candsByKind])
 
-  // Show the spinner while the file tree is fetching, or while a `@models/`
-  // drill is waiting on the (usually-cached) models store.
+  // Show the spinner while the file tree is fetching, or while a scoped
+  // resource drill is waiting on its (usually-cached) store.
   const menuLoading =
     mentionLoading ||
-    (!!scopedSource && scopedSource.kind === 'model' && modelsLoading && allModelCands.length === 0)
+    (!!scopedSource && scopedSource.kind === 'model' && modelsLoading && allModelCands.length === 0) ||
+    (!!scopedSource && scopedSource.kind === 'prompt' && promptsLoading && allPromptCands.length === 0)
 
   // Lazy fetch: when the active dir changes (or projectId changes), pull entries
   // from cache or hit `/lab/projects/{slug}/tree?dir=…`. 404 → "no such directory".

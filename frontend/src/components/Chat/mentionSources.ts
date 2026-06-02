@@ -11,9 +11,10 @@
 // one shape here: a `ResourceSource` descriptor + a `MentionCandidate[]`
 // builder. Adding a kind = one entry below + one store-hook line in Composer,
 // with zero changes to the menu or keyboard handling.
-import { Sparkles, type LucideIcon } from 'lucide-react'
+import { Sparkles, BookOpen, type LucideIcon } from 'lucide-react'
 
 import type { ModelRow } from '../../stores/models'
+import type { PromptRow } from '../../stores/prompts'
 
 /** A single pickable row produced by a resource source. `insert` is the text
  *  placed after the leading `@` (no trailing space); the composer wraps it as
@@ -47,8 +48,15 @@ export const MODELS_SOURCE: ResourceSource = {
   scope: 'models',
 }
 
+export const PROMPTS_SOURCE: ResourceSource = {
+  kind: 'prompt',
+  label: 'prompts',
+  icon: BookOpen,
+  scope: 'prompts',
+}
+
 /** All registered resource sources, in menu display order. */
-export const RESOURCE_SOURCES: ResourceSource[] = [MODELS_SOURCE]
+export const RESOURCE_SOURCES: ResourceSource[] = [MODELS_SOURCE, PROMPTS_SOURCE]
 
 /** Build model candidates from loaded store rows. Models are addressed by
  *  `provider_model_id` — the semantic name the user and the spine both see —
@@ -59,6 +67,17 @@ export function modelCandidates(rows: ModelRow[]): MentionCandidate[] {
     display: r.provider_model_id,
     sublabel: r.provider,
     insert: `${MODELS_SOURCE.scope}/${r.provider_model_id}`,
+  }))
+}
+
+/** Build prompt candidates from loaded store rows. Active prompt gets a
+ *  sublabel so the user can tell at a glance which one is currently live. */
+export function promptCandidates(rows: PromptRow[]): MentionCandidate[] {
+  return rows.map((r) => ({
+    key: r.prompt_id,
+    display: r.label,
+    sublabel: r.is_active ? 'active' : undefined,
+    insert: `${PROMPTS_SOURCE.scope}/${r.prompt_id}`,
   }))
 }
 
