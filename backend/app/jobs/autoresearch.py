@@ -16,8 +16,10 @@ from app.schemas.schema_field import SchemaField
 from app.tools.extract import extract_one_with_schema
 from app.tools.model import ModelNotFoundError, read_active_model, read_model
 from app.tools.score import score
+from app.tools.prompt import _content_hash
 from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import candidate_dir, candidate_turn_path
+from app.workspace.paths import doc_content_sha, eval_extract_cache_path
 from app.workspace.paths import project_json_path, reviewed_dir
 
 
@@ -457,15 +459,49 @@ async def score_with_schema(
     # caps in-flight calls (`eval_extract_concurrency`) to stay under provider
     # rate limits; set it to 1 to recover the old strictly-sequential pass.
     filenames = list(reviewed)
-    sem = asyncio.Semaphore(max(1, get_settings().eval_extract_concurrency))
+    settings = get_settings()
+    sem = asyncio.Semaphore(max(1, settings.eval_extract_concurrency))
+
+    # Baseline cache (content-addressed): key = (schema_hash, model_id,
+    # doc_sha). `schema` here is an in-memory list[SchemaField] candidate — no
+    # prompt_id — so we fingerprint it on the fly via `_content_hash`. This
+    # extract path doesn't pass global_notes (extract_one_with_schema defaults
+    # to ""), so we hash with "" too; routing through `_content_hash` anyway
+    # keeps the key correct if global_notes ever starts flowing here.
+    cache_on = settings.eval_cache
+    schema_hash = _content_hash(schema, "") if cache_on else ""
 
     async def _extract(filename: str) -> tuple[str, list[dict[str, Any]]]:
+        if cache_on:
+            # Cache lookup happens OUTSIDE the semaphore — a hit costs no
+            # provider slot, so hits never block live extracts. Content
+            # addressing makes same-key concurrent writes idempotent (atomic
+            # replace), so no extra lock is needed alongside the gather.
+            try:
+                doc_sha = doc_content_sha(workspace, project_id, filename)
+            except OSError:
+                doc_sha = None
+            if doc_sha is not None:
+                cache_p = eval_extract_cache_path(
+                    workspace, project_id, schema_hash, model_id, doc_sha,
+                )
+                if cache_p.exists():
+                    try:
+                        cached = json.loads(cache_p.read_text())
+                        return filename, cached.get("entities", [])
+                    except (OSError, json.JSONDecodeError):
+                        pass  # treat a corrupt cache entry as a miss
         async with sem:
             out = await extract_one_with_schema(
                 workspace, project_id, filename,
                 schema=schema, provider=provider, model_id=model_id,
             )
-        return filename, out.get("entities", [])
+        entities = out.get("entities", [])
+        if cache_on and doc_sha is not None:
+            # Store only the predictions entities — no bbox / coordinates /
+            # document body ever lands in the lab cache (red line).
+            atomic_write_json(cache_p, {"entities": entities})
+        return filename, entities
 
     pairs = await asyncio.gather(*(_extract(f) for f in filenames))
     predictions: dict[str, list[dict[str, Any]]] = {f: ents for f, ents in pairs}

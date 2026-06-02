@@ -379,6 +379,39 @@ def eval_judge_cache_path(workspace: Path, slug: str, sha256_hex: str) -> Path:
     return eval_judge_cache_dir(workspace, slug) / f"{sha256_hex}.json"
 
 
+def eval_extract_cache_dir(
+    workspace: Path, slug: str, schema_hash: str, model_id: str,
+) -> Path:
+    """Baseline-cache root for the autoresearch / tune inner-loop eval pass:
+    `projects/{slug}/.eval_cache/{schema_hash}/{model_safe}/`.
+
+    Content-addressed by (schema_hash, extract_model_id) on the dir, then by
+    doc_content_sha on the leaf file — see `eval_extract_cache_path`. Unlike
+    the `.cache/` render/textlayer/translate families this is **project-scoped**
+    (the schema is a project's lab-editing artifact, not a pure function of doc
+    bytes) and lives under the project dir as a dotfile so `docs/*` / version
+    scanners skip it. Never copied into `versions/` or prod (red line: lab-side
+    only). `model_id` is collapsed through `_safe_model_segment` so a Gemini
+    `models/...` resource path can't smuggle a separator into the path."""
+    return (
+        project_dir(workspace, slug)
+        / ".eval_cache"
+        / schema_hash
+        / _safe_model_segment(model_id)
+    )
+
+
+def eval_extract_cache_path(
+    workspace: Path, slug: str, schema_hash: str, model_id: str, doc_sha: str,
+) -> Path:
+    """Per-doc baseline-cache leaf: `.../{doc_sha}.json`. Holds only the
+    predictions `entities` list for that doc under the given schema+model —
+    no bbox / coordinates / document body (red line)."""
+    return eval_extract_cache_dir(
+        workspace, slug, schema_hash, model_id,
+    ) / f"{doc_sha}.json"
+
+
 def jobs_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "jobs"
 

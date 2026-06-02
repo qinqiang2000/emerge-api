@@ -37,6 +37,72 @@ async def test_score_with_schema_runs_extract_then_score(workspace: Path) -> Non
     assert predictions == {filename: [{"invoice_no": "INV-1"}]}
 
 
+async def test_score_with_schema_caches_baseline_extract(workspace: Path) -> None:
+    """Second eval pass over an unchanged (schema, model, docs) triple hits the
+    baseline cache and skips the provider entirely — same predictions out."""
+    pid = (await create_project(workspace, name="t"))["slug"]
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    meta = await upload_doc(workspace, pid, pdf, "a.pdf")
+    filename = meta["filename"]
+    await save_reviewed(
+        workspace, pid, filename,
+        entities=[{"invoice_no": "INV-1"}],
+        source=ReviewedSource.MANUAL,
+    )
+    schema = [SchemaField(name="invoice_no", type=FieldType.STRING, description="d")]
+
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(
+        raw_json={"entities": [{"invoice_no": "INV-1"}]},
+        model_id="stub",
+    )
+
+    _, preds1 = await score_with_schema(
+        workspace=workspace, project_id=pid, schema=schema,
+        provider=provider, model_id="stub",
+    )
+    assert provider.extract.call_count == 1  # cold cache → one real call
+
+    _, preds2 = await score_with_schema(
+        workspace=workspace, project_id=pid, schema=schema,
+        provider=provider, model_id="stub",
+    )
+    # Warm cache → no further provider round-trips, identical predictions.
+    assert provider.extract.call_count == 1
+    assert preds2 == preds1 == {filename: [{"invoice_no": "INV-1"}]}
+
+
+async def test_score_with_schema_cache_misses_on_schema_change(workspace: Path) -> None:
+    """Rewording a field description bumps the schema_hash → cache miss → the
+    provider is hit again (proves the key isn't stale across descriptions)."""
+    pid = (await create_project(workspace, name="t"))["slug"]
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    meta = await upload_doc(workspace, pid, pdf, "a.pdf")
+    filename = meta["filename"]
+    await save_reviewed(
+        workspace, pid, filename,
+        entities=[{"invoice_no": "INV-1"}],
+        source=ReviewedSource.MANUAL,
+    )
+    provider = AsyncMock()
+    provider.extract.return_value = ProviderResult(
+        raw_json={"entities": [{"invoice_no": "INV-1"}]},
+        model_id="stub",
+    )
+
+    await score_with_schema(
+        workspace=workspace, project_id=pid,
+        schema=[SchemaField(name="invoice_no", type=FieldType.STRING, description="d")],
+        provider=provider, model_id="stub",
+    )
+    await score_with_schema(
+        workspace=workspace, project_id=pid,
+        schema=[SchemaField(name="invoice_no", type=FieldType.STRING, description="REWORDED")],
+        provider=provider, model_id="stub",
+    )
+    assert provider.extract.call_count == 2
+
+
 async def test_score_with_schema_returns_zero_when_reviewed_empty(workspace: Path) -> None:
     pid = (await create_project(workspace, name="t"))["slug"]
     schema = [SchemaField(name="invoice_no", type=FieldType.STRING, description="d")]

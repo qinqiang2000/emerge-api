@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     # pressure, not cost. 1 == the old strictly-sequential behaviour.
     eval_extract_concurrency: int = 8
 
+    # Baseline cache for the autoresearch / tune inner-loop eval pass. When on,
+    # `score_with_schema` content-addresses each per-doc extract by
+    # (schema_hash, extract_model_id, doc_content_sha) and skips the LLM call on
+    # a hit — so re-running a turn whose schema+model+docs are unchanged costs
+    # zero provider round-trips. Pure lab-side artifact under
+    # `projects/{slug}/.eval_cache/`; never written into `versions/` or prod.
+    # Off == always re-extract (the pre-cache behaviour).
+    eval_cache: bool = True
+
     def ingest_allowlist(self) -> tuple[Path, ...]:
         """Resolve the combined ingest-local allowlist (defaults + env extras).
 
