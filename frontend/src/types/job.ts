@@ -41,6 +41,9 @@ export interface JobLifecycleEvent {
   best_turn?: number
   best_macro_f1?: number
   error?: string
+  /** Focused-tune scope, stamped on the `started` event. Absent/null for a
+   *  global `/improve` run. */
+  target_fields?: string[] | null
 }
 
 export type JobEvent = TurnEvent | JobLifecycleEvent

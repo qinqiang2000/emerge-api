@@ -26,13 +26,39 @@ function fieldScore(f: FieldScoreSummary): number {
   return 0
 }
 
+/** Map the machine `endedReason` (early_stop / max_turn / cancelled / error)
+ *  to a plain-language i18n key. Unknown reasons fall back to the generic
+ *  `job.ended` line so a finance reviewer never reads raw enum values like
+ *  "early_stop". */
+function endedReasonKey(reason: string): string {
+  switch (reason) {
+    case 'early_stop': return 'job.ended.earlyStop'
+    case 'max_turn': return 'job.ended.maxTurn'
+    case 'cancelled': return 'job.ended.cancelled'
+    case 'error': return 'job.ended.error'
+    default: return 'job.ended'
+  }
+}
+
 /** Field names whose per-field accuracy moved up from baseline (turn_0) to the
- *  best candidate turn — the human-legible "what got better" surface. */
-function improvedFields(baseline: TurnEvent | undefined, best: TurnEvent): string[] {
+ *  best candidate turn — the human-legible "what got better" surface.
+ *
+ *  For a focused tune (`targetFields` set) only the targeted descriptions could
+ *  move, so we scope to them: a non-target field that drifted up between two
+ *  full re-extractions is sampling noise, not a tune win, and won't persist
+ *  after accept (its description is unchanged). A global `/improve` run passes
+ *  `null` and credits every field that improved. */
+function improvedFields(
+  baseline: TurnEvent | undefined,
+  best: TurnEvent,
+  targetFields: string[] | null,
+): string[] {
+  const scope = targetFields ? new Set(targetFields) : null
   const base: Record<string, number> = {}
   for (const f of baseline?.per_field ?? []) base[f.field] = fieldScore(f)
   const out: string[] = []
   for (const f of best.per_field ?? []) {
+    if (scope && !scope.has(f.field)) continue
     const before = base[f.field]
     if (before === undefined) continue
     if (fieldScore(f) - before > 0.001) out.push(f.field)
@@ -69,7 +95,7 @@ export default function JobProgressCard({ jobId }: Props) {
 
   if (!slice) return null
 
-  const { status, turns, bestTurn, endedReason, accepting, accepted } = slice
+  const { status, turns, bestTurn, endedReason, accepting, accepted, targetFields } = slice
 
   // A genuine improvement candidate (best turn beats baseline) — gates both the
   // pre-accept Δ block and the accept button.
@@ -78,7 +104,7 @@ export default function JobProgressCard({ jobId }: Props) {
   const baselineScore = turnScore(turns[0])
   const bestScore = bestTurn ? turnScore(bestTurn) : baselineScore
   const delta = bestScore - baselineScore
-  const fields = hasCandidate && bestTurn ? improvedFields(turns[0], bestTurn) : []
+  const fields = hasCandidate && bestTurn ? improvedFields(turns[0], bestTurn, targetFields) : []
 
   return (
     <div className="border-l-2 border-rule bg-paper px-3 py-2 font-mono text-xs space-y-1">
@@ -150,7 +176,7 @@ export default function JobProgressCard({ jobId }: Props) {
 
       {endedReason && !accepted && (
         <div className="flex items-center gap-2 text-ink-4">
-          {t('job.ended', { reason: endedReason })}
+          {t(endedReasonKey(endedReason), { reason: endedReason })}
           {(status === 'done' || status === 'cancelled') && bestTurn && (
             !hasCandidate ? (
               <span className="ml-auto text-[10px] uppercase tracking-wide text-ink-4">
@@ -163,7 +189,7 @@ export default function JobProgressCard({ jobId }: Props) {
                 className="ml-auto inline-flex items-center gap-1 px-2 py-1 bg-ochre text-paper rounded uppercase tracking-wide text-[10px] disabled:opacity-50"
                 aria-label={t('job.accept')}
               >
-                <Check size={12} /> {t('job.accept.label', { turn: bestTurn.turn })}
+                <Check size={12} /> {t('job.accept.label')}
               </button>
             )
           )}

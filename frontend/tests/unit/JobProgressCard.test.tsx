@@ -14,6 +14,7 @@ const baseSlice: JobSlice = {
     { type: 'turn', turn: 1, macro_f1: 0.7, per_field: [], saved: true },
   ],
   bestTurn: { type: 'turn', turn: 1, macro_f1: 0.7, per_field: [], saved: true },
+  targetFields: null,
   endedReason: null,
   err: null,
   _abort: null,
@@ -35,8 +36,8 @@ beforeEach(() => {
 describe('JobProgressCard', () => {
   it('renders turn and best-f1 line', () => {
     render(<JobProgressCard jobId="j_xyz" />)
-    expect(screen.getByText(/turn 1/i)).toBeInTheDocument()
-    expect(screen.getByText(/best acc 0\.70/)).toBeInTheDocument()
+    expect(screen.getByText(/round 1/i)).toBeInTheDocument()
+    expect(screen.getByText(/best accuracy 0\.70/)).toBeInTheDocument()
   })
 
   it('shows pause button when running, hides resume', () => {
@@ -50,7 +51,7 @@ describe('JobProgressCard', () => {
       byId: { j_xyz: { ...baseSlice, status: 'done', endedReason: 'max_turn' } },
     })
     render(<JobProgressCard jobId="j_xyz" />)
-    expect(screen.getByRole('button', { name: /accept candidate/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /adopt this improvement/i })).toBeInTheDocument()
   })
 
   it('hides accept button and shows baseline-best hint when bestTurn === 0', () => {
@@ -63,8 +64,8 @@ describe('JobProgressCard', () => {
       } },
     })
     render(<JobProgressCard jobId="j_xyz" />)
-    expect(screen.queryByRole('button', { name: /accept candidate/i })).not.toBeInTheDocument()
-    expect(screen.getByText(/baseline still best/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /adopt this improvement/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/still best/i)).toBeInTheDocument()
   })
 
   it('shows accept button after cancelled with bestTurn > 0 above baseline', () => {
@@ -72,7 +73,41 @@ describe('JobProgressCard', () => {
       byId: { j_xyz: { ...baseSlice, status: 'cancelled', endedReason: 'cancelled' } },
     })
     render(<JobProgressCard jobId="j_xyz" />)
-    expect(screen.getByRole('button', { name: /accept candidate/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /adopt this improvement/i })).toBeInTheDocument()
+  })
+
+  it('focused tune: "fields improved" lists only target fields, not drift', () => {
+    // A focused tune only rewrote `invoiceCode`'s description. `billToName`
+    // also moved up between the two full re-extractions — but that's sampling
+    // noise (its description is unchanged), so it must NOT be credited.
+    const baseline = {
+      type: 'turn', turn: 0, macro_f1: 0.5, saved: true,
+      per_field: [
+        { field: 'invoiceCode', accuracy: 0.5 },
+        { field: 'billToName', accuracy: 0.5 },
+      ],
+    }
+    const best = {
+      type: 'turn', turn: 2, macro_f1: 1.0, saved: true,
+      per_field: [
+        { field: 'invoiceCode', accuracy: 1.0 },
+        { field: 'billToName', accuracy: 1.0 },
+      ],
+    }
+    useJob.setState({
+      byId: { j_xyz: {
+        ...baseSlice,
+        status: 'done',
+        endedReason: 'early_stop',
+        turns: [baseline, best] as any,
+        bestTurn: best as any,
+        targetFields: ['invoiceCode'],
+      } },
+    })
+    render(<JobProgressCard jobId="j_xyz" />)
+    const line = screen.getByText(/fields improved/i)
+    expect(line).toHaveTextContent('invoiceCode')
+    expect(line).not.toHaveTextContent('billToName')
   })
 
   it('shows baseline-best hint after cancelled when best equals baseline', () => {
@@ -85,8 +120,8 @@ describe('JobProgressCard', () => {
       } },
     })
     render(<JobProgressCard jobId="j_xyz" />)
-    expect(screen.queryByRole('button', { name: /accept candidate/i })).not.toBeInTheDocument()
-    expect(screen.getByText(/baseline still best/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /adopt this improvement/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/still best/i)).toBeInTheDocument()
   })
 })
 
@@ -99,8 +134,8 @@ describe('formatJobLine', () => {
       ],
       bestTurn: { turn: 4, field_accuracy_macro: 0.83, macro_f1: 0.83, saved: true },
     } as any)
-    expect(line).toContain('best acc 0.83')
-    expect(line).toContain('turn 4')
+    expect(line).toContain('best accuracy 0.83')
+    expect(line).toContain('round 4')
     expect(line).toContain('baseline 0.71')
     expect(line).toMatch(/\+0\.12|Δ\s*\+0\.12/)
   })
@@ -109,7 +144,7 @@ describe('formatJobLine', () => {
       turns: [{ turn: 0, field_accuracy_macro: 0.91, macro_f1: 0.91, saved: true }],
       bestTurn: { turn: 0, field_accuracy_macro: 0.91, macro_f1: 0.91, saved: true },
     } as any)
-    expect(line).toContain('best acc 0.91')
+    expect(line).toContain('best accuracy 0.91')
   })
   it('falls back to legacy macro_f1 when field_accuracy_macro missing', () => {
     // Replays a pre-M12.x job JSONL — only `macro_f1` present.
@@ -117,6 +152,6 @@ describe('formatJobLine', () => {
       turns: [{ turn: 0, macro_f1: 0.6, saved: true }],
       bestTurn: { turn: 0, macro_f1: 0.6, saved: true },
     } as any)
-    expect(line).toContain('best acc 0.60')
+    expect(line).toContain('best accuracy 0.60')
   })
 })

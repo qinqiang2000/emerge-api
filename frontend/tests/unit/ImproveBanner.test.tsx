@@ -13,6 +13,7 @@ const baseJob: JobSlice = {
     { type: 'turn', turn: 1, macro_f1: 0.6, per_field: [], saved: true },
   ],
   bestTurn: { type: 'turn', turn: 1, macro_f1: 0.6, per_field: [], saved: true },
+  targetFields: null,
   endedReason: null,
   err: null,
   _abort: null,
@@ -32,7 +33,7 @@ describe('ImproveBanner', () => {
   it('shows /improve label and turn count', () => {
     render(<ImproveBanner job={baseJob} onOpen={vi.fn()} />)
     expect(screen.getByText('/improve')).toBeInTheDocument()
-    expect(screen.getByText(/turn 2/)).toBeInTheDocument()
+    expect(screen.getByText(/round 2/)).toBeInTheDocument()
   })
 
   it('renders open button and calls onOpen when clicked', () => {

@@ -4,6 +4,7 @@ import { jobEventsUrl, pauseJob, resumeJob, cancelJob, acceptCandidate } from '.
 import type { AcceptCandidateResult } from '../lib/api'
 import { streamSSE } from '../lib/sse'
 import type { JobEvent, JobStatus, TurnEvent } from '../types/job'
+import { useReviewTune } from './reviewTune'
 
 export interface JobSlice {
   jobId: string
@@ -11,6 +12,11 @@ export interface JobSlice {
   status: JobStatus
   turns: TurnEvent[]
   bestTurn: TurnEvent | null
+  /** Focused-tune scope (from the `started` event). When set, only these
+   *  fields' descriptions were allowed to move, so "what improved" must be
+   *  read against them — non-target per-field drift is re-extraction noise,
+   *  not a tune win. `null` for a global `/improve` run (no scope). */
+  targetFields: string[] | null
   endedReason: string | null
   err: string | null
   /** True while an accept request is in flight (disables the accept button). */
@@ -38,6 +44,7 @@ const empty = (jobId: string, projectId: string): JobSlice => ({
   status: 'running',
   turns: [],
   bestTurn: null,
+  targetFields: null,
   endedReason: null,
   err: null,
   accepting: false,
@@ -90,6 +97,11 @@ export const useJob = create<State>((set, get) => ({
                 : cur.bestTurn
             return { byId: { ...s.byId, [jobId]: { ...cur, turns, bestTurn: best } } }
           })
+        } else if (data.type === 'started') {
+          // Focused tunes stamp their scope on the `started` event so the card
+          // can attribute "improved fields" to the targeted descriptions only.
+          const tf = data.target_fields
+          patch(set, jobId, { targetFields: Array.isArray(tf) ? tf : null })
         } else if (data.type === 'paused') {
           patch(set, jobId, { status: 'paused' })
         } else if (data.type === 'resumed') {
@@ -115,6 +127,12 @@ export const useJob = create<State>((set, get) => ({
     try {
       const result = await acceptCandidate(slice.projectId, jobId, turn)
       patch(set, jobId, { accepting: false, accepted: result })
+      // Accept folds the correction backlog into the new variant (backend
+      // `consume_corrections_after_tune`). Re-pull the review-bar tune signal
+      // so the "field X corrected N times → optimize" banner clears instead
+      // of lingering on already-consumed corrections. Best-effort + inert
+      // outside review mode (the signal is only rendered there).
+      void useReviewTune.getState().refresh(slice.projectId)
     } catch (e) {
       patch(set, jobId, { accepting: false, err: String(e) })
     }

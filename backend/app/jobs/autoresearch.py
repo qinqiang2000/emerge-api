@@ -644,8 +644,13 @@ async def run_autoresearch_loop(
         },
         created_at=now_iso_filename_safe(),
     )
+    # Stamp the focused-tune scope on `started` so the JobProgressCard can
+    # attribute "improved fields" to the targeted descriptions only (non-target
+    # per-field drift across full re-extractions is sampling noise, not a win).
+    # `None` for a global `/improve` run. JobEvent is `extra="allow"`.
     await emit(JobEvent(type="started", ts=now_iso_filename_safe(),
-                        job_id=job_id, project_id=project_id))
+                        job_id=job_id, project_id=project_id,
+                        target_fields=params.target_fields or None))
 
     if cancel_event.is_set():
         await emit(JobEvent(type="ended", ts=now_iso_filename_safe(), reason="cancelled",
