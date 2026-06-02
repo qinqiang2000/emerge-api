@@ -45,6 +45,50 @@ Translator LLM 有两种模式：textlayer 模式（电子 PDF，直接翻译 fi
 
 Review viewer 双轨：每页同时叠加 (a) 透明 text layer（从 fitz `get_text("dict")` 抽出的 DOM spans，原文可选可复制；scanned 页降级为空层），(b) 150dpi raster PNG（视觉显示）。翻译热区是可选的第三层，按需开启。
 
+## "同事"精神 (Colleague principle)
+
+emerge 的人格定位是**一位文档处理能力很强的同事**，不是绑定在某个界面的工具。
+每次迭代必须守住以下约束，防止退化：
+
+### 行为层
+
+1. **Chat 可以完成一切**。用户通过 chat（browser 或 headless）能做到的事，不能比点 UI 少。
+   若某操作只能在浏览器界面完成而不能通过 chat 触发，视为违反本原则。
+
+2. **interface-aware 渲染**。所有 skill prompts 的"Rendering contract"必须同时覆盖
+   `browser` 和 `headless` 两种模式：
+   - **browser**：依赖前端 UI 组件渲染的，agent 给一句摘要即可。
+   - **headless**：agent 必须输出完整文字内容（表格、列表、明文等），不能说"看那个卡片"。
+   新增 rendering contract 时必须写两个分支，只写一个不合格。
+
+3. **`ui_*` 工具不能静默失败**。在 headless 模式下，agent 必须用一行文字叙述代替
+   `ui_*` 调用（`→ page N` / `→ focus field_name`），不能无声跳过。
+
+### 架构层
+
+4. **tool ↔ HTTP ↔ MCP 三形对称**。每个业务 tool 必须同时存在：
+   - `@tool` 注册（in-process MCP，agent brain 用）
+   - HTTP route（M11 对称，CLI/脚本用）
+   - MCP server 可用（`build_mcp_server()` 自动继承；`ui_*`/`ask_user` 例外，
+     须在 `_HEADLESS_EXCLUDE` 里注明）
+   新增 tool 时三者同步，对称测试 `test_symmetry_invariant.py` + `test_headless_interface.py`。
+
+5. **`interface` 信号必须透传**。任何调用 `chat_turn` / `_build_system_prompt` / 
+   `_build_active_context` 的新路径，都必须传 `interface=` 参数，不得硬编码 `"browser"`
+   或丢弃该字段。
+
+6. **MCP server 不能暴露浏览器专用工具**。`_HEADLESS_EXCLUDE`（见 `mcp_server.py`）
+   与 `_HTTP_EXEMPT`（见 `test_symmetry_invariant.py`）两张表必须保持一致：
+   若一个工具在 `_HTTP_EXEMPT` 标注为 "ui side-channel"，它就必须在 `_HEADLESS_EXCLUDE` 里。
+
+### 验证检查单（每个 milestone 发布前）
+
+- [ ] 新增的 tool/功能是否可以通过 chat 完成（不需要点 UI）？
+- [ ] 如果有新的 rendering contract，是否同时写了 `browser` 和 `headless` 分支？
+- [ ] `test_symmetry_invariant.py` 通过？
+- [ ] `test_headless_interface.py` 通过？
+- [ ] `build_mcp_server()` 是否能正常初始化（`uv run python -c "from app.mcp_server import build_mcp_server"`）？
+
 ## Hard rules (red lines)
 
 - **没有 image few-shot**。任何 prompt 路径都不准注入 example I/O pairs。要"教模型"只能改 `description` / `global_notes`
