@@ -49,10 +49,18 @@ function diffCorrections(baseline: FieldsValue[], final: FieldsValue[]): Correct
   for (const ent of [final[0], baseline[0], ...final, ...baseline]) {
     for (const k of Object.keys(ent ?? {})) names.add(k)
   }
+  // Treat null / undefined / "" as the same "empty" so that typing a value into
+  // an empty field and then deleting it again nets to *no* correction (rather
+  // than recording an `absent → ""` phantom edit that the tune counter would
+  // double-count). A real clear of a non-empty value (e.g. "X" → "") still
+  // counts, because only one side is empty.
+  const isEmpty = (v: unknown) => v == null || v === ''
+  const changed = (b: unknown, a: unknown) =>
+    !(isEmpty(b) && isEmpty(a)) && !deepEqual(b, a)
   for (const name of names) {
     const beforeRep = (baseline[0] ?? {})[name]
     const afterRep = (final[0] ?? {})[name]
-    if (!deepEqual(beforeRep, afterRep)) {
+    if (changed(beforeRep, afterRep)) {
       out[name] = { before: beforeRep, after: afterRep }
       continue
     }
@@ -62,7 +70,7 @@ function diffCorrections(baseline: FieldsValue[], final: FieldsValue[]): Correct
     for (let i = 1; i < n; i++) {
       const before = (baseline[i] ?? {})[name]
       const after = (final[i] ?? {})[name]
-      if (!deepEqual(before, after)) {
+      if (changed(before, after)) {
         out[name] = { before, after }
         break
       }
@@ -335,16 +343,20 @@ export const useReview = create<State>((set, get) => ({
       void useDocs.getState().refresh(activeProjectId)
       // Backend deleted the matching pending file inside the same project_lock
       // as the reviewed write — mirror that here so the banner disappears
-      // without waiting for a re-open of the doc. Re-anchor the baseline to the
-      // just-saved entities so a second save in this session diffs from here,
-      // not from the original load.
+      // without waiting for a re-open of the doc.
+      //
+      // We deliberately DON'T re-anchor `baselineEntities` to the just-saved
+      // entities: keeping it at the session-open value means every save ships
+      // the *net* diff from what was loaded. So correcting a field and then
+      // reverting it in a later save produces an empty diff for that field, and
+      // the backend (which reconciles each doc's `_corrections` by delta)
+      // retires it instead of counting the round-trip twice.
       set({
         saving: false,
         isPending: false,
         labelerModel: null,
-        baselineEntities: deepCopyEntities(entities),
-        // Mirror the backend: save_reviewed overwrites `_corrections` with just
-        // this pass, so the corrected-field badges track the latest save.
+        // `corrections` is the net diff from session open → drives the
+        // corrected-field badges; an empty diff clears them.
         corrections,
       })
       toast.ok(t('review.save.ok'))

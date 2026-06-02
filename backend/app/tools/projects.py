@@ -417,6 +417,38 @@ def bump_corrections_by_field_in_blob(
     return by_field
 
 
+def reconcile_corrections_in_blob(
+    blob: dict[str, Any], old_fields: list[str], new_fields: list[str],
+) -> None:
+    """Move the denormalized counters by the DELTA between one doc's previous
+    and current corrected-field sets, in place.
+
+    A doc's `_corrections` is overwritten on every save, so the project-level
+    tally must track the delta — not blindly increment. This makes an
+    edit→revert (a field corrected in one save, then cleared in the next) net to
+    zero instead of counting twice, while two *different* docs still accumulate.
+    Added fields bump +1; removed fields decrement (popped at 0). The scalar
+    moves by `len(added) - len(removed)`, clamped at >= 0."""
+    old_s, new_s = set(old_fields), set(new_fields)
+    added, removed = new_s - old_s, old_s - new_s
+    raw = blob.get("corrections_by_field")
+    by_field: dict[str, int] = dict(raw) if isinstance(raw, dict) else {}
+    for f in added:
+        by_field[f] = int(by_field.get(f, 0) or 0) + 1
+    for f in removed:
+        n = int(by_field.get(f, 0) or 0) - 1
+        if n > 0:
+            by_field[f] = n
+        else:
+            by_field.pop(f, None)
+    blob["corrections_by_field"] = by_field
+    try:
+        cur = int(blob.get("corrections_since_tune") or 0)
+    except (TypeError, ValueError):
+        cur = 0
+    blob["corrections_since_tune"] = max(0, cur + len(added) - len(removed))
+
+
 async def set_corrections_since_tune(workspace: Path, slug: str, value: int) -> None:
     """Locked read-modify-write of `corrections_since_tune` to an absolute
     value (e.g. reset to 0 after a candidate is accepted). Takes its own
@@ -437,7 +469,13 @@ async def consume_corrections_after_tune(
     motivated this tune). Focused tune → drop only the targeted fields from
     `corrections_by_field` and decrement the scalar counter by their tallies,
     so corrections to *other* fields keep nagging. Takes its own
-    `project_lock`; never call from inside an existing lock."""
+    `project_lock`; never call from inside an existing lock.
+
+    Also clears the consumed fields from each reviewed doc's persisted
+    `_corrections` (the addressed edits are no longer "pending tune"). This keeps
+    the per-doc `_corrections` — which `save_reviewed` now reconciles against —
+    in sync with the counters, so a later re-save of a tuned doc doesn't
+    double-count or under-count."""
     async with project_lock(workspace, slug):
         pj = project_json_path(workspace, slug)
         try:
@@ -457,6 +495,33 @@ async def consume_corrections_after_tune(
             blob["corrections_since_tune"] = max(0, cur - removed)
             blob["corrections_by_field"] = by_field
         atomic_write_json(pj, blob)
+        # Retire the consumed corrections from each reviewed doc so the per-doc
+        # `_corrections` ground truth matches the counters above.
+        from app.workspace.paths import reviewed_dir
+
+        rd = reviewed_dir(workspace, slug)
+        if rd.exists():
+            for p in rd.glob("*.json"):
+                try:
+                    doc = json.loads(p.read_text())
+                except (OSError, json.JSONDecodeError):
+                    continue
+                corr = doc.get("_corrections")
+                if not isinstance(corr, dict) or not corr:
+                    continue
+                if not target_fields:
+                    doc.pop("_corrections", None)
+                else:
+                    for f in target_fields:
+                        corr.pop(f, None)
+                    if corr:
+                        doc["_corrections"] = corr
+                    else:
+                        doc.pop("_corrections", None)
+                try:
+                    atomic_write_json(p, doc)
+                except OSError:
+                    pass
 
 
 async def delete_project(workspace: Path, slug: str) -> dict[str, str]:

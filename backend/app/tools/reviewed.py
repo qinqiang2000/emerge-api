@@ -95,7 +95,20 @@ async def save_reviewed(
     ).model_dump(by_alias=True, exclude_none=True, mode="json")
     async with project_lock(workspace, project_id):
         reviewed_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)
-        atomic_write_json(reviewed_path(workspace, project_id, filename), payload)
+        rp = reviewed_path(workspace, project_id, filename)
+        # Snapshot this doc's PREVIOUS corrected-field set before we overwrite
+        # the file, so the project counters can move by the delta (an edit then
+        # reverted in a later save nets to zero instead of counting twice).
+        old_fields: list[str] = []
+        if rp.exists():
+            try:
+                prev = json.loads(rp.read_text())
+                prev_corr = prev.get("_corrections")
+                if isinstance(prev_corr, dict):
+                    old_fields = list(prev_corr.keys())
+            except (OSError, json.JSONDecodeError):
+                pass
+        atomic_write_json(rp, payload)
         # Pro-labeler draft becomes obsolete the moment human-verified ground
         # truth is written. Atomic delete inside the same project_lock so
         # nobody can observe a state where both files exist.
@@ -105,24 +118,20 @@ async def save_reviewed(
                 pending.unlink()
             except FileNotFoundError:
                 pass
-        # Bump the denormalized correction counter that drives the ambient
-        # tune nudge. Done inside THIS lock (the flock is non-reentrant, so we
-        # mutate the project.json dict directly rather than re-locking via a
-        # helper). Best-effort: a missing/garbled project.json never fails the
-        # reviewed save.
-        if corrections:
-            from app.tools.projects import (
-                bump_corrections_by_field_in_blob,
-                bump_corrections_since_tune_in_blob,
-            )
+        # Reconcile the denormalized correction counters by the delta between
+        # this doc's old and new corrected-field sets. Runs even when
+        # `corrections` is empty — a revert ships no `_corrections` but must
+        # still retire the doc's prior contribution. Done inside THIS lock (the
+        # flock is non-reentrant, so we mutate the project.json dict directly).
+        # Best-effort: a missing/garbled project.json never fails the save.
+        new_fields = list(corrections.keys()) if corrections else []
+        if old_fields or new_fields:
+            from app.tools.projects import reconcile_corrections_in_blob
 
             pj = project_json_path(workspace, project_id)
             try:
                 proj_blob = json.loads(pj.read_text())
-                bump_corrections_since_tune_in_blob(proj_blob, len(corrections))
-                # Per-field tally: drives the review-bar focused-tune affordance
-                # (which field to optimize) and the target_fields auto-fill.
-                bump_corrections_by_field_in_blob(proj_blob, list(corrections.keys()))
+                reconcile_corrections_in_blob(proj_blob, old_fields, new_fields)
                 atomic_write_json(pj, proj_blob)
             except (OSError, json.JSONDecodeError):
                 pass

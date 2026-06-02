@@ -279,3 +279,58 @@ async def test_save_reviewed_no_corrections_does_not_move_counter(workspace: Pat
     )
     blob = json.loads(pj.read_text())
     assert blob["corrections_since_tune"] == 4
+
+
+async def test_save_reviewed_revert_nets_to_zero(workspace: Path) -> None:
+    """Correcting a field on a doc, then re-saving that SAME doc with the field
+    reverted (empty corrections), retires the doc's contribution — the counter
+    returns to 0 rather than double-counting the round-trip."""
+    from app.tools.projects import create_project
+    from app.workspace.paths import project_json_path
+
+    pid = (await create_project(workspace, name="t"))["slug"]
+    pj = project_json_path(workspace, pid)
+    # Save 1: the human filled an empty field → 1 correction.
+    await save_reviewed(
+        workspace,
+        pid,
+        "inv-001.pdf",
+        entities=[{"deliveryOrderNumber": "X"}],
+        corrections={"deliveryOrderNumber": {"before": "", "after": "X"}},
+    )
+    blob = json.loads(pj.read_text())
+    assert blob["corrections_since_tune"] == 1
+    assert blob["corrections_by_field"] == {"deliveryOrderNumber": 1}
+    # Save 2: realised it was wrong, cleared the value → the frontend ships an
+    # empty diff. The doc's prior contribution is retired.
+    await save_reviewed(
+        workspace,
+        pid,
+        "inv-001.pdf",
+        entities=[{"deliveryOrderNumber": ""}],
+        # net diff is empty → no corrections kwarg
+    )
+    blob = json.loads(pj.read_text())
+    assert blob["corrections_since_tune"] == 0
+    assert blob["corrections_by_field"] == {}
+
+
+async def test_save_reviewed_resave_same_field_is_idempotent(workspace: Path) -> None:
+    """Re-saving the same doc with the same single correction doesn't inflate
+    the counter (delta reconcile, not blind increment)."""
+    from app.tools.projects import create_project
+    from app.workspace.paths import project_json_path
+
+    pid = (await create_project(workspace, name="t"))["slug"]
+    pj = project_json_path(workspace, pid)
+    for _ in range(3):
+        await save_reviewed(
+            workspace,
+            pid,
+            "inv-001.pdf",
+            entities=[{"currency": "USD"}],
+            corrections={"currency": {"before": "MYR", "after": "USD"}},
+        )
+    blob = json.loads(pj.read_text())
+    assert blob["corrections_since_tune"] == 1
+    assert blob["corrections_by_field"] == {"currency": 1}
