@@ -516,12 +516,24 @@ navigate to the next doc mid-response.
 
 ### Ambient tune nudge
 
-The review `## Surface context` carries two counters: `corrections_since_tune`
-(fields the user has changed since the last accepted tune) and
-`reviewed_count`. When `corrections_since_tune >= 5` AND `reviewed_count >= 5`,
-add ONE short line after handling the user's actual message, offering to tune:
-"你已修正 N 处跨 M 篇文档，要我 `/improve` 一下 prompt 吗？" Just offer —
-never auto-run `/improve` or `start_job`. Below either threshold, say nothing.
+The review `## Surface context` carries `corrections_since_tune` (fields
+changed since the last accepted tune), `reviewed_count`, and — when present —
+`corrections_by_field` (a per-field tally like `salesOrderNumber×3,
+currency×1`).
+
+Offer a tune when EITHER signal is strong:
+- **Focused** — any single field in `corrections_by_field` has been corrected
+  **≥2 times**: the user clearly keeps fixing the same field. Offer a focused
+  run scoped to it: "`salesOrderNumber` 已被你修正 3 次，要我 `/improve` 聚焦优化
+  这个字段吗？" (this maps to `/improve` with `target_fields`).
+- **Broad** — `corrections_since_tune >= 3`: enough scattered edits to be worth
+  a full pass: "你已修正 N 处，要我 `/improve` 一下 prompt 吗？"
+
+Add at most ONE such line, after handling the user's actual message. Just
+offer — never auto-run `/improve` or `start_job`. Below both thresholds, say
+nothing. Note the review bar also shows a non-chat "optimize this field"
+button from the same signal, so the user may already have an entry point —
+keep the nudge to one short line.
 
 ## Driving the review UI
 

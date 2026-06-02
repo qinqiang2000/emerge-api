@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useReview } from '../../stores/review'
+import { useReviewTune } from '../../stores/reviewTune'
+import { toast } from '../../stores/toast'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useExperiments } from '../../stores/experiments'
@@ -182,6 +184,52 @@ export default function ReviewOverlay({
     void loadModels(activeProjectId)
   }, [activeProjectId, loadSchema, loadExperiments, loadModels])
 
+  // ── tune signal (non-chat focused-tune affordance) ──
+  // Refresh the correction-backlog summary when the doc changes and after each
+  // save (so the "field X corrected K times" copy tracks the latest edit), and
+  // drop in-flight job cards when the project changes.
+  const tuneSignal = useReviewTune((s) => s.signal)
+  useEffect(() => {
+    useReviewTune.getState().reset()
+  }, [activeProjectId])
+  useEffect(() => {
+    if (activeProjectId && activeFilename) {
+      void useReviewTune.getState().refresh(activeProjectId)
+    }
+  }, [activeProjectId, activeFilename])
+  const prevSaving = useRef(saving)
+  useEffect(() => {
+    if (prevSaving.current && !saving && activeProjectId) {
+      void useReviewTune.getState().refresh(activeProjectId)
+    }
+    prevSaving.current = saving
+  }, [saving, activeProjectId])
+
+  // Always tune the *full* set of fields corrected in this backlog — a field
+  // corrected only once still gets fixed. `hot_fields` (corrected ≥2×) is kept
+  // only for copy emphasis/ordering, never to trim the target set (otherwise a
+  // single-correction field gets silently dropped when a hotter field exists).
+  const tuneTargets = tuneSignal ? tuneSignal.corrected_fields : []
+  // Compact field list for the multi-field banner: first 3 names + a localized
+  // "etc." when there are more.
+  const fieldsPreview = (fields: string[]): string => {
+    const head = fields.slice(0, 3).join(', ')
+    return fields.length > 3 ? `${head} ${t('review.tune.andMore')}` : head
+  }
+  const handleTune = () => {
+    if (!activeProjectId || tuneTargets.length === 0) return
+    // Land the progress card on a fresh thread instead of stacking it on the
+    // project's persisted history (dogfood: "is the old session still here?").
+    // The job subscription lives in useJob (keyed by jobId, independent of
+    // chatId), so opening a new chat here never interrupts the in-flight tune;
+    // the old thread is preserved under its own chatId and reachable via history.
+    useChat.getState().newChat(activeProjectId)
+    void useReviewTune.getState().startFocused(activeProjectId, tuneTargets)
+    toast.ok(t('review.tune.started'))
+    // Surface the progress in the right-hand chat column: open it if hidden.
+    if (rightHidden && onToggleRight) onToggleRight()
+  }
+
   // Auto-load every non-archived experiment's prediction so all tabs are
   // immediately switchable; loadExperimentPrediction is idempotent per id.
   useEffect(() => {
@@ -289,6 +337,19 @@ export default function ReviewOverlay({
 
       const claim = () => { e.preventDefault(); e.stopImmediatePropagation() }
 
+      // Cmd/Ctrl+S → save. Claimed FIRST and regardless of `inField` (save is a
+      // global action; the user is usually focused inside a contentEditable
+      // field). preventDefault stops the browser's "save page as" dialog. Read
+      // live store state to avoid stale closures (no need to widen deps); only
+      // the editable ✏ tab persists, so gate on readOnly/saving there.
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        claim()
+        const st = useReview.getState()
+        const readOnlyNow = st.activeTabKey !== 'active'
+        if (!readOnlyNow && !st.saving) void st.save()
+        return
+      }
+
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         if (e.metaKey || e.ctrlKey || e.altKey) return
         if (inField) return
@@ -359,6 +420,27 @@ export default function ReviewOverlay({
         onToggleLeft={onToggleLeft}
         onToggleRight={onToggleRight}
       />
+
+      {tuneSignal && tuneTargets.length > 0 && (
+        <div className="rev-tune-bar">
+          <span className="rev-tune-msg">
+            {tuneTargets.length === 1 ? (
+              t('review.tune.focus', {
+                field: tuneTargets[0],
+                count: tuneSignal.by_field.find(b => b.field === tuneTargets[0])?.count ?? 1,
+              })
+            ) : (
+              t('review.tune.multi', {
+                fields: fieldsPreview(tuneTargets),
+                n: tuneTargets.length,
+              })
+            )}
+          </span>
+          <button type="button" className="rev-tune-cta" onClick={handleTune}>
+            {tuneTargets.length === 1 ? t('review.tune.focus.cta') : t('review.tune.multi.cta')}
+          </button>
+        </div>
+      )}
 
       {isPending && !readOnly && (
         <PreLabelNotice labelerModel={labelerModel} />

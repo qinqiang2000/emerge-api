@@ -10,6 +10,8 @@ import {
   saveReviewed,
 } from '../lib/api'
 import type { ExperimentPredictionPayload, ReviewedPayload, RunStamp } from '../types/review'
+import { toast } from './toast'
+import { t } from '../i18n'
 import { useDocs } from './docs'
 import { useProjects } from './projects'
 import { useLocate } from './locate'
@@ -312,8 +314,13 @@ export const useReview = create<State>((set, get) => ({
         labelerModel: null,
         baselineEntities: deepCopyEntities(entities),
       })
+      toast.ok(t('review.save.ok'))
     } catch (e: unknown) {
-      set({ err: String(e), saving: false })
+      // Save failures surface via toast (transient, non-blocking). The inline
+      // `err` banner in ReviewOverlay is reserved for load failures so a save
+      // error doesn't paint both a banner and a toast.
+      set({ saving: false })
+      toast.err(t('review.save.fail', { err: String(e) }))
     }
   },
 

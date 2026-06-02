@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +9,7 @@ from app.config import get_settings
 from app.schemas.reviewed import ReviewedSource
 from app.tools.pre_label import get_pending
 from app.tools.reviewed import get_reviewed, save_reviewed
+from app.workspace.paths import project_json_path, reviewed_dir
 
 
 router = APIRouter()
@@ -61,6 +63,48 @@ async def get_doc_reviewed(slug: str, filename: str) -> dict:
     if payload is None:
         raise HTTPException(status_code=404, detail="reviewed_not_found")
     return payload
+
+
+@router.get("/lab/projects/{slug}/tune-signal")
+async def get_tune_signal(slug: str) -> dict:
+    """Correction backlog summary that drives the review-bar tune affordance.
+
+    Returns the scalar `corrections_since_tune`, the per-field tally, the
+    reviewed-doc count, and a derived `hot_fields` list (fields corrected ≥2
+    times — strong "this field's description is wrong" signal). The review bar
+    renders a non-chat "optimize this field" button from this, and uses the
+    corrected-field set as the focused tune's `target_fields`. Best-effort:
+    a missing/garbled project yields zeros, never an error."""
+    safe_slug(slug)
+    settings = get_settings()
+    ws = settings.workspace_root
+    corrections = 0
+    by_field: dict[str, int] = {}
+    try:
+        blob = json.loads(project_json_path(ws, slug).read_text())
+        corrections = int(blob.get("corrections_since_tune") or 0)
+        raw = blob.get("corrections_by_field")
+        if isinstance(raw, dict):
+            by_field = {
+                str(k): int(v or 0) for k, v in raw.items() if int(v or 0) > 0
+            }
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    try:
+        rd = reviewed_dir(ws, slug)
+        reviewed_count = sum(1 for _ in rd.glob("*.json")) if rd.exists() else 0
+    except OSError:
+        reviewed_count = 0
+    ranked = sorted(by_field.items(), key=lambda kv: kv[1], reverse=True)
+    return {
+        "corrections_since_tune": corrections,
+        "reviewed_count": reviewed_count,
+        # Sorted high→low so the FE can name the top field without re-sorting.
+        "by_field": [{"field": f, "count": n} for f, n in ranked],
+        "hot_fields": [f for f, n in ranked if n >= 2],
+        # The corrected-field set = the focused tune's target_fields.
+        "corrected_fields": [f for f, _ in ranked],
+    }
 
 
 @router.get("/lab/projects/{slug}/pending/{filename:path}")

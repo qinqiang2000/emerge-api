@@ -152,6 +152,11 @@ const en: Dict = {
   'job.line': 'turn {turn} · best acc {best} (turn {bestTurn}) · baseline {baseline} (Δ {delta})',
   'job.ended': 'ended ({reason})',
   'job.baselineBest': 'baseline still best — schema unchanged',
+  // ── Running-state activity (what the loop is doing right now) ───────────
+  'job.baseline.measuring': 'measuring baseline… (scoring the current prompt before any change)',
+  'job.candidate.generating': 'generating candidate prompt…',
+  'job.turn.trying': 'trying: {rationale}',
+  'job.slowHint': 'each turn re-extracts all reviewed docs (~minutes/turn)',
   // ── Candidate Δ + changed fields (shown before accept) ─────────────────
   'job.candidate.delta': 'candidate +{delta} acc vs baseline ({best} ← {baseline})',
   'job.candidate.fields': 'fields improved: {fields}',
@@ -192,6 +197,15 @@ const en: Dict = {
   'review.save': 'save',
   'review.save.saving': 'saving…',
   'review.save.notReviewedTabHint': 'save only persists on the ✏ ground truth tab — switch to it, or use "adopt as ground truth"',
+  'review.save.ok': 'saved',
+  'review.save.fail': 'save failed: {err}',
+  'review.save.kbdHint': '⌘S to save',
+  'review.tune.focus': 'field {field} corrected {count}× by you',
+  'review.tune.focus.cta': 'optimize this field',
+  'review.tune.multi': 'corrected {fields} ({n} fields)',
+  'review.tune.multi.cta': 'optimize these fields',
+  'review.tune.andMore': 'etc.',
+  'review.tune.started': 'optimization started — see the chat on the right',
   'review.loading': 'loading…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────

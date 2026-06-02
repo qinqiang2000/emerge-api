@@ -390,10 +390,25 @@ def _build_review_nudge_block(workspace: Path, slug: str) -> str | None:
         reviewed_count = sum(1 for _ in rd.glob("*.json")) if rd.exists() else 0
     except OSError:
         reviewed_count = 0
-    return (
-        f"corrections_since_tune: {corrections}\n"
-        f"reviewed_count: {reviewed_count}"
-    )
+    out = [
+        f"corrections_since_tune: {corrections}",
+        f"reviewed_count: {reviewed_count}",
+    ]
+    # Per-field tally so the agent can name the hot field(s) and offer a
+    # *focused* /improve scoped to them (target_fields) rather than a broad
+    # all-field tune. Sorted high→low; only the top few matter for the nudge.
+    raw_by_field = blob.get("corrections_by_field")
+    if isinstance(raw_by_field, dict) and raw_by_field:
+        ranked = sorted(
+            ((str(k), int(v)) for k, v in raw_by_field.items() if int(v or 0) > 0),
+            key=lambda kv: kv[1], reverse=True,
+        )[:5]
+        if ranked:
+            out.append(
+                "corrections_by_field: "
+                + ", ".join(f"{name}×{n}" for name, n in ranked)
+            )
+    return "\n".join(out)
 
 
 def _build_surface_context_block(

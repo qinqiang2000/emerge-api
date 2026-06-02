@@ -91,6 +91,39 @@ def test_post_reviewed_422_on_bad_body() -> None:
     assert r.status_code == 422
 
 
+async def test_tune_signal_tracks_corrections_by_field(workspace: Path) -> None:
+    """A save carrying `_corrections` bumps the scalar + per-field counters,
+    and the tune-signal endpoint surfaces them (with hot_fields = ≥2×)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    client = TestClient(app)
+    # First correction: salesOrderNumber + currency.
+    client.post(f"/lab/projects/{pid}/reviewed/inv-001.pdf", json={
+        "entities": [{"salesOrderNumber": "K/P006", "currency": "MYR"}],
+        "source": "manual",
+        "_corrections": {
+            "salesOrderNumber": {"before": "K/P006-D1515926", "after": "K/P006"},
+            "currency": {"before": "RM", "after": "MYR"},
+        },
+    })
+    # Second correction on a different doc: salesOrderNumber again → hot.
+    client.post(f"/lab/projects/{pid}/reviewed/inv-002.pdf", json={
+        "entities": [{"salesOrderNumber": "K/P007"}],
+        "source": "manual",
+        "_corrections": {
+            "salesOrderNumber": {"before": "K/P007-D9", "after": "K/P007"},
+        },
+    })
+    r = client.get(f"/lab/projects/{pid}/tune-signal")
+    assert r.status_code == 200
+    sig = r.json()
+    assert sig["corrections_since_tune"] == 3
+    assert sig["reviewed_count"] == 2
+    assert sig["hot_fields"] == ["salesOrderNumber"]
+    assert set(sig["corrected_fields"]) == {"salesOrderNumber", "currency"}
+    # by_field is sorted high→low.
+    assert sig["by_field"][0] == {"field": "salesOrderNumber", "count": 2}
+
+
 async def test_post_get_reviewed_multi_entity(workspace: Path) -> None:
     """POST + GET reviewed preserves a multi-entity payload exactly."""
     pid = (await create_project(workspace, name="x"))["slug"]

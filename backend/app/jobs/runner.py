@@ -100,9 +100,16 @@ class JobRunner:
         async def _run() -> JobInfo:
             handle.info.status = JobStatus.RUNNING
             try:
+                raw_targets = params.get("target_fields")
+                target_fields = (
+                    [str(f) for f in raw_targets if isinstance(f, str)]
+                    if isinstance(raw_targets, list) and raw_targets
+                    else None
+                )
                 ar_params = ar.AutoresearchParams(
                     max_turn=int(params.get("max_turn", 30)),
                     early_stop_no_improvement=int(params.get("early_stop_no_improvement", 5)),
+                    target_fields=target_fields,
                 )
                 final = await ar.run_autoresearch_loop(
                     workspace=self.workspace, project_id=project_id, job_id=job_id,

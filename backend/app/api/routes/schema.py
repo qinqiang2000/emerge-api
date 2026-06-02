@@ -13,7 +13,7 @@ from app.api.routes._safety import safe_chat_id, safe_filename, safe_job_id, saf
 from app.config import get_settings
 from app.schemas.reviewed import NoteConsumption, ReviewedSource
 from app.schemas.schema_field import SchemaField
-from app.tools.projects import set_corrections_since_tune
+from app.tools.projects import consume_corrections_after_tune
 from app.tools.prompt import (
     create_prompt,
     read_active_prompt,
@@ -144,8 +144,14 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     )
 
     # The correction backlog that motivated this tune is now folded into the
-    # new variant — reset the nudge counter so the ambient prompt stops nagging.
-    await set_corrections_since_tune(settings.workspace_root, slug, 0)
+    # new variant — clear the nudge counter so the ambient prompt stops nagging.
+    # Focused tunes (candidate carries `target_fields`) only retire the targeted
+    # fields' backlog; corrections to other fields keep their tally so the
+    # review-bar affordance can still surface them.
+    candidate_targets = blob.get("target_fields") or None
+    await consume_corrections_after_tune(
+        settings.workspace_root, slug, candidate_targets,
+    )
 
     out: dict = {
         "ok": True,

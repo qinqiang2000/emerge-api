@@ -188,19 +188,53 @@ def build_proposer_user_text(
     predictions: dict[str, list[dict[str, Any]]],
     per_field: list[dict[str, Any]],
     notes: dict[str, dict[str, str]],
+    target_fields: list[str] | None = None,
+    corrections: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
+    # Focused tune: when `target_fields` is set, the score / error / note
+    # sections are filtered down to those fields so the proposer's attention
+    # (and token budget) stays on what the human actually corrected. The full
+    # schema is still shown for context — the proposer must return every field
+    # — but only the targeted descriptions may move.
+    tf = set(target_fields) if target_fields else None
     lines: list[str] = []
+
+    if tf:
+        lines.append("=== focus ===")
+        lines.append(
+            "Only improve the description(s) of: " + ", ".join(target_fields) + ". "
+            "Leave every other field's description byte-identical to the input."
+        )
+        lines.append("")
 
     lines.append("=== current schema ===")
     for f in schema:
-        lines.append(f"- {f.name} ({f.type.value}): {f.description}")
+        marker = " ⟵ focus" if tf and f.name in tf else ""
+        lines.append(f"- {f.name} ({f.type.value}): {f.description}{marker}")
+
+    if corrections:
+        lines.append("")
+        lines.append("=== recent human corrections (focus fields) ===")
+        any_corr = False
+        for fname, samples in corrections.items():
+            if tf and fname not in tf:
+                continue
+            for s in samples:
+                any_corr = True
+                lines.append(
+                    f"- {fname}: was {s.get('before')!r} → corrected to "
+                    f"{s.get('after')!r}"
+                )
+        if not any_corr:
+            lines.append("(none)")
 
     lines.append("")
     lines.append("=== per-field score ===")
-    if not per_field:
+    shown = [fs for fs in per_field if not tf or fs.get("field") in tf]
+    if not shown:
         lines.append("(no graded fields)")
     else:
-        for fs in per_field:
+        for fs in shown:
             # M12.x demoted per-field f1/tp/fp/fn to Optional[None] when the
             # score path is accuracy-only (the new headline). Render whichever
             # is non-null; prefer accuracy since it's the active headline.
@@ -225,6 +259,8 @@ def build_proposer_user_text(
         pred_entities = predictions.get(filename, [])
         pred = pred_entities[0] if pred_entities else {}
         for f in schema:
+            if tf and f.name not in tf:
+                continue
             r = rev.get(f.name)
             p = pred.get(f.name)
             if r is not None and r != p:
@@ -238,6 +274,8 @@ def build_proposer_user_text(
     flat: list[str] = []
     for filename, per_field_notes in notes.items():
         for fname, note in per_field_notes.items():
+            if tf and fname not in tf:
+                continue
             flat.append(f"- {filename}.{fname}: {note}")
     if not flat:
         lines.append("(none)")
@@ -317,6 +355,8 @@ async def propose_schema(
     predictions: dict[str, list[dict[str, Any]]],
     per_field: list[dict[str, Any]],
     notes: dict[str, dict[str, str]],
+    target_fields: list[str] | None = None,
+    corrections: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[list[SchemaField], str, list[str], list[str]]:
     """One proposer LLM call. Returns (revised schema, rationale,
     validated_notes_hit, filtered_notes_hit).
@@ -326,16 +366,32 @@ async def propose_schema(
     `accept_candidate` to write `_notes_consumed` entries against. The
     candidate JSON persists both arrays (filtered → monitoring only).
 
+    `target_fields` (focused tune): restricts which descriptions may move. We
+    both *instruct* the model to leave others alone AND hard-enforce it by
+    force-carrying the baseline description for any non-target field, so a
+    chatty model can't smuggle in collateral edits. Field add/remove/rename/
+    retype stays forbidden either way.
+
     Raises ProposerStructuralChangeError if the proposer attempts to add /
     remove / rename / retype any field - only `description` text may change.
     """
+    tf = set(target_fields) if target_fields else None
+    system_prompt = PROPOSER_SYSTEM_PROMPT
+    if tf:
+        system_prompt = (
+            PROPOSER_SYSTEM_PROMPT
+            + "\n\nFOCUSED RUN: only the following fields' descriptions may "
+            "change: " + ", ".join(target_fields) + ". Return all other fields "
+            "with their description text unchanged."
+        )
     user_text = build_proposer_user_text(
         schema=schema, reviewed=reviewed, predictions=predictions,
         per_field=per_field, notes=notes,
+        target_fields=target_fields, corrections=corrections,
     )
     result = await provider.extract(
         model_id=model_id,
-        system_prompt=PROPOSER_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_content=[TextBlock(text=user_text)],
         response_schema=PROPOSER_RESPONSE_SCHEMA,
         params={"temperature": 0.2},
@@ -364,7 +420,12 @@ async def propose_schema(
             )
         # Carry forward old metadata that the proposer doesn't touch.
         merged = old.model_dump(mode="json")
-        merged["description"] = str(new.get("description", old.description))
+        # Focused tune: hard-enforce the focus by keeping the baseline
+        # description verbatim for any field outside the target set.
+        if tf is not None and old.name not in tf:
+            merged["description"] = old.description
+        else:
+            merged["description"] = str(new.get("description", old.description))
         proposed.append(SchemaField(**merged))
 
     validated_hit, filtered_hit = _validate_notes_hit(
@@ -406,6 +467,50 @@ async def score_with_schema(
 class AutoresearchParams:
     max_turn: int = 30
     early_stop_no_improvement: int = 5
+    # Field-scoped ("focused") tune: when set, the proposer may only reword
+    # these fields' descriptions and the headline metric is averaged over them
+    # alone. Empty / None → the classic all-field tune. Populated from the
+    # human's recent `_corrections` (which fields they actually fixed) when the
+    # review-bar "optimize this field" affordance kicks off the job.
+    target_fields: list[str] | None = None
+
+
+def _scoped_headline(
+    score_result: ScoreResult, target_fields: list[str] | None,
+) -> float:
+    """Headline accuracy for the best-turn picker.
+
+    No `target_fields` → the global `field_accuracy_macro` (legacy behaviour).
+    With `target_fields` → macro accuracy over *only* those fields, so a
+    focused tune is graded on what it set out to improve and unrelated fields
+    can't dilute or inflate the signal. Falls back to f1, then to the global
+    headline, if the targeted fields carry no accuracy signal.
+    """
+    def _global() -> float:
+        h = score_result.field_accuracy_macro
+        if h is None:
+            h = score_result.macro_f1 or 0.0
+        return h
+
+    if not target_fields:
+        return _global()
+    tf = set(target_fields)
+    accs = [
+        fs.accuracy for fs in score_result.per_field
+        if fs.field in tf and fs.accuracy is not None and not fs.not_applicable
+    ]
+    if accs:
+        return sum(accs) / len(accs)
+    f1s = [
+        fs.f1 for fs in score_result.per_field
+        if fs.field in tf and fs.f1 is not None
+    ]
+    if f1s:
+        return sum(f1s) / len(f1s)
+    # Targeted fields had no graded signal this run (e.g. never present in any
+    # reviewed entity) — fall back to the global headline rather than 0.0 so a
+    # transient empty turn doesn't look like a regression.
+    return _global()
 
 
 EmitFn = Callable[[JobEvent], Awaitable[None]]
@@ -424,6 +529,8 @@ def _save_candidate_turn(
     parent_turn: int | None,
     notes_hit: list[str] | None = None,
     notes_hit_filtered: list[str] | None = None,
+    headline: float | None = None,
+    target_fields: list[str] | None = None,
 ) -> Path:
     candidate_dir(workspace, project_id, job_id).mkdir(parents=True, exist_ok=True)
     target = candidate_turn_path(workspace, project_id, job_id, turn)
@@ -431,10 +538,13 @@ def _save_candidate_turn(
     # We surface it under both `macro_f1` (legacy candidate readers) and
     # `field_accuracy_macro` (M12.x readers) so accept-candidate stays a
     # straight copy and the JobProgressCard's bestTurn picker can compare
-    # apples-to-apples. The actual value is the accuracy macro.
-    headline = score_result.field_accuracy_macro
+    # apples-to-apples. The actual value is the accuracy macro — or, for a
+    # focused tune, the macro over the targeted fields only (`headline`
+    # override) so the card's Δ reflects what the run set out to improve.
     if headline is None:
-        headline = score_result.macro_f1 or 0.0
+        headline = score_result.field_accuracy_macro
+        if headline is None:
+            headline = score_result.macro_f1 or 0.0
     payload: dict[str, Any] = {
         "turn": turn,
         "parent_turn": parent_turn,
@@ -446,6 +556,10 @@ def _save_candidate_turn(
         "predictions": predictions,
         "ts": score_result.ts,
     }
+    # Focused tune: persist the focus so `accept_candidate` can scope the
+    # correction-counter reset to exactly these fields (not the whole backlog).
+    if target_fields:
+        payload["target_fields"] = list(target_fields)
     # Always emit the two notes_hit arrays (empty lists OK) for downstream
     # `accept_candidate` lookup — keeps the on-disk shape uniform across the
     # baseline turn and improving turns. Baseline (turn 0) has no proposer
@@ -492,21 +606,23 @@ async def run_autoresearch_loop(
         info.status = JobStatus.CANCELLED
         return info
 
+    target_fields = params.target_fields or None
+
     baseline, baseline_predictions = await score_with_schema(
         workspace=workspace, project_id=project_id, schema=initial_schema,
         provider=provider, model_id=model_id,
     )
     # M12.x: switch best-turn picker to field_accuracy_macro. The lifecycle
     # `best_macro_f1` field name is preserved on JobInfo (it's an in-memory
-    # legacy alias) but the value stored is the accuracy macro.
-    baseline_headline = baseline.field_accuracy_macro
-    if baseline_headline is None:
-        baseline_headline = baseline.macro_f1 or 0.0
+    # legacy alias) but the value stored is the accuracy macro. For a focused
+    # tune the headline is the macro over the targeted fields only.
+    baseline_headline = _scoped_headline(baseline, target_fields)
     _save_candidate_turn(
         workspace=workspace, project_id=project_id, job_id=job_id, turn=0,
         schema=initial_schema, score_result=baseline, predictions=baseline_predictions,
         rationale="baseline", parent_turn=None,
         notes_hit=[], notes_hit_filtered=[],
+        headline=baseline_headline, target_fields=target_fields,
     )
     await emit(JobEvent(
         type="turn", ts=now_iso_filename_safe(), turn=0,
@@ -540,6 +656,10 @@ async def run_autoresearch_loop(
             return info
 
         reviewed_blob, notes_blob = _load_reviewed_with_notes(workspace, project_id)
+        corrections_blob = (
+            _load_corrections_for_fields(workspace, project_id, target_fields)
+            if target_fields else None
+        )
 
         try:
             proposed, rationale, notes_hit, notes_hit_filtered = await propose_schema(
@@ -547,6 +667,7 @@ async def run_autoresearch_loop(
                 reviewed=reviewed_blob, predictions=baseline_predictions,
                 per_field=[fs.model_dump(mode="json") for fs in baseline.per_field],
                 notes=notes_blob,
+                target_fields=target_fields, corrections=corrections_blob,
             )
         except ProposerStructuralChangeError as exc:
             await emit(JobEvent(type="proposer_failed", ts=now_iso_filename_safe(),
@@ -566,9 +687,7 @@ async def run_autoresearch_loop(
             workspace=workspace, project_id=project_id, schema=proposed,
             provider=provider, model_id=model_id,
         )
-        scored_headline = scored.field_accuracy_macro
-        if scored_headline is None:
-            scored_headline = scored.macro_f1 or 0.0
+        scored_headline = _scoped_headline(scored, target_fields)
         improved = scored_headline > best_macro_f1
         if improved:
             _save_candidate_turn(
@@ -576,6 +695,7 @@ async def run_autoresearch_loop(
                 schema=proposed, score_result=scored, predictions=predictions,
                 rationale=rationale, parent_turn=best_turn,
                 notes_hit=notes_hit, notes_hit_filtered=notes_hit_filtered,
+                headline=scored_headline, target_fields=target_fields,
             )
             best_macro_f1 = scored_headline
             best_turn = turn
@@ -646,3 +766,45 @@ def _load_reviewed_with_notes(
         if active:
             notes[p.stem] = active
     return reviewed, notes
+
+
+def _load_corrections_for_fields(
+    workspace: Path, project_id: str, fields: list[str] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Aggregate the human's recent `_corrections` for the focus fields.
+
+    Returns `{field: [{"before", "after", "filename"}, ...]}` — the explicit
+    "I changed B → A" signal that motivated a focused tune. This is the same
+    class of feedback as `_notes` and `sample errors` (the human's own
+    corrected values, plain text); it carries no bbox / document body /
+    counterexample-triplet, so it stays inside the red lines. Capped at a few
+    samples per field to keep the proposer prompt lean.
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    if not fields:
+        return out
+    want = set(fields)
+    rdir = reviewed_dir(workspace, project_id)
+    if not rdir.exists():
+        return out
+    PER_FIELD_CAP = 4
+    for p in sorted(rdir.glob("*.json")):
+        try:
+            blob = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        corr = blob.get("_corrections") or {}
+        if not isinstance(corr, dict):
+            continue
+        for fname, ba in corr.items():
+            if fname not in want or not isinstance(ba, dict):
+                continue
+            bucket = out.setdefault(fname, [])
+            if len(bucket) >= PER_FIELD_CAP:
+                continue
+            bucket.append({
+                "before": ba.get("before"),
+                "after": ba.get("after"),
+                "filename": p.stem,
+            })
+    return out

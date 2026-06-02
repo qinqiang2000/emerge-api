@@ -10,6 +10,7 @@ import PanelToggle from './components/Shell/PanelToggle'
 import EvalMatrixModal from './components/EvalMatrix/EvalMatrixModal'
 import EvalCompare from './components/EvalMatrix/EvalCompare'
 import BenchOverlay from './components/Bench/BenchOverlay'
+import Toaster from './components/Toaster'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
@@ -377,6 +378,7 @@ export default function App() {
         />
       )}
       <PromptQuickLook />
+      <Toaster />
 
       {/* M-modal — eval matrix overlay. Renders on top of the shell when
           `?eval=<ts>` is present AND a project is selected. When review is

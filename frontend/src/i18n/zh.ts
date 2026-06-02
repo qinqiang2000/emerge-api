@@ -152,6 +152,11 @@ const zh: Dict = {
   'job.line': 'turn {turn} · best acc {best} (turn {bestTurn}) · baseline {baseline} (Δ {delta})',
   'job.ended': '已结束（{reason}）',
   'job.baselineBest': '基线仍是最佳 — schema 未变',
+  // ── Running-state activity (what the loop is doing right now) ───────────
+  'job.baseline.measuring': '基线评测中…（正在量当前 prompt 的准确率，还没开始改）',
+  'job.candidate.generating': '正在生成候选 prompt…',
+  'job.turn.trying': '本轮在尝试：{rationale}',
+  'job.slowHint': '每轮需重抽全部已校阅文档，约数分钟/轮',
   // ── Candidate Δ + changed fields (shown before accept) ─────────────────
   'job.candidate.delta': '候选 +{delta} acc vs 基线（{best} ← {baseline}）',
   'job.candidate.fields': '提升字段：{fields}',
@@ -192,6 +197,15 @@ const zh: Dict = {
   'review.save': '保存',
   'review.save.saving': '保存中…',
   'review.save.notReviewedTabHint': 'save 仅在 ✏ 校订稿 标签页生效 — 切到那里，或使用“采用为校订稿”',
+  'review.save.ok': '已保存',
+  'review.save.fail': '保存失败：{err}',
+  'review.save.kbdHint': '⌘S 保存',
+  'review.tune.focus': '字段 {field} 已被你修正 {count} 次',
+  'review.tune.focus.cta': '优化该字段',
+  'review.tune.multi': '已修正 {fields}（共 {n} 个字段）',
+  'review.tune.multi.cta': '优化这些字段',
+  'review.tune.andMore': '等',
+  'review.tune.started': '已开始优化 — 进度见右侧对话',
   'review.loading': '加载中…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────

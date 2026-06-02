@@ -391,7 +391,11 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
           }}
         />
       )}
-      {improveJob && (
+      {/* In review mode (compact) the focused-tune progress already renders as a
+          JobProgressCard pinned above this panel (ReviewChatColumn's
+          `rev-chat-jobs`); a second floating banner for the same job just
+          overlaps that card. Only show the banner in the main shell. */}
+      {!compact && improveJob && (
         <ImproveBanner job={improveJob} onOpen={handleBannerOpen} />
       )}
       {hasContent ? (

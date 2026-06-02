@@ -395,6 +395,28 @@ def bump_corrections_since_tune_in_blob(blob: dict[str, Any], delta: int) -> int
     return new_val
 
 
+def bump_corrections_by_field_in_blob(
+    blob: dict[str, Any], field_names: list[str],
+) -> dict[str, int]:
+    """In-place per-field tally alongside the scalar `corrections_since_tune`.
+
+    `corrections_by_field` is `{field: times_corrected_since_last_tune}`. It
+    powers the review-bar "field X corrected K times → optimize this field"
+    affordance and the focused-tune target_fields auto-fill. Called from inside
+    the same `project_lock` as `bump_corrections_since_tune_in_blob`. Each
+    corrected field bumps by 1 (one correction event per save, not per char).
+    Returns the updated map."""
+    raw = blob.get("corrections_by_field")
+    by_field: dict[str, int] = dict(raw) if isinstance(raw, dict) else {}
+    for name in field_names:
+        try:
+            by_field[name] = int(by_field.get(name, 0) or 0) + 1
+        except (TypeError, ValueError):
+            by_field[name] = 1
+    blob["corrections_by_field"] = by_field
+    return by_field
+
+
 async def set_corrections_since_tune(workspace: Path, slug: str, value: int) -> None:
     """Locked read-modify-write of `corrections_since_tune` to an absolute
     value (e.g. reset to 0 after a candidate is accepted). Takes its own
@@ -403,6 +425,37 @@ async def set_corrections_since_tune(workspace: Path, slug: str, value: int) -> 
         pj = project_json_path(workspace, slug)
         blob = json.loads(pj.read_text())
         blob["corrections_since_tune"] = max(0, int(value))
+        atomic_write_json(pj, blob)
+
+
+async def consume_corrections_after_tune(
+    workspace: Path, slug: str, target_fields: list[str] | None,
+) -> None:
+    """Fold an accepted tune back into the correction backlog.
+
+    Full tune (`target_fields` falsy) → clear everything (the whole backlog
+    motivated this tune). Focused tune → drop only the targeted fields from
+    `corrections_by_field` and decrement the scalar counter by their tallies,
+    so corrections to *other* fields keep nagging. Takes its own
+    `project_lock`; never call from inside an existing lock."""
+    async with project_lock(workspace, slug):
+        pj = project_json_path(workspace, slug)
+        try:
+            blob = json.loads(pj.read_text())
+        except (OSError, json.JSONDecodeError):
+            return
+        raw = blob.get("corrections_by_field")
+        by_field: dict[str, int] = dict(raw) if isinstance(raw, dict) else {}
+        if not target_fields:
+            blob["corrections_since_tune"] = 0
+            blob["corrections_by_field"] = {}
+        else:
+            removed = 0
+            for f in target_fields:
+                removed += int(by_field.pop(f, 0) or 0)
+            cur = int(blob.get("corrections_since_tune") or 0)
+            blob["corrections_since_tune"] = max(0, cur - removed)
+            blob["corrections_by_field"] = by_field
         atomic_write_json(pj, blob)
 
 

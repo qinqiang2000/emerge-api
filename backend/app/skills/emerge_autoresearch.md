@@ -17,17 +17,34 @@ on this turn is to KICK OFF a background job - not to run the loop yourself.
   high-priority hints.
 - Bound by `max_turn` and `early_stop_no_improvement`. No token / $ budget.
 
+## Two shapes: broad vs focused
+
+- **Broad** `/improve` — all-field tune. Needs signal across the schema, so it
+  keeps the ≥5-reviewed floor.
+- **Focused** `/improve <field…>` — a single hot field the user keeps fixing
+  ("salesOrderNumber keeps splitting wrong"). Pass `target_fields` so the
+  proposer only rewords those descriptions and the headline is graded on them
+  alone. Because the human still hand-clicks Accept (the real gate) and the
+  blast radius is one description, the floor relaxes to **≥1 reviewed doc that
+  contains the field**. This is the path the review-bar "optimize this field"
+  button drives directly (no chat needed).
+
 ## Workflow on `/improve`
 
-1. Call `list_reviewed(slug)`. If fewer than 5 reviewed examples exist, stop
-   here: tell the user "/improve needs >=5 reviewed examples to have signal -
-   you currently have N. Please /review more docs first." Do NOT call
-   `start_job`.
+1. Call `list_reviewed(slug)`.
+   - **Broad** (no specific field named): if fewer than 5 reviewed examples
+     exist, stop — tell the user "/improve needs >=5 reviewed examples to have
+     signal - you currently have N. Please /review more docs first." Do NOT
+     call `start_job`.
+   - **Focused** (user named a field, or the surface-context
+     `corrections_by_field` points at a clear hot field): only require ≥1
+     reviewed doc containing that field.
 2. Otherwise call `start_job` with:
    ```
    {"skill": "autoresearch", "slug": <slug>,
     "params": {"max_turn": 30, "early_stop_no_improvement": 5}}
    ```
+   For a focused run add `"target_fields": ["<field>", ...]` to `params`.
    The tool returns a `job_id` string.
 3. Tell the user briefly: "Started autoresearch (job <id>). The progress
    card below streams per-turn field accuracy. You can pause / cancel at
@@ -39,6 +56,23 @@ alias with the same value, so legacy JSONL readers don't break).
 
 Do NOT call extract_one / score yourself in the /improve turn — the
 job loop owns those.
+
+## Tune is description-only — structural changes go elsewhere
+
+A focused/broad tune can only reword field **descriptions**. If a correction
+implies the *schema shape* is wrong, that is NOT a tune:
+
+- **Remove a field** ("this column is junk / never present"): one
+  `write_schema` call dropping it (`allow_structural=true`). Cheap, no eval
+  gate — it's a lab edit.
+- **Add a field** ("we also need `dueDate`"): `write_schema` to add it, then
+  the docs must be re-labeled / re-extracted to populate values. Heavier than a
+  tune; it is not what the review-bar "optimize this field" button does (you
+  can't focus a field that doesn't exist yet).
+
+So: keep `start_job` for description refinement; route add/remove/rename/retype
+through `write_schema`. Never try to smuggle a structural change through the
+proposer — the candidate accept gate rejects it.
 
 ## Slash commands relevant here
 

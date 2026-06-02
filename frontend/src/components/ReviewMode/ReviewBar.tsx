@@ -204,7 +204,7 @@ export default function ReviewBar({
         onClick={onSave}
         disabled={saving || !canSave}
         type="button"
-        title={!canSave ? t('review.save.notReviewedTabHint') : undefined}
+        title={!canSave ? t('review.save.notReviewedTabHint') : t('review.save.kbdHint')}
       >
         {saving ? t('review.save.saving') : t('review.save')}
       </button>

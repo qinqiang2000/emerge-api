@@ -106,6 +106,28 @@ export default function JobProgressCard({ jobId }: Props) {
       </div>
       <div className="text-ink-3">{formatJobLine(slice)}</div>
 
+      {/* Running-state activity — makes the long re-extraction wait legible:
+          while baseline is being scored say so (turn 0 carries no proposal),
+          and once turns are coming in surface the most recent proposer
+          rationale so "how the prompt is being rewritten" is visible. The slow
+          hint sets the ~minutes/turn expectation so the user doesn't read the
+          quiet baseline window as "stuck". */}
+      {status === 'running' && (() => {
+        const latest = turns[turns.length - 1]
+        const lastTried = [...turns].reverse().find((tt) => tt.turn > 0 && tt.rationale)
+        const activity = !latest
+          ? t('job.baseline.measuring')
+          : lastTried?.rationale
+            ? t('job.turn.trying', { rationale: lastTried.rationale })
+            : t('job.candidate.generating')
+        return (
+          <div className="space-y-0.5 text-ink-4">
+            <div>{activity}</div>
+            <div className="text-ink-5">{t('job.slowHint')}</div>
+          </div>
+        )
+      })()}
+
       {/* Candidate decision aid: Δ vs baseline + which fields moved (or the
           proposer's rationale as a fallback). Only shown once a real
           improvement candidate exists and before it's accepted. */}

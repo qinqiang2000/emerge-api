@@ -264,6 +264,24 @@ export async function translatePage(
   return r.json()
 }
 
+/** Correction-backlog summary that drives the review-bar focused-tune
+ *  affordance. `corrected_fields` (high→low by correction count) is what the
+ *  "optimize this field" button passes as the focused tune's `target_fields`;
+ *  `hot_fields` (corrected ≥2×) is the subset strong enough to name in copy. */
+export interface TuneSignal {
+  corrections_since_tune: number
+  reviewed_count: number
+  by_field: { field: string; count: number }[]
+  hot_fields: string[]
+  corrected_fields: string[]
+}
+
+export async function getTuneSignal(slug: string): Promise<TuneSignal> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/tune-signal`)
+  if (!r.ok) throw new Error(`getTuneSignal ${r.status}`)
+  return r.json()
+}
+
 export async function startJob(slug: string, params: Record<string, unknown> = {}): Promise<{ job_id: string }> {
   const r = await fetch('/lab/jobs', {
     method: 'POST',

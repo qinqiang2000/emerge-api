@@ -111,12 +111,18 @@ async def save_reviewed(
         # helper). Best-effort: a missing/garbled project.json never fails the
         # reviewed save.
         if corrections:
-            from app.tools.projects import bump_corrections_since_tune_in_blob
+            from app.tools.projects import (
+                bump_corrections_by_field_in_blob,
+                bump_corrections_since_tune_in_blob,
+            )
 
             pj = project_json_path(workspace, project_id)
             try:
                 proj_blob = json.loads(pj.read_text())
                 bump_corrections_since_tune_in_blob(proj_blob, len(corrections))
+                # Per-field tally: drives the review-bar focused-tune affordance
+                # (which field to optimize) and the target_fields auto-fill.
+                bump_corrections_by_field_in_blob(proj_blob, list(corrections.keys()))
                 atomic_write_json(pj, proj_blob)
             except (OSError, json.JSONDecodeError):
                 pass

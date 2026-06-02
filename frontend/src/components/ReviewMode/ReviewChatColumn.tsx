@@ -16,8 +16,10 @@ import { MessageSquare, X } from 'lucide-react'
 
 import ChatPanel from '../Chat/ChatPanel'
 import ChatHistoryActions from '../Chat/ChatHistoryActions'
+import JobProgressCard from '../Chat/JobProgressCard'
 import { useChat } from '../../stores/chat'
 import { useProjects } from '../../stores/projects'
+import { useReviewTune } from '../../stores/reviewTune'
 import { useT } from '../../i18n'
 
 export const REV_CHAT_WIDTH_KEY = 'emerge.revChatW'
@@ -120,6 +122,7 @@ export default function ReviewChatColumn({
   const showHistoryActions = Boolean(selectedSlug) && selectedSlug !== 'p_unset'
   const projectName = projects.find(p => p.slug === selectedSlug)?.name ?? selectedSlug ?? ''
   const chatsForProject = selectedSlug ? (chatsByProject[selectedSlug] ?? []) : []
+  const tuneJobIds = useReviewTune((s) => s.jobIds)
 
   return (
     <>
@@ -176,6 +179,17 @@ export default function ReviewChatColumn({
           </button>
         </header>
         <div className="rev-chat-body">
+          {/* Focused-tune jobs launched from the review bar surface their
+              progress here (reusing the chat's JobProgressCard) so the
+              non-chat entry point still resolves through the right-hand
+              conversation. */}
+          {tuneJobIds.length > 0 && (
+            <div className="rev-chat-jobs">
+              {tuneJobIds.map((id) => (
+                <JobProgressCard key={id} jobId={id} />
+              ))}
+            </div>
+          )}
           <ChatPanel compact />
         </div>
       </aside>
