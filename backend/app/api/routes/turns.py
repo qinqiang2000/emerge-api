@@ -108,6 +108,10 @@ class StartTurnBody(BaseModel):
     user_message: str
     attachments: list[dict[str, Any]] | None = None
     surface_context: SurfaceContext | None = None
+    # "browser" (default) = frontend is active, rich UI cards render automatically.
+    # "headless" = CLI agent / MCP client / programmatic caller; agent must emit
+    # full text output instead of deferring to UI components.
+    interface: str = "browser"
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -277,6 +281,7 @@ async def _start_turn_for(
             user_message=body.user_message,
             attachments=body.attachments,
             surface_context=surface_dict,
+            interface=body.interface,
         )
 
     try:

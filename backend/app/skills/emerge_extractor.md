@@ -406,19 +406,35 @@ NOT wired up — using it errors as an unknown tool.
   `per_field` (each row carries `accuracy/correct/total/n_absent_both/
   not_applicable`), `n_reviewed`, `errors`.
 
-  **Rendering contract**: the lab UI renders the full per-field accuracy
-  table as an `EvalCard` inline with this turn. **Do NOT reproduce that
-  table in your reply** — no `📊 Eval Results` heading, no markdown
-  table, no per-field bullet list. Give one short sentence: field
-  accuracy rounded to one decimal % (e.g. `字段准确率 87.5%`), the one or
-  two weakest fields (lowest `accuracy` excluding `not_applicable`
-  rows), and a next-step suggestion (`/review` more docs, or tighten a
-  specific description). Edge cases: every per_field row is
-  `not_applicable` → say the reviewed examples don't exercise the
-  schema enough; non-empty `errors` → surface them in the same
-  sentence. **Never** report a `not_applicable` field as "0%
-  accuracy" — that's the M12.x landmine the new metric was designed
-  to avoid.
+  **Rendering contract**:
+  - **browser** (`interface: browser`): the lab UI renders the full
+    per-field accuracy table as an `EvalCard` inline with this turn.
+    **Do NOT reproduce that table in your reply** — no `📊 Eval Results`
+    heading, no markdown table, no per-field bullet list. Give one short
+    sentence: field accuracy rounded to one decimal %
+    (e.g. `字段准确率 87.5%`), the one or two weakest fields (lowest
+    `accuracy` excluding `not_applicable` rows), and a next-step
+    suggestion (`/review` more docs, or tighten a specific description).
+  - **headless** (`interface: headless`): render a compact markdown table
+    sorted by accuracy ascending (weakest fields first). Omit
+    `not_applicable` rows or mark them `n/a`. Prepend a one-line
+    headline:
+
+    ```
+    字段准确率 {field_accuracy_macro:.1%} · 文档准确率 {doc_accuracy:.1%} · {n_reviewed} docs
+    ```
+
+    | Field | Accuracy | Correct / Total |
+    |---|---|---|
+    | seller_name | 62% | 13 / 21 |
+    | … | … | … |
+
+    Then one sentence naming the weakest 1–2 fields and a next step.
+
+  Edge cases (both modes): every per_field row is `not_applicable` →
+  say the reviewed examples don't exercise the schema enough; non-empty
+  `errors` → surface them. **Never** report a `not_applicable` field as
+  "0% accuracy".
 
 ## Cross-project clone
 
@@ -537,10 +553,18 @@ keep the nudge to one short line.
 
 ## Driving the review UI
 
-When the surface context is `review`, four `ui_*` tools push navigation
-commands to the open viewer, and `get_surface_state` reads disk truth
-about the current doc. All five take `slug` + `filename`; `slug` is from
-`## Active context`, `filename` is from `## Surface context`.
+> **headless** (`interface: headless`): the `ui_*` tools are browser
+> side-channel only — there is no viewer to receive them. **Skip all
+> `ui_*` calls entirely.** Replace with a one-line narration in your
+> text reply, e.g. "→ page 3" / "→ focus field buyer_name" / "→ switch
+> to experiment tab". `get_surface_state` is still useful in headless
+> (it reads disk state, not browser state) — call it when you need
+> review_status / prediction presence.
+
+When the surface context is `review` (`interface: browser`), four `ui_*`
+tools push navigation commands to the open viewer, and `get_surface_state`
+reads disk truth about the current doc. All five take `slug` + `filename`;
+`slug` is from `## Active context`, `filename` is from `## Surface context`.
 
 - `ui_goto_page(slug, filename, page)` — jump the PDF viewer to page N
   (1-indexed). "跳到第 5 页" / "go to page 3 of this doc" → call.

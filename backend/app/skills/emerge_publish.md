@@ -41,17 +41,19 @@ You help the user freeze the current schema as a versioned API and issue an API 
    is `field_accuracy_macro >= 0.75`; the soft band is `[0.75, 0.90)`.
    (`macro_f1` is mirrored under its old key as a transitional alias and
    carries the same accuracy value — prefer the new key.)
-2. **Rendering contract:** the lab UI renders the readiness checklist
-   automatically from the `readiness_check` tool result (as a PublishStage
-   panel inline with this turn). **Do NOT reproduce it as a markdown
-   `| Check | Status | Detail |` table or bullet list.** Instead, give
-   one short narrative:
-   - If `hard_pass` is `true`, say so in one line and tell the user the
-     next frozen version number (`v{N+1}`).
-   - If `hard_pass` is `false`, name the failing check(s) by their
-     human-readable label and what to fix — one short paragraph. Do
-     NOT list passing checks; the UI shows them.
-   - If there are `soft_warnings`, mention them in one phrase.
+2. **Rendering contract:**
+   - **browser** (`interface: browser`): the lab UI renders the readiness
+     checklist automatically (as a PublishStage panel inline with this
+     turn). **Do NOT reproduce it as a markdown table or bullet list.**
+     Give one short narrative: if `hard_pass` is `true`, say so and name
+     the next version number; if `false`, name the failing check(s) and
+     what to fix (omit passing checks — the UI shows them); mention
+     `soft_warnings` in one phrase if present.
+   - **headless** (`interface: headless`): render the full checklist as a
+     markdown list, failures first:
+     - `- ❌ **{check_label}**: {detail}` for failed checks
+     - `- ✅ {check_label}: {detail}` for passed checks
+     Then your one-line narrative (same rule as browser).
 3. If `hard_pass` is `false`, STOP. Do NOT call `freeze_version`. Ask the user
    to fix and re-run `/publish`.
 4. If only soft warnings, ask: "ready to publish v{N}?" Wait for explicit
@@ -62,27 +64,34 @@ You help the user freeze the current schema as a versioned API and issue an API 
    exist for that user, REMIND the user that re-issuing invalidates the
    prior key. Keys are user-scoped — one key calls *any* `published_id`,
    so you don't have to issue a fresh key per project.
-7. On confirm, call `issue_api_key(user_id="default")`. Do NOT include
-   the plaintext in your reply — the frontend will pop a modal.
-   **Rendering contract:** the lab UI renders the full key card (slug,
-   published_id, plaintext key one-time, prefix, hash, created timestamp,
-   and a copy-pasteable curl snippet that uses `$EMERGE_API_KEY`) from
-   the `issue_api_key` tool result. **Do NOT reproduce that metadata in
-   your reply** — no `Detail | Value` markdown table re-stating the
-   slug / key prefix / created date, no inline curl block. The card is
-   canonical. In your reply, give one short sentence acknowledging that
-   the key was issued and pointing the user at the card, e.g. "Key
-   minted — copy it from the card above before closing; it won't be
-   shown again." Mention that production calls go to:
+7. On confirm, call `issue_api_key(user_id="default")`.
+   **Rendering contract:**
+   - **browser** (`interface: browser`): **Do NOT include the plaintext key
+     in your reply** — the frontend pops a one-time modal. Give one
+     sentence: "Key minted — copy it from the card above before closing;
+     it won't be shown again."
+   - **headless** (`interface: headless`): the plaintext key is in the
+     tool result (field `key_plaintext`). **Print it verbatim in a code
+     block** so the user can copy it, and warn once that it won't be
+     shown again:
 
-   ```sh
-   curl -X POST https://<host>/v1/extract \
-     -H "X-API-Key: $EMERGE_API_KEY" \
-     -F "published_id=<pub_xxx>" \
-     -F "file=@/path/to/document.pdf"
-   ```
+     ```
+     EMERGE_API_KEY=ek_…
+     ```
 
-   only if the user asks how to use it.
+     **Save this key now — it won't be shown again.**
+
+     Do NOT omit or truncate the key in headless mode. Then always print
+     the curl snippet:
+
+     ```sh
+     curl -X POST https://<host>/v1/extract \
+       -H "X-API-Key: $EMERGE_API_KEY" \
+       -F "published_id=<pub_xxx>" \
+       -F "file=@/path/to/document.pdf"
+     ```
+
+   **browser**: Mention the curl snippet only if the user asks.
 
 ## case2 - re-publish v2 with an added field
 

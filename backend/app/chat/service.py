@@ -181,7 +181,9 @@ _WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
   project.json         # 项目配置（active_prompt_id / active_model_id / ...）"""
 
 
-def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
+def _build_active_context(
+    workspace: Path, slug: str, chat_id: str, *, interface: str = "browser"
+) -> str:
     """Render the "Active context" block that gets spliced into the system
     prompt every turn.
 
@@ -191,6 +193,12 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     absolute filesystem paths (so Bash / Glob / Read can be invoked with
     deterministic absolute paths on the first try) directly into the system
     prompt.
+
+    `interface` is `"browser"` (default) when the frontend is active, or
+    `"headless"` when called from a CLI agent / MCP client / programmatic
+    HTTP caller. Skill prompts gate rendering contracts on this value: in
+    browser mode the UI renders rich cards (EvalCard, PublishStage, etc.) and
+    the agent stays terse; in headless mode the agent renders full text output.
 
     Reading `project.json` is best-effort: a freshly-minted project may not
     yet have the file flushed, and a renamed slug between turns may briefly
@@ -202,6 +210,7 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     if slug == _UNSET_SLUG:
         return (
             "## Active context\n\n"
+            f"interface: {interface}\n\n"
             f"WORKSPACE_ROOT=`{workspace_root}` (absolute)\n\n"
             "The user has NOT selected a project yet (empty-hero state). "
             "No project-scoped tools work until a project is created — call "
@@ -212,6 +221,7 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     if slug == _UNBOUND_SLUG:
         return (
             "## Active context\n\n"
+            f"interface: {interface}\n\n"
             f"WORKSPACE_ROOT=`{workspace_root}` (absolute)\n\n"
             f"You are in an **unbound chat** (no project), chat_id=`{chat_id}`. "
             "Chat history and attachments live under `_chats/`. "
@@ -260,6 +270,8 @@ def _build_active_context(workspace: Path, slug: str, chat_id: str) -> str:
     project_dir = workspace_root / slug
     lines = [
         "## Active context",
+        "",
+        f"interface: {interface}",
         "",
         f"The user is in project **{name}** (slug=`{slug}`), chat_id=`{chat_id}`.",
         "",
@@ -590,11 +602,15 @@ class ChatService:
         slug: str,
         chat_id: str,
         surface_context: dict[str, Any] | None = None,
+        interface: str = "browser",
     ) -> str:
         """Skill text + live Active context block + optional Surface context.
 
         Active context tells the agent which slug it is operating on for this
         turn — see `_build_active_context` for the rationale.
+
+        `interface` is forwarded into the Active context block so skill prompts
+        can gate rendering contracts on `browser` vs `headless`.
 
         Surface context is appended only when the chat envelope carries a
         `surface_context` (i.e. the user submitted from the review overlay's
@@ -608,7 +624,7 @@ class ChatService:
         parts = [
             self._select_skill(user_message),
             "---",
-            _build_active_context(self.workspace, slug, chat_id),
+            _build_active_context(self.workspace, slug, chat_id, interface=interface),
         ]
         if surface_context is not None:
             parts.append("---")
@@ -627,6 +643,7 @@ class ChatService:
         chat_id: str,
         resume: str | None = None,
         surface_context: dict[str, Any] | None = None,
+        interface: str = "browser",
     ) -> ClaudeAgentOptions:
         # Build the permission gate inline so it closes over both the
         # workspace path (for the allow/deny/ask classifier) and the chat_id
@@ -668,7 +685,8 @@ class ChatService:
         }
         return ClaudeAgentOptions(
             system_prompt=self._build_system_prompt(
-                user_message, slug=slug, chat_id=chat_id, surface_context=surface_context,
+                user_message, slug=slug, chat_id=chat_id,
+                surface_context=surface_context, interface=interface,
             ),
             mcp_servers={"emerge_tools": self.mcp_server},
             model=self.agent_model,
@@ -740,6 +758,7 @@ class ChatService:
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
         surface_context: dict[str, Any] | None = None,
+        interface: str = "browser",
     ) -> AsyncIterator[str]:
         """Yield SSE-encoded event strings; caller passes them through to the response.
 
@@ -1051,6 +1070,7 @@ class ChatService:
                 chat_id=chat_id,
                 resume=prev_sid,
                 surface_context=surface_context,
+                interface=interface,
             )
             try:
                 async for chunk in _run(options):
@@ -1076,6 +1096,7 @@ class ChatService:
                     chat_id=chat_id,
                     resume=None,
                     surface_context=surface_context,
+                    interface=interface,
                 )
                 async for chunk in _run(options):
                     yield chunk
