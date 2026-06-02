@@ -979,6 +979,8 @@ html, body, #root {
 .rev-tune-caret.open{transform:rotate(90deg)}
 .rev-tune-cta{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:7px;border:1px solid var(--ochre-edge);background:var(--ochre-2);color:var(--paper);font-family:var(--mono);font-size:11.5px;cursor:pointer;transition:background .12s,border-color .12s}
 .rev-tune-cta:hover{background:var(--ink);border-color:var(--ink)}
+.rev-tune-dismiss{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:none;color:var(--ochre-2);font-family:var(--mono);font-size:12px;line-height:1;cursor:pointer;opacity:.7;transition:color .12s,background .12s,opacity .12s}
+.rev-tune-dismiss:hover{color:var(--ink);background:var(--paper-2);opacity:1}
 .rev-tune-detail{display:flex;flex-direction:column;gap:4px;padding:2px 0 2px 15px;font-family:var(--mono);font-size:11.5px}
 .rev-tune-drow{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
 .rev-tune-drow .fld{flex-shrink:0;color:var(--ochre-2);font-weight:600}

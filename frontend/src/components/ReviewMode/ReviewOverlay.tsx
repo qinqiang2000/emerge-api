@@ -189,6 +189,7 @@ export default function ReviewOverlay({
   // save (so the "field X corrected K times" copy tracks the latest edit), and
   // drop in-flight job cards when the project changes.
   const tuneSignal = useReviewTune((s) => s.signal)
+  const dismissedKey = useReviewTune((s) => s.dismissedKey)
   useEffect(() => {
     useReviewTune.getState().reset()
   }, [activeProjectId])
@@ -210,6 +211,10 @@ export default function ReviewOverlay({
   // only for copy emphasis/ordering, never to trim the target set (otherwise a
   // single-correction field gets silently dropped when a hotter field exists).
   const tuneTargets = tuneSignal ? tuneSignal.corrected_fields : []
+  // Dismiss fingerprint: the sorted field-name set this banner is offering to
+  // tune. Dismissing stores this key; the banner stays hidden while the set is
+  // unchanged, and re-appears once a NEW field gets corrected (key changes).
+  const tuneKey = [...tuneTargets].sort().join('|')
   // Compact field list for the multi-field banner: first 3 names + a localized
   // "etc." when there are more.
   const fieldsPreview = (fields: string[]): string => {
@@ -429,7 +434,7 @@ export default function ReviewOverlay({
         onToggleRight={onToggleRight}
       />
 
-      {tuneSignal && tuneTargets.length > 0 && (
+      {tuneSignal && tuneTargets.length > 0 && tuneKey !== dismissedKey && (
         <div className="rev-tune-bar">
           <div className="rev-tune-row">
             <button
@@ -455,6 +460,13 @@ export default function ReviewOverlay({
             <button type="button" className="rev-tune-cta" onClick={handleTune}>
               {tuneTargets.length === 1 ? t('review.tune.focus.cta') : t('review.tune.multi.cta')}
             </button>
+            <button
+              type="button"
+              className="rev-tune-dismiss"
+              onClick={() => useReviewTune.getState().dismiss(tuneKey)}
+              title={t('review.tune.dismiss')}
+              aria-label={t('review.tune.dismiss')}
+            >✕</button>
           </div>
           {tuneOpen && (
             <div className="rev-tune-detail">
