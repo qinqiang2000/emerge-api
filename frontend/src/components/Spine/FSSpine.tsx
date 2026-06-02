@@ -1,6 +1,7 @@
 // frontend/src/components/Spine/FSSpine.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './spine.css'
+import kdfpyIcon from '../../assets/kdfpy-icon.png'
 
 import { useI18n, useT } from '../../i18n'
 import { navigateToReview, pathForBench } from '../../lib/slugUrl'
@@ -345,7 +346,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     <div className="fs">
       {/* ── brand + collapse toggle ───────────────────────────────────── */}
       <div className="fs-brand-row">
-        <div className="fs-brand"><span className="dot"></span>emerge</div>
+        <div className="fs-brand"><img src={kdfpyIcon} alt="" className="brand-icon" />Piaozone</div>
         {onToggleLeft && (
           <PanelToggle
             side="left"

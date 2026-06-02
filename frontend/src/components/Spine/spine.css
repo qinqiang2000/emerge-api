@@ -3,8 +3,8 @@
 .fs-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 0 16px;display:flex;flex-direction:column;gap:2px}
 .fs-scroll > *{flex-shrink:0}
 .fs .fs-brand-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 18px;border-bottom:1px solid var(--rule-soft);margin-bottom:6px}
-.fs .fs-brand{font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.005em;color:var(--ink);font-weight:500;display:flex;align-items:baseline;gap:8px}
-.fs .fs-brand .dot{width:7px;height:7px;border-radius:50%;background:var(--ochre);display:inline-block;transform:translateY(-2px)}
+.fs .fs-brand{font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.005em;color:var(--ink);font-weight:500;display:flex;align-items:center;gap:8px}
+.fs .fs-brand .brand-icon{width:18px;height:18px;border-radius:4px;display:block;flex-shrink:0}
 .fs .fs-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:24px;color:var(--ink-4);border-radius:6px;background:transparent;border:1px solid transparent;cursor:default;transition:background .15s, color .15s, border-color .15s}
 .fs .fs-toggle:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule-soft)}
 .fs .fs-head{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-4);padding:8px 16px 6px;display:flex;align-items:center;justify-content:space-between}
