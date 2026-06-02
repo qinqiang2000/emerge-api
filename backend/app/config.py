@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     llm_judge_model: str = "gemini-flash-lite-latest"
     llm_judge_budget_per_eval: int = 200
 
+    # Max in-flight per-doc extract calls during one autoresearch eval pass
+    # (`score_with_schema` fans out across all reviewed docs). Lab tool, no
+    # token budget — this only bounds provider-side rate limits / connection
+    # pressure, not cost. 1 == the old strictly-sequential behaviour.
+    eval_extract_concurrency: int = 8
+
     def ingest_allowlist(self) -> tuple[Path, ...]:
         """Resolve the combined ingest-local allowlist (defaults + env extras).
 

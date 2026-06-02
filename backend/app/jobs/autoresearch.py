@@ -451,13 +451,24 @@ async def score_with_schema(
             blob = json.loads(p.read_text())
             reviewed[p.stem] = blob.get("entities", [])
 
-    predictions: dict[str, list[dict[str, Any]]] = {}
-    for filename in reviewed:
-        out = await extract_one_with_schema(
-            workspace, project_id, filename,
-            schema=schema, provider=provider, model_id=model_id,
-        )
-        predictions[filename] = out.get("entities", [])
+    # Fan out the per-doc extracts: each `extract_one_with_schema` call is
+    # independent (no shared state, no disk writes — see its docstring), so a
+    # reviewed set of N docs no longer costs N×latency serially. A semaphore
+    # caps in-flight calls (`eval_extract_concurrency`) to stay under provider
+    # rate limits; set it to 1 to recover the old strictly-sequential pass.
+    filenames = list(reviewed)
+    sem = asyncio.Semaphore(max(1, get_settings().eval_extract_concurrency))
+
+    async def _extract(filename: str) -> tuple[str, list[dict[str, Any]]]:
+        async with sem:
+            out = await extract_one_with_schema(
+                workspace, project_id, filename,
+                schema=schema, provider=provider, model_id=model_id,
+            )
+        return filename, out.get("entities", [])
+
+    pairs = await asyncio.gather(*(_extract(f) for f in filenames))
+    predictions: dict[str, list[dict[str, Any]]] = {f: ents for f, ents in pairs}
 
     result, _cells = await score(workspace, project_id, schema, predictions, reviewed)
     return result, predictions
