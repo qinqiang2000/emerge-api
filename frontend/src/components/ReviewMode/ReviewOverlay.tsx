@@ -216,6 +216,14 @@ export default function ReviewOverlay({
     const head = fields.slice(0, 3).join(', ')
     return fields.length > 3 ? `${head} ${t('review.tune.andMore')}` : head
   }
+  // Expandable "what did I change" disclosure under the banner. Renders the
+  // human's own before→after edits (from tuneSignal.samples) so "optimize
+  // these fields" isn't a black box — you see what the tune will learn from.
+  const [tuneOpen, setTuneOpen] = useState(false)
+  const fmtVal = (v: unknown): string => {
+    if (v == null || v === '') return t('review.tune.empty')
+    return typeof v === 'object' ? JSON.stringify(v) : String(v)
+  }
   const handleTune = () => {
     if (!activeProjectId || tuneTargets.length === 0) return
     // Land the progress card on a fresh thread instead of stacking it on the
@@ -423,22 +431,49 @@ export default function ReviewOverlay({
 
       {tuneSignal && tuneTargets.length > 0 && (
         <div className="rev-tune-bar">
-          <span className="rev-tune-msg">
-            {tuneTargets.length === 1 ? (
-              t('review.tune.focus', {
-                field: tuneTargets[0],
-                count: tuneSignal.by_field.find(b => b.field === tuneTargets[0])?.count ?? 1,
-              })
-            ) : (
-              t('review.tune.multi', {
-                fields: fieldsPreview(tuneTargets),
-                n: tuneTargets.length,
-              })
-            )}
-          </span>
-          <button type="button" className="rev-tune-cta" onClick={handleTune}>
-            {tuneTargets.length === 1 ? t('review.tune.focus.cta') : t('review.tune.multi.cta')}
-          </button>
+          <div className="rev-tune-row">
+            <button
+              type="button"
+              className="rev-tune-msg"
+              onClick={() => setTuneOpen(o => !o)}
+              aria-expanded={tuneOpen}
+              title={t('review.tune.toggleHint')}
+            >
+              <span className={'rev-tune-caret' + (tuneOpen ? ' open' : '')}>▸</span>
+              {tuneTargets.length === 1 ? (
+                t('review.tune.focus', {
+                  field: tuneTargets[0],
+                  count: tuneSignal.by_field.find(b => b.field === tuneTargets[0])?.count ?? 1,
+                })
+              ) : (
+                t('review.tune.multi', {
+                  fields: fieldsPreview(tuneTargets),
+                  n: tuneTargets.length,
+                })
+              )}
+            </button>
+            <button type="button" className="rev-tune-cta" onClick={handleTune}>
+              {tuneTargets.length === 1 ? t('review.tune.focus.cta') : t('review.tune.multi.cta')}
+            </button>
+          </div>
+          {tuneOpen && (
+            <div className="rev-tune-detail">
+              {tuneTargets.map((f) => (
+                <div key={f} className="rev-tune-drow">
+                  <span className="fld">{f}</span>
+                  <span className="diffs">
+                    {(tuneSignal.samples[f] ?? []).map((s, i) => (
+                      <span key={i} className="diff" title={s.filename}>
+                        <span className="b">{fmtVal(s.before)}</span>
+                        <span className="ar">→</span>
+                        <span className="a">{fmtVal(s.after)}</span>
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -268,12 +268,21 @@ export async function translatePage(
  *  affordance. `corrected_fields` (high→low by correction count) is what the
  *  "optimize this field" button passes as the focused tune's `target_fields`;
  *  `hot_fields` (corrected ≥2×) is the subset strong enough to name in copy. */
+export interface CorrectionSample {
+  before: unknown
+  after: unknown
+  filename: string
+}
+
 export interface TuneSignal {
   corrections_since_tune: number
   reviewed_count: number
   by_field: { field: string; count: number }[]
   hot_fields: string[]
   corrected_fields: string[]
+  /** `{field: [{before, after, filename}]}` — what the human actually changed,
+   *  for the banner's "see what was modified" disclosure. */
+  samples: Record<string, CorrectionSample[]>
 }
 
 export async function getTuneSignal(slug: string): Promise<TuneSignal> {

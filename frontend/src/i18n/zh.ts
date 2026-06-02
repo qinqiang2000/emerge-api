@@ -206,6 +206,8 @@ const zh: Dict = {
   'review.tune.multi.cta': '优化这些字段',
   'review.tune.andMore': '等',
   'review.tune.started': '已开始优化 — 进度见右侧对话',
+  'review.tune.toggleHint': '展开查看你改了哪些内容',
+  'review.tune.empty': '（空）',
   'review.loading': '加载中…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────

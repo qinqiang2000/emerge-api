@@ -90,11 +90,38 @@ async def get_tune_signal(slug: str) -> dict:
             }
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
+    # Walk the reviewed docs once: count them AND collect a few before→after
+    # samples per field so the banner can show *what* was changed (not just the
+    # field names). These are the human's own corrected values (plain text) —
+    # the same `_corrections` signal the focused tune feeds the proposer — so
+    # they carry no bbox / document body and stay inside the red lines.
+    reviewed_count = 0
+    samples: dict[str, list[dict[str, Any]]] = {}
+    SAMPLE_CAP = 3
     try:
         rd = reviewed_dir(ws, slug)
-        reviewed_count = sum(1 for _ in rd.glob("*.json")) if rd.exists() else 0
+        for p in sorted(rd.glob("*.json")) if rd.exists() else []:
+            reviewed_count += 1
+            try:
+                doc = json.loads(p.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            corr = doc.get("_corrections")
+            if not isinstance(corr, dict):
+                continue
+            for fname, ba in corr.items():
+                if fname not in by_field or not isinstance(ba, dict):
+                    continue
+                bucket = samples.setdefault(str(fname), [])
+                if len(bucket) >= SAMPLE_CAP:
+                    continue
+                bucket.append({
+                    "before": ba.get("before"),
+                    "after": ba.get("after"),
+                    "filename": p.stem,
+                })
     except OSError:
-        reviewed_count = 0
+        pass
     ranked = sorted(by_field.items(), key=lambda kv: kv[1], reverse=True)
     return {
         "corrections_since_tune": corrections,
@@ -104,6 +131,9 @@ async def get_tune_signal(slug: str) -> dict:
         "hot_fields": [f for f, n in ranked if n >= 2],
         # The corrected-field set = the focused tune's target_fields.
         "corrected_fields": [f for f, _ in ranked],
+        # `{field: [{before, after, filename}]}` — what the human actually
+        # changed, for the banner's "see what was modified" disclosure.
+        "samples": samples,
     }
 
 

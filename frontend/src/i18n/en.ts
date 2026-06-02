@@ -206,6 +206,8 @@ const en: Dict = {
   'review.tune.multi.cta': 'optimize these fields',
   'review.tune.andMore': 'etc.',
   'review.tune.started': 'optimization started — see the chat on the right',
+  'review.tune.toggleHint': 'expand to see what you changed',
+  'review.tune.empty': '(empty)',
   'review.loading': 'loading…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────
