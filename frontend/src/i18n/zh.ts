@@ -208,6 +208,8 @@ const zh: Dict = {
   'review.tune.started': '已开始优化 — 进度见右侧对话',
   'review.tune.toggleHint': '展开查看你改了哪些内容',
   'review.tune.empty': '（空）',
+  'review.tune.jumpHint': '跳到该文档并定位此字段',
+  'review.field.corrected': '已修正',
   'review.loading': '加载中…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────

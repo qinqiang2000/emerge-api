@@ -89,6 +89,16 @@ interface State {
   baselineEntities: FieldsValue[]
   evidence: Record<string, EvidenceValue>[] | null
   notes: Record<string, string>
+  /** Per-field before/after of what was corrected on THIS doc (the open doc's
+   *  persisted `_corrections`, from the last save pass). Drives the "corrected"
+   *  badge on field rows so a human can see at a glance which fields they fixed.
+   *  Reset on open, re-anchored after each save. */
+  corrections: Record<string, { before: unknown; after: unknown }>
+  /** One-shot focus signal: when the tune banner's before→after entry is
+   *  clicked, we open the source doc and stash the field here so FieldEditor can
+   *  select + scroll it into view once the entities finish loading, then clear
+   *  it via consumePendingFocus(). null when nothing is pending. */
+  pendingFocusField: string | null
   /** Path of the field row currently highlighted in the FieldEditor — hoisted
    *  out of FieldEditor local state so the review chat column can render a
    *  contextual chip ("inv-042.pdf · buyer_name = …") in its header. */
@@ -125,6 +135,11 @@ interface State {
   predictionsByExp: Record<string, ExperimentPredictionPayload | null>
   // ── methods ──────────────────────────────────────────────────────
   open: (projectId: string, filename: string) => Promise<void>
+  /** Open the doc behind a correction and queue its field for focus + scroll.
+   *  No-op re-open when the doc is already active. */
+  navigateToCorrection: (projectId: string, filename: string, field: string) => Promise<void>
+  /** FieldEditor calls this after it has consumed `pendingFocusField`. */
+  consumePendingFocus: () => void
   close: () => void
   setField: (entityIdx: number, name: string, value: unknown) => void
   setNote: (name: string, note: string) => void
@@ -164,6 +179,8 @@ export const useReview = create<State>((set, get) => ({
   baselineEntities: [],
   evidence: null,
   notes: {},
+  corrections: {},
+  pendingFocusField: null,
   activeField: null,
   activeEntityIdx: 0,
   activeTabKey: 'active',
@@ -199,6 +216,8 @@ export const useReview = create<State>((set, get) => ({
       baselineEntities: [],
       evidence: null,
       notes: {},
+      corrections: {},
+      pendingFocusField: null,
       activeField: null,
       activeEntityIdx: 0,
       isPending: false,
@@ -248,6 +267,7 @@ export const useReview = create<State>((set, get) => ({
         baselineEntities: deepCopyEntities(entities),
         evidence: (reviewed?._evidence ?? pending?._evidence ?? pred?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
         notes: reviewed?._notes ?? {},
+        corrections: reviewed?._corrections ?? {},
         isPending: !reviewed && !!pending,
         labelerModel: !reviewed && pending ? pending.labeler_model ?? null : null,
         // M14 — cache the draft/pending payloads (entities + evidence + _run)
@@ -264,7 +284,17 @@ export const useReview = create<State>((set, get) => ({
       set({ err: String(e), loading: false })
     }
   },
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
+  navigateToCorrection: async (projectId, filename, field) => {
+    const cur = get()
+    if (cur.activeProjectId !== projectId || cur.activeFilename !== filename) {
+      await get().open(projectId, filename)
+    }
+    // Stash AFTER open (open() resets pendingFocusField via its top set). The
+    // FieldEditor effect picks this up once entities are present.
+    set({ pendingFocusField: field })
+  },
+  consumePendingFocus: () => set({ pendingFocusField: null }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, corrections: {}, pendingFocusField: null, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -313,6 +343,9 @@ export const useReview = create<State>((set, get) => ({
         isPending: false,
         labelerModel: null,
         baselineEntities: deepCopyEntities(entities),
+        // Mirror the backend: save_reviewed overwrites `_corrections` with just
+        // this pass, so the corrected-field badges track the latest save.
+        corrections,
       })
       toast.ok(t('review.save.ok'))
     } catch (e: unknown) {

@@ -10,6 +10,7 @@
 
 import { ArrowLeftToLine } from 'lucide-react'
 import { useRef, useState, useEffect } from 'react'
+import { useT } from '../../i18n'
 
 export interface FieldRowProps {
   path: string           // dot-separated key path (e.g. "invoice_number")
@@ -18,6 +19,9 @@ export interface FieldRowProps {
   value: unknown
   evidencePage?: number | null
   active: boolean
+  /** Present when this field was corrected on the open doc (persisted
+   *  `_corrections`). Renders a "corrected" badge + before→after on hover. */
+  corrected?: { before: unknown; after: unknown }
   nested?: boolean
   readOnly?: boolean
   onChange: (value: string) => void
@@ -35,6 +39,7 @@ export default function FieldRow({
   value,
   evidencePage,
   active,
+  corrected,
   nested = false,
   readOnly = false,
   onChange,
@@ -42,9 +47,12 @@ export default function FieldRow({
   onClick,
   onAdopt,
 }: FieldRowProps) {
+  const t = useT()
   const valRef = useRef<HTMLSpanElement>(null)
 
   const displayValue = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+  const fmt = (v: unknown): string =>
+    v == null || v === '' ? t('review.tune.empty') : typeof v === 'object' ? JSON.stringify(v) : String(v)
 
   // Capture the value once on mount for edited-state tracking
   const [originalValue] = useState(() => displayValue)
@@ -60,7 +68,8 @@ export default function FieldRow({
 
   return (
     <div
-      className={`rev-fld${active ? ' active' : ''}${nested ? ' nested' : ''}`}
+      data-fpath={path}
+      className={`rev-fld${active ? ' active' : ''}${nested ? ' nested' : ''}${corrected ? ' corrected' : ''}`}
       onClick={() => onClick(path)}
     >
       <div className="kv">
@@ -69,6 +78,14 @@ export default function FieldRow({
           <span className="cdot" title="confidence: high (backend not yet providing per-field score)" />
           <span className="name" title={name}>{name}</span>
           <span className="ty">{type}</span>
+          {corrected && (
+            <span
+              className="corrbadge"
+              title={`${fmt(corrected.before)} → ${fmt(corrected.after)}`}
+            >
+              {t('review.field.corrected')}
+            </span>
+          )}
           {evidencePage != null && (
             <button
               type="button"

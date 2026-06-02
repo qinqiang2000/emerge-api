@@ -63,6 +63,8 @@ export default function FieldEditor({
   // column can read them without prop-drilling.
   const activeField = useReview(s => s.activeField)
   const setActiveField = useReview(s => s.setActiveField)
+  const corrections = useReview(s => s.corrections)
+  const pendingFocusField = useReview(s => s.pendingFocusField)
   const entityIdx = useReview(s => s.activeEntityIdx)
   const setEntityIdx = useReview(s => s.setActiveEntityIdx)
   const safeIdx = Math.min(entityIdx, Math.max(0, entities.length - 1))
@@ -187,6 +189,20 @@ export default function FieldEditor({
     requestScroll(path)
   }, [setActiveField, focusLocate, requestScroll, projectId, filename, activeTabKey, onJumpToPage, safeIdx, loadFor, entities, evidence, isPending])
 
+  // Consume a queued focus from the tune banner: once the navigated doc's
+  // entities are loaded, select the corrected field (which also pans the PDF)
+  // and scroll its form row into view, then clear the one-shot signal.
+  useEffect(() => {
+    if (!pendingFocusField || entities.length === 0) return
+    const field = pendingFocusField
+    useReview.getState().consumePendingFocus()
+    if (activeField !== field) handleSetActiveField(field)
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-fpath="${CSS.escape(field)}"]`)
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+  }, [pendingFocusField, entities.length, activeField, handleSetActiveField])
+
   // T11.1: Synthetic single-section — one section labelled "fields" containing all SchemaFields
   const sections = useMemo(() => {
     const fields: SectionField[] = schema.flatMap((f) => {
@@ -296,6 +312,7 @@ export default function FieldEditor({
                 label={sect.label}
                 fields={sect.fields}
                 activeField={activeField}
+                corrections={corrections}
                 forceOpen={forceOpen}
                 entityIdx={safeIdx}
                 readOnly={readOnly}

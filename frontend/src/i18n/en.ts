@@ -208,6 +208,8 @@ const en: Dict = {
   'review.tune.started': 'optimization started — see the chat on the right',
   'review.tune.toggleHint': 'expand to see what you changed',
   'review.tune.empty': '(empty)',
+  'review.tune.jumpHint': 'jump to this doc and locate the field',
+  'review.field.corrected': 'corrected',
   'review.loading': 'loading…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────

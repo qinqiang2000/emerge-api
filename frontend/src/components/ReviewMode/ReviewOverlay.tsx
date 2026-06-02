@@ -463,11 +463,21 @@ export default function ReviewOverlay({
                   <span className="fld">{f}</span>
                   <span className="diffs">
                     {(tuneSignal.samples[f] ?? []).map((s, i) => (
-                      <span key={i} className="diff" title={s.filename}>
+                      <button
+                        key={i}
+                        type="button"
+                        className="diff"
+                        title={`${s.filename} · ${t('review.tune.jumpHint')}`}
+                        onClick={() => {
+                          if (activeProjectId) {
+                            void useReview.getState().navigateToCorrection(activeProjectId, s.filename, f)
+                          }
+                        }}
+                      >
                         <span className="b">{fmtVal(s.before)}</span>
                         <span className="ar">→</span>
                         <span className="a">{fmtVal(s.after)}</span>
-                      </span>
+                      </button>
                     ))}
                   </span>
                 </div>

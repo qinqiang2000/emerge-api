@@ -26,6 +26,9 @@ interface Props {
   label: string
   fields: SectionField[]
   activeField: string | null
+  /** Per-field before/after of the open doc's persisted corrections; a row
+   *  whose path is a key here renders a "corrected" badge. */
+  corrections?: Record<string, { before: unknown; after: unknown }>
   forceOpen?: boolean | null
   flag?: string
   entityIdx: number
@@ -45,6 +48,7 @@ export default function Section({
   label,
   fields,
   activeField,
+  corrections,
   forceOpen,
   flag,
   entityIdx,
@@ -124,6 +128,7 @@ export default function Section({
                 value={f.value}
                 evidencePage={f.evidencePage}
                 active={isActive}
+                corrected={corrections?.[path]}
                 readOnly={readOnly}
                 onChange={(v) => onChange(entityIdx, f.name, v)}
                 onJumpToPage={onJumpToPage}
