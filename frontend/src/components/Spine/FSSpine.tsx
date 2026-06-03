@@ -17,6 +17,11 @@ import { useEval } from '../../stores/eval'
 import { pathForEvalMatrix } from '../../lib/slugUrl'
 import PanelToggle from '../Shell/PanelToggle'
 import UserMenu from '../Shell/UserMenu'
+import {
+  Folder, FolderOpen, FolderPlus, FileText, ScrollText, Cpu,
+  FlaskConical, Gauge, Tag, Star, ChevronRight, ChevronDown, MoreHorizontal,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
 type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; selected?: boolean; onClick?: () => void }
@@ -33,6 +38,17 @@ const STATUS_DOT: Record<string, string> = {
   live: 'var(--moss)',
   draft: 'var(--ochre)',
   empty: 'var(--ink-5)',
+}
+
+// Per-group leaf icon — the tree row's type at a glance, claude.ai-style.
+// Active rows override this with a filled Star (see leaf render below).
+const GROUP_ICON: Record<string, LucideIcon> = {
+  'docs/': FileText,
+  'prompts/': ScrollText,
+  'models/': Cpu,
+  'experiments/': FlaskConical,
+  'metrics/': Gauge,
+  'versions/': Tag,
 }
 
 type StampLabels = {
@@ -380,8 +396,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
             className={'proj' + (isActive ? ' active' : '')}
             onClick={() => useProjects.getState().select(p.slug)}
           >
-            <span className="glyph">{isActive ? '▸' : '·'}</span>
-            <span>{p.name}/</span>
+            {isActive
+              ? <FolderOpen size={15} className="proj-icon" strokeWidth={1.75} />
+              : <Folder size={15} className="proj-icon" strokeWidth={1.75} />}
+            <span className="proj-name">{p.name}</span>
             {isActive && (
               <span
                 className="status-dot"
@@ -395,12 +413,11 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
       {/* ── new project row ───────────────────────────────────────────── */}
       <div
-        className="proj"
+        className="proj new"
         onClick={() => useProjects.getState().select(null)}
-        style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}
       >
-        <span className="glyph">+</span>
-        <span>{t('spine.project.new')}</span>
+        <FolderPlus size={15} className="proj-icon" strokeWidth={1.75} />
+        <span className="proj-name">{t('spine.project.new')}</span>
       </div>
 
       {/* ── active project tree ───────────────────────────────────────── */}
@@ -416,8 +433,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
               return (
                 <div key={g.name}>
                   <div className="branch dir" onClick={() => toggleDir(g.name)}>
-                    <span className="arrow">{open ? '▾' : '▸'}</span>
-                    <span>{g.name}</span>
+                    {open
+                      ? <ChevronDown size={13} className="arrow" strokeWidth={2} />
+                      : <ChevronRight size={13} className="arrow" strokeWidth={2} />}
+                    <span className="dir-name">{g.name}</span>
                     <span className="stamp">{g.count}</span>
                     {/* ── experiments/ → open Bench leaderboard ─────────
                         Secondary affordance: a small ↗ icon button that
@@ -454,8 +473,8 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                           tabIndex={0}
                           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.onClick() } }}
                         >
-                          <span style={{ color: 'var(--ink-5)' }}>…</span>
-                          <span>{t('spine.more', { n: n.remaining })}</span>
+                          <MoreHorizontal size={14} className="leaf-icon" strokeWidth={1.75} />
+                          <span className="leaf-name">{t('spine.more', { n: n.remaining })}</span>
                         </div>
                       )
                     }
@@ -464,6 +483,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                       ? () => openVersion(selectedSlug!, n.name)
                       : n.onClick
                     const isSelected = !!n.selected
+                    const LeafIcon = n.active ? Star : (GROUP_ICON[g.name] ?? FileText)
                     return (
                       <div
                         key={j}
@@ -476,8 +496,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                         style={clickHandler ? { cursor: 'pointer' } : undefined}
                         aria-current={isSelected ? 'true' : undefined}
                       >
-                        <span style={{ color: isSelected ? 'var(--ochre)' : 'var(--ink-5)' }}>{n.active ? '⭐' : '·'}</span>
-                        <span>{n.name}</span>
+                        <LeafIcon
+                          size={14}
+                          strokeWidth={1.75}
+                          className={'leaf-icon' + (n.active ? ' active' : '')}
+                          {...(n.active ? { fill: 'currentColor' } : {})}
+                        />
+                        <span className="leaf-name">{n.name}</span>
                         {n.stamp && <span className="stamp">{n.stamp}</span>}
                       </div>
                     )
@@ -488,11 +513,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
             {tree.rootFiles.map((n, k) => (
               <div
                 key={'r' + k}
-                className="branch file"
-                style={{ paddingLeft: 18 }}
+                className="branch file root"
               >
-                <span style={{ color: 'var(--ink-5)' }}>·</span>
-                <span>{n.name}</span>
+                <FileText size={14} strokeWidth={1.75} className="leaf-icon" />
+                <span className="leaf-name">{n.name}</span>
                 {n.stamp && <span className="stamp">{n.stamp}</span>}
               </div>
             ))}

@@ -1,39 +1,73 @@
 .fs{border-right:1px solid var(--rule-soft);background:var(--paper);overflow:hidden;display:flex;flex-direction:column;gap:0;min-height:0;height:100%}
 .fs > .fs-brand-row, .fs > .fs-foot{flex-shrink:0}
-.fs-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 0 16px;display:flex;flex-direction:column;gap:2px}
+.fs-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 0 16px;display:flex;flex-direction:column;gap:0}
 .fs-scroll > *{flex-shrink:0}
-.fs .fs-brand-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 18px;border-bottom:1px solid var(--rule-soft);margin-bottom:6px}
+
+/* ── brand ─────────────────────────────────────────────────────────────── */
+.fs .fs-brand-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 16px;border-bottom:1px solid var(--rule-soft);margin-bottom:4px}
 .fs .fs-brand{font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.005em;color:var(--ink);font-weight:500;display:flex;align-items:center;gap:8px}
 .fs .fs-brand .brand-icon{width:18px;height:18px;border-radius:4px;display:block;flex-shrink:0}
 .fs .fs-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:24px;color:var(--ink-4);border-radius:6px;background:transparent;border:1px solid transparent;cursor:default;transition:background .15s, color .15s, border-color .15s}
 .fs .fs-toggle:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule-soft)}
-.fs .fs-head{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-4);padding:8px 16px 6px;display:flex;align-items:center;justify-content:space-between}
-.fs .fs-head .small{font-family:var(--mono);font-size:10px;color:var(--ink-5);text-transform:none;letter-spacing:0}
-.fs .proj{display:flex;align-items:center;gap:8px;padding:5px 16px;font-family:var(--mono);font-size:12.5px;color:var(--ink-3);cursor:default;white-space:nowrap;overflow:hidden}
+
+/* ── section header (~/projects, <project>/) ───────────────────────────── */
+.fs .fs-head{font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--ink-4);padding:10px 16px 5px;display:flex;align-items:center;justify-content:space-between}
+.fs .fs-head .small{font-family:var(--mono);font-size:10px;font-weight:400;color:var(--ink-5);letter-spacing:0}
+
+/* ── row base (project + new) ──────────────────────────────────────────── */
+.fs .proj{display:flex;align-items:center;gap:9px;margin:1px 8px;padding:6px 8px;border-radius:8px;font-family:var(--sans);font-size:13px;color:var(--ink-3);cursor:default;white-space:nowrap;overflow:hidden;transition:background .12s, color .12s}
 .fs .proj:hover{background:var(--paper-2);color:var(--ink)}
-.fs .proj.active{color:var(--ink);background:var(--paper-3);box-shadow:inset 2px 0 0 var(--ochre)}
-.fs .proj .glyph{color:var(--ink-5);width:12px;text-align:center}
-.fs .proj.active .glyph{color:var(--ochre)}
-.fs .proj .status-dot{margin-left:auto;width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.fs .proj > span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0}
-.fs .tree{padding:0 0 0 0;margin-top:4px}
-.fs .branch{font-family:var(--mono);font-size:12px;color:var(--ink-3);padding:3px 16px 3px 32px;display:flex;align-items:center;gap:8px;cursor:default;line-height:1.5;white-space:nowrap;overflow:hidden}
-.fs .branch > span:nth-child(2){overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
-.fs .branch.dir{color:var(--ink-2);font-weight:500;padding-left:18px;cursor:default}
-.fs .branch.dir .arrow{color:var(--ink-5);width:10px;display:inline-block}
+.fs .proj.active{color:var(--ink);background:var(--paper-3);font-weight:500}
+.fs .proj .proj-icon{flex-shrink:0;color:var(--ink-4)}
+.fs .proj:hover .proj-icon{color:var(--ink-3)}
+.fs .proj.active .proj-icon{color:var(--ochre)}
+.fs .proj .proj-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.fs .proj .status-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%}
+.fs .proj.new{color:var(--ink-4);margin-top:2px}
+.fs .proj.new .proj-icon{color:var(--ink-4)}
+.fs .proj.new:hover{color:var(--ink-2)}
+.fs .proj.new:hover .proj-icon{color:var(--ink-3)}
+
+/* ── tree ──────────────────────────────────────────────────────────────── */
+.fs .tree{padding:0;margin-top:2px}
+.fs .branch{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin:1px 8px;padding:5px 8px;border-radius:8px;display:flex;align-items:center;gap:8px;cursor:default;line-height:1.4;white-space:nowrap;overflow:hidden;transition:background .12s, color .12s}
+.fs .branch .leaf-name, .fs .branch .dir-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+
+/* dir header: chevron + name + count */
+.fs .branch.dir{font-family:var(--sans);font-size:12.5px;color:var(--ink-2);font-weight:600;gap:7px;cursor:default}
+.fs .branch.dir:hover{background:var(--paper-2)}
+.fs .branch.dir .arrow{color:var(--ink-5);flex-shrink:0}
+.fs .branch.dir:hover .arrow{color:var(--ink-3)}
+
+/* file rows: indented under the dir, type icon leads */
+.fs .branch.file{padding-left:28px}
+.fs .branch.file.root{padding-left:8px}
+.fs .branch.file .leaf-icon{color:var(--ink-5);flex-shrink:0}
 .fs .branch.file:hover{color:var(--ink);background:var(--paper-2)}
+.fs .branch.file:hover .leaf-icon{color:var(--ink-4)}
 .fs .branch.file:focus{outline:none}
-.fs .branch.file:focus-visible{outline:none;box-shadow:inset 2px 0 0 var(--ochre)}
-.fs .branch.file.selected{color:var(--ochre-2);background:var(--paper-3);box-shadow:inset 2px 0 0 var(--ochre)}
-.fs .branch.more{color:var(--ink-4);font-style:italic;cursor:pointer}
+.fs .branch.file:focus-visible{outline:none;background:var(--paper-2)}
+.fs .branch.file.selected{color:var(--ochre-2);background:var(--paper-3);font-weight:500}
+.fs .branch.file .leaf-icon.active{color:var(--ochre)}
+.fs .branch.file.selected .leaf-icon{color:var(--ochre)}
+
+/* "… N more" */
+.fs .branch.more{padding-left:28px;color:var(--ink-4);font-family:var(--sans);font-size:12px;cursor:pointer}
+.fs .branch.more .leaf-icon{color:var(--ink-5);flex-shrink:0}
 .fs .branch.more:hover{color:var(--ink-2);background:var(--paper-2)}
-.fs .branch .stamp{margin-left:auto;font-size:10.5px;color:var(--ink-5);font-variant-numeric:tabular-nums;font-weight:400;flex-shrink:0;padding-left:6px}
-.fs .branch.bullet::before{content:"·";color:var(--ink-5);position:absolute}
+.fs .branch.more:hover .leaf-icon{color:var(--ink-4)}
+
+/* stamp (counts / scores / status) — numeric, right-aligned, mono */
+.fs .branch .stamp{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-5);font-variant-numeric:tabular-nums;font-weight:400;flex-shrink:0;padding-left:6px}
+
+/* experiments/ → open Bench leaderboard */
 .fs .branch.dir .bench-open{margin-left:6px;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink-5);font-size:11px;line-height:1;cursor:pointer;flex-shrink:0;transition:color .12s, background .12s, border-color .12s}
 .fs .branch.dir .bench-open:hover{color:var(--ochre);background:var(--paper-2);border-color:var(--rule-soft)}
 .fs .branch.dir .bench-open:focus{outline:none}
 .fs .branch.dir .bench-open:focus-visible{outline:none;color:var(--ochre);box-shadow:0 0 0 2px var(--ochre)}
 .fs .branch.dir .bench-open:disabled{color:var(--ink-5);opacity:.4;cursor:default}
 .fs .branch.dir .bench-open:disabled:hover{background:transparent;border-color:transparent;color:var(--ink-5)}
-.fs .ghost{font-family:var(--mono);font-size:11.5px;color:var(--ink-5);font-style:italic;padding:2px 16px 2px 32px}
-.fs hr{border:0;border-top:1px solid var(--rule-soft);margin:12px 14px}
+
+/* ghost / empty placeholders */
+.fs .ghost{font-family:var(--sans);font-size:12px;color:var(--ink-5);font-style:italic;padding:3px 16px 3px 28px}
+.fs hr{border:0;border-top:1px solid var(--rule-soft);margin:10px 16px}
