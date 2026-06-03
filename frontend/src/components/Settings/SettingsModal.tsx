@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Copy, Trash2, Plus } from 'lucide-react'
+import { X, Copy, Trash2, Plus, SlidersHorizontal, User, Code2, Users, ShieldCheck, type LucideIcon } from 'lucide-react'
 
 import * as api from '../../lib/auth'
 import type { AuthTeam, AuthUser, Pat, TeamMember } from '../../lib/auth'
@@ -33,12 +33,12 @@ export default function SettingsModal() {
 
   if (!open || !user) return null
 
-  const sections: { key: SettingsSection; label: string; show: boolean }[] = [
-    { key: 'general', label: t('settings.nav.general'), show: true },
-    { key: 'account', label: t('settings.nav.account'), show: true },
-    { key: 'developer', label: t('settings.nav.developer'), show: true },
-    { key: 'team', label: t('settings.nav.team'), show: !!me?.active_team },
-    { key: 'admin', label: t('settings.nav.admin'), show: user.is_superuser },
+  const sections: { key: SettingsSection; label: string; show: boolean; icon: LucideIcon }[] = [
+    { key: 'general', label: t('settings.nav.general'), show: true, icon: SlidersHorizontal },
+    { key: 'account', label: t('settings.nav.account'), show: true, icon: User },
+    { key: 'developer', label: t('settings.nav.developer'), show: true, icon: Code2 },
+    { key: 'team', label: t('settings.nav.team'), show: !!me?.active_team, icon: Users },
+    { key: 'admin', label: t('settings.nav.admin'), show: user.is_superuser, icon: ShieldCheck },
   ]
 
   const body = (
@@ -52,6 +52,7 @@ export default function SettingsModal() {
               className={'settings-nav-item' + (section === s.key ? ' on' : '')}
               onClick={() => show(s.key)}
             >
+              <s.icon size={16} className="settings-nav-icon" />
               {s.label}
             </button>
           ))}
