@@ -1,5 +1,6 @@
 .fs{border-right:1px solid var(--rule-soft);background:var(--paper);overflow:hidden;display:flex;flex-direction:column;gap:0;min-height:0;height:100%}
-.fs > .fs-brand-row, .fs > .fs-foot{flex-shrink:0}
+.fs > .fs-brand-row, .fs > .fs-new-proj, .fs > .fs-foot{flex-shrink:0}
+.fs > .fs-new-proj{padding:6px 0 2px;border-bottom:1px solid var(--rule-soft)}
 .fs-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 0 16px;display:flex;flex-direction:column;gap:0}
 .fs-scroll > *{flex-shrink:0}
 
@@ -23,7 +24,7 @@
 .fs .proj.active .proj-icon{color:var(--ochre)}
 .fs .proj .proj-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 .fs .proj .status-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%}
-.fs .proj.new{color:var(--ink-4);margin-top:2px}
+.fs .proj.new{color:var(--ink-4)}
 .fs .proj.new .proj-icon{color:var(--ink-4)}
 .fs .proj.new:hover{color:var(--ink-2)}
 .fs .proj.new:hover .proj-icon{color:var(--ink-3)}
