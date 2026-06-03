@@ -53,11 +53,10 @@ export default function EmptyHero({
     <div className="empty-hero">
       <div className="ey">{eyebrow}</div>
       {newProject && <div className="new-note">{t('empty.newproject.note')}</div>}
-      <h1>
+      {/* <h1>
         {t('empty.headline.before')} <em>{t('empty.headline.em')}</em>
-      </h1>
-      <p>{t('empty.tagline')}</p>
-      <div
+      </h1> */}
+<div
         className="invite"
         onClick={() => onStarter(t('empty.guide.prompt'))}
         role="button"
