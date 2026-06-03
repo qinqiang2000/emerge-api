@@ -1,7 +1,8 @@
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.routes._safety import safe_filename, safe_slug
@@ -12,7 +13,7 @@ from app.tools.reviewed import get_reviewed, save_reviewed
 from app.workspace.paths import project_json_path, reviewed_dir
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 class ReviewedBody(BaseModel):
@@ -42,7 +43,7 @@ async def post_reviewed(
     safe_filename(filename)
     settings = get_settings()
     await save_reviewed(
-        settings.workspace_root,
+        current_ws(),
         slug,
         filename,
         entities=body.entities,
@@ -59,7 +60,7 @@ async def get_doc_reviewed(slug: str, filename: str) -> dict:
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    payload = await get_reviewed(settings.workspace_root, slug, filename)
+    payload = await get_reviewed(current_ws(), slug, filename)
     if payload is None:
         raise HTTPException(status_code=404, detail="reviewed_not_found")
     return payload
@@ -77,7 +78,7 @@ async def get_tune_signal(slug: str) -> dict:
     a missing/garbled project yields zeros, never an error."""
     safe_slug(slug)
     settings = get_settings()
-    ws = settings.workspace_root
+    ws = current_ws()
     corrections = 0
     by_field: dict[str, int] = {}
     try:
@@ -145,7 +146,7 @@ async def get_doc_pending(slug: str, filename: str) -> dict:
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    payload = await get_pending(settings.workspace_root, slug, filename)
+    payload = await get_pending(current_ws(), slug, filename)
     if payload is None:
         raise HTTPException(status_code=404, detail="pending_not_found")
     return payload

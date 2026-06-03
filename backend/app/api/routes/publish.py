@@ -5,11 +5,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_published_id, safe_slug
+from app.auth.deps import bind_workspace, current_ws
 from app.config import get_settings
 from app.provider import get_provider_for_model
 from app.schemas.envelope import ErrorEnvelope
@@ -173,7 +174,7 @@ async def v1_extract(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/lab/projects/{slug}/readiness")
+@router.get("/lab/projects/{slug}/readiness", dependencies=[Depends(bind_workspace)])
 async def get_readiness(slug: str) -> dict:
     """Publish readiness checklist for the current lab state.
 
@@ -183,13 +184,13 @@ async def get_readiness(slug: str) -> dict:
     shape; the business logic lives in `app.tools.publish.readiness_check`.
     """
     safe_slug(slug)
-    settings = get_settings()
-    if not project_json_path(settings.workspace_root, slug).exists():
+    ws = current_ws()
+    if not project_json_path(ws, slug).exists():
         return _error(404, "project_not_found", "no project at this slug")
-    return await readiness_check_impl(settings.workspace_root, slug)
+    return await readiness_check_impl(ws, slug)
 
 
-@router.get("/lab/projects/{slug}/contract-diff")
+@router.get("/lab/projects/{slug}/contract-diff", dependencies=[Depends(bind_workspace)])
 async def get_contract_diff(
     slug: str,
     from_: str | None = Query(default=None, alias="from"),
@@ -209,8 +210,7 @@ async def get_contract_diff(
     so callers can tell first-publish previews from no-change diffs.
     """
     safe_slug(slug)
-    settings = get_settings()
-    ws = settings.workspace_root
+    ws = current_ws()
     pj = project_json_path(ws, slug)
     if not pj.exists():
         return _error(404, "project_not_found", "no project at this slug")
@@ -252,7 +252,7 @@ async def get_contract_diff(
     return out
 
 
-@router.get("/lab/keys/meta")
+@router.get("/lab/keys/meta", dependencies=[Depends(bind_workspace)])
 async def lab_keys_meta(user_id: str = "default") -> dict:
     """Workspace-level key metadata for `user_id` (defaults to the single-user
     placeholder `"default"`). One key per user-scope means a flat reveal —
@@ -305,7 +305,7 @@ class _FreezeVersionBody(BaseModel):
     force: bool = False
 
 
-@router.post("/lab/projects/{slug}/versions/freeze")
+@router.post("/lab/projects/{slug}/versions/freeze", dependencies=[Depends(bind_workspace)])
 async def post_freeze_version(slug: str, body: _FreezeVersionBody | None = None) -> dict:
     """Freeze the current lab schema into a published version.
 
@@ -314,8 +314,8 @@ async def post_freeze_version(slug: str, body: _FreezeVersionBody | None = None)
     structured 400 envelope carrying the per-check detail so callers can
     show the user *which* gate blocked them (instead of a flat 500)."""
     safe_slug(slug)
-    settings = get_settings()
-    if not project_json_path(settings.workspace_root, slug).exists():
+    ws = current_ws()
+    if not project_json_path(ws, slug).exists():
         raise HTTPException(
             status_code=404,
             detail={"error_code": "project_not_found"},
@@ -325,7 +325,7 @@ async def post_freeze_version(slug: str, body: _FreezeVersionBody | None = None)
     body = body or _FreezeVersionBody()
     try:
         out = await freeze_version_impl(
-            settings.workspace_root, slug, force=body.force,
+            ws, slug, force=body.force,
         )
     except PublishNotReadyError as exc:
         raise HTTPException(
@@ -353,7 +353,7 @@ class _IssueKeyBody(BaseModel):
     version_id: str | None = None
 
 
-@router.post("/lab/keys")
+@router.post("/lab/keys", dependencies=[Depends(bind_workspace)])
 async def post_issue_api_key(body: _IssueKeyBody | None = None) -> dict:
     """Mint (or rotate) the user's API key. **One-time reveal**: the
     `key_plaintext` is returned exactly once in this response body and

@@ -9,14 +9,15 @@ extraction + sidecar caching logic.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
 from app.tools.textlayer import extract_textlayer
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 @router.get("/lab/projects/{slug}/docs/by-name/{filename:path}/textlayer")
@@ -31,7 +32,7 @@ async def get_textlayer(slug: str, filename: str, page: int = 1) -> dict:
     settings = get_settings()
     try:
         return await extract_textlayer(
-            settings.workspace_root, slug, filename, page=page,
+            current_ws(), slug, filename, page=page,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail="doc_not_found") from e

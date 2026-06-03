@@ -11,14 +11,15 @@ mode-selection + sidecar caching logic.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth.deps import bind_workspace, current_ws
 
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
 from app.tools.translate import translate_page
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 @router.post("/lab/projects/{slug}/docs/by-name/{filename:path}/translate")
@@ -47,7 +48,7 @@ async def post_translate(
     settings = get_settings()
     try:
         return await translate_page(
-            settings.workspace_root, slug, filename,
+            current_ws(), slug, filename,
             page=page, target_lang=lang, force_refresh=force,
         )
     except FileNotFoundError as e:

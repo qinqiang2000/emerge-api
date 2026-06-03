@@ -4,7 +4,8 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -16,7 +17,7 @@ from app.provider import get_provider_for_model
 from app.workspace.paths import job_log_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 class StartJobBody(BaseModel):
@@ -31,7 +32,7 @@ class StartJobBody(BaseModel):
 def _get_runner():
     settings = get_settings()
     provider = get_provider_for_model(settings.default_extract_model)
-    return get_runner(workspace=settings.workspace_root, provider=provider)
+    return get_runner(workspace=current_ws(), provider=provider)
 
 
 @router.post("/lab/jobs")
@@ -106,7 +107,7 @@ async def get_job_events(
     safe_job_id(job_id)
     safe_slug(project_id)
     settings = get_settings()
-    log_path = job_log_path(settings.workspace_root, project_id, job_id)
+    log_path = job_log_path(current_ws(), project_id, job_id)
     runner = _get_runner()
     try:
         await runner.get(job_id)

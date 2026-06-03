@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_chat_id, safe_slug
@@ -23,7 +24,7 @@ from app.tools.promote import promote_chat_to_project
 from app.workspace.ids import new_chat_id
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 # Sentinel: the empty-hero composer mints a project mid-turn (see
@@ -95,7 +96,7 @@ def _get_chat_service() -> ChatService:
         os.environ.setdefault("HTTP_PROXY", claude_proxy)
     provider = get_provider_for_model(settings.default_extract_model)
     return ChatService(
-        workspace=settings.workspace_root,
+        workspace=current_ws(),
         provider=provider,
         agent_model=settings.default_agent_model,
     )
@@ -136,7 +137,7 @@ async def lab_unbound_chat_list() -> list[dict[str, Any]]:
     `{chat_id, label, kind, ts_iso, n_events, attachment_count}` so the
     Phase-2 frontend can render the empty-hero "Recent conversations" strip
     + the scope-aware chat-history popover without N round-trips."""
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     return list_unbound_chats(workspace_root)
 
 
@@ -146,7 +147,7 @@ async def lab_unbound_chat_history(chat_id: str) -> dict[str, Any]:
     `GET /lab/chats/{slug}/{chat_id}` for project chats; the trailing
     `/events` segment disambiguates from the slug-keyed route."""
     safe_chat_id(chat_id)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     return {"events": read_chat_events(workspace_root, _UNBOUND_SLUG, chat_id)}
 
 
@@ -159,7 +160,7 @@ async def lab_unbound_chat_promote(
     Returns `{slug, project_id}`. After this call the chat is reachable at
     `/p/<slug>` and the unbound slot is tombstoned."""
     safe_chat_id(chat_id)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     out = await promote_chat_to_project(
         workspace_root,
         chat_id,
@@ -177,7 +178,7 @@ async def lab_unbound_chat_delete(chat_id: str) -> dict[str, Any]:
     chat returns `{ok: true}` with `existed=false` only when there was
     nothing at all on disk."""
     safe_chat_id(chat_id)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     existed = tombstone_unbound_chat(workspace_root, chat_id)
     return {"ok": True, "existed": existed}
 
@@ -185,7 +186,7 @@ async def lab_unbound_chat_delete(chat_id: str) -> dict[str, Any]:
 @router.get("/lab/chats/{slug}")
 async def lab_chat_list(slug: str) -> list[dict[str, Any]]:
     safe_slug(slug)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     return list_chats(workspace_root, slug)
 
 
@@ -193,7 +194,7 @@ async def lab_chat_list(slug: str) -> list[dict[str, Any]]:
 async def lab_chat_history(slug: str, chat_id: str) -> dict[str, Any]:
     safe_slug(slug)
     safe_chat_id(chat_id)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     return {"events": read_chat_events(workspace_root, slug, chat_id)}
 
 
@@ -318,7 +319,7 @@ async def lab_chat_rewind(
     if slug != _UNSET_SLUG:
         safe_slug(slug)
     safe_chat_id(chat_id)
-    workspace_root = get_settings().workspace_root
+    workspace_root = current_ws()
     new_size = rewind_to_user(
         workspace_root, slug, chat_id, target_user_index=target_user_index,
     )

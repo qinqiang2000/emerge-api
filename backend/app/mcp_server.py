@@ -143,7 +143,24 @@ def build_mcp_server(
 async def _main() -> None:
     """Entry point for stdio MCP server."""
     settings = get_settings()
-    workspace = settings.workspace_root
+    root = settings.workspace_root
+    workspace = root
+    # Multi-tenancy (2026-06-03): in tenant mode the stdio MCP must target one
+    # team's workspace. `EMERGE_TEAM_ID` is the headless-cowork entry point
+    # (Claude Desktop / Claude Code mounting emerge as an MCP server) for
+    # picking the tenant — without it we can't know which team's projects to
+    # serve. Open mode (no users yet) keeps the flat root, as before.
+    from app.auth import store as _auth_store
+    from app.workspace.paths import team_workspace_dir
+
+    if await _auth_store.auth_configured(root):
+        team_id = os.environ.get("EMERGE_TEAM_ID", "").strip()
+        if not team_id:
+            raise SystemExit(
+                "error: tenant mode is ON — set EMERGE_TEAM_ID to the team whose "
+                "workspace this MCP server should serve"
+            )
+        workspace = team_workspace_dir(root, team_id)
     provider = get_provider_for_model(settings.default_extract_model)
     job_runner = get_runner(workspace=workspace, provider=provider)
 

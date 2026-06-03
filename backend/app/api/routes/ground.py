@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_filename, safe_slug
@@ -26,7 +27,7 @@ from app.tools.ground import ground_prediction
 from app.workspace.paths import doc_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 class GroundRequest(BaseModel):
@@ -63,7 +64,7 @@ async def post_ground(
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    workspace = settings.workspace_root
+    workspace = current_ws()
 
     if not doc_path(workspace, slug, filename).exists():
         raise HTTPException(

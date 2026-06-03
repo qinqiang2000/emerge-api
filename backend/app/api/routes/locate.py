@@ -17,7 +17,8 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_filename, safe_slug
@@ -27,7 +28,7 @@ from app.tools.locate import locate_fields
 from app.workspace.paths import doc_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 class LocateRequest(BaseModel):
@@ -59,7 +60,7 @@ async def post_locate(
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    workspace = settings.workspace_root
+    workspace = current_ws()
 
     if not doc_path(workspace, slug, filename).exists():
         raise HTTPException(

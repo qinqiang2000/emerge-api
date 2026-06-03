@@ -1,6 +1,7 @@
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import FileResponse
 
 from app.api.routes._safety import safe_filename, safe_slug
@@ -9,7 +10,7 @@ from app.tools.docs import delete_doc, pdf_render_page
 from app.workspace.paths import doc_meta_path, doc_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 _IMAGE_MEDIA = {"png": "image/png", "jpg": "image/jpeg"}
@@ -32,7 +33,7 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    meta_p = doc_meta_path(settings.workspace_root, slug, filename)
+    meta_p = doc_meta_path(current_ws(), slug, filename)
     if not meta_p.exists():
         raise HTTPException(status_code=404, detail="doc_not_found")
     meta = json.loads(meta_p.read_text())
@@ -41,11 +42,11 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
         if page != 1:
             raise HTTPException(status_code=404, detail="page out of range")
         return FileResponse(
-            doc_path(settings.workspace_root, slug, filename),
+            doc_path(current_ws(), slug, filename),
             media_type=_IMAGE_MEDIA[ext],
         )
     try:
-        path = await pdf_render_page(settings.workspace_root, slug, filename, page=page)
+        path = await pdf_render_page(current_ws(), slug, filename, page=page)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     return FileResponse(path, media_type="image/png")
@@ -60,7 +61,7 @@ async def delete_doc_endpoint(slug: str, filename: str) -> dict:
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
-    result = await delete_doc(settings.workspace_root, slug, filename)
+    result = await delete_doc(current_ws(), slug, filename)
     if not result["removed"]:
         raise HTTPException(status_code=404, detail="doc_not_found")
     return result

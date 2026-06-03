@@ -11,6 +11,9 @@ import EvalMatrixModal from './components/EvalMatrix/EvalMatrixModal'
 import EvalCompare from './components/EvalMatrix/EvalCompare'
 import BenchOverlay from './components/Bench/BenchOverlay'
 import Toaster from './components/Toaster'
+import AuthScreen from './components/Auth/AuthScreen'
+import SettingsModal from './components/Settings/SettingsModal'
+import { useAuth } from './stores/auth'
 import { useReview } from './stores/review'
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
@@ -72,7 +75,7 @@ function writeBool(key: keyof typeof DEFAULTS, val: boolean) {
   try { localStorage.setItem(key, val ? '1' : '0') } catch { /* ignore */ }
 }
 
-export default function App() {
+function AppShell() {
   // M-modal — eval matrix is now an overlay on top of the chat shell.
   //   - compare route is still a full-page replacement (out of scope here).
   //   - legacy `/projects/<slug>/eval/<ts>` paths are redirected on mount to
@@ -428,6 +431,30 @@ export default function App() {
           }}
         />
       )}
+    </>
+  )
+}
+
+/**
+ * Auth gate. Bootstraps `/auth/me` once:
+ *   - open_mode (no users) → render the app as before (no login).
+ *   - authenticated → render the app + Settings overlay.
+ *   - tenant mode + unauthenticated → render <AuthScreen/>.
+ */
+export default function App() {
+  const me = useAuth(s => s.me)
+  const loaded = useAuth(s => s.loaded)
+  const bootstrap = useAuth(s => s.bootstrap)
+
+  useEffect(() => { bootstrap() }, [bootstrap])
+
+  if (!loaded) return null
+  const authed = me?.open_mode || me?.authenticated
+  if (!authed) return <AuthScreen />
+  return (
+    <>
+      <AppShell />
+      <SettingsModal />
     </>
   )
 }

@@ -473,3 +473,34 @@ evidence already exists; no-evidence docs fall back to the (LLM-free) value
 matcher, which is already capable. Producing source quotes is the extract/label
 pipeline's job (warmed into the blob at creation), not a lazy review-time call.
 `loadFor`'s `activeBacking` arg (the old ground cache target) is now ignored.
+
+## multi-tenancy: team is a workspace SUBDIR, auth has an open↔tenant switch
+
+Two non-obvious shapes from the Users & Teams milestone (2026-06-03) that a
+future "simplification" would break:
+
+(a) **Why team is `workspace_root/teams/{tid}/{slug}/`, not a `project.json`
+field.** Isolation is then PHYSICAL (the agent's `cwd` sandbox auto-tightens to
+the team dir — it literally can't `ls` another tenant), and the entire existing
+machinery (`tools/`, `paths.py`, `chat/service.py` all take `workspace: Path`)
+works UNCHANGED. The only edit was at the route layer: `settings.workspace_root`
+→ `current_ws()`, fed by a router-level `dependencies=[Depends(bind_workspace)]`.
+A `team_id` column would instead have forced a filter into every list path and
+made slugs collide across tenants. Don't "flatten" the teams/ nesting back.
+
+(b) **Open mode vs tenant mode (`store.auth_configured`).** While NO user
+exists, `current_user` returns None and `bind_workspace` returns the flat root —
+identical to pre-tenancy, zero auth. This is the ONLY reason the ~1000 existing
+route tests (which never authenticate and write to `workspace/{slug}`) still
+pass. The switch flips the instant `create_superuser` mints the first user.
+Don't make auth unconditionally enforced — you'll 401 the whole legacy suite.
+If you add a new `/lab/*` router, give it `dependencies=[Depends(bind_workspace)]`
+and read the workspace via `current_ws()` (NOT `settings.workspace_root`), or it
+silently serves the flat root and leaks across tenants in tenant mode.
+
+(c) **`current_ws()` is a ContextVar set per-request by `bind_workspace`.** It's
+read in the async handler and the resolved `Path` is passed BY VALUE into tools
+/ `asyncio.to_thread` closures — never read the contextvar from inside a thread
+or a detached turn task (it won't be set there; it falls back to root). Auth
+data (`_auth/*`) and the prod keystore (`_keys.json`) live at the TRUE root and
+are accessed via `settings.workspace_root`, never `current_ws()`.

@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import re
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.routes._safety import safe_slug
@@ -13,7 +14,7 @@ from app.schemas.envelope import ErrorEnvelope
 from app.workspace.paths import parse_version_id, project_json_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 _FILENAME_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -37,7 +38,7 @@ async def lab_export(slug: str, version: int | None = Query(default=None, ge=1))
     except Exception:
         return _error(400, "invalid_slug", "invalid slug")
 
-    workspace = get_settings().workspace_root
+    workspace = current_ws()
     pj = project_json_path(workspace, slug)
     if not pj.exists():
         return _error(404, "not_found", "project not found")

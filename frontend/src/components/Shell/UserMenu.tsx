@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, Settings as SettingsIcon, LogOut } from 'lucide-react'
 import './usermenu.css'
 
 import { useI18n, useT, type Locale } from '../../i18n'
+import { useAuth } from '../../stores/auth'
+import { useSettings } from '../../stores/settings'
 
 // Heroicons outline `globe-alt` — claude.ai uses this exact icon for the
 // Language row. Lucide's `Globe` has a different meridian geometry; inlining
@@ -27,10 +29,6 @@ function GlobeAlt({ size = 16, className }: { size?: number; className?: string 
     </svg>
   )
 }
-
-// Fixed identity for now — wired into the popover header.
-// (Multi-user auth lives downstream; spec asks for a placeholder.)
-const USER_EMAIL = 'docai@piaozone.com'
 
 // Single-label rows, claude.ai-style: native script + optional region in parens.
 // The sub-popover does NOT carry a second muted "English/Simplified Chinese"
@@ -74,6 +72,17 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
   const t = useT()
   const lang = useI18n(s => s.locale)
   const setLocale = useI18n(s => s.setLocale)
+  const me = useAuth(s => s.me)
+  const doLogout = useAuth(s => s.logout)
+  const doSwitchTeam = useAuth(s => s.switchTeam)
+  const showSettings = useSettings(s => s.show)
+  // Open mode (no auth configured) → keep a friendly placeholder so the menu
+  // still renders its language picker; identity rows hide.
+  const user = me?.user ?? null
+  const displayEmail = user?.email ?? 'emerge'
+  const displayName = user?.display_name || user?.full_name || displayEmail
+  const teams = me?.teams ?? []
+  const activeTeamId = user?.active_team_id ?? null
   const [open, setOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
   const [popPos, setPopPos] = useState<Coord | null>(null)
@@ -165,8 +174,10 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
   // And on unmount.
   useEffect(() => () => cancelSubClose(), [cancelSubClose])
 
-  const initial = initialsFromEmail(USER_EMAIL)
+  const initial = initialsFromEmail(displayEmail)
   const wrapperClass = variant === 'rail' ? 'user-menu rail' : 'user-menu expanded'
+
+  const closeAll = useCallback(() => { setSubOpen(false); setOpen(false) }, [])
 
   const popover = open && (
     <div
@@ -178,7 +189,40 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
         : { position: 'fixed', visibility: 'hidden', width: POP_W }}
       onClick={e => e.stopPropagation()}
     >
-      <div className="up-email-pill">{USER_EMAIL}</div>
+      <div className="up-email-pill">{displayEmail}</div>
+
+      {user && teams.length > 1 && (
+        <div className="up-section up-teams">
+          {teams.map(tm => (
+            <button
+              key={tm.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={tm.id === activeTeamId}
+              className={'up-row' + (tm.id === activeTeamId ? ' on' : '')}
+              onClick={() => { if (tm.id !== activeTeamId) doSwitchTeam(tm.id) }}
+            >
+              <span className="up-row-label">{tm.name}</span>
+              {tm.id === activeTeamId && <Check size={14} strokeWidth={2} className="up-row-check" />}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {user && (
+        <div className="up-section">
+          <button
+            type="button"
+            role="menuitem"
+            className="up-row"
+            onClick={() => { closeAll(); showSettings('general') }}
+          >
+            <SettingsIcon size={16} className="up-row-ic" />
+            <span className="up-row-label">{t('usermenu.settings')}</span>
+          </button>
+        </div>
+      )}
+
       <div className="up-section">
         <button
           ref={langRowRef}
@@ -197,6 +241,20 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
           <ChevronRight size={14} strokeWidth={1.75} className="up-row-chev" />
         </button>
       </div>
+
+      {user && (
+        <div className="up-section up-section-last">
+          <button
+            type="button"
+            role="menuitem"
+            className="up-row"
+            onClick={() => { closeAll(); doLogout() }}
+          >
+            <LogOut size={16} className="up-row-ic" />
+            <span className="up-row-label">{t('usermenu.logout')}</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 
@@ -240,11 +298,11 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
         aria-label={t('usermenu.accountMenu')}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={USER_EMAIL}
+        title={displayEmail}
       >
         <span className="avatar" aria-hidden="true">{initial}</span>
         {variant === 'expanded' && (
-          <span className="email">{USER_EMAIL}</span>
+          <span className="email">{displayName}</span>
         )}
       </button>
 

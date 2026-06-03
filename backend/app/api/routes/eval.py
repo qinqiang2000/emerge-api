@@ -4,7 +4,8 @@ import json
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
@@ -22,7 +23,7 @@ from app.workspace.paths import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 _TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$|^latest$")
@@ -45,7 +46,7 @@ async def post_eval(slug: str, body: Optional[_EvalBody] = None) -> dict:
 
     safe_slug(slug)
     settings = get_settings()
-    ws = settings.workspace_root
+    ws = current_ws()
     if not project_json_path(ws, slug).exists():
         raise HTTPException(status_code=404, detail="project_not_found")
     fields = await read_schema(ws, slug)
@@ -66,7 +67,7 @@ async def post_score(slug: str, body: Optional[_EvalBody] = None) -> dict:
 
     safe_slug(slug)
     settings = get_settings()
-    ws = settings.workspace_root
+    ws = current_ws()
     if not project_json_path(ws, slug).exists():
         raise HTTPException(
             status_code=404, detail={"error_code": "project_not_found"},
@@ -89,9 +90,9 @@ async def list_evals(slug: str) -> list[dict]:
     legacy `eval_*.json` files are surfaced too (with `meta.legacy=True`)."""
     safe_slug(slug)
     settings = get_settings()
-    if not project_json_path(settings.workspace_root, slug).exists():
+    if not project_json_path(current_ws(), slug).exists():
         raise HTTPException(status_code=404, detail="project_not_found")
-    md = metrics_dir(settings.workspace_root, slug)
+    md = metrics_dir(current_ws(), slug)
     out: list[dict] = []
     if not md.exists():
         return out
@@ -142,9 +143,9 @@ async def get_eval_latest(slug: str) -> dict:
     artifact; falls back to legacy `eval_*.json` when only those exist."""
     safe_slug(slug)
     settings = get_settings()
-    if not project_json_path(settings.workspace_root, slug).exists():
+    if not project_json_path(current_ws(), slug).exists():
         raise HTTPException(status_code=404, detail="project_not_found")
-    md = metrics_dir(settings.workspace_root, slug)
+    md = metrics_dir(current_ws(), slug)
     if not md.exists():
         raise HTTPException(status_code=404, detail="eval_not_found")
     dirs = sorted(
@@ -166,9 +167,9 @@ async def get_eval_summary(slug: str, ts: str) -> dict:
     safe_slug(slug)
     _validate_ts(ts)
     settings = get_settings()
-    p = eval_summary_path(settings.workspace_root, slug, ts)
+    p = eval_summary_path(current_ws(), slug, ts)
     if not p.exists():
-        legacy = metrics_path(settings.workspace_root, slug, f"eval_{ts}")
+        legacy = metrics_path(current_ws(), slug, f"eval_{ts}")
         if legacy.exists():
             return ScoreResultSummary(
                 **json.loads(legacy.read_text())
@@ -184,7 +185,7 @@ async def get_eval_cells(slug: str, ts: str) -> PlainTextResponse:
     safe_slug(slug)
     _validate_ts(ts)
     settings = get_settings()
-    p = eval_cells_path(settings.workspace_root, slug, ts)
+    p = eval_cells_path(current_ws(), slug, ts)
     if not p.exists():
         raise HTTPException(
             status_code=404, detail={"error_code": "eval_cells_not_found"},
@@ -197,7 +198,7 @@ async def get_eval_matrix(slug: str, ts: str) -> PlainTextResponse:
     safe_slug(slug)
     _validate_ts(ts)
     settings = get_settings()
-    p = eval_matrix_path(settings.workspace_root, slug, ts)
+    p = eval_matrix_path(current_ws(), slug, ts)
     if not p.exists():
         raise HTTPException(
             status_code=404, detail={"error_code": "eval_matrix_not_found"},

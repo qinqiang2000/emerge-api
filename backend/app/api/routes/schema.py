@@ -5,7 +5,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -35,7 +36,7 @@ from app.workspace.paths import candidate_turn_path, parse_version_id, project_j
 log = logging.getLogger(__name__)
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 class AcceptBody(BaseModel):
@@ -57,7 +58,7 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     safe_slug(slug)
     safe_job_id(body.job_id)
     settings = get_settings()
-    cp = candidate_turn_path(settings.workspace_root, slug, body.job_id, body.turn)
+    cp = candidate_turn_path(current_ws(), slug, body.job_id, body.turn)
     if not cp.exists():
         raise HTTPException(status_code=404, detail={"error_code": "candidate_not_found"})
     blob = json.loads(cp.read_text())
@@ -67,7 +68,7 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     # Capture the active prompt BEFORE any mutation: we need its global_notes
     # (candidate JSON never carries notes) and its schema for the structural
     # guard below.
-    active = await read_active_prompt(settings.workspace_root, slug)
+    active = await read_active_prompt(current_ws(), slug)
 
     # Preserve the structural guard. The proposer is only allowed to reword
     # `description`, so a field add/remove/rename/retype in the candidate JSON
@@ -93,7 +94,7 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
         candidate_macro = blob.get("macro_f1")
     delta: float | None = None
     baseline_macro: float | None = None
-    bp = candidate_turn_path(settings.workspace_root, slug, body.job_id, 0)
+    bp = candidate_turn_path(current_ws(), slug, body.job_id, 0)
     if bp.exists():
         try:
             baseline_blob = json.loads(bp.read_text())
@@ -118,15 +119,15 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     # global_notes=active.global_notes explicitly — write_prompt defaults it to
     # "" and would otherwise wipe the project-level guidance.
     new_id = await create_prompt(
-        settings.workspace_root, slug, label=label, derived_from=None,
+        current_ws(), slug, label=label, derived_from=None,
     )
     await write_prompt(
-        settings.workspace_root, slug,
+        current_ws(), slug,
         prompt_id=new_id,
         schema=fields,
         global_notes=active.global_notes,
     )
-    await switch_active_prompt(settings.workspace_root, slug, new_id)
+    await switch_active_prompt(current_ws(), slug, new_id)
 
     # Phase B: write `_notes_consumed` entries for the reviewed files whose
     # inline notes drove this candidate's description changes. `notes_hit`
@@ -136,7 +137,7 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     # came from an older code path). Runs AFTER switch so the consumption
     # record anchors to the new active_prompt_id (= new_id).
     consumed_summary = await _mark_notes_consumed(
-        workspace=settings.workspace_root,
+        workspace=current_ws(),
         slug=slug,
         notes_hit=blob.get("notes_hit") or [],
         job_id=body.job_id,
@@ -150,7 +151,7 @@ async def accept_candidate(slug: str, body: AcceptBody) -> dict:
     # review-bar affordance can still surface them.
     candidate_targets = blob.get("target_fields") or None
     await consume_corrections_after_tune(
-        settings.workspace_root, slug, candidate_targets,
+        current_ws(), slug, candidate_targets,
     )
 
     out: dict = {
@@ -313,7 +314,7 @@ async def post_write_schema(slug: str, body: _WriteSchemaBody) -> dict:
             },
         )
 
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
@@ -322,7 +323,7 @@ async def post_write_schema(slug: str, body: _WriteSchemaBody) -> dict:
 
     try:
         await write_schema(
-            settings.workspace_root,
+            current_ws(),
             slug,
             fields,
             reason=body.reason,
@@ -360,7 +361,7 @@ async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
     project's active model exactly the way the tool wrapper does."""
     safe_slug(slug)
     settings = get_settings()
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
@@ -370,11 +371,11 @@ async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
     from app.provider import get_provider_for_model
     from app.tools import model as model_mod
 
-    mc = await model_mod.read_active_model(settings.workspace_root, slug)
+    mc = await model_mod.read_active_model(current_ws(), slug)
     mid = mc.provider_model_id
     prj_provider = get_provider_for_model(mid, provider=mc.provider)
     fields = await derive_schema(
-        settings.workspace_root,
+        current_ws(),
         slug,
         sample_filenames=body.sample_filenames,
         intent=body.intent,
@@ -423,7 +424,7 @@ async def post_import_schema_from_yaml(
     safe_chat_id(chat_id)
     safe_filename(filename)
     settings = get_settings()
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
@@ -434,7 +435,7 @@ async def post_import_schema_from_yaml(
     new_label = body.new_label if body is not None else None
     try:
         out = await import_schema_from_yaml(
-            settings.workspace_root,
+            current_ws(),
             slug,
             chat_id,
             filename,
@@ -477,14 +478,14 @@ async def get_project_schema_raw(slug: str) -> PlainTextResponse:
     from app.workspace.migrate import migrate_project_if_needed
     from app.workspace.paths import project_json_path
 
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
             detail={"error_code": "schema_not_found"},
         )
-    await migrate_project_if_needed(settings.workspace_root, slug)
-    fields = await read_schema(settings.workspace_root, slug)
+    await migrate_project_if_needed(current_ws(), slug)
+    fields = await read_schema(current_ws(), slug)
     parsed = [f.model_dump(mode="json", exclude_none=True) for f in fields]
     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
     return PlainTextResponse(pretty, media_type="text/plain; charset=utf-8")
@@ -504,7 +505,7 @@ async def get_project_version_raw(
             detail={"error_code": "invalid_version_id"},
         )
     settings = get_settings()
-    vp = version_path(settings.workspace_root, slug, n)
+    vp = version_path(current_ws(), slug, n)
     if not vp.exists():
         raise HTTPException(
             status_code=404,

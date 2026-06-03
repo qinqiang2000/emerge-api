@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_slug
@@ -18,19 +19,19 @@ from app.workspace.migrate import migrate_project_if_needed
 from app.workspace.paths import project_json_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 def _project_or_404(slug: str) -> Path:
     safe_slug(slug)
     settings = get_settings()
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(
             status_code=404,
             detail={"error_code": "project_not_found"},
         )
-    return settings.workspace_root
+    return current_ws()
 
 
 @router.get("/lab/projects/{slug}/models")

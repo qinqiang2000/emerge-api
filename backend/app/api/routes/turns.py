@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -64,7 +65,7 @@ from app.chat.turn_registry import (
 from app.config import get_settings
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 _log = logging.getLogger(__name__)
 
 
@@ -319,7 +320,7 @@ def _attach_and_stream(
     then subscribe.
     Hot cache, caught up → subscribe directly.
     """
-    workspace = get_settings().workspace_root
+    workspace = current_ws()
     entry = registry.lookup_turn(tid)
 
     # Short-circuit reattaches to an already-finished turn. Two paths land
@@ -505,7 +506,7 @@ async def turn_state(
             "last_offset": entry.last_offset,
         }
 
-    workspace = get_settings().workspace_root
+    workspace = current_ws()
     log_path = _resolve_log_path(workspace, cid)
     return {
         "active_turn_id": None,

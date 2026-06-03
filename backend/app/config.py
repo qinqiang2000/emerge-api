@@ -77,6 +77,22 @@ class Settings(BaseSettings):
     llm_judge_model: str = "gemini-flash-lite-latest"
     llm_judge_budget_per_eval: int = 200
 
+    # --- Users & Teams (2026-06-03) ----------------------------------------
+    # Signed-cookie session secret. Dev default is intentionally insecure —
+    # set EMERGE_SECRET_KEY in any real deploy. (Efficiency/UX over security,
+    # see MEMORY:priorities-efficiency-experience-over-security — but a shared
+    # process-wide signing key still must not be the literal default in prod.)
+    secret_key: str = "dev-insecure-change-me"
+    # Persistent login: 90-day rolling cookie so closing the browser never
+    # forces a re-login (hard UX requirement). Only explicit logout ends it.
+    session_max_age: int = 90 * 24 * 60 * 60
+    # Name of the team that existing pre-tenancy projects migrate into.
+    bootstrap_team_name: str = "Default Team"
+    # First-boot superuser seed (optional). When both are set and no superuser
+    # exists yet, `create_superuser` bootstrap mints one. Never logged.
+    superuser_email: str | None = None
+    superuser_password: str | None = None
+
     # Max in-flight per-doc extract calls during one autoresearch eval pass
     # (`score_with_schema` fans out across all reviewed docs). Lab tool, no
     # token budget — this only bounds provider-side rate limits / connection

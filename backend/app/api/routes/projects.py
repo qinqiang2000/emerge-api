@@ -1,7 +1,8 @@
 import json
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.auth.deps import bind_workspace, current_ws
 from pydantic import BaseModel
 
 from app.api.routes._safety import safe_slug
@@ -12,7 +13,7 @@ from app.tools.reviewed import list_reviewed
 from app.workspace.paths import predictions_draft_dir, project_dir, project_json_path
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 # Names hidden at every level of the project tree (the `@` mention browser).
@@ -40,7 +41,7 @@ _VERSIONS_HIDDEN_NAMES = frozenset({"_candidate"})
 @router.get("/lab/projects")
 async def get_projects() -> list[dict]:
     settings = get_settings()
-    return await list_projects(settings.workspace_root)
+    return await list_projects(current_ws())
 
 
 class _CreateProjectBody(BaseModel):
@@ -72,7 +73,7 @@ async def post_create_project(body: _CreateProjectBody) -> dict:
         )
     settings = get_settings()
     out = await create_project(
-        settings.workspace_root,
+        current_ws(),
         name=cleaned,
         from_unbound_chat_id=body.from_unbound_chat_id or None,
     )
@@ -95,7 +96,7 @@ async def post_fork_project(body: _ForkProjectBody) -> dict:
 
     try:
         out = await fork_project(
-            settings.workspace_root,
+            current_ws(),
             src_slug=body.src_pid,
             name=body.name,
             include_docs=body.include_docs,
@@ -120,10 +121,10 @@ async def get_project(slug: str) -> dict:
     settings = get_settings()
     from app.workspace.migrate import migrate_project_if_needed
 
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(status_code=404, detail="project_not_found")
-    await migrate_project_if_needed(settings.workspace_root, slug)
+    await migrate_project_if_needed(current_ws(), slug)
     blob = json.loads(pj.read_text())
     # Folder name (the URL slug) is the source of truth — see `list_projects`
     # for the rationale. `blob["slug"]` can drift when callers rename via bare
@@ -141,7 +142,7 @@ async def delete_project_route(slug: str) -> dict:
     safe_slug(slug)
     settings = get_settings()
     try:
-        return await delete_project(settings.workspace_root, slug)
+        return await delete_project(current_ws(), slug)
     except FileNotFoundError:
         raise HTTPException(
             status_code=404,
@@ -158,11 +159,11 @@ async def get_project_docs(slug: str) -> list[dict]:
     the only handle now."""
     safe_slug(slug)
     settings = get_settings()
-    docs = await list_docs(settings.workspace_root, slug)
+    docs = await list_docs(current_ws(), slug)
     reviewed_names = {
-        r["filename"] for r in await list_reviewed(settings.workspace_root, slug)
+        r["filename"] for r in await list_reviewed(current_ws(), slug)
     }
-    pdir = predictions_draft_dir(settings.workspace_root, slug)
+    pdir = predictions_draft_dir(current_ws(), slug)
     # prediction filenames live at `predictions/_draft/<filename>.json`; strip
     # only the trailing `.json` to recover the doc handle (which itself
     # already includes the doc's extension).
@@ -252,7 +253,7 @@ async def get_project_tree(slug: str, dir: str = "", recursive: bool = False) ->
     safe_slug(slug)
     rel = _validate_tree_dir(dir)
     settings = get_settings()
-    root = project_dir(settings.workspace_root, slug).resolve()
+    root = project_dir(current_ws(), slug).resolve()
     if not root.exists():
         raise HTTPException(status_code=404, detail="project_not_found")
 
@@ -298,9 +299,9 @@ async def get_project_schema(slug: str) -> list[dict]:
     from app.tools.schema import read_schema
     from app.workspace.migrate import migrate_project_if_needed
 
-    pj = project_json_path(settings.workspace_root, slug)
+    pj = project_json_path(current_ws(), slug)
     if not pj.exists():
         raise HTTPException(status_code=404, detail="schema_not_found")
-    await migrate_project_if_needed(settings.workspace_root, slug)
-    fields = await read_schema(settings.workspace_root, slug)
+    await migrate_project_if_needed(current_ws(), slug)
+    fields = await read_schema(current_ws(), slug)
     return [f.model_dump(mode="json") for f in fields]

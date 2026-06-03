@@ -321,6 +321,43 @@ def job_locks_dir(workspace: Path) -> Path:
     return workspace / "_job_locks"
 
 
+# --- multi-tenancy (Users & Teams, 2026-06-03) ------------------------------
+# `_auth/` is GLOBAL (cross-team): callers MUST pass the TRUE workspace root
+# (`settings.workspace_root`), never a per-team workspace. Projects live under
+# `workspace_root/teams/{team_id}/{slug}/`; auth data sits beside `teams/` so it
+# is shared by every tenant. Leading-underscore dir → skipped by project
+# scanners (`pid_index`, `orphans`, `fork`) for free.
+def auth_dir(workspace_root: Path) -> Path:
+    return workspace_root / "_auth"
+
+
+def users_path(workspace_root: Path) -> Path:
+    return auth_dir(workspace_root) / "users.json"
+
+
+def teams_path(workspace_root: Path) -> Path:
+    return auth_dir(workspace_root) / "teams.json"
+
+
+def pats_path(workspace_root: Path) -> Path:
+    """Personal Access Tokens (headless `Authorization: Bearer`). Separate from
+    `_keys.json` (the prod `/v1/extract` customer keys) — different blast
+    radius: a PAT drives the whole `/lab/*` authoring surface as its user."""
+    return auth_dir(workspace_root) / "pats.json"
+
+
+def teams_root(workspace_root: Path) -> Path:
+    """`workspace_root/teams/` — the parent of every per-team workspace."""
+    return workspace_root / "teams"
+
+
+def team_workspace_dir(workspace_root: Path, team_id: str) -> Path:
+    """The per-team workspace that becomes the effective `workspace` handed to
+    every existing path helper / tool. `team_workspace_dir(root, tid) / slug`
+    is a project dir, structurally identical to the pre-tenancy layout."""
+    return teams_root(workspace_root) / team_id
+
+
 def reviewed_dir(workspace: Path, slug: str) -> Path:
     return project_dir(workspace, slug) / "reviewed"
 

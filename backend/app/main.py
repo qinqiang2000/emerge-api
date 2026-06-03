@@ -50,10 +50,31 @@ app.add_middleware(
     ],
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browser must send the session cookie cross-origin (Vite dev :5173 → API).
+    allow_credentials=True,
 )
 
+# Persistent signed-cookie sessions (Users & Teams, 2026-06-03). Long-lived +
+# rolling so closing the browser never forces a re-login; only explicit logout
+# clears it. `request.session["uid"]` is the browser auth channel (the headless
+# channel is the bearer PAT — see `app/auth/deps.py`).
+from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
+
+_auth_settings = get_settings()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_auth_settings.secret_key,
+    session_cookie="emerge_session",
+    max_age=_auth_settings.session_max_age,
+    same_site="lax",
+    https_only=False,
+)
+
+from app.api.routes import auth as auth_route
 from app.api.routes import chat as chat_route
 from app.api.routes import turns as turns_route
+
+app.include_router(auth_route.router)
 
 if os.getenv("EMERGE_TEST_MODE") == "1":
     # Register the e2e stub turn routes *before* both the real ``turns_route``

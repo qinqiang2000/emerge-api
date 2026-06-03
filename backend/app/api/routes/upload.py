@@ -1,6 +1,7 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import FileResponse
 
 from app.api.routes._safety import safe_chat_id, safe_filename, safe_slug
@@ -22,7 +23,7 @@ from app.workspace.staging import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
 _ATTACHMENT_MEDIA = {
@@ -51,7 +52,7 @@ async def upload(slug: str, file: UploadFile = File(...)) -> dict:
     settings = get_settings()
     data = await file.read()
     try:
-        meta = await upload_doc(settings.workspace_root, slug, data, file.filename or "")
+        meta = await upload_doc(current_ws(), slug, data, file.filename or "")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {
@@ -76,7 +77,7 @@ async def upload_staging(file: UploadFile = File(...)) -> dict[str, Any]:
     settings = get_settings()
     data = await file.read()
     try:
-        info = await stage_file(settings.workspace_root, data, file.filename or "")
+        info = await stage_file(current_ws(), data, file.filename or "")
     except StagingError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return info
@@ -134,7 +135,7 @@ async def attach_to_chat(
         except StagingError as e:
             raise HTTPException(status_code=400, detail=str(e))
     settings = get_settings()
-    target_dir = chat_attachments_dir(settings.workspace_root, slug, chat_id)
+    target_dir = chat_attachments_dir(current_ws(), slug, chat_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     final_name = dedupe_filename(target_dir, src_name)
     (target_dir / final_name).write_bytes(data)
@@ -168,7 +169,7 @@ async def ingest_local(slug: str, body: dict[str, Any] = Body(...)) -> dict[str,
     settings = get_settings()
     try:
         result = await ingest_local_path(
-            settings.workspace_root,
+            current_ws(),
             slug,
             path,
             allowlist=settings.ingest_allowlist(),
@@ -192,7 +193,7 @@ async def get_chat_attachment(
     safe_chat_id(chat_id)
     safe_filename(filename)
     settings = get_settings()
-    path = chat_attachment_path(settings.workspace_root, slug, chat_id, filename)
+    path = chat_attachment_path(current_ws(), slug, chat_id, filename)
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="attachment_not_found")
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -228,7 +229,7 @@ async def post_promote_attachment(
     settings = get_settings()
     try:
         out = await promote_attachment_impl(
-            settings.workspace_root, slug, chat_id, filename,
+            current_ws(), slug, chat_id, filename,
         )
     except FileNotFoundError:
         # Idempotent fallback: if the chat source is gone but the file is
@@ -236,7 +237,7 @@ async def post_promote_attachment(
         # as a no-op and echo the target. This matches the tool's
         # documented contract ("re-promote = no-op, returns same target").
         from app.workspace.paths import doc_path
-        existing = doc_path(settings.workspace_root, slug, filename)
+        existing = doc_path(current_ws(), slug, filename)
         if existing.exists() and existing.is_file():
             return {"target_filename": filename}
         raise HTTPException(

@@ -38,3 +38,15 @@ def new_experiment_id() -> str:
 
 def new_published_id() -> str:
     return _new("pub")
+
+
+def new_user_id() -> str:
+    return _new("u")
+
+
+def new_team_id() -> str:
+    return _new("t")
+
+
+def new_pat_id() -> str:
+    return _new("pat")
