@@ -73,7 +73,7 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ compact = false, composerPlaceholder, historyOffset }: ChatPanelProps = {}) {
   const t = useT()
-  const { selectedSlug, projects } = useProjects()
+  const { selectedSlug, projects, newProjectIntent } = useProjects()
   const allEvents = useChat(s => s.events)
   // Drilldown / focused-surface callers pass historyOffset to hide the
   // project-wide chat history that predates them. The shared chat store is
@@ -413,6 +413,7 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
       ) : (
         <EmptyHero
           projectName={projectName}
+          newProject={newProjectIntent && !selectedSlug}
           onAttach={(files: File[]) => { void attach(files) }}
           onStarter={(text) => { void handleStarter(text) }}
         />

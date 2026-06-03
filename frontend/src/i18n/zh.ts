@@ -65,8 +65,10 @@ const zh: Dict = {
   'menu.mention.noDir': '目录不存在',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': '给我几份文档，我就把它们变成',
-  'empty.headline.em': '一个能读懂它们的 API。',
+  'empty.headline.before': '给我几份文档，我帮你把它们读准 ——',
+  'empty.headline.em': '稳了，它自己就是个 API。',
+  'empty.eyebrow.newProject': '~/projects/新项目/',
+  'empty.newproject.note': '新项目 —— 还没命名。拖入文档或告诉我要处理什么，我就把文件夹建好、自动起名。',
   'empty.tagline': '拖几份进来。我会抽出字段、把结果摆给你看，错的地方你纠正我 —— 你纠正得越多，我越准。觉得稳了，就发布成你系统能直接调用的 API。',
   'empty.guide.title': '不确定从哪开始？',
   'empty.guide.hint': '告诉我你手上有什么文档，我带你走一遍。',

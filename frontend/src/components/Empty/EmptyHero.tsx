@@ -11,12 +11,16 @@ const STARTER_KEYS = [
 
 interface Props {
   projectName?: string
+  /** Entered via the spine "新建项目" row — read the canvas as a fresh project
+   *  (slot + naming note) rather than a generic unbound scratch chat. */
+  newProject?: boolean
   onAttach: (files: File[]) => void
   onStarter: (text: string) => void
 }
 
 export default function EmptyHero({
   projectName = '',
+  newProject = false,
   onAttach,
   onStarter,
 }: Props) {
@@ -39,11 +43,16 @@ export default function EmptyHero({
     if (files.length > 0) onAttach(files)
   }
 
-  const eyebrow = projectName ? `~/projects/${projectName}/` : '~/projects/'
+  const eyebrow = projectName
+    ? `~/projects/${projectName}/`
+    : newProject
+      ? t('empty.eyebrow.newProject')
+      : '~/projects/'
 
   return (
     <div className="empty-hero">
       <div className="ey">{eyebrow}</div>
+      {newProject && <div className="new-note">{t('empty.newproject.note')}</div>}
       <h1>
         {t('empty.headline.before')} <em>{t('empty.headline.em')}</em>
       </h1>

@@ -414,7 +414,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       {/* ── new project row ───────────────────────────────────────────── */}
       <div
         className="proj new"
-        onClick={() => useProjects.getState().select(null)}
+        onClick={() => useProjects.getState().startNew()}
       >
         <FolderPlus size={15} className="proj-icon" strokeWidth={1.75} />
         <span className="proj-name">{t('spine.project.new')}</span>

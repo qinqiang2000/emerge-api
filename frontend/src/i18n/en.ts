@@ -65,8 +65,10 @@ const en: Dict = {
   'menu.mention.noDir': 'no such directory',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': "Show me a few documents and I'll turn them into",
-  'empty.headline.em': 'an API that reads them for you.',
+  'empty.headline.before': "Give me a few documents and I'll read them accurately —",
+  'empty.headline.em': "once it's solid, it's an API.",
+  'empty.eyebrow.newProject': '~/projects/new-project/',
+  'empty.newproject.note': "New project — not named yet. Drop in a document or tell me what you're working on, and I'll set up the folder and name it.",
   'empty.tagline': "Drop a few in. I'll pull out the fields, show you what I found, and fix whatever I get wrong — the more you correct me, the sharper I get. When it's solid, publish it as an API your systems can call.",
   'empty.guide.title': 'Not sure where to start?',
   'empty.guide.hint': "Tell me what documents you have and I'll walk you through it.",
