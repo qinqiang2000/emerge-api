@@ -686,6 +686,9 @@ html, body, #root {
 .rev-sect .sect-h .lab{font-family:var(--serif);font-size:14px;font-style:italic;color:var(--ink);font-weight:500;letter-spacing:.005em}
 .rev-sect .sect-h .cnt{font-family:var(--mono);font-size:10.5px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.08em}
 .rev-sect .sect-h .flag{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ochre-2);background:var(--ochre-soft);padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+.rev-sect .sect-h .sect-edit{margin-left:auto;display:flex;align-items:center;padding:2px 4px;border-radius:3px;color:var(--ink-4);background:transparent;border:none;cursor:pointer;opacity:0;transition:opacity .12s}
+.rev-sect .sect-h:hover .sect-edit{opacity:1}
+.rev-sect .sect-h .sect-edit:hover{background:var(--paper-2);color:var(--ink-2)}
 .rev-sect .sect-body{display:flex;flex-direction:column;padding:4px 0 6px}
 .rev-fld{padding:7px 6px;border-bottom:1px solid var(--rule-soft);display:flex;flex-direction:column;gap:3px;position:relative;cursor:default;border-left:2px solid transparent}
 .rev-fld:last-child{border-bottom:0}

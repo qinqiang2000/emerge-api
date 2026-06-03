@@ -4,10 +4,14 @@
 // Dispatches to FieldRow / ObjectField / ArrayField by type.
 
 import { useState, useEffect } from 'react'
+import { Pencil } from 'lucide-react'
 import FieldRow from './FieldRow'
 import ObjectField from './ObjectField'
 import ArrayField from './ArrayField'
 import type { SchemaField } from '../../stores/schema'
+import { useReview } from '../../stores/review'
+import { useQuickLook } from '../../stores/quicklook'
+import { useT } from '../../i18n'
 
 export interface SectionField {
   name: string
@@ -59,6 +63,7 @@ export default function Section({
   onAdoptField,
   getEvidencePage,
 }: Props) {
+  const t = useT()
   const [open, setOpen] = useState(true)
 
   // forceOpen syncs from ReviewOverlay expand-all / collapse-all
@@ -75,6 +80,19 @@ export default function Section({
         <span className="lab">{label}</span>
         <span className="cnt">{flagCount} fields</span>
         {flag && <span className="flag">{flag}</span>}
+        <button
+          type="button"
+          className="sect-edit"
+          aria-label={t('schema.editFields')}
+          title={t('schema.editFields')}
+          onClick={(e) => {
+            e.stopPropagation()
+            const pid = useReview.getState().activeProjectId
+            if (pid) useQuickLook.getState().openPrompt(pid)
+          }}
+        >
+          <Pencil size={10} strokeWidth={1.8} />
+        </button>
       </div>
       {open && (
         <div className="sect-body">

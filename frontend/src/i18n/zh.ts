@@ -240,6 +240,7 @@ const zh: Dict = {
   'field.adopt.aria': '采用此预测作为校订稿',
   'field.adopt.title': '用这些值覆盖校订稿并切换到它',
   'field.confidence.high': '置信度：高',
+  'schema.editFields': '编辑字段',
 
   // ── PdfViewer toolbar ──────────────────────────────────────────────────
   'pdf.prevPage': '上一页',

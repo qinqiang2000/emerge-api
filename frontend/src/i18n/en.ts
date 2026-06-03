@@ -240,6 +240,7 @@ const en: Dict = {
   'field.adopt.aria': 'adopt this prediction as ground truth',
   'field.adopt.title': 'overwrite the ground truth with these values and switch to it',
   'field.confidence.high': 'confidence: high',
+  'schema.editFields': 'edit schema fields',
 
   // ── PdfViewer toolbar ──────────────────────────────────────────────────
   'pdf.prevPage': 'previous page',
