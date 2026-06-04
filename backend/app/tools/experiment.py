@@ -447,19 +447,20 @@ async def delete_experiment(
     project_id: str,
     experiment_id: str,
 ) -> None:
-    """Physically remove experiments/{exp_id}/. Blocks deletion of a promoted
-    experiment (audit trail must be preserved). Raises ExperimentNotFoundError
-    if the experiment doesn't exist; ExperimentInUseError if status='promoted'.
+    """Soft-delete experiments/{exp_id}/ — MOVE it to `_trash/` (recoverable),
+    not `rmtree`. Blocks deletion of a promoted experiment (audit trail must be
+    preserved). Raises ExperimentNotFoundError if the experiment doesn't exist;
+    ExperimentInUseError if status='promoted'.
     """
+    from app.workspace.trash import trash
+
     async with project_lock(workspace, project_id):
         ex = await read_experiment(workspace, project_id, experiment_id)
         if ex.status == "promoted":
             raise ExperimentInUseError(
                 f"cannot delete {experiment_id}: status is 'promoted' (audit trail)"
             )
-        edir = experiment_dir(workspace, project_id, experiment_id)
-        if edir.exists():
-            shutil.rmtree(edir)
+        trash(workspace, experiment_dir(workspace, project_id, experiment_id))
 
 
 async def experiments_referencing_prompt(

@@ -75,6 +75,45 @@ def test_cleanup_removes_multiple_orphans(workspace: Path) -> None:
     assert real.exists()
 
 
+# ── tenancy: teams/ must survive (data-loss regression) ────────────────────
+
+
+def test_cleanup_never_removes_teams_root(workspace: Path) -> None:
+    """The `teams/` tenancy root carries no `project.json` of its own. Before
+    the fix, a backend restart rmtree'd the entire teams/ tree — every team's
+    every project. It must be hard-exempt even when it holds tenant projects."""
+    proj = workspace / "teams" / "t_abc" / "us-invoice"
+    proj.mkdir(parents=True)
+    (proj / "project.json").write_text(json.dumps({"slug": "us-invoice"}))
+    assert cleanup_orphan_projects(workspace) == 0
+    assert proj.exists()
+    assert (proj / "project.json").exists()
+
+
+def test_cleanup_preserves_empty_team_workspace(workspace: Path) -> None:
+    """A freshly-minted team dir with no projects (only `_chats`) is the durable
+    tenant root, not an orphan — it must never be swept."""
+    team = workspace / "teams" / "t_empty"
+    (team / "_chats").mkdir(parents=True)
+    assert cleanup_orphan_projects(workspace) == 0
+    assert team.exists()
+
+
+def test_cleanup_reaps_orphans_inside_team_workspace(workspace: Path) -> None:
+    """Partial-write debris can land under teams/{tid}/ too. We still reap it
+    one level deep — without touching the team dir or sibling real projects."""
+    team = workspace / "teams" / "t_abc"
+    real = team / "real"
+    real.mkdir(parents=True)
+    (real / "project.json").write_text("{}")
+    orphan = team / "untitled-260514-152406"
+    (orphan / "chats").mkdir(parents=True)  # half-written
+    assert cleanup_orphan_projects(workspace) == 1
+    assert not orphan.exists()
+    assert real.exists()
+    assert team.exists()
+
+
 # ── create_project rollback ────────────────────────────────────────────────
 
 

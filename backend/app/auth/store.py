@@ -21,6 +21,7 @@ from app.auth.passwords import hash_password
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_team_id, new_user_id
 from app.workspace.paths import teams_path, users_path
+from app.workspace.slug import derive_slug, ensure_unique_slug
 
 
 class DuplicateEmailError(Exception):
@@ -155,17 +156,25 @@ async def create_team(root: Path, *, name: str, created_by: str) -> Team:
     """Mint a team. `created_by` is audit-only (no owner privilege) and is NOT
     auto-added as a member — the superuser-creator is not a tenant user; the
     first customer joins via the invite link. Members arrive through signup /
-    add_member."""
+    add_member.
+
+    The team's workspace dir is `teams/{slug}/` (human-readable), so the slug is
+    derived from the name and made unique across existing team slugs here, under
+    the same lock that appends the row — two teams named "荣耀" can't race to the
+    same folder."""
     async with auth_lock(root):
+        rows = _read_rows(teams_path(root))
+        taken = {r.get("slug") for r in rows if r.get("slug")}
+        slug = ensure_unique_slug(derive_slug(name, fallback_prefix="team"), taken)
         team = Team(
             id=new_team_id(),
             name=name.strip(),
+            slug=slug,
             invite_token=_new_invite_token(),
             created_by=created_by,
             member_ids=[],
             created_at=_iso_now(),
         )
-        rows = _read_rows(teams_path(root))
         rows.append(team.model_dump(mode="json"))
         atomic_write_json(teams_path(root), rows)
     return team

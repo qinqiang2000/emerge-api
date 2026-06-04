@@ -52,8 +52,9 @@ async def test_bootstrap_creates_superuser_team_and_migrates(workspace: Path) ->
     # bootstrap team exists, superuser is a member
     team = await store.get_team(workspace, su.active_team_id)
     assert team is not None and su.id in team.member_ids
-    # legacy project migrated under the bootstrap team
-    assert (team_workspace_dir(workspace, team.id) / "legacy-proj" / "project.json").exists()
+    # legacy project migrated under the bootstrap team — dir is named by slug
+    assert team.slug == "default-team"
+    assert (team_workspace_dir(workspace, team.slug) / "legacy-proj" / "project.json").exists()
     assert not (workspace / "legacy-proj").exists()
 
 

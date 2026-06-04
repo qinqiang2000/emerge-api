@@ -321,6 +321,16 @@ def job_locks_dir(workspace: Path) -> Path:
     return workspace / "_job_locks"
 
 
+def trash_root(workspace: Path) -> Path:
+    """Soft-delete bin for `workspace`. Deleted user data is MOVED here instead
+    of `rmtree`'d, so any delete is recoverable until retention purges it (see
+    `app.workspace.trash`). Leading underscore → invisible to every project
+    scanner (orphans, pid_index, fork, listing). Lives under the EFFECTIVE
+    workspace (a team dir in tenant mode, the flat root in open mode), so a
+    team's trash stays inside the team — isolation is not crossed."""
+    return workspace / "_trash"
+
+
 # --- multi-tenancy (Users & Teams, 2026-06-03) ------------------------------
 # `_auth/` is GLOBAL (cross-team): callers MUST pass the TRUE workspace root
 # (`settings.workspace_root`), never a per-team workspace. Projects live under
@@ -351,11 +361,16 @@ def teams_root(workspace_root: Path) -> Path:
     return workspace_root / "teams"
 
 
-def team_workspace_dir(workspace_root: Path, team_id: str) -> Path:
+def team_workspace_dir(workspace_root: Path, team_dirname: str) -> Path:
     """The per-team workspace that becomes the effective `workspace` handed to
-    every existing path helper / tool. `team_workspace_dir(root, tid) / slug`
-    is a project dir, structurally identical to the pre-tenancy layout."""
-    return teams_root(workspace_root) / team_id
+    every existing path helper / tool. `team_workspace_dir(root, dir) / slug` is
+    a project dir, structurally identical to the pre-tenancy layout.
+
+    `team_dirname` is the team's `slug` (a human-readable handle like `honor`),
+    NOT its `id` — callers resolve `team.slug` from the Team row. The opaque
+    `t_…` id never appears on disk; `migrate_team_dirs` renamed any legacy
+    id-named team dirs to their slug."""
+    return teams_root(workspace_root) / team_dirname
 
 
 def reviewed_dir(workspace: Path, slug: str) -> Path:

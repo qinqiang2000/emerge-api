@@ -147,13 +147,14 @@ def build_emerge_mcp(
 
     @tool(
         "delete_project",
-        "Permanently delete a whole project: rmtree its dir and drop the pid "
-        "from the index. Returns {deleted_slug, deleted_pid}. ALWAYS ask the "
-        "user to confirm first — this is unrecoverable. Use this instead of "
+        "Delete a whole project: MOVE its dir to _trash/ (recoverable for ~2 "
+        "weeks) and drop the pid from the index. Returns {deleted_slug, "
+        "deleted_pid}. Still ask the user to confirm first. Use this instead of "
         "`Bash rm -rf <project_dir>`: bare rm leaves the chat-log writer free "
         "to resurrect `chats/` with a trailing `agent_text`, producing a "
-        "half-zombie folder. This tool tombstones project.json first so the "
-        "log writer's gate trips even on in-flight events from the same turn. "
+        "half-zombie folder. This tool renames the dir into _trash/ in one "
+        "atomic step, so the live project.json vanishes (the log writer's gate "
+        "trips even on in-flight events) while the trashed copy stays restorable. "
         "For sub-paths (docs/, prompts/, experiments/, individual files) keep "
         "using Bash rm — only whole-project delete needs this tool.",
         {

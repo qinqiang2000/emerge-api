@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import secrets
-import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +11,10 @@ from app.config import get_settings
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_project_id
 from app.workspace.lock import project_lock
+# Re-exported so existing `from app.tools.projects import derive_slug` callers
+# (fork.py, tests) keep working after the logic moved to app.workspace.slug.
+from app.workspace.slug import SLUG_MAX_LEN as _SLUG_MAX_LEN
+from app.workspace.slug import derive_slug, ensure_unique_slug
 from app.workspace.paths import (
     chats_dir,
     docs_dir,
@@ -25,18 +27,6 @@ from app.workspace.pid_index import get_index
 
 
 # Filesystem-unsafe / control-char set we strip from derived slugs. Slashes
-# would create unintended subdirs, NUL terminates C-strings, and other control
-# chars round-trip badly through shells / URLs. Whitespace is normalized to a
-# single `-` separately so we don't lose word boundaries in CJK + Latin mixes
-# like "Q4 美国发票".
-_SLUG_DROP_CHARS = re.compile(r"[\\/\x00-\x1f\x7f]")
-_SLUG_WHITESPACE = re.compile(r"\s+")
-_SLUG_COLLAPSE_DASH = re.compile(r"-{2,}")
-
-# Hard cap. 64 chars matches the route-side `safe_slug` upper bound — derive
-# must not produce something the validator will reject.
-_SLUG_MAX_LEN = 64
-
 # Matches the auto-mint display name `_placeholder_project_name()` writes when
 # `chat_turn` mints an empty-hero project (`Chat-YYMMDD-HHMMSS`). Used by
 # `rename_project` to detect a placeholder name that should track a slug
@@ -48,58 +38,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def derive_slug(name: str) -> str:
-    """Project name → fs-safe + URL-safe handle.
-
-    Rules (in order):
-      1. `.strip().lower()` for case / whitespace normalization.
-      2. Replace any whitespace run with `-` so words stay separated.
-      3. Drop NUL / control chars / `/` / `\\` (filesystem hostile).
-      4. Collapse consecutive `-` into one, then trim leading/trailing `-`.
-      5. Truncate to 64 chars (the `safe_slug` cap).
-      6. Empty result falls back to `project-YYYY-MM-DD-<3 base36>` so we
-         always produce a valid folder name.
-
-    Unicode is intentionally **preserved** — CJK, accents, emoji round-trip
-    unchanged. The frontend uses `encodeURIComponent` on slug path segments
-    so non-ASCII handles are safe in URLs."""
-    if not isinstance(name, str):
-        name = ""
-    # NFKC normalizes width / compat forms (full-width digits → half-width,
-    # etc.) so visually-identical inputs collide deterministically.
-    normalized = unicodedata.normalize("NFKC", name).strip().lower()
-    # Replace whitespace runs *before* dropping bad chars so "foo / bar"
-    # becomes "foo---bar" (then collapse) instead of "foobar".
-    normalized = _SLUG_WHITESPACE.sub("-", normalized)
-    normalized = _SLUG_DROP_CHARS.sub("", normalized)
-    normalized = _SLUG_COLLAPSE_DASH.sub("-", normalized).strip("-")
-    if len(normalized) > _SLUG_MAX_LEN:
-        normalized = normalized[:_SLUG_MAX_LEN].rstrip("-")
-    if not normalized:
-        # secrets.token_hex(2) is 4 hex chars; slice to 3 to keep slug stable
-        # in length and out of the random base36 namespace used by ids.
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        rand = secrets.token_hex(2)[:3]
-        return f"project-{today}-{rand}"
-    return normalized
-
-
 def _ensure_unique_slug(workspace: Path, base: str) -> str:
-    """Append `-2`, `-3`, … until `workspace/<slug>` is free. The base itself
-    is returned untouched if no collision exists. The candidate is re-trimmed
-    so the suffixed result still fits in `safe_slug`'s 64-char cap."""
-    target = workspace / base
-    if not target.exists():
-        return base
-    n = 2
-    while True:
-        suffix = f"-{n}"
-        room = _SLUG_MAX_LEN - len(suffix)
-        head = base[:room].rstrip("-") if len(base) > room else base
-        candidate = f"{head}{suffix}"
-        if not (workspace / candidate).exists():
-            return candidate
-        n += 1
+    """Append `-2`, `-3`, … until `workspace/<slug>` is free. Delegates the
+    suffixing rule to `ensure_unique_slug`; `taken` is every existing child
+    name in the workspace (file or dir) so we never collide on disk."""
+    taken = {c.name for c in workspace.iterdir()} if workspace.exists() else set()
+    return ensure_unique_slug(base, taken, max_len=_SLUG_MAX_LEN)
 
 
 def _project_status(pdir: Path, blob: dict[str, Any]) -> str:
@@ -525,47 +469,45 @@ async def consume_corrections_after_tune(
 
 
 async def delete_project(workspace: Path, slug: str) -> dict[str, str]:
-    """Permanently delete a whole project: `rmtree` its directory and drop the
+    """Soft-delete a whole project: MOVE its directory to `_trash/` and drop the
     `pid` from the in-memory index. Raises `FileNotFoundError` if the slug does
     not exist (idempotency is the caller's job; misspellings should surface).
+
+    The move (not `rmtree`) is the safety net — emerge has no DB, so a project
+    is its folder; the delete is recoverable from `_trash/` until retention
+    purges it (see `app.workspace.trash`).
 
     Why a tool, not just `Bash rm -rf`: chat persistence lives at
     `workspace/<slug>/chats/`, and `append_event` will resurrect a half-zombie
     `chats/` if a trailing SDK message lands after the agent ran `rm -rf`. The
-    log writer has a tombstone gate (`project.json` must exist), so the order
-    here is precise: bury `project.json` *first*, then `rmtree` the parent.
-    Even if the chat keeps streaming, no zombie folder appears.
+    log writer has a tombstone gate (`project.json` must exist). A single atomic
+    rename of the whole project dir into `_trash/` makes the live `project.json`
+    path vanish in one step — so the gate trips (no zombie folder) AND the
+    trashed copy keeps its `project.json` for recovery. Strictly better than the
+    old unlink-then-rmtree, which destroyed `project.json` outright.
 
     Returns `{deleted_slug, deleted_pid}`. After this call the slug is free for
     reuse; the frontend should redirect off the deleted project (the SSE
     `project_renamed` mechanism doesn't fit — there's no destination)."""
-    import shutil
-
     from app.workspace.migrate import migrate_project_if_needed
+    from app.workspace.trash import trash
 
     await migrate_project_if_needed(workspace, slug)
     pj = project_json_path(workspace, slug)
     if not pj.exists():
         raise FileNotFoundError(f"project not found: {slug}")
 
-    # Snapshot pid before we unlink project.json so we can drop it from the
-    # index after rmtree (the file's gone by the time we'd want to read it).
+    # Snapshot pid before the move so we can drop it from the index afterward
+    # (the live path is gone by the time we'd want to read it).
     try:
         pid = json.loads(pj.read_text()).get("project_id")
     except (OSError, json.JSONDecodeError):
         pid = None
 
     async with project_lock(workspace, slug):
-        # Tombstone first: unlink project.json so the chat log's
-        # `_project_alive` gate trips on any in-flight `append_event` from this
-        # same turn before we wipe the rest of the tree. This is the critical
-        # ordering — see the function docstring.
-        try:
-            pj.unlink()
-        except FileNotFoundError:
-            # Lost a race to another deleter; the rmtree below is still safe.
-            pass
-        shutil.rmtree(project_dir(workspace, slug), ignore_errors=True)
+        # Atomic rename to _trash/ = tombstone + recoverable copy in one op. See
+        # the function docstring for why this replaces unlink-then-rmtree.
+        trash(workspace, project_dir(workspace, slug))
 
     if isinstance(pid, str) and pid:
         get_index(workspace).unregister(pid)

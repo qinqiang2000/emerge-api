@@ -20,10 +20,11 @@ from pathlib import Path
 from app.workspace.paths import team_workspace_dir
 
 
-def migrate_to_tenancy(root: Path, team_id: str) -> list[str]:
-    """Move every flat project dir at `root` into `teams/{team_id}/`. Returns
-    the slugs moved (empty on a no-op re-run)."""
-    dest = team_workspace_dir(root, team_id)
+def migrate_to_tenancy(root: Path, team_dirname: str) -> list[str]:
+    """Move every flat project dir at `root` into `teams/{team_dirname}/`.
+    `team_dirname` is the bootstrap team's slug (the human-readable folder name).
+    Returns the slugs moved (empty on a no-op re-run)."""
+    dest = team_workspace_dir(root, team_dirname)
     dest.mkdir(parents=True, exist_ok=True)
     moved: list[str] = []
     for child in sorted(root.iterdir()):

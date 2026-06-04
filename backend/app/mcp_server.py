@@ -160,7 +160,11 @@ async def _main() -> None:
                 "error: tenant mode is ON — set EMERGE_TEAM_ID to the team whose "
                 "workspace this MCP server should serve"
             )
-        workspace = team_workspace_dir(root, team_id)
+        team = await _auth_store.get_team(root, team_id)
+        if team is None:
+            raise SystemExit(f"error: EMERGE_TEAM_ID={team_id} matches no team")
+        # Dir is named by slug, not id — resolve via the row (see paths.py).
+        workspace = team_workspace_dir(root, team.slug or team.id)
     provider = get_provider_for_model(settings.default_extract_model)
     job_runner = get_runner(workspace=workspace, provider=provider)
 

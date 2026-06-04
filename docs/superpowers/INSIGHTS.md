@@ -504,3 +504,59 @@ read in the async handler and the resolved `Path` is passed BY VALUE into tools
 or a detached turn task (it won't be set there; it falls back to root). Auth
 data (`_auth/*`) and the prod keystore (`_keys.json`) live at the TRUE root and
 are accessed via `settings.workspace_root`, never `current_ws()`.
+
+---
+
+## cleanup_orphan_projects is tenancy-aware — `teams/` is NOT an orphan
+
+**Where:** `backend/app/workspace/orphans.py`, called on startup from `main.py`.
+
+**The trap (cost: every tenant's every project, deleted on restart).** Orphan
+cleanup's rule is "any non-`_`/`.` root dir lacking `project.json` is partial-
+write debris → `shutil.rmtree` it". The tenancy milestone (2026-06-03) added
+`workspace_root/teams/` as the new home for all tenant projects — and `teams`
+is NOT `_`-prefixed and has no `project.json` of its own. So the very next
+`./dev.sh -b restart` swept the **entire `teams/` tree**: every team, every
+project, gone (rmtree, no DB, workspace is gitignored → unrecoverable). The
+symptom was "logged in as superuser, my team sees zero projects, and the empty
+`teams/{tid}/` has today's mtime". `migrate_to_tenancy` had correctly moved the
+projects in at bootstrap; cleanup ate them on the next boot.
+
+**The fix.** `teams/` is hard-exempt at the root, and we recurse exactly one
+level into each `teams/{slug}/` to reap genuine orphans there — but never remove
+a team dir itself (it's the durable tenant root even when empty). Any new non-
+`_`-prefixed sentinel dir you add at the workspace root MUST be added to the
+skip set here too, or it gets rmtree'd on the next boot. Don't "simplify" the
+two-layer sweep back into a single flat-root loop.
+
+**The deeper fix — soft-delete (`workspace/trash.py`).** The incident's root
+lesson: with no DB, a `rmtree` of user data is unrecoverable, so don't do it.
+Every delete path on user data (`delete_project`, `delete_experiment`, orphan
+sweep) now `trash()`es — an atomic rename into `workspace/_trash/{ts}-{name}/`,
+purged only after a 14-day retention by `cleanup_trash` on startup. `rmtree` is
+allowed ONLY on derived caches that are immediately rebuilt (e.g.
+`predictions/_draft/` in `promote`). `delete_project` specifically gains from
+the move: the single rename IS the tombstone (live `project.json` vanishes
+atomically, tripping the chat-log gate) AND keeps `project.json` in the trashed
+copy — strictly better than the old unlink-then-rmtree which destroyed it.
+
+---
+
+## team workspace dir is named by `Team.slug`, not `t_…` id
+
+**Where:** `backend/app/auth/store.py` (create_team), `auth/deps.py`
+(bind_workspace), `mcp_server.py`, `workspace/migrate_team_dirs.py`.
+
+The agent's cwd is its team workspace, so an opaque `teams/t_7fp7mzchoxff/` is
+hostile to the colleague (`cd` into meaninglessness). Teams now mirror the
+project model: the **directory** is `teams/{slug}/` (human-readable, CJK
+preserved — `teams/荣耀/`), while the stable `t_…` **id** lives only inside
+`teams.json` as the reference anchor (members, PATs, `active_team_id` all key off
+it; a rename never moves the dir). `derive_slug` is shared via
+`workspace/slug.py` (extracted from `tools/projects.py` so `auth/` doesn't depend
+on `tools/`). `team_workspace_dir(root, dirname)` takes the **slug**, so every
+caller resolves `team.slug` from the row (fallback `or team.id` only covers the
+pre-backfill window). `migrate_team_dirs` runs on startup BEFORE the orphan
+sweep: it backfills `slug` on legacy rows and renames `teams/{id}` → `teams/{slug}`
+idempotently. If you add a path that needs a team workspace, resolve the slug —
+never concat `teams/{team_id}`.

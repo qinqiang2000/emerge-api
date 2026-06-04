@@ -125,6 +125,14 @@ async def _load_keystore_on_startup() -> None:
     get_keystore(settings.workspace_root)
 
 
+async def _migrate_team_dirs_on_startup() -> None:
+    """Backfill Team.slug + rename legacy `teams/{id}/` → `teams/{slug}/` before
+    anything walks or binds a team workspace this boot."""
+    from app.workspace.migrate_team_dirs import migrate_team_dirs
+    settings = get_settings()
+    migrate_team_dirs(settings.workspace_root)
+
+
 async def _cleanup_staging_on_startup() -> None:
     from app.workspace.staging import cleanup_stale
     settings = get_settings()
@@ -135,6 +143,12 @@ async def _cleanup_orphan_projects_on_startup() -> None:
     from app.workspace.orphans import cleanup_orphan_projects
     settings = get_settings()
     cleanup_orphan_projects(settings.workspace_root)
+
+
+async def _purge_trash_on_startup() -> None:
+    from app.workspace.trash import purge_all_trash
+    settings = get_settings()
+    purge_all_trash(settings.workspace_root)
 
 
 async def _prewarm_claude_cli_on_startup() -> None:
@@ -168,8 +182,10 @@ async def _prewarm_claude_cli_on_startup() -> None:
 
 app.include_router(publish_route.router)
 app.router.on_startup.append(_load_keystore_on_startup)
+app.router.on_startup.append(_migrate_team_dirs_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
 app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
+app.router.on_startup.append(_purge_trash_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 
 

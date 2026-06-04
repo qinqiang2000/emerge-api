@@ -56,10 +56,11 @@ emerge 是**文档处理能力强的同事**，不是绑在某界面的工具。
 - **Agent brain ↔ Extract LLM 分离**；tool 内绝不递归回 SDK
 - **`schema.json` 只通过 `write_schema` 修改**；autoresearch 只写 `versions/_candidate/`
 - **Doc vision is pulled, not pushed**：不要给 `_load_image_blocks` 加 auto-attach 分支
+- **绝不物理删除用户数据**（project/experiment 等）；删=`workspace/trash.py::trash()` 移进 `_trash/`（可恢复，保留期后 `cleanup_trash` 才真删）。`rmtree` 只允许打在派生缓存(`predictions/_draft` 即删即重建之类)。新加任何根级 `_` 前缀 sentinel 目录必须进 `orphans._sweep_dir` 的豁免——否则下次重启被当孤儿删（见 INSIGHTS：2026-06-04 `teams/` 被清空事故）
 
 ## 多租户（Users & Teams，2026-06-03）
 
-- **team = workspace 子目录前缀**，不是 `project.json` 里一列。项目落在 `workspace_root/teams/{team_id}/{slug}/`；隔离=物理目录(agent cwd 自动收紧到本 team)。`tools/`/`paths.py`/`chat/service.py` 一律接收 `workspace: Path`，**不读 settings**——只有 route 层经 `bind_workspace` 依赖把 `settings.workspace_root` 解析成 team 工作区,handler 用 `current_ws()` 取。
+- **team = workspace 子目录前缀**，不是 `project.json` 里一列。项目落在 `workspace_root/teams/{team_slug}/{slug}/`(目录名是 `Team.slug` 这种人类可读 handle，**不是** `t_xxx` id；id 只活在 `teams.json` 做稳定引用锚，复用 `workspace/slug.py::derive_slug`，同 project 模型)。隔离=物理目录(agent cwd 自动收紧到本 team)。`tools/`/`paths.py`/`chat/service.py` 一律接收 `workspace: Path`，**不读 settings**——只有 route 层经 `bind_workspace` 依赖把 `settings.workspace_root` 解析成 team 工作区(它读 `Team.slug` 拼路径),handler 用 `current_ws()` 取。
 - **Open mode ↔ Tenant mode**：`store.auth_configured`(=是否有用户)是开关。**无用户**→ 扁平 root + 零鉴权(= 引入多租户前的行为,存量测试照常)。`create_superuser` 建首个用户后翻成 tenant mode:`/lab/*` 强制鉴权、项目落 `teams/` 下。别把鉴权写成无条件强制——会搞挂所有不鉴权的存量 route 测试。
 - **双通道鉴权(同事精神)**：浏览器走 `SessionMiddleware` 长效 rolling cookie;headless 走长效 PAT `Authorization: Bearer`。`current_user` 同时认两者。`/lab/*` 任何能力都必须对 headless 可达(UI 可被 Claude Code/Desktop cowork 替换)。`mcp_server.py` 经 `EMERGE_TEAM_ID` 选 team。
 - **auth 数据全局**:`_auth/{users,teams,pats}.json` 在**真实根**,用 `settings.workspace_root` 读写,**绝不**用 `current_ws()`。`_keys.json` prod keystore 也留真实根(prod 不靠登录态)。

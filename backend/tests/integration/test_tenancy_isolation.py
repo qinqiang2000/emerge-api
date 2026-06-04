@@ -46,15 +46,16 @@ async def test_signup_then_create_project_lands_in_team_dir(workspace: Path) -> 
     token = await _seed_superuser_and_team(workspace, "Honor")
     client = TestClient(app)
     body = _signup(client, "dev@honor.com", token)
-    tid = body["active_team"]["id"]
+    team_dir = body["active_team"]["slug"]
+    assert team_dir == "honor"  # human-readable dir, not the t_… id
 
     # session cookie now carried by the client → create a project
     r = client.post("/lab/projects", json={"name": "invoices"})
     assert r.status_code == 200, r.text
     slug = r.json()["slug"]
 
-    # physical isolation: project.json lives UNDER teams/{tid}/, not at root
-    assert (team_workspace_dir(workspace, tid) / slug / "project.json").exists()
+    # physical isolation: project.json lives UNDER teams/{slug}/, not at root
+    assert (team_workspace_dir(workspace, team_dir) / slug / "project.json").exists()
     assert not (workspace / slug / "project.json").exists()
 
     # the team's project list shows it

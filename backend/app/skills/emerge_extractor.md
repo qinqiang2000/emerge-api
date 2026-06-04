@@ -119,7 +119,7 @@ mimic. Each tool's own description has the full args; this section just
 lists which capabilities require the business tool (default to SDK
 built-ins for anything not here).
 
-- **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project` (whole-project rmtree — confirm first), `promote_attachment_to_docs`.
+- **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project` (whole-project soft-delete to `_trash/`, recoverable — still confirm first), `promote_attachment_to_docs`.
 - **Active prompt / model mutation**: `write_schema` (schema and/or `global_notes` — see red lines, the only legal mutation path), `switch_active_prompt`, `switch_active_model`, `set_labeler_model`, `get_labeler_config`.
 - **Provider HTTP calls**: `derive_schema`, `extract_one`, `extract_with_experiment`, `label_docs` (atomic small-batch pro-label; for batches >10, delegate to the `pre_label_runner` subagent via the `Agent` tool).
 - **Reviewed lifecycle**: `save_reviewed` (atomic `_pending/` cleanup).

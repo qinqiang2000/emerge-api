@@ -86,7 +86,7 @@ async def current_superuser(user: User | None = Depends(current_user)) -> User:
     return user
 
 
-def _resolve_team_workspace(request: Request, user: User | None) -> Path:
+async def _resolve_team_workspace(request: Request, user: User | None) -> Path:
     root = get_settings().workspace_root
     if user is None:
         return root  # open mode → flat root
@@ -99,7 +99,16 @@ def _resolve_team_workspace(request: Request, user: User | None) -> Path:
             status_code=400,
             detail={"error_code": "no_active_team", "error_message_en": "user has no active team"},
         )
-    return team_workspace_dir(root, tid)
+    # The dir is named by the team's slug, not its id (human-readable spine).
+    # Resolve the row to get the slug; fall back to id only if a pre-migration
+    # row hasn't been backfilled yet (`migrate_team_dirs` normally guarantees it).
+    team = await store.get_team(root, tid)
+    if team is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "no_active_team", "error_message_en": "active team not found"},
+        )
+    return team_workspace_dir(root, team.slug or team.id)
 
 
 async def bind_workspace(
@@ -107,7 +116,7 @@ async def bind_workspace(
 ) -> Path:
     """Router-level dependency: resolve + stash the effective workspace. Used as
     a side-effecting `dependencies=[...]` entry; handlers read `current_ws()`."""
-    ws = _resolve_team_workspace(request, user)
+    ws = await _resolve_team_workspace(request, user)
     _ws_var.set(ws)
     return ws
 

@@ -48,6 +48,13 @@ class Team(BaseModel):
 
     id: str
     name: str
+    # Human-readable, fs-safe directory handle: the team's workspace is
+    # `teams/{slug}/`, NOT `teams/{id}/` — so the agent's cwd reads
+    # `teams/honor/…` instead of `teams/t_7fp7mzchoxff/…`. `id` stays the stable
+    # reference anchor (members/PATs/active_team_id all key off it); `slug` is
+    # only the folder name, mirroring the project model. Defaults to "" for
+    # back-compat loading of pre-slug rows; `migrate_team_dirs` backfills it.
+    slug: str = ""
     invite_token: str  # the shareable `/signup?token=` secret
     created_by: str  # user id — audit only, NOT an owner/admin privilege
     member_ids: list[str] = Field(default_factory=list)
@@ -59,6 +66,7 @@ class Team(BaseModel):
         return {
             "id": self.id,
             "name": self.name,
+            "slug": self.slug,
             "invite_token": self.invite_token,
             "created_by": self.created_by,
             "member_ids": list(self.member_ids),

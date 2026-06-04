@@ -32,6 +32,6 @@ async def bootstrap_superuser(
     team = await store.create_team(
         root, name=get_settings().bootstrap_team_name, created_by=su.id,
     )
-    migrate_to_tenancy(root, team.id)
+    migrate_to_tenancy(root, team.slug)  # dir is named by slug, not id
     su, _team = await store.add_member(root, team.id, su.id)  # active = bootstrap team
     return su

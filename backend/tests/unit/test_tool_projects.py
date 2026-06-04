@@ -214,10 +214,11 @@ async def test_list_projects_resyncs_blob_slug_on_read(workspace: Path) -> None:
     assert _json.loads((workspace / new_slug / "project.json").read_text())["slug"] == new_slug
 
 
-async def test_delete_project_tombstones_before_rmtree(workspace: Path) -> None:
-    """Critical ordering: project.json must be unlinked *before* the parent
-    rmtree, so any in-flight chat-log write (which gates on project.json
-    presence) trips its tombstone check rather than resurrecting `chats/`.
+async def test_delete_project_tombstones_via_atomic_move(workspace: Path) -> None:
+    """The whole project dir is renamed into `_trash/` in one atomic step, so
+    the live `project.json` path vanishes — any in-flight chat-log write (which
+    gates on project.json presence) trips its tombstone check rather than
+    resurrecting `chats/`.
 
     We can't observe the in-between state from a single-threaded test, so we
     end-to-end check the gate's contract: appending after delete is a no-op.
@@ -229,6 +230,22 @@ async def test_delete_project_tombstones_before_rmtree(workspace: Path) -> None:
     await delete_project(workspace, slug)
     await append_event(workspace, slug, "c_trail", {"type": "agent_text", "text": "hi"})
     assert not (workspace / slug).exists()
+
+
+async def test_delete_project_is_recoverable_from_trash(workspace: Path) -> None:
+    """Soft-delete safety net: the project dir (incl. its project.json) survives
+    in `_trash/` so a mistaken delete is reversible until retention purges it."""
+    from app.workspace.paths import trash_root
+
+    out = await create_project(workspace, name="precious")
+    slug = out["slug"]
+    await delete_project(workspace, slug)
+
+    assert not (workspace / slug).exists()
+    trashed = list(trash_root(workspace).iterdir())
+    assert len(trashed) == 1
+    assert trashed[0].name.endswith(f"-{slug}")
+    assert (trashed[0] / "project.json").exists()  # recoverable
 
 
 async def test_create_project_with_from_unbound_chat_id_relocates_chat(
