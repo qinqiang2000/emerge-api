@@ -42,14 +42,16 @@ def test_gitignore_excludes_transient_and_trash(workspace: Path) -> None:
     history.ensure_repo(workspace)
     _write(workspace / "_trash" / "x" / "f", "junk")
     _write(workspace / ".cache" / "_render" / "c", "cache")
+    _write(workspace / "keep" / ".lock", "")  # project flock noise
     _write(workspace / "keep" / "project.json", "{}")
     history.commit_all(workspace, "snapshot")
-    # only the real project shows up in the tree; ignored dirs don't
+    # only the real project shows up in the tree; ignored dirs/files don't
     r = history._git(workspace, "ls-files")
     tracked = r.stdout
     assert "keep/project.json" in tracked
     assert "_trash" not in tracked
     assert ".cache" not in tracked
+    assert ".lock" not in tracked
 
 
 def test_log_is_project_scoped_and_newest_first(workspace: Path) -> None:

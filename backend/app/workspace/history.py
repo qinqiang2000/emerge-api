@@ -54,6 +54,8 @@ _trash/
 _job_locks/
 _chats/
 chats/
+.lock
+.DS_Store
 """
 
 _locks_guard = threading.Lock()
