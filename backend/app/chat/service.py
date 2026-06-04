@@ -151,6 +151,18 @@ def _placeholder_project_name() -> str:
     return f"Chat-{ts}"
 
 
+def _history_commit_message(user_message: str, slug: str) -> str:
+    """One-line git message for a turn snapshot: the user's intent, scoped to the
+    project. The diff carries the detail; this just marks "a turn happened"."""
+    first = ""
+    if user_message and user_message.strip():
+        first = user_message.strip().splitlines()[0][:60].strip()
+    scoped = slug and slug != _UNBOUND_SLUG
+    if scoped:
+        return f"turn [{slug}]: {first}" if first else f"turn [{slug}]"
+    return f"turn: {first}" if first else "turn"
+
+
 # Sentinel for the empty-hero composer (also defined in routes/chat.py).
 # Kept here so this module can identify "no project yet" without importing
 # the route layer.
@@ -1134,6 +1146,21 @@ class ChatService:
                     "project_renamed",
                     {"old_slug": initial_slug, "new_slug": final_slug},
                 )
+            # Snapshot the team workspace into git history so this turn becomes a
+            # restorable version (best-effort, off-thread). A `_chats`-only turn
+            # stages nothing (gitignored) → no-op commit, no history noise.
+            # History is never load-bearing: any failure is swallowed.
+            try:
+                from app.workspace import history
+                if not history.is_repo(self.workspace):
+                    await asyncio.to_thread(history.ensure_repo, self.workspace)
+                await asyncio.to_thread(
+                    history.commit_all,
+                    self.workspace,
+                    _history_commit_message(user_message, final_slug),
+                )
+            except Exception:  # noqa: BLE001 — history must never break a turn
+                pass
             yield sse_event("turn_end", {})
 
 
