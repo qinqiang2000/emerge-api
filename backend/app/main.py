@@ -151,6 +151,26 @@ async def _purge_trash_on_startup() -> None:
     purge_all_trash(settings.workspace_root)
 
 
+async def _ensure_history_repos_on_startup() -> None:
+    """Make each effective workspace a git repo with a baseline snapshot, so the
+    version timeline exists from boot. Mode-aware: tenant mode repos each
+    `teams/{slug}/` (NOT the true root — `_auth/`/`_keys.json` must never be
+    committed); open mode repos the flat root. Best-effort / off-thread."""
+    from app.auth import store
+    from app.workspace.history import ensure_repo
+    from app.workspace.paths import teams_root
+    settings = get_settings()
+    root = settings.workspace_root
+    if await store.auth_configured(root):
+        troot = teams_root(root)
+        if troot.is_dir():
+            for team_dir in troot.iterdir():
+                if team_dir.is_dir() and not team_dir.name.startswith(("_", ".")):
+                    await asyncio.to_thread(ensure_repo, team_dir)
+    else:
+        await asyncio.to_thread(ensure_repo, root)
+
+
 async def _prewarm_claude_cli_on_startup() -> None:
     """Page the bundled 207MB CLI Node binary into OS cache + prime Node JIT
     so the first chat after a backend boot doesn't pay ~5s of page-fault cost
@@ -186,6 +206,7 @@ app.router.on_startup.append(_migrate_team_dirs_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
 app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
 app.router.on_startup.append(_purge_trash_on_startup)
+app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 
 
