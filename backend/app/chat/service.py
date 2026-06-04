@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
+    StreamEvent,
     SystemMessage,
     TextBlock,
     ThinkingBlock,
@@ -790,6 +791,12 @@ class ChatService:
             strict_mcp_config=True,
             agents=agents,
             max_turns=20,
+            # Emit raw Anthropic stream events (content_block_delta) alongside
+            # the completed-block messages so the chat can render token-level
+            # streaming. `_events_from_message` translates StreamEvent →
+            # `agent_text_delta` / `agent_thinking`; the completed
+            # `AssistantMessage` still arrives and remains the persisted truth.
+            include_partial_messages=True,
             # Let Claude decide per-turn whether to engage extended thinking,
             # matching claude.ai's default. Cheap turns stay cheap; harder
             # reasoning (autoresearch planning, schema diffs) gets the budget.
@@ -1065,14 +1072,27 @@ class ChatService:
                                 latest_sid = sid
                         for etype, payload in _events_from_message(message):
                             redactor.observe(etype, payload)
-                            persist_payload = redactor.scrub_for_persist(etype, payload)
+                            # Internal control events (`_block_start` resets the
+                            # redactor's per-block delta scrub buffer) are observed
+                            # above but never persisted or forwarded.
+                            if etype.startswith("_"):
+                                continue
                             sse_payload = redactor.scrub_for_sse(etype, payload)
-                            await append_event(
-                                self.workspace,
-                                _current_slug(),
-                                chat_id,
-                                {"type": etype, **persist_payload},
-                            )
+                            # Token-level deltas are ephemeral SSE sugar — never
+                            # written to events.jsonl. The completed `agent_text`
+                            # block (persisted below) is the authoritative record
+                            # reattach/reload rebuild from; the frontend replaces
+                            # its streaming buffer with it on arrival.
+                            if etype not in _SSE_ONLY_EVENTS:
+                                persist_payload = redactor.scrub_for_persist(
+                                    etype, payload
+                                )
+                                await append_event(
+                                    self.workspace,
+                                    _current_slug(),
+                                    chat_id,
+                                    {"type": etype, **persist_payload},
+                                )
                             yielded_any = True
                             await out_queue.put((etype, sse_payload))
             finally:
@@ -1190,6 +1210,11 @@ class ChatService:
             yield sse_event("turn_end", {})
 
 
+# Ephemeral SSE-only events — streamed to the browser for the typewriter
+# effect but never written to events.jsonl. See `_run_into_queue`.
+_SSE_ONLY_EVENTS = frozenset({"agent_text_delta", "agent_thinking"})
+
+
 def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
     """Translate an SDK message into a list of (event_type, payload) pairs.
 
@@ -1198,8 +1223,52 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
       - UserMessage(content=str | list[blocks], tool_use_result=dict|None)  -- tool result echo
       - SystemMessage(subtype, data)
       - ResultMessage(subtype, ...)  -- terminal sentinel
+      - StreamEvent(event=dict)  -- raw Anthropic stream event (token deltas),
+        present only when `include_partial_messages=True`
     """
     out: list[tuple[str, dict[str, Any]]] = []
+
+    if isinstance(message, StreamEvent):
+        # `event` is the raw Anthropic streaming event. We surface text/thinking
+        # deltas for live rendering and a `_block_start` control event so the
+        # redactor can reset its per-block secret-scrub buffer. tool-arg
+        # (input_json_delta) and signature (signature_delta) streams are dropped
+        # — the completed ToolUseBlock already carries the full input.
+        ev = message.event
+        if not isinstance(ev, dict):
+            return out
+        stype = ev.get("type")
+        parent_id = getattr(message, "parent_tool_use_id", None)
+        if stype == "content_block_start":
+            block = ev.get("content_block")
+            out.append(
+                (
+                    "_block_start",
+                    {
+                        "index": ev.get("index"),
+                        "block_type": block.get("type")
+                        if isinstance(block, dict)
+                        else None,
+                    },
+                )
+            )
+            return out
+        if stype == "content_block_delta":
+            delta = ev.get("delta")
+            if not isinstance(delta, dict):
+                return out
+            idx = ev.get("index")
+            dtype = delta.get("type")
+            if dtype == "text_delta":
+                payload: dict[str, Any] = {"index": idx, "text": delta.get("text", "")}
+                if parent_id:
+                    payload["parent_tool_use_id"] = parent_id
+                out.append(("agent_text_delta", payload))
+            elif dtype == "thinking_delta":
+                out.append(
+                    ("agent_thinking", {"index": idx, "text": delta.get("thinking", "")})
+                )
+        return out
 
     if isinstance(message, AssistantMessage):
         parent_id = getattr(message, "parent_tool_use_id", None)

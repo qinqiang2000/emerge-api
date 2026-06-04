@@ -22,8 +22,14 @@ from typing import Any
 
 _ISSUE_API_KEY_TOOL = "mcp__emerge_tools__issue_api_key"
 _EK_KEY_RE = re.compile(r"ek_[A-Za-z0-9_-]{32}")
+# A trailing run that could be the *start* of an in-progress `ek_<32>` key:
+# a lone `e`, `ek`, `ek_`, or `ek_` + up to 31 key chars (32 completes it and
+# is caught by `_EK_KEY_RE` instead). Anchored to the end so it only ever
+# matches the tail of the accumulated text. See `_scrub_delta`.
+_EK_PARTIAL_RE = re.compile(r"e(?:k(?:_[A-Za-z0-9_-]{0,31})?)?$")
 _KEY_PLAINTEXT_PLACEHOLDER = "[REDACTED]"
 _AGENT_TEXT_PLACEHOLDER = "[REDACTED-API-KEY]"
+_DELTA_EVENTS = ("agent_text_delta", "agent_thinking")
 
 
 class EventRedactor:
@@ -31,6 +37,10 @@ class EventRedactor:
 
     def __init__(self) -> None:
         self._tool_names: dict[str, str] = {}
+        # Per-content-block accumulator for streaming deltas: index → running
+        # raw text + how much has already been emitted (over the scrubbed view).
+        # Reset on each `_block_start` so a fresh content block starts clean.
+        self._delta_bufs: dict[int, dict[str, Any]] = {}
 
     def observe(self, etype: str, payload: dict[str, Any]) -> None:
         if etype == "tool_call":
@@ -38,6 +48,10 @@ class EventRedactor:
             tname = payload.get("tool_name")
             if isinstance(tid, str) and isinstance(tname, str):
                 self._tool_names[tid] = tname
+        elif etype == "_block_start":
+            idx = payload.get("index")
+            if isinstance(idx, int):
+                self._delta_bufs[idx] = {"raw": "", "emitted": 0}
 
     def scrub_for_persist(self, etype: str, payload: dict[str, Any]) -> dict[str, Any]:
         if etype == "tool_result":
@@ -50,9 +64,39 @@ class EventRedactor:
         return payload
 
     def scrub_for_sse(self, etype: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if etype in _DELTA_EVENTS:
+            return self._scrub_delta(payload)
         if etype == "agent_text":
             return _scrub_ek_keys(payload)
         return payload
+
+    def _scrub_delta(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Emit only the portion of a streaming delta that is provably free of
+        a (possibly split-across-deltas) `ek_<32>` API key.
+
+        A per-block buffer accumulates the raw text; we hold back any trailing
+        run that could still grow into a key (`_EK_PARTIAL_RE`) and scrub any
+        fully-formed key in the safe prefix. ``emitted`` tracks the length of
+        the scrubbed prefix already sent, so each call returns just the new
+        safe suffix. The `index` field is internal and stripped here.
+        """
+        idx = payload.get("index")
+        key = idx if isinstance(idx, int) else 0
+        buf = self._delta_bufs.setdefault(key, {"raw": "", "emitted": 0})
+        delta = payload.get("text", "")
+        if isinstance(delta, str):
+            buf["raw"] += delta
+        raw: str = buf["raw"]
+        m = _EK_PARTIAL_RE.search(raw)
+        hold_start = m.start() if m else len(raw)
+        safe = _EK_KEY_RE.sub(_AGENT_TEXT_PLACEHOLDER, raw[:hold_start])
+        emit = safe[buf["emitted"]:]
+        buf["emitted"] = len(safe)
+        out: dict[str, Any] = {"text": emit}
+        pid = payload.get("parent_tool_use_id")
+        if isinstance(pid, str):
+            out["parent_tool_use_id"] = pid
+        return out
 
 
 def _redact_issue_api_key_result(payload: dict[str, Any]) -> dict[str, Any]:

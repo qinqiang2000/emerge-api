@@ -203,6 +203,12 @@ interface State {
    *  or edit-save — must rewind the chat log first so the abandoned user
    *  message + partial agent response are dropped rather than stacking. */
   interrupted: boolean
+  /** Live reasoning indicator: the agent's extended-thinking tokens for the
+   *  current phase, streamed token-by-token. Rendered as a single dim
+   *  overwrite line below the conversation while busy — never persisted, never
+   *  part of `events[]`. Cleared when visible content (text/tool) begins, when
+   *  the turn ends, and on each new send. */
+  thinkingLine: string
   /** Send a turn. `attachments` carries the doc handles for this message.
    *  Filename is the only post-pid handle; `stage_token` is the pre-pid
    *  bridge (the backend's chat_turn claims each token into chat-scope and
@@ -282,6 +288,7 @@ export const useChat = create<State>((set, get) => ({
   streamAbort: null,
   inflightTurnId: null,
   interrupted: false,
+  thinkingLine: '',
   cancel: () => {
     // Stop button / Esc. Explicit cancel: POST to the cancel endpoint
     // (server-side `asyncio.Task.cancel`), then abort the SSE GET so the
@@ -297,7 +304,7 @@ export const useChat = create<State>((set, get) => ({
       _clearTurnId(chatId)
     }
     if (streamAbort) streamAbort.abort()
-    set({ interrupted: true, busy: false, streamAbort: null, inflightTurnId: null })
+    set({ interrupted: true, busy: false, streamAbort: null, inflightTurnId: null, thinkingLine: '' })
   },
   _detachStream: () => {
     // Lifecycle methods call this when the user navigates away from a chat
@@ -387,6 +394,7 @@ export const useChat = create<State>((set, get) => ({
       loadedUnboundChatId: null,
       chatId: cid,
       events: [],
+      thinkingLine: '',
       busy: false,
       interrupted: false,
       inflightTurnId: _readTurnId(cid),
@@ -467,6 +475,7 @@ export const useChat = create<State>((set, get) => ({
       loadedUnboundChatId: chatId,
       chatId,
       events: [],
+      thinkingLine: '',
       busy: false,
       interrupted: false,
       inflightTurnId: _readTurnId(chatId),
@@ -505,6 +514,7 @@ export const useChat = create<State>((set, get) => ({
       loadedUnboundChatId: fresh,
       chatId: fresh,
       events: [],
+      thinkingLine: '',
       busy: false,
       interrupted: false,
       inflightTurnId: null,
@@ -533,6 +543,7 @@ export const useChat = create<State>((set, get) => ({
     get()._detachStream()
     set({
       events: [],
+      thinkingLine: '',
       busy: false,
       loadedProjectId: null,
       loadedUnboundChatId: null,
@@ -562,6 +573,7 @@ export const useChat = create<State>((set, get) => ({
       loadedProjectId: projectId,
       chatId,
       events: [],
+      thinkingLine: '',
       busy: false,
       interrupted: false,
       inflightTurnId: _readTurnId(chatId),
@@ -595,6 +607,7 @@ export const useChat = create<State>((set, get) => ({
       loadedProjectId: projectId,
       chatId: fresh,
       events: [],
+      thinkingLine: '',
       busy: false,
       interrupted: false,
       inflightTurnId: null,
@@ -803,6 +816,7 @@ export const useChat = create<State>((set, get) => ({
           : { type: 'user', text: message },
       ],
       busy: true,
+      thinkingLine: '',
     }))
 
     // Phase 1: start the turn (HTTP POST, returns turn_id).
@@ -878,7 +892,7 @@ export const useChat = create<State>((set, get) => ({
         // detach + re-enter might have brought a different chat into focus.
         const curState = get()
         if (curState.chatId === cid) {
-          set({ busy: false, streamAbort: null, inflightTurnId: null })
+          set({ busy: false, streamAbort: null, inflightTurnId: null, thinkingLine: '' })
         }
         _clearTurnId(cid)
       } else {
@@ -1073,12 +1087,61 @@ async function _consumeStream(
         }
         continue
       }
+      if (ev.event === 'agent_text_delta') {
+        // Token-level text delta (ephemeral, not persisted). Append into the
+        // open streaming bubble, or start one. The matching completed
+        // `agent_text` finalizes it below. Visible content has begun → drop
+        // the live reasoning indicator.
+        if (useChat.getState().chatId !== cid) continue
+        const d = ev.data as { text?: string; parent_tool_use_id?: string }
+        const text = typeof d.text === 'string' ? d.text : ''
+        if (!text) continue
+        useChat.setState(s => {
+          const last = s.events[s.events.length - 1]
+          if (last && last.type === 'agent_text' && last.streaming) {
+            const events = [...s.events]
+            events[events.length - 1] = { ...last, text: last.text + text }
+            return { events, thinkingLine: '' }
+          }
+          const bubble: ChatEvent = { type: 'agent_text', text, streaming: true }
+          if (typeof d.parent_tool_use_id === 'string') bubble.parent_tool_use_id = d.parent_tool_use_id
+          return { events: [...s.events, bubble], thinkingLine: '' }
+        })
+        continue
+      }
+      if (ev.event === 'agent_thinking') {
+        // Extended-thinking token delta → single overwrite line. Pure UI
+        // sugar: never enters events[], never persisted.
+        if (useChat.getState().chatId !== cid) continue
+        const d = ev.data as { text?: string }
+        const text = typeof d.text === 'string' ? d.text : ''
+        if (!text) continue
+        useChat.setState(s => ({ thinkingLine: s.thinkingLine + text }))
+        continue
+      }
       const mapped = mapSse(ev.event, ev.data)
       if (mapped === null) continue   // ignored event (user_acknowledged etc.)
       if (mapped.type === 'turn_end') {
+        useChat.setState(s => (s.thinkingLine ? { thinkingLine: '' } : {}))
         return { streamEndedNaturally: true }
       }
-      useChat.setState(s => ({ events: [...s.events, mapped] }))
+      useChat.setState(s => {
+        // A completed `agent_text` block finalizes the streaming bubble its
+        // deltas built: replace the text with the authoritative, secret-scrubbed
+        // full version and clear the streaming flag. With no preceding streaming
+        // bubble (catch-up replay — deltas aren't persisted) it appends fresh.
+        if (mapped.type === 'agent_text') {
+          const last = s.events[s.events.length - 1]
+          if (last && last.type === 'agent_text' && last.streaming) {
+            const events = [...s.events]
+            events[events.length - 1] = { ...mapped, streaming: false }
+            return { events, thinkingLine: '' }
+          }
+        }
+        return s.thinkingLine
+          ? { events: [...s.events, mapped], thinkingLine: '' }
+          : { events: [...s.events, mapped] }
+      })
     }
   } catch (e) {
     // User-initiated abort (`_detachStream` or `cancel`) surfaces as

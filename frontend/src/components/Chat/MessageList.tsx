@@ -276,6 +276,10 @@ function buildSubagentNameMap(events: ChatEvent[]): Map<string, string> {
 
 export default function MessageList({ events, busy }: Props) {
   const t = useT()
+  // Live reasoning tokens for the current phase (ephemeral, store-only). Shown
+  // as a single dim overwrite line in the busy indicator; cleared by the store
+  // the moment visible content (text/tool) begins.
+  const thinkingLine = useChat(s => s.thinkingLine)
   const items = groupChatEvents(events)
   const subagentNames = buildSubagentNameMap(events)
   // Pre-pass: map each user-item position → its 0-indexed ordinal among user
@@ -417,14 +421,25 @@ export default function MessageList({ events, busy }: Props) {
           && (latest.tool_result === undefined || latest.tool_result === null)
           && latest.ok !== false
         const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
+        // Reasoning caption: while the model is thinking (no tool running yet)
+        // and we have streamed thinking tokens, show the tail on one line so it
+        // reads as a live, in-place updating status rather than a growing block.
+        const reasoning = !name && thinkingLine
+          ? (thinkingLine.length > 200 ? '…' + thinkingLine.slice(-200) : thinkingLine)
+          : null
         return (
           <div
-            className="text-ink-4 italic flex items-center gap-2 px-1 mt-4"
+            className="text-ink-4 italic flex items-center gap-2 px-1 mt-4 min-w-0"
             aria-live="polite"
             aria-label={name ? t('tool.calling.aria', { name }) : t('tool.thinking.aria')}
           >
             <ThinkingIcon size={name ? 20 : 26} />
             {name && <span className="text-xs">{t('tool.calling.aria', { name })}...</span>}
+            {reasoning && (
+              <span className="text-xs truncate whitespace-nowrap overflow-hidden min-w-0 flex-1 text-ink-4/80">
+                {reasoning}
+              </span>
+            )}
           </div>
         )
       })()}

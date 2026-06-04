@@ -71,7 +71,7 @@ export interface AskUserRequestEvent {
 
 export type ChatEvent =
   | { type: 'user'; text: string; attachments?: ChatAttachment[] }
-  | { type: 'agent_text'; text: string; parent_tool_use_id?: string }
+  | { type: 'agent_text'; text: string; parent_tool_use_id?: string; streaming?: boolean }
   | { type: 'tool_call'; tool_use_id?: string; tool_name: string; tool_input: unknown; tool_result: unknown; ok: boolean; parent_tool_use_id?: string }
   | { type: 'error'; error_code: string; error_message_en: string }
   | { type: 'turn_end' }

@@ -112,6 +112,7 @@ describe('chat store: send() split + lifecycle detach', () => {
       streamAbort: null,
       inflightTurnId: null,
       interrupted: false,
+      thinkingLine: '',
     })
 
     vi.restoreAllMocks()
@@ -325,6 +326,96 @@ describe('chat store: send() split + lifecycle detach', () => {
     // Inflight cleared — the dead turn isn't re-attachable.
     expect(after.inflightTurnId).toBeNull()
     expect(localStorage.getItem('turn:c_d000000001')).toBeNull()
+
+    startTurnSpy.mockRestore()
+  })
+
+  it('test_token_deltas_accumulate_then_finalize: deltas build one streaming bubble, agent_text replaces it', async () => {
+    useChat.setState({ chatId: 'c_s000000001', loadedProjectId: 'p_s' })
+    localStorage.setItem('emerge.activeChatId.p_s', 'c_s000000001')
+    const startTurnSpy = vi.spyOn(turn, 'startTurn').mockResolvedValue({
+      turn_id: 't_s', status: 'running',
+    })
+
+    const sendP = useChat.getState().send('p_s', 'stream please')
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+
+    pushEvent('t_s', { event: 'agent_text_delta', data: { text: 'Hel' } })
+    pushEvent('t_s', { event: 'agent_text_delta', data: { text: 'lo wor' } })
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+
+    // Mid-stream: a single agent_text bubble flagged streaming, text accreted.
+    let mid = useChat.getState().events.filter(e => e.type === 'agent_text')
+    expect(mid.length).toBe(1)
+    expect(mid[0].type === 'agent_text' && mid[0].text).toBe('Hello wor')
+    expect(mid[0].type === 'agent_text' && mid[0].streaming).toBe(true)
+
+    // Finalize: authoritative full text replaces the bubble in place (no dup),
+    // streaming flag cleared.
+    pushEvent('t_s', { event: 'agent_text', data: { text: 'Hello world' } })
+    pushEvent('t_s', { event: 'turn_end', data: {} })
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await sendP
+
+    const finalTexts = useChat.getState().events.filter(e => e.type === 'agent_text')
+    expect(finalTexts.length).toBe(1)
+    expect(finalTexts[0].type === 'agent_text' && finalTexts[0].text).toBe('Hello world')
+    expect(finalTexts[0].type === 'agent_text' && finalTexts[0].streaming).toBeFalsy()
+
+    startTurnSpy.mockRestore()
+  })
+
+  it('test_thinking_line_is_ephemeral: agent_thinking fills thinkingLine, cleared when text begins and at turn end', async () => {
+    useChat.setState({ chatId: 'c_t000000001', loadedProjectId: 'p_t' })
+    localStorage.setItem('emerge.activeChatId.p_t', 'c_t000000001')
+    const startTurnSpy = vi.spyOn(turn, 'startTurn').mockResolvedValue({
+      turn_id: 't_t', status: 'running',
+    })
+
+    const sendP = useChat.getState().send('p_t', 'think first')
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+
+    pushEvent('t_t', { event: 'agent_thinking', data: { text: 'let me ' } })
+    pushEvent('t_t', { event: 'agent_thinking', data: { text: 'reason' } })
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+    expect(useChat.getState().thinkingLine).toBe('let me reason')
+    // Reasoning never enters the persisted/rendered event log.
+    expect(useChat.getState().events.some(e => e.type === 'agent_text')).toBe(false)
+
+    // Visible content begins → the reasoning indicator is dropped.
+    pushEvent('t_t', { event: 'agent_text_delta', data: { text: 'Answer' } })
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+    expect(useChat.getState().thinkingLine).toBe('')
+
+    pushEvent('t_t', { event: 'turn_end', data: {} })
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await sendP
+    expect(useChat.getState().thinkingLine).toBe('')
+
+    startTurnSpy.mockRestore()
+  })
+
+  it('test_finalize_without_deltas_appends: replay path (no preceding stream) appends a fresh bubble', async () => {
+    useChat.setState({ chatId: 'c_r000000001', loadedProjectId: 'p_r' })
+    localStorage.setItem('emerge.activeChatId.p_r', 'c_r000000001')
+    const startTurnSpy = vi.spyOn(turn, 'startTurn').mockResolvedValue({
+      turn_id: 't_r', status: 'running',
+    })
+
+    const sendP = useChat.getState().send('p_r', 'replay')
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+
+    // Two full agent_text blocks with no deltas (e.g. catch-up replay) → two
+    // distinct bubbles, neither marked streaming.
+    pushEvent('t_r', { event: 'agent_text', data: { text: 'one' } })
+    pushEvent('t_r', { event: 'agent_text', data: { text: 'two' } })
+    pushEvent('t_r', { event: 'turn_end', data: {} })
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await sendP
+
+    const texts = useChat.getState().events.filter(e => e.type === 'agent_text')
+    expect(texts.map(e => (e.type === 'agent_text' ? e.text : ''))).toEqual(['one', 'two'])
+    expect(texts.every(e => e.type === 'agent_text' && !e.streaming)).toBe(true)
 
     startTurnSpy.mockRestore()
   })
