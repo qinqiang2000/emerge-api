@@ -173,6 +173,36 @@ async def _ensure_history_repos_on_startup() -> None:
         await asyncio.to_thread(ensure_repo, root)
 
 
+# Idle catch-all: snapshot out-of-turn writes (UI review saves, headless route
+# edits) that the turn-end commit never sees. 120s keeps history complete
+# without churning git when idle (commit_all no-ops on a clean repo).
+_HISTORY_CHECKPOINT_INTERVAL_S = 120.0
+
+
+async def _history_checkpoint_loop_on_startup() -> None:
+    """Background loop: periodically commit any uncommitted workspace state so
+    the version timeline captures non-chat edits too. Best-effort; test mode
+    skips it (tests drive `checkpoint_all` directly)."""
+    if os.getenv("EMERGE_TEST_MODE") == "1":
+        return
+    from app.workspace.history import checkpoint_all
+    log = logging.getLogger(__name__)
+
+    async def _run() -> None:
+        while True:
+            try:
+                await asyncio.sleep(_HISTORY_CHECKPOINT_INTERVAL_S)
+                n = await asyncio.to_thread(checkpoint_all, get_settings().workspace_root)
+                if n:
+                    log.info("history checkpoint: committed %d workspace(s)", n)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — history never breaks the server
+                log.warning("history checkpoint loop error", exc_info=True)
+
+    asyncio.create_task(_run(), name="history-checkpoint")
+
+
 async def _prewarm_claude_cli_on_startup() -> None:
     """Page the bundled 207MB CLI Node binary into OS cache + prime Node JIT
     so the first chat after a backend boot doesn't pay ~5s of page-fault cost
@@ -209,6 +239,7 @@ app.router.on_startup.append(_cleanup_staging_on_startup)
 app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
 app.router.on_startup.append(_purge_trash_on_startup)
 app.router.on_startup.append(_ensure_history_repos_on_startup)
+app.router.on_startup.append(_history_checkpoint_loop_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 
 

@@ -32,16 +32,22 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from app.workspace.paths import teams_root
+
 
 _log = logging.getLogger(__name__)
 
 _AUTHOR = ("emerge", "emerge@local")
 _GIT_TIMEOUT = 30.0
 
-# Derivable / transient / secret-adjacent paths never enter history. `_chats/` +
-# `chats/` are append-only conversation logs (noisy, not what diff/restore
-# targets); everything else here is rebuildable or owned by another subsystem.
+# Derivable / transient / secret paths never enter history. SECRETS FIRST — a
+# red line (CLAUDE.md): `_keys.json` (prod API keystore; `publish` writes it into
+# the effective/team workspace) and `_auth/` (password + PAT hashes) MUST be
+# excluded or a commit would leak them. The rest is rebuildable, owned by another
+# subsystem, or noisy append-only logs (`_chats/`/`chats/`) not worth versioning.
 _GITIGNORE = """\
+_keys.json
+_auth/
 .cache/
 _staging/
 _trash/
@@ -100,8 +106,10 @@ def ensure_repo(workspace: Path) -> bool:
             if r.returncode != 0:
                 _log.warning("history.ensure_repo: git init failed in %s: %s", workspace, r.stderr.strip())
                 return False
+        # Always refresh: an existing repo from before the secret-exclusion
+        # entries were added MUST pick them up, or it could leak `_keys.json`.
         gi = workspace / ".gitignore"
-        if not gi.exists():
+        if not gi.exists() or gi.read_text(encoding="utf-8") != _GITIGNORE:
             gi.write_text(_GITIGNORE, encoding="utf-8")
         _commit_locked(workspace, "init")
     return True
@@ -115,6 +123,25 @@ def commit_all(workspace: Path, message: str) -> str | None:
         return None
     with _lock_for(workspace):
         return _commit_locked(workspace, message)
+
+
+def checkpoint_all(workspace_root: Path, message: str = "checkpoint") -> int:
+    """Commit any uncommitted state across the flat root AND every team
+    workspace — the idle catch-all for writes that never went through a chat
+    turn (UI review saves, headless route edits). Returns the number of repos
+    that actually committed. Mode-agnostic: in tenant mode the root isn't a repo
+    so its `commit_all` no-ops; only `teams/{slug}/` repos commit. Mirrors the
+    two-layer walk in `trash.purge_all_trash`."""
+    committed = 0
+    if commit_all(workspace_root, message):
+        committed += 1
+    teams = teams_root(workspace_root)
+    if teams.is_dir():
+        for team_dir in teams.iterdir():
+            if team_dir.is_dir() and not team_dir.name.startswith(("_", ".")):
+                if commit_all(team_dir, message):
+                    committed += 1
+    return committed
 
 
 def _commit_locked(workspace: Path, message: str) -> str | None:

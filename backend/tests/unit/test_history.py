@@ -102,3 +102,40 @@ def test_ops_noop_on_non_repo(workspace: Path) -> None:
     assert history.log(workspace) == []
     assert history.diff(workspace, "HEAD") == ""
     assert history.restore(workspace, "HEAD") is None
+
+
+def test_gitignore_excludes_secrets(workspace: Path) -> None:
+    """RED LINE: prod keystore + auth hashes must never be committed. `publish`
+    can write `_keys.json` into a team workspace, so the repo MUST ignore it."""
+    history.ensure_repo(workspace)
+    (workspace / "_keys.json").write_text('{"ek_secret": "x"}')
+    (workspace / "_auth").mkdir()
+    (workspace / "_auth" / "pats.json").write_text("[]")
+    _write(workspace / "real" / "project.json", "{}")
+    history.commit_all(workspace, "snapshot")
+    tracked = history._git(workspace, "ls-files").stdout
+    assert "real/project.json" in tracked
+    assert "_keys.json" not in tracked
+    assert "_auth" not in tracked
+
+
+def test_gitignore_refreshes_on_existing_repo(workspace: Path) -> None:
+    """An older repo with a stale .gitignore must pick up the secret exclusions
+    on the next ensure_repo (idempotent refresh)."""
+    history.ensure_repo(workspace)
+    (workspace / ".gitignore").write_text("# stale, missing _keys.json\n")
+    history.ensure_repo(workspace)  # should rewrite
+    assert "_keys.json" in (workspace / ".gitignore").read_text()
+
+
+def test_checkpoint_all_commits_dirty_team_repos(workspace: Path) -> None:
+    """The idle catch-all commits out-of-turn edits across team workspaces."""
+    team = workspace / "teams" / "honor"
+    team.mkdir(parents=True)
+    history.ensure_repo(team)
+    _write(team / "p" / "schema.json", '{"v": 1}')  # an out-of-turn edit
+    n = history.checkpoint_all(workspace)
+    assert n == 1
+    assert any("checkpoint" in e["message"] for e in history.log(team))
+    # second pass with nothing dirty → no new commit
+    assert history.checkpoint_all(workspace) == 0
