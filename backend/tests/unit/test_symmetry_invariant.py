@@ -116,6 +116,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "pause_job":  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
     "resume_job": ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
     "cancel_job": ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
+    # Version history (per-team git timeline)
+    "history_log":     ("GET",  r"^/lab/history$"),
+    "history_diff":    ("GET",  r"^/lab/history/diff$"),
+    "history_restore": ("POST", r"^/lab/history/restore$"),
 }
 
 

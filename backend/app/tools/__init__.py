@@ -21,6 +21,7 @@ from app.tools import projects as projects_mod
 from app.tools import reviewed as reviewed_mod
 from app.tools import score as score_mod
 from app.tools import experiment as experiment_mod
+from app.tools import history as history_mod
 from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
@@ -177,6 +178,75 @@ def build_emerge_mcp(
                 },
             }
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "history_log",
+        "List the version timeline (git history) of the team workspace, newest "
+        "first. Pass `slug` to scope to one project. Each version has a `ref` "
+        "(short hash), `date`, and `message` (the turn intent that produced it). "
+        "Use this to answer 'what versions exist?' / 'when did X change?', then "
+        "feed a `ref` to history_diff or history_restore. Rendering: in a browser "
+        "give a one-line summary (the UI shows the list); headless, print the "
+        "versions as a dated list.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+        },
+    )
+    async def t_history_log(args: dict[str, Any]) -> dict[str, Any]:
+        out = await history_mod.history_log(
+            workspace, slug=args.get("slug") or None, limit=int(args.get("limit") or 30)
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "history_diff",
+        "Show what changed between two versions (or between a version and the "
+        "current state when `b` is omitted). `a`/`b` are refs from history_log. "
+        "Pass `slug` to scope to one project. Returns a unified diff (`truncated` "
+        "signals it was capped). Rendering: browser → summarize the changes in a "
+        "sentence (UI can show the diff); headless → print the diff.",
+        {
+            "type": "object",
+            "properties": {
+                "a": {"type": "string"},
+                "b": {"type": "string"},
+                "slug": {"type": "string"},
+            },
+            "required": ["a"],
+        },
+    )
+    async def t_history_diff(args: dict[str, Any]) -> dict[str, Any]:
+        out = await history_mod.history_diff(
+            workspace, ref_a=args["a"], ref_b=args.get("b") or None, slug=args.get("slug") or None
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "history_restore",
+        "Restore the team workspace (or one project via `slug`) to its state at "
+        "`ref` (from history_log). The restore is ITSELF a new version, so it's "
+        "reversible — nothing is lost. ALWAYS confirm with the user first and "
+        "tell them which version (date + message) you're rolling back to. "
+        "Rendering: browser → one-line confirmation; headless → state the "
+        "restored ref and the new version hash.",
+        {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string"},
+                "slug": {"type": "string"},
+            },
+            "required": ["ref"],
+        },
+    )
+    async def t_history_restore(args: dict[str, Any]) -> dict[str, Any]:
+        out = await history_mod.history_restore(
+            workspace, ref=args["ref"], slug=args.get("slug") or None
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
         "promote_chat_to_project",
