@@ -30,6 +30,12 @@ def env_isolation(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
     monkeypatch.setenv("EMERGE_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setenv("GOOGLE_API_KEY", "google-test-not-used")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-not-used")
+    # Skip the Claude-CLI prewarm (and the history checkpoint loop) without
+    # turning on EMERGE_TEST_MODE — that flag swaps in stub turn routes, which
+    # the real-route lifecycle tests aren't built for. Prewarm spawns the 207MB
+    # CLI on every `with TestClient(app)` startup; under a dummy token it crawls
+    # the suite. This keeps the full run fast AND on the real routes.
+    monkeypatch.setenv("EMERGE_DISABLE_PREWARM", "1")
     monkeypatch.chdir(workspace)
 
 

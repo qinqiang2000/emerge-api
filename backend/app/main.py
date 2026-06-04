@@ -179,11 +179,24 @@ async def _ensure_history_repos_on_startup() -> None:
 _HISTORY_CHECKPOINT_INTERVAL_S = 120.0
 
 
+def _skip_background_startup() -> bool:
+    """Suppress expensive/background startup side effects (the 207MB Claude CLI
+    prewarm; the periodic history checkpoint loop) during tests. Two switches:
+    `EMERGE_TEST_MODE` (the e2e harness, which also swaps in stub turn routes)
+    and `EMERGE_DISABLE_PREWARM` (set by the pytest conftest, which deliberately
+    runs WITHOUT test mode so the real turn routes are exercised — prewarm would
+    otherwise spawn the CLI on every `with TestClient(app)` and crawl the suite)."""
+    return (
+        os.getenv("EMERGE_TEST_MODE") == "1"
+        or os.getenv("EMERGE_DISABLE_PREWARM") == "1"
+    )
+
+
 async def _history_checkpoint_loop_on_startup() -> None:
     """Background loop: periodically commit any uncommitted workspace state so
-    the version timeline captures non-chat edits too. Best-effort; test mode
-    skips it (tests drive `checkpoint_all` directly)."""
-    if os.getenv("EMERGE_TEST_MODE") == "1":
+    the version timeline captures non-chat edits too. Best-effort; tests skip it
+    (they drive `checkpoint_all` directly)."""
+    if _skip_background_startup():
         return
     from app.workspace.history import checkpoint_all
     log = logging.getLogger(__name__)
@@ -211,7 +224,7 @@ async def _prewarm_claude_cli_on_startup() -> None:
     but don't poison startup (a bad OAuth token is a chat-time concern, not a
     boot-time one).
     """
-    if os.getenv("EMERGE_TEST_MODE") == "1":
+    if _skip_background_startup():
         return
 
     async def _run() -> None:

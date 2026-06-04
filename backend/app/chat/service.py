@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -161,6 +162,39 @@ def _history_commit_message(user_message: str, slug: str) -> str:
     if scoped:
         return f"turn [{slug}]: {first}" if first else f"turn [{slug}]"
     return f"turn: {first}" if first else "turn"
+
+
+# Keep strong refs to in-flight commit tasks so the loop doesn't GC them.
+_pending_history_commits: set[asyncio.Task] = set()
+
+
+def _schedule_history_commit(workspace: Path, message: str) -> None:
+    """Fire-and-forget a git snapshot of the team workspace for this turn.
+
+    MUST NOT block / be awaited: it's called from `chat_turn`'s generator
+    `finally`, and `await`-ing thread work there can deadlock the turn's task
+    teardown (it hung the lifecycle tests). Scheduling a detached task keeps the
+    semantic commit message while guaranteeing `turn_end` fires immediately.
+    Skipped under tests (the conftest sets `EMERGE_DISABLE_PREWARM`) so the suite
+    doesn't spawn git per turn; the history wrapper is unit-tested directly."""
+    if os.getenv("EMERGE_TEST_MODE") == "1" or os.getenv("EMERGE_DISABLE_PREWARM") == "1":
+        return
+
+    async def _do() -> None:
+        try:
+            from app.workspace import history
+            if not history.is_repo(workspace):
+                await asyncio.to_thread(history.ensure_repo, workspace)
+            await asyncio.to_thread(history.commit_all, workspace, message)
+        except Exception:  # noqa: BLE001 — history is never load-bearing
+            pass
+
+    try:
+        task = asyncio.create_task(_do())
+    except RuntimeError:
+        return  # no running loop (non-async context) — skip silently
+    _pending_history_commits.add(task)
+    task.add_done_callback(_pending_history_commits.discard)
 
 
 # Sentinel for the empty-hero composer (also defined in routes/chat.py).
@@ -1147,20 +1181,12 @@ class ChatService:
                     {"old_slug": initial_slug, "new_slug": final_slug},
                 )
             # Snapshot the team workspace into git history so this turn becomes a
-            # restorable version (best-effort, off-thread). A `_chats`-only turn
-            # stages nothing (gitignored) → no-op commit, no history noise.
-            # History is never load-bearing: any failure is swallowed.
-            try:
-                from app.workspace import history
-                if not history.is_repo(self.workspace):
-                    await asyncio.to_thread(history.ensure_repo, self.workspace)
-                await asyncio.to_thread(
-                    history.commit_all,
-                    self.workspace,
-                    _history_commit_message(user_message, final_slug),
-                )
-            except Exception:  # noqa: BLE001 — history must never break a turn
-                pass
+            # restorable version. Fire-and-forget (NOT awaited): doing thread work
+            # in this generator `finally` deadlocks the turn task's teardown. A
+            # `_chats`-only turn stages nothing (gitignored) → no-op commit.
+            _schedule_history_commit(
+                self.workspace, _history_commit_message(user_message, final_slug)
+            )
             yield sse_event("turn_end", {})
 
 
