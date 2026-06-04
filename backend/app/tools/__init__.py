@@ -1105,7 +1105,8 @@ def build_emerge_mcp(
     )
     async def t_issue_api_key(args: dict[str, Any]) -> dict[str, Any]:
         user_id = args.get("user_id") or "default"
-        out = await publish_mod.issue_api_key(workspace, user_id=user_id)
+        # No workspace arg: the keystore is global (true root), not team-scoped.
+        out = await publish_mod.issue_api_key(user_id=user_id)
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(

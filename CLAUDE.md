@@ -63,7 +63,7 @@ emerge 是**文档处理能力强的同事**，不是绑在某界面的工具。
 - **team = workspace 子目录前缀**，不是 `project.json` 里一列。项目落在 `workspace_root/teams/{team_slug}/{slug}/`(目录名是 `Team.slug` 这种人类可读 handle，**不是** `t_xxx` id；id 只活在 `teams.json` 做稳定引用锚，复用 `workspace/slug.py::derive_slug`，同 project 模型)。隔离=物理目录(agent cwd 自动收紧到本 team)。`tools/`/`paths.py`/`chat/service.py` 一律接收 `workspace: Path`，**不读 settings**——只有 route 层经 `bind_workspace` 依赖把 `settings.workspace_root` 解析成 team 工作区(它读 `Team.slug` 拼路径),handler 用 `current_ws()` 取。
 - **Open mode ↔ Tenant mode**：`store.auth_configured`(=是否有用户)是开关。**无用户**→ 扁平 root + 零鉴权(= 引入多租户前的行为,存量测试照常)。`create_superuser` 建首个用户后翻成 tenant mode:`/lab/*` 强制鉴权、项目落 `teams/` 下。别把鉴权写成无条件强制——会搞挂所有不鉴权的存量 route 测试。
 - **双通道鉴权(同事精神)**：浏览器走 `SessionMiddleware` 长效 rolling cookie;headless 走长效 PAT `Authorization: Bearer`。`current_user` 同时认两者。`/lab/*` 任何能力都必须对 headless 可达(UI 可被 Claude Code/Desktop cowork 替换)。`mcp_server.py` 经 `EMERGE_TEAM_ID` 选 team。
-- **auth 数据全局**:`_auth/{users,teams,pats}.json` 在**真实根**,用 `settings.workspace_root` 读写,**绝不**用 `current_ws()`。`_keys.json` prod keystore 也留真实根(prod 不靠登录态)。
+- **auth 数据 + prod 产物全局**:`_auth/{users,teams,pats}.json`、`_keys.json` keystore、`_published/{pub_xxx}.json` 全在**真实根**,用 `settings.workspace_root` 读写,**绝不**用 `current_ws()`/per-team workspace。prod `/v1/extract` 不靠登录态,只认真实根——`freeze_version`/`issue_api_key` 写这些全局产物时必须落真实根,落 team 目录则 tenant mode 下 publish 对 prod 不可见(见 INSIGHTS)。
 - **superuser 独占建 team**(一客户一 team,成员转发同一邀请链接拉人,team 内无管理员);跨 team 项目共享下一期(复用 M9.4 fork)。
 
 ## 仓库布局

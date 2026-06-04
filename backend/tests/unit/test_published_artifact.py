@@ -166,7 +166,7 @@ async def test_freeze_force_bypasses_readiness(workspace: Path) -> None:
 async def test_issue_api_key_user_scope(workspace: Path) -> None:
     """Minted keys are stored under `user_id`, not `project_id`. One key per
     `(user_id, scope)` after rotation."""
-    issued = await issue_api_key(workspace)
+    issued = await issue_api_key()
     blob = json.loads(keys_path(workspace).read_text(encoding="utf-8"))
     assert len(blob) == 1
     row = blob[0]

@@ -18,6 +18,7 @@ from app.tools.publish import freeze_version, issue_api_key
 from app.tools.schema import write_schema
 from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import (
+    keys_path,
     predictions_draft_dir,
     published_path,
     reviewed_dir,
@@ -45,8 +46,25 @@ async def _ready_published_project(workspace: Path, *, name: str = "p") -> tuple
         atomic_write_json(predictions_draft_dir(workspace, slug) / f"{did}.json",
                           {"entities": [{"buyer_name": "ACME"}]})
     frozen = await freeze_version(workspace, slug)
-    issued = await issue_api_key(workspace, user_id="default")
+    issued = await issue_api_key(user_id="default")
     return slug, frozen["published_id"], issued["key_plaintext"]
+
+
+@pytest.mark.asyncio
+async def test_freeze_and_key_land_at_true_root_in_tenant_mode(workspace: Path) -> None:
+    """Tenant-mode regression (2026-06-04): the project lives under
+    `teams/{slug}/`, but the GLOBAL `_published` artifact + `_keys.json` must
+    land at the TRUE root — that's where the login-agnostic prod `/v1/extract`
+    reads them. Writing them under the team dir made every tenant publish
+    invisible to prod."""
+    team_ws = workspace / "teams" / "honor"
+    team_ws.mkdir(parents=True)
+    _slug, pub_id, _key = await _ready_published_project(team_ws, name="inv")
+    # global artifacts at the true root, NOT the per-team workspace
+    assert published_path(workspace, pub_id).exists()
+    assert not published_path(team_ws, pub_id).exists()
+    assert keys_path(workspace).exists()
+    assert not keys_path(team_ws).exists()
 
 
 @pytest.mark.asyncio

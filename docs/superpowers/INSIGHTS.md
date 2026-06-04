@@ -560,3 +560,27 @@ pre-backfill window). `migrate_team_dirs` runs on startup BEFORE the orphan
 sweep: it backfills `slug` on legacy rows and renames `teams/{id}` → `teams/{slug}`
 idempotently. If you add a path that needs a team workspace, resolve the slug —
 never concat `teams/{team_id}`.
+
+---
+
+## prod global artifacts (`_published/`, `_keys.json`) live at the TRUE root
+
+**Where:** `backend/app/tools/publish.py` (`freeze_version`, `issue_api_key`).
+
+**The trap (tenant-mode publish silently broken).** The prod fast-path `POST
+/v1/extract` is login-agnostic — it reads `published_path(settings.workspace_root)`
+and validates keys against `get_keystore(settings.workspace_root)`, i.e. the TRUE
+root. But the lab/agent WRITE side (`freeze_version`, `issue_api_key`) ran with
+the *effective* workspace (`current_ws()` = `teams/{slug}/` in tenant mode), so a
+frozen artifact + its key landed under the team dir. Result: in tenant mode every
+publish was invisible to prod — `/v1/extract` returned 404 (artifact) / 401 (key)
+for something the agent had just "published". Open mode hid it (root == effective
+workspace), so it only bit once a superuser existed.
+
+**The fix.** `_published/` and `_keys.json` are GLOBAL (CLAUDE.md), same class as
+`_auth/`. `freeze_version` now writes the artifact to `get_settings().workspace_root`
+(while still READING the project from its team `workspace`); `issue_api_key` took
+the realization to its logical end — it dropped its `workspace` param entirely
+(a keystore is never team-scoped) and always uses the true root. The routes were
+already correct (`settings.workspace_root`); only the tool side deviated. When you
+add anything prod reads, write it to the true root, not `current_ws()`.

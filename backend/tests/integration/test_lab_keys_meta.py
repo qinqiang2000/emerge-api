@@ -10,7 +10,7 @@ from app.tools.publish import issue_api_key
 
 @pytest.mark.asyncio
 async def test_keys_meta_returns_hash_only(workspace) -> None:
-    issued = await issue_api_key(workspace, user_id="default")
+    issued = await issue_api_key(user_id="default")
     client = TestClient(app)
     r = client.get("/lab/keys/meta")
     assert r.status_code == 200

@@ -362,8 +362,7 @@ async def post_issue_api_key(body: _IssueKeyBody | None = None) -> dict:
     can issue keys without going through chat."""
     body = body or _IssueKeyBody()
     user_id = (body.user_id or "default").strip() or "default"
-    settings = get_settings()
-    out = await issue_api_key_impl(settings.workspace_root, user_id=user_id)
+    out = await issue_api_key_impl(user_id=user_id)  # keystore is global (true root)
     # Echo any audit hints the caller passed (project_id / version_id) so
     # responses are self-describing in transcripts. Plaintext is the only
     # security-sensitive field — it's just been minted and is about to be

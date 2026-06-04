@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.config import get_settings
 from app.schemas.schema_field import SchemaField
 from app.security.keys import (
     generate_key,
@@ -398,12 +399,17 @@ async def freeze_version(
         })
         target.chmod(0o444)
 
-        # Mint and write the workspace-level frozen artifact. The dir lives at
-        # the workspace root so it survives project rename/delete, matching
-        # the "emerge mirrors prod" story for the public extract endpoint.
+        # Mint and write the frozen artifact at the TRUE workspace root, NOT the
+        # per-team workspace — `_published/` is a GLOBAL prod resource (CLAUDE.md:
+        # "Public API 读 _published"). The prod fast-path `POST /v1/extract` is
+        # login-agnostic and reads `settings.workspace_root/_published/`; writing
+        # it under `teams/{slug}/` would make every tenant-mode publish invisible
+        # to prod (the 2026-06-04 finding). Root also survives project rename/
+        # delete. Same rule as `_keys.json` below + the `_auth/` store.
+        prod_root = get_settings().workspace_root
         published_id = new_published_id()
-        published_dir(workspace).mkdir(parents=True, exist_ok=True)
-        pub_target = published_path(workspace, published_id)
+        published_dir(prod_root).mkdir(parents=True, exist_ok=True)
+        pub_target = published_path(prod_root, published_id)
         atomic_write_json(pub_target, {
             "published_id": published_id,
             "source_project_slug": slug,
@@ -429,19 +435,20 @@ async def freeze_version(
     return {"version_id": version_id, "published_id": published_id}
 
 
-async def issue_api_key(
-    workspace: Path, *, user_id: str = "default",
-) -> dict[str, str]:
+async def issue_api_key(*, user_id: str = "default") -> dict[str, str]:
     """Mint and persist a new hashed API key row for `user_id`.
 
-    Keys are user-scoped (not project-scoped): one live key per `(user_id,
-    scope)` pair calls *any* `published_id` the user wants. `user_id="default"`
-    is the single-user placeholder until a real user system lands. The
-    plaintext is returned exactly once — callers must surface it through a
-    one-time reveal UI and never persist it server-side."""
+    Takes NO workspace: the keystore is a GLOBAL prod resource at the TRUE root
+    (CLAUDE.md: "_keys.json 留真实根, prod 不靠登录态"). Prod `/v1/extract`
+    validates against `settings.workspace_root`; a key written under a per-team
+    workspace would never validate (the 2026-06-04 finding). Keys are also
+    user-scoped, not project-scoped: one live key per `(user_id, scope)` pair
+    calls *any* `published_id` the user wants. `user_id="default"` is the
+    single-user placeholder. The plaintext is returned exactly once — callers
+    must surface it through a one-time reveal UI and never persist it."""
     plaintext = generate_key()
     h = sha256_key(plaintext)
-    store = get_keystore(workspace)
+    store = get_keystore(get_settings().workspace_root)
     store.upsert_for_user(user_id, plaintext, scope="extract")
     _log.info(
         "issued api key for user=%s: prefix=%s hash_short=%s",

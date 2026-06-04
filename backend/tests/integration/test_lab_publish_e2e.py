@@ -48,7 +48,7 @@ async def test_full_publish_then_extract(workspace, monkeypatch) -> None:
     assert frozen["version_id"] == "v1"
     pub_id = frozen["published_id"]
     assert pub_id.startswith("pub_")
-    issued = await issue_api_key(workspace, user_id="default")
+    issued = await issue_api_key(user_id="default")
 
     fake_provider = AsyncMock(spec=Provider)
     fake_provider.extract.return_value = ProviderResult(
@@ -76,7 +76,7 @@ async def test_case2_v2_publish_with_added_field(workspace, monkeypatch) -> None
     slug = (await create_project(workspace, name="p"))["slug"]
     await _seed_for_publish(workspace, slug)
     await freeze_version(workspace, slug)
-    issued = await issue_api_key(workspace, user_id="default")
+    issued = await issue_api_key(user_id="default")
 
     await write_schema(
         workspace, slug,
