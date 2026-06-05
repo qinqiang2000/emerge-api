@@ -29,36 +29,43 @@
 
 /* ── row base (project + new) ──────────────────────────────────────────── */
 .fs .proj{display:flex;align-items:center;gap:7px;margin:1px 8px;padding:6px 8px;border-radius:8px;font-family:var(--sans);font-size:13px;color:var(--ink-3);cursor:default;white-space:nowrap;overflow:hidden;transition:background .12s, color .12s}
-/* chevron slot is always reserved (keeps folder icons aligned) but the glyph
-   only fades in on hover / when active — resting state is a clean folder list,
-   not a noisy column of arrows. */
-.fs .proj .proj-arrow{color:var(--ink-5);flex-shrink:0;opacity:0;transition:opacity .12s, color .12s}
-.fs .proj:hover .proj-arrow{opacity:1;color:var(--ink-3)}
-.fs .proj.active .proj-arrow{opacity:1;color:var(--ink-4)}
 .fs .proj:hover{background:var(--paper-2);color:var(--ink)}
 .fs .proj.active{color:var(--ink);background:var(--paper-3);font-weight:500}
-.fs .proj .proj-icon{flex-shrink:0;color:var(--ink-4)}
-.fs .proj:hover .proj-icon{color:var(--ink-3)}
-.fs .proj.active .proj-icon{color:var(--ochre)}
+/* disclosure slot: folder icon + chevron share ONE 15px slot so the folder
+   column sits flush under the ~/projects label (no reserved-chevron indent).
+   Resting = folder; hover / active = the twisty takes over the same slot. */
+.fs .proj .proj-disc{position:relative;width:15px;height:15px;flex-shrink:0;display:inline-flex}
+.fs .proj .proj-disc > *{position:absolute;inset:0;margin:auto;transition:opacity .12s, color .12s}
+.fs .proj .proj-disc .proj-icon{opacity:1;color:var(--ink-4)}
+.fs .proj .proj-disc .proj-arrow{opacity:0;color:var(--ink-5)}
+.fs .proj:hover .proj-disc .proj-icon{opacity:0}
+.fs .proj:hover .proj-disc .proj-arrow{opacity:1;color:var(--ink-3)}
+.fs .proj.active .proj-disc .proj-icon{opacity:0}
+.fs .proj.active .proj-disc .proj-arrow{opacity:1;color:var(--ochre)}
 .fs .proj .proj-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 .fs .proj .status-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%}
-/* no chevron slot here — pad left so its icon lines up with project folders */
-.fs .proj.new{color:var(--ink-4);padding-left:28px}
-.fs .proj.new .proj-icon{color:var(--ink-4)}
+/* new-project row: single FolderPlus icon, same left inset as the folder column */
+.fs .proj.new .proj-icon{flex-shrink:0;color:var(--ink-4)}
 .fs .proj.new:hover{color:var(--ink-2)}
 .fs .proj.new:hover .proj-icon{color:var(--ink-3)}
 
 /* ── tree ──────────────────────────────────────────────────────────────── */
 .fs .tree{padding:0;margin-top:2px}
-/* inline under the selected project row: a hairline rail ties the tree to
-   its owner project; gentle inset + bottom gap so it reads as that row's
-   contents, not a sibling. */
-.fs .tree.inline{margin:2px 8px 8px 18px;padding-left:8px;border-left:1px solid var(--rule-soft)}
-.fs .tree.inline .branch{margin-left:0;margin-right:0}
-.fs .tree.inline .branch.file{padding-left:22px}
-.fs .tree.inline .branch.file.root{padding-left:8px}
-.fs .tree.inline .branch.more{padding-left:22px}
-.fs .tree.inline .ghost{padding-left:22px}
+/* inline under the selected project row: a hairline rail ties the tree to its
+   owner project. The rail sits just right of the project folder icon so the
+   whole tree reads as that project's contents; group dirs then nest one clear
+   step in, files one step deeper again (project 16 → dir 29 → file 43). */
+/* NOTE: the modifier class is `nested`, NOT `inline` — `inline` collides with
+   Tailwind's `.inline{display:inline}` utility, which silently turned the whole
+   tree into an inline box (broke the rail margin + injected a ~24px line-box
+   gap above docs/). Never name a component class after a Tailwind utility word. */
+.fs .tree.nested{display:block;margin:2px 8px 6px 20px;padding-left:0;border-left:1px solid var(--rule-soft)}
+.fs .tree.nested .branch{margin-left:0;margin-right:0}
+.fs .tree.nested .branch.dir{padding-left:8px}
+.fs .tree.nested .branch.file{padding-left:22px}
+.fs .tree.nested .branch.file.root{padding-left:8px}
+.fs .tree.nested .branch.more{padding-left:22px}
+.fs .tree.nested .ghost{padding-left:22px}
 .fs .branch{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin:1px 8px;padding:5px 8px;border-radius:8px;display:flex;align-items:center;gap:8px;cursor:default;line-height:1.4;white-space:nowrap;overflow:hidden;transition:background .12s, color .12s}
 .fs .branch .leaf-name, .fs .branch .dir-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 

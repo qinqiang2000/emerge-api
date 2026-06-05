@@ -396,7 +396,7 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // own row in the project list (accordion). Previously this lived at the
   // bottom of the whole flat list, so with many projects it sat off-screen.
   const treeNode = activeProject && tree ? (
-    <div className="tree inline">
+    <div className="tree nested">
       {tree.groups.map(g => {
         const open = !!openDirs[g.name]
         return (
@@ -583,12 +583,17 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
               className={'proj' + (isActive ? ' active' : '')}
               onClick={onRowClick}
             >
-              {isOpen
-                ? <ChevronDown size={13} className="proj-arrow" strokeWidth={2} />
-                : <ChevronRight size={13} className="proj-arrow" strokeWidth={2} />}
-              {isActive
-                ? <FolderOpen size={15} className="proj-icon" strokeWidth={1.75} />
-                : <Folder size={15} className="proj-icon" strokeWidth={1.75} />}
+              {/* folder + chevron share one slot — the twisty replaces the
+                  folder on hover/active so the column never gains a reserved
+                  chevron indent (see .proj-disc in spine.css) */}
+              <span className="proj-disc">
+                {isActive
+                  ? <FolderOpen size={15} className="proj-icon" strokeWidth={1.75} />
+                  : <Folder size={15} className="proj-icon" strokeWidth={1.75} />}
+                {isOpen
+                  ? <ChevronDown size={13} className="proj-arrow" strokeWidth={2} />
+                  : <ChevronRight size={13} className="proj-arrow" strokeWidth={2} />}
+              </span>
               <span className="proj-name">{p.name}</span>
               {isActive && (
                 <span

@@ -584,3 +584,19 @@ the realization to its logical end — it dropped its `workspace` param entirely
 (a keystore is never team-scoped) and always uses the true root. The routes were
 already correct (`settings.workspace_root`); only the tool side deviated. When you
 add anything prod reads, write it to the true root, not `current_ws()`.
+
+---
+
+## Spine tree: never name a component class after a Tailwind utility word (`inline`)
+
+**Where:** `frontend/src/components/Spine/FSSpine.tsx` + `spine.css` (the inline-accordion file tree under each project).
+
+**The trap.** The expandable file tree used `className="tree inline"` and styled it via `.fs .tree.inline{...}` — but that rule only set margin/border/padding, never `display`. Tailwind v3 ships a core utility `.inline{display:inline}`, which matched the same element and silently turned the whole tree into an **inline box**. Two symptoms, one cause:
+- a ~24px phantom vertical gap between the project row and `docs/` (inline line-box height above the block children the inline box was illegally wrapping), and
+- the rail's `margin-left` indentation not applying (inline boxes don't lay out block children under their own left margin), so `docs/` sat at x≈0 instead of nesting.
+
+**Why it hid for so long / from static repro.** A standalone HTML harness that doesn't import Tailwind has no `.inline` rule, so the tree defaults to `display:block` and looks perfect. It only breaks in the real app where Tailwind's reset+utilities are loaded. Confirmed live via DOM probe: `getComputedStyle(tree).display === "inline"`, matched rule `.inline` from the injected `<style>` tag.
+
+**The fix.** Rename the modifier to a non-utility word: `className="tree nested"`, `.fs .tree.nested{display:block;...}` (kept an explicit `display:block` as belt-and-braces). Clean hierarchy is now project 16 → dir 29 → file 43 px.
+
+**Don't** reuse single-word class names that collide with Tailwind utilities (`inline`, `block`, `hidden`, `fixed`, `static`, `relative`, `grid`, `flex`, `table`, `container`, …). **Latent twin:** `frontend/src/index.css` `.pub-stage.inline` has the same shape (sets `position` but not `display`) — audit it if pub-stage layout ever looks off.
