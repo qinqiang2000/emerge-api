@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuickLook } from '../../stores/quicklook'
 import { useProjects } from '../../stores/projects'
 import { usePrompts } from '../../stores/prompts'
 import QuickLookHeader from './QuickLookHeader'
 import PromptTab from './PromptTab'
-import RawJsonTab from './RawJsonTab'
 import './styles.css'
+
+// RawJsonTab pulls CodeMirror (a large editor bundle) but is only shown when
+// the user switches to the "raw json" tab — defer it so it never weighs on the
+// initial app chunk.
+const RawJsonTab = lazy(() => import('./RawJsonTab'))
 
 type Tab = 'prompt' | 'raw'
 
@@ -92,7 +96,9 @@ export default function PromptQuickLook() {
         </div>
 
         <div className="ql-body">
-          {tab === 'prompt' ? <PromptTab target={target} /> : <RawJsonTab />}
+          {tab === 'prompt'
+            ? <PromptTab target={target} />
+            : <Suspense fallback={null}><RawJsonTab /></Suspense>}
         </div>
 
         <div className="ql-footer">
