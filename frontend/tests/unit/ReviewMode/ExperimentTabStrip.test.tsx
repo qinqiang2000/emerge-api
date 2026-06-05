@@ -6,11 +6,11 @@ import type { ExperimentSummary } from '../../../src/types/review'
 
 const EXPERIMENTS: ExperimentSummary[] = [
   { experiment_id: 'ex_a', label: 'try Gemma4', prompt_id: 'pr_x', model_id: 'm_y',
-    status: 'draft', created_at: '2026-05-13', score: null },
+    prompt_version: 1, status: 'draft', created_at: '2026-05-13', score: null },
   { experiment_id: 'ex_b', label: 'try notes', prompt_id: 'pr_z', model_id: 'm_y',
-    status: 'ran', created_at: '2026-05-13', score: 0.91 },
+    prompt_version: 1, status: 'ran', created_at: '2026-05-13', score: 0.91 },
   { experiment_id: 'ex_c', label: 'archived one', prompt_id: 'pr', model_id: 'm',
-    status: 'archived', created_at: '2026-05-13', score: null },
+    prompt_version: 1, status: 'archived', created_at: '2026-05-13', score: null },
 ]
 
 describe('ExperimentTabStrip', () => {

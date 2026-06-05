@@ -31,7 +31,7 @@ function seedStores(opts: {
   useExperiments.setState({
     list: { 'p_x': [
       { experiment_id: 'ex_a', label: 'gemma', prompt_id: 'pr', model_id: 'm',
-        status: 'draft', created_at: '2026-05-13', score: null },
+        prompt_version: 1, status: 'draft', created_at: '2026-05-13', score: null },
     ] },
     loading: {},
   })

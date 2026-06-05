@@ -30,9 +30,9 @@ function seedAll() {
   useExperiments.setState({
     list: { [SLUG]: [
       { experiment_id: 'ex_a', label: 'try gemma', prompt_id: 'pr', model_id: 'm',
-        status: 'ran', created_at: '2026-05-13', score: 0.91 },
+        prompt_version: 1, status: 'ran', created_at: '2026-05-13', score: 0.91 },
       { experiment_id: 'ex_b', label: 'try notes', prompt_id: 'pr', model_id: 'm',
-        status: 'draft', created_at: '2026-05-13', score: null },
+        prompt_version: 1, status: 'draft', created_at: '2026-05-13', score: null },
     ] },
     loading: {},
   })
@@ -80,7 +80,7 @@ describe('FSSpine experiments/ group', () => {
     useExperiments.setState({
       list: { [SLUG]: [
         { experiment_id: 'ex_arc', label: 'old try', prompt_id: 'pr', model_id: 'm',
-          status: 'archived', created_at: '2026-05-13', score: null },
+          prompt_version: 1, status: 'archived', created_at: '2026-05-13', score: null },
       ] },
       loading: {},
     })
