@@ -211,7 +211,10 @@ export default function ReviewOverlay({
   // corrected only once still gets fixed. `hot_fields` (corrected ≥2×) is kept
   // only for copy emphasis/ordering, never to trim the target set (otherwise a
   // single-correction field gets silently dropped when a hotter field exists).
-  const tuneTargets = tuneSignal ? tuneSignal.corrected_fields : []
+  // `?? []` guards a malformed/empty signal (e.g. an API response that's an
+  // array or lacks corrected_fields) — without it a truthy-but-shapeless signal
+  // makes `[...tuneTargets]` throw and blanks the whole review overlay.
+  const tuneTargets = tuneSignal?.corrected_fields ?? []
   // Dismiss fingerprint: the sorted field-name set this banner is offering to
   // tune. Dismissing stores this key; the banner stays hidden while the set is
   // unchanged, and re-appears once a NEW field gets corrected (key changes).

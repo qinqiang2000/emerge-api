@@ -7,6 +7,9 @@ import { useReview } from '../../../src/stores/review'
 import { useSchema } from '../../../src/stores/schema'
 import { useDocs } from '../../../src/stores/docs'
 import { useModels } from '../../../src/stores/models'
+import { useTextlayer } from '../../../src/stores/textlayer'
+import { useTranslate } from '../../../src/stores/translate'
+import { useReviewTune } from '../../../src/stores/reviewTune'
 
 const SCHEMA = [
   { name: 'supplier', type: 'string', description: 'supplier name' },
@@ -59,13 +62,21 @@ describe('ReviewOverlay tab integration', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true, status: 200, json: async () => [],
     }))
+    // The blanket `fetch → []` mock makes async store fetches (textlayer /
+    // translate / tune) resolve into shapeless `ready` payloads. Zustand stores
+    // persist across tests in a file, so without this reset a prior test's
+    // polluted entry bleeds into the next test's first synchronous render and
+    // crashes (e.g. PdfViewer reads payload.spans on a ready-but-shapeless key).
+    useTextlayer.setState({ byKey: {} })
+    useTranslate.setState({ byKey: {} })
+    useReviewTune.setState({ signal: null, dismissedKey: null })
   })
 
   it('renders the ✏ reviewed tab + one card per experiment', () => {
     seedStores({})
     render(<ReviewOverlay onBack={() => {}} />)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /reviewed/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /ground truth/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /gemma/i })).toBeInTheDocument()
   })
 
@@ -115,8 +126,10 @@ describe('ReviewOverlay tab integration', () => {
       predictionsByExp: { 'ex_a': null },
     })
     render(<ReviewOverlay onBack={() => {}} />)
-    // The overlay should render without crashing; the tab strip is present
-    expect(screen.getByRole('tablist')).toBeInTheDocument()
+    // A known-absent (null) prediction filters the experiment out of the tab
+    // strip (visibleExperiments drops null entries), so the strip may be gone —
+    // what matters is the overlay renders the field area gracefully, not crash.
+    expect(screen.getByText('supplier')).toBeInTheDocument()
   })
 
   it('shows the "adopt as annotation" button only on prediction tabs', () => {
