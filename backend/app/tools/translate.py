@@ -167,6 +167,41 @@ def _vision_prompt(target_lang: str) -> str:
     )
 
 
+def _already_target_language(originals: list[str], target_lang: str) -> bool:
+    """Cheap pre-check to skip the translator LLM when a page needs no work.
+
+    Two short-circuit cases, both producing `translated == original`:
+      1. The page carries no translatable letters (pure numbers / punctuation
+         — a figures table, an amounts column). Copying through is correct for
+         ANY target language.
+      2. target_lang is Chinese AND the page is already predominantly CJK —
+         the common review case (Chinese reviewer, Chinese doc, default
+         `zh`). Translating Chinese→Chinese is a pure-latency round-trip the
+         reviewer waits on for zero value (see screenshot bug 2026-06-05).
+
+    Only Chinese is special-cased today; other targets fall through to the LLM
+    (we can't cheaply assert "already French"). A handful of embedded
+    Latin tokens (part numbers, model codes) inside a Chinese page don't flip
+    the verdict — they don't need translating for a Chinese reviewer anyway.
+    """
+    cjk = 0
+    letters = 0
+    for text in originals:
+        for ch in text:
+            o = ord(ch)
+            if 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF:  # CJK ideographs
+                cjk += 1
+                letters += 1
+            elif ch.isalpha():  # Latin / other scripts
+                letters += 1
+    if letters == 0:
+        return True  # nothing translatable on the page
+    norm = target_lang.lower()
+    if norm == "zh" or norm.startswith("zh"):
+        return (cjk / letters) >= 0.5
+    return False
+
+
 def _denormalise_bbox(
     bbox_norm: list[int], page_w: float, page_h: float,
 ) -> list[float]:
@@ -249,50 +284,70 @@ async def translate_page(
 
     provider = get_provider_for_model(mid)
 
+    # Token counters default to 0 — the same-language short-circuit below makes
+    # no provider call, so we can't read them off a `result` that never exists.
+    input_tokens = 0
+    output_tokens = 0
+
     if use_textlayer:
         originals = [str(s.get("text", "")) for s in spans]
-        prompt = _textlayer_prompt(target_lang, originals)
-        result = await provider.extract(
-            model_id=mid,
-            system_prompt=_TRANSLATE_SYSTEM,
-            user_content=[TextBlock(text=prompt)],
-            response_schema=_TEXTLAYER_RESPONSE_SCHEMA,
-        )
-        # Gemini's JSON mode returns the schema's root type verbatim. For an
-        # array response_schema, `raw_json` may arrive as either the bare
-        # list or wrapped in a single-key dict depending on schema-mode
-        # version — accept both shapes defensively.
-        raw = result.raw_json
-        if isinstance(raw, dict) and len(raw) == 1:
-            (only_val,) = raw.values()
-            translated_arr = only_val
+        if _already_target_language(originals, target_lang):
+            # Same-language short-circuit — copy originals through, skip the
+            # LLM (zero latency, zero tokens). Sidecar still caches below so
+            # the language verdict is computed once per page.
+            lines = [
+                {
+                    "bbox": [float(v) for v in span.get("bbox", [0, 0, 0, 0])],
+                    "original": original,
+                    "translated": original,
+                }
+                for span, original in zip(spans, originals)
+            ]
         else:
-            translated_arr = raw
-        if not isinstance(translated_arr, list):
-            raise ValueError(
-                f"translator returned non-array payload: {type(translated_arr).__name__}"
+            prompt = _textlayer_prompt(target_lang, originals)
+            result = await provider.extract(
+                model_id=mid,
+                system_prompt=_TRANSLATE_SYSTEM,
+                user_content=[TextBlock(text=prompt)],
+                response_schema=_TEXTLAYER_RESPONSE_SCHEMA,
             )
-        # Align by index — robust against LLMs that merge / drop / reorder
-        # items. Missing indices fall back to the original text so the page
-        # always renders with hotspots; users see which lines actually got
-        # translated. Length mismatch is logged but not fatal.
-        by_index: dict[int, str] = {}
-        for item in translated_arr:
-            if not isinstance(item, dict):
-                continue
-            idx = item.get("index")
-            if not isinstance(idx, int):
-                continue
-            by_index[idx] = str(item.get("translated", ""))
-        lines = []
-        for i, span in enumerate(spans):
-            original = str(span.get("text", ""))
-            translated_text = by_index.get(i, original)
-            lines.append({
-                "bbox": [float(v) for v in span.get("bbox", [0, 0, 0, 0])],
-                "original": original,
-                "translated": translated_text,
-            })
+            input_tokens = int(result.input_tokens or 0)
+            output_tokens = int(result.output_tokens or 0)
+            # Gemini's JSON mode returns the schema's root type verbatim. For an
+            # array response_schema, `raw_json` may arrive as either the bare
+            # list or wrapped in a single-key dict depending on schema-mode
+            # version — accept both shapes defensively.
+            raw = result.raw_json
+            if isinstance(raw, dict) and len(raw) == 1:
+                (only_val,) = raw.values()
+                translated_arr = only_val
+            else:
+                translated_arr = raw
+            if not isinstance(translated_arr, list):
+                raise ValueError(
+                    f"translator returned non-array payload: {type(translated_arr).__name__}"
+                )
+            # Align by index — robust against LLMs that merge / drop / reorder
+            # items. Missing indices fall back to the original text so the page
+            # always renders with hotspots; users see which lines actually got
+            # translated. Length mismatch is logged but not fatal.
+            by_index: dict[int, str] = {}
+            for item in translated_arr:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("index")
+                if not isinstance(idx, int):
+                    continue
+                by_index[idx] = str(item.get("translated", ""))
+            lines = []
+            for i, span in enumerate(spans):
+                original = str(span.get("text", ""))
+                translated_text = by_index.get(i, original)
+                lines.append({
+                    "bbox": [float(v) for v in span.get("bbox", [0, 0, 0, 0])],
+                    "original": original,
+                    "translated": translated_text,
+                })
     else:
         # Vision mode — pull the page image as a base64 ImageBlock (PDF or
         # native raster) and ask for OCR + bbox + translation in one shot.
@@ -310,6 +365,8 @@ async def translate_page(
             user_content=user_blocks,
             response_schema=_VISION_RESPONSE_SCHEMA,
         )
+        input_tokens = int(result.input_tokens or 0)
+        output_tokens = int(result.output_tokens or 0)
         raw = result.raw_json
         if not isinstance(raw, dict) or "lines" not in raw:
             raise ValueError(
@@ -340,8 +397,8 @@ async def translate_page(
         "image_w": image_w,
         "image_h": image_h,
         "lines": lines,
-        "input_tokens": int(result.input_tokens or 0),
-        "output_tokens": int(result.output_tokens or 0),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
     }
     atomic_write_text(cache, json.dumps(payload, ensure_ascii=False))
     return payload

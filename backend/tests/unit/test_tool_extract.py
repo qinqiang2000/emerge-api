@@ -57,6 +57,39 @@ async def test_extract_one_writes_prediction(workspace: Path, stub_provider: Asy
     assert pred["_run"]["run_id"].startswith("r_")
 
 
+async def test_extract_one_prewarms_textlayer_sidecar(
+    workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Produce-time eager warming: after a draft lands, the per-page text-layer
+    sidecar must already exist so the reviewer never pays the OCR round-trip on
+    first open (screenshot bug 2026-06-05). Best-effort, but for an electronic
+    PDF fitz spans alone guarantee the sidecar is written even if OCR is a
+    no-op."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+
+    stub_provider.extract.side_effect = [
+        make_provider_result({"entities": [{"invoice_no": "INV-1", "total_amount": 1.0}]}),
+        make_provider_result({"groundings": []}),
+    ]
+    # The textlayer OCR supplement resolves its own provider via
+    # `app.provider.get_provider_for_model` (not the passed `stub_provider`);
+    # stub it to empty so the prewarm stays deterministic + offline.
+    ocr_stub = AsyncMock()
+    ocr_stub.extract = AsyncMock(return_value=make_provider_result({"lines": []}))
+    monkeypatch.setattr("app.provider.get_provider_for_model", lambda *a, **k: ocr_stub)
+
+    from app.workspace.paths import doc_textlayer_path
+
+    sidecar = doc_textlayer_path(workspace, pid, did, 1)
+    assert not sidecar.exists(), "sidecar must not exist before extraction"
+
+    await extract_one(workspace, pid, did, provider=stub_provider)
+
+    assert sidecar.exists(), "extract_one must warm the page-1 text-layer sidecar"
+
+
 async def test_extract_one_model_override_resolves_project_model_id(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:

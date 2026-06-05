@@ -433,3 +433,64 @@ async def test_translate_page_textlayer_alignment_by_index_fills_gaps(
         model_id=_DEFAULT_TRANSLATE_MODEL,
     )
     assert cache_path.exists()
+
+
+def test_already_target_language_heuristic() -> None:
+    from app.tools.translate import _already_target_language
+
+    # Chinese page, target zh → already in target, skip the LLM.
+    assert _already_target_language(["采购订单", "深圳市晶科鑫实业有限公司"], "zh")
+    # A few embedded Latin tokens (part numbers) don't flip a CJK-majority page.
+    assert _already_target_language(["规格/型号 SJK-6P32768", "晶振芯片"], "zh")
+    # English page, target zh → real translation needed, fall through to LLM.
+    assert not _already_target_language(["Purchase Order", "Shenzhen Co Ltd"], "zh")
+    # Pure numbers / punctuation → nothing to translate for ANY target.
+    assert _already_target_language(["46230", "0.23", "25-5-18"], "en")
+    # English page, non-zh target → no cheap assertion → LLM.
+    assert not _already_target_language(["Purchase Order"], "en")
+
+
+async def test_translate_page_same_language_short_circuit(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Chinese page translated to zh must NOT call the translator LLM — the
+    page is already in the target language, so originals are copied through at
+    zero latency / zero tokens (screenshot bug 2026-06-05)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    fname = (await upload_doc(workspace, pid, _build_text_pdf(), "doc.pdf"))["filename"]
+
+    # Feed translate_page a Chinese text-layer sidecar directly so the test is
+    # independent of fitz's CJK font handling — translate.py imports
+    # extract_textlayer at module top, so patch that symbol.
+    zh_sidecar = {
+        "filename": fname, "page": 1,
+        "page_w": 595.0, "page_h": 842.0, "image_w": 1240, "image_h": 1754,
+        "scanned": False, "text_source": "fitz",
+        "spans": [
+            {"bbox": [10, 10, 100, 30], "text": "采购订单", "font_size": 12},
+            {"bbox": [10, 40, 260, 60], "text": "深圳市晶科鑫实业有限公司", "font_size": 12},
+        ],
+    }
+    monkeypatch.setattr(
+        "app.tools.translate.extract_textlayer",
+        AsyncMock(return_value=zh_sidecar),
+    )
+    stub = _install_provider(monkeypatch, return_value=_result({"items": []}))
+
+    result = await translate_page(workspace, pid, fname, page=1)
+
+    # The whole point: the translator LLM was never called.
+    assert stub.extract.await_count == 0
+    assert result["mode"] == "textlayer"
+    assert result["input_tokens"] == 0 and result["output_tokens"] == 0
+    assert len(result["lines"]) == 2
+    for line in result["lines"]:
+        assert line["translated"] == line["original"]
+
+    # Decision is cached so it's computed once per page.
+    cache_path = doc_translate_path(
+        workspace, pid, fname,
+        page=1, target_lang="zh", mode="textlayer",
+        model_id=_DEFAULT_TRANSLATE_MODEL,
+    )
+    assert cache_path.exists()

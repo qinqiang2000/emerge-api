@@ -32,6 +32,13 @@ export type TextlayerState =
 interface State {
   byKey: Record<string, TextlayerState>
   ensure: (projectId: string, filename: string, page: number) => void
+  /** Look-ahead warmer for a doc the user has NOT opened yet (the next entry
+   *  in the review queue). Same fetch as `ensure`, but deliberately does NOT
+   *  touch the `lastDocKey` doc-switch abort bookkeeping — prewarming the next
+   *  doc must not look like a doc switch (which would abort the current doc's
+   *  inflight fetches). When the user actually navigates there, `ensure` sees
+   *  the `loading`/`ready` entry and reuses it instead of refetching. */
+  prewarm: (projectId: string, filename: string, page: number) => void
   clearProject: (projectId: string) => void
 }
 
@@ -80,6 +87,30 @@ export const useTextlayer = create<State>((set, get) => ({
     const current = get().byKey[key]
     if (current && current.kind !== 'idle') return  // already loading / ready / error
 
+    const ac = new AbortController()
+    inflight.set(key, ac)
+    set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'loading' } } }))
+    fetchTextlayer(projectId, filename, page, ac.signal).then(
+      (payload) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'ready', payload } } }))
+      },
+      (err: unknown) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({
+          byKey: { ...s.byKey, [key]: { kind: 'error', message: String(err) } },
+        }))
+      },
+    )
+  },
+  prewarm: (projectId, filename, page) => {
+    if (!projectId || !filename || !page) return
+    const key = makeKey(projectId, filename, page)
+    const current = get().byKey[key]
+    if (current && current.kind !== 'idle') return  // already loading / ready / error
+    if (inflight.has(key)) return
     const ac = new AbortController()
     inflight.set(key, ac)
     set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'loading' } } }))

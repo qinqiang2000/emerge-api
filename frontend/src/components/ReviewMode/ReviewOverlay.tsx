@@ -11,6 +11,8 @@ import { useExperiments } from '../../stores/experiments'
 import { useModels } from '../../stores/models'
 import { useChat } from '../../stores/chat'
 import { useQuickLook } from '../../stores/quicklook'
+import { useTranslate } from '../../stores/translate'
+import { useTextlayer } from '../../stores/textlayer'
 
 import FieldEditor from './FieldEditor'
 import PdfViewer from './PdfViewer'
@@ -70,6 +72,10 @@ export default function ReviewOverlay({
 
   const docs = useDocs(useShallow(s => s.byProject[activeProjectId ?? ''] ?? []))
   const removeDocFromStore = useDocs((s) => s.remove)
+  // Subscribed so the look-ahead prefetch re-fires when the reviewer flips
+  // translate mode on (then the next doc's translation warms too, not just its
+  // text layer).
+  const translateMode = useTranslate((s) => s.mode)
   const schema = useSchema(useShallow((s) => (activeProjectId ? s.byProject[activeProjectId] ?? [] : [])))
   const loadSchema = useSchema((s) => s.load)
   const loadExperiments = useExperiments((s) => s.load)
@@ -277,6 +283,24 @@ export default function ReviewOverlay({
   const currentIdx = activeFilename
     ? docs.findIndex(d => d.filename === activeFilename)
     : -1
+
+  // ── ① look-ahead prefetch ────────────────────────────────────────────────
+  // Review is a one-pass queue: each doc is opened exactly once, so the on-disk
+  // sidecar cache never pays off on re-open — first-open latency IS the steady-
+  // state latency, sitting on the reviewer's critical path. Hide it: while they
+  // read doc N, warm doc N+1's page-1 text layer (always — selection / locate /
+  // it's translation's input) and, when translate mode is on, its translation
+  // too. By the time they press → / "next", the spinner is already gone.
+  // `prewarm` (not `ensure`) so warming a different doc never aborts the current
+  // doc's inflight fetches.
+  useEffect(() => {
+    if (!activeProjectId || currentIdx < 0) return
+    const nextDoc = docs[currentIdx + 1]
+    if (!nextDoc) return
+    useTextlayer.getState().prewarm(activeProjectId, nextDoc.filename, 1)
+    useTranslate.getState().prewarm(activeProjectId, nextDoc.filename, 1)
+  }, [activeProjectId, activeFilename, currentIdx, docs, translateMode])
+
   const stepTo = (delta: -1 | 1) => {
     if (!activeProjectId || currentIdx < 0) return
     const target = currentIdx + delta

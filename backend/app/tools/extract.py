@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -210,7 +212,58 @@ async def extract_one(
             prediction_draft_path(workspace, project_id, filename),
             payload,
         )
+
+    # Eager review-sidecar warming — same philosophy as eager grounding above:
+    # do the per-page text-layer work (fitz spans + the Gemini OCR supplement
+    # `extract_textlayer` runs on every page) NOW, at produce time, off the
+    # human's review critical path. Without this the reviewer pays a multi-
+    # second OCR round-trip on first open of every doc — and a one-pass review
+    # queue never re-opens a doc, so the on-disk cache otherwise never helps
+    # (see screenshot bug 2026-06-05). Best-effort: a prewarm failure must
+    # NEVER fail extraction; the page simply warms lazily on open as before.
+    # NOT inside `project_lock` — these are LLM calls writing their own
+    # docs/.meta sidecars, never the prediction blob.
+    await _prewarm_textlayer(workspace, project_id, filename)
     return payload
+
+
+_PREWARM_CONCURRENCY = 4
+
+
+async def _prewarm_textlayer(
+    workspace: Path, project_id: str, filename: str,
+) -> None:
+    """Warm the per-page text-layer sidecars for a just-produced doc.
+
+    Bounded-concurrency fan-out over all pages; every failure is swallowed so a
+    flaky OCR call or a missing meta sidecar can't sink the extraction that
+    already landed. The text-layer sidecar is doc-scoped (not per-prediction),
+    so warming it once here also makes experiment-tab review of the same doc
+    instant — and it's the INPUT a later translate call reuses, so even an
+    on-demand translation skips the OCR step."""
+    try:
+        from app.tools.textlayer import extract_textlayer
+        from app.workspace.paths import doc_meta_path
+
+        meta_p = doc_meta_path(workspace, project_id, filename)
+        if not meta_p.exists():
+            return
+        page_count = int(json.loads(meta_p.read_text()).get("page_count", 1) or 1)
+    except Exception:
+        log.exception("textlayer prewarm setup failed for %r; review warms lazily", filename)
+        return
+
+    sem = asyncio.Semaphore(_PREWARM_CONCURRENCY)
+
+    async def _one(page: int) -> None:
+        async with sem:
+            try:
+                await extract_textlayer(workspace, project_id, filename, page=page)
+            except Exception:
+                # Per-page best-effort: one bad page never blocks the rest.
+                log.debug("textlayer prewarm failed for %r p%d", filename, page)
+
+    await asyncio.gather(*(_one(p) for p in range(1, page_count + 1)))
 
 
 async def _ground_payload(

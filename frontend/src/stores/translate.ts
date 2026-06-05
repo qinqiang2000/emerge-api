@@ -49,6 +49,14 @@ interface State {
     page: number,
     opts?: { force?: boolean },
   ) => void
+  /** Look-ahead warmer for the NEXT doc in the review queue (not yet opened).
+   *  Self-gates on `mode` — only spends translator tokens when the reviewer
+   *  has translation switched on, so we never pre-translate docs nobody will
+   *  read in another language. Unlike `ensure` it does NOT run the doc-switch
+   *  abort (prewarming a different doc must not abort the current doc's
+   *  inflight fetches); when the user navigates there, `ensure` reuses the
+   *  resolved entry. */
+  prewarm: (projectId: string, filename: string, page: number) => void
   clearProject: (projectId: string) => void
 }
 
@@ -114,6 +122,35 @@ export const useTranslate = create<State>((set, get) => ({
     inflight.set(key, ac)
     set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'loading' } } }))
     translatePage(projectId, filename, page, { force: opts?.force, signal: ac.signal }).then(
+      (payload) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'ready', payload } } }))
+      },
+      (err: unknown) => {
+        inflight.delete(key)
+        if (ac.signal.aborted) return
+        set((s) => ({
+          byKey: {
+            ...s.byKey,
+            [key]: { kind: 'error', message: err instanceof Error ? err.message : String(err) },
+          },
+        }))
+      },
+    )
+  },
+  prewarm: (projectId, filename, page) => {
+    if (!projectId || !filename || !page) return
+    // Same hard gate as ensure: no translation work while mode is off.
+    if (get().mode === 'off') return
+    const key = makeKey(projectId, filename, page)
+    const current = get().byKey[key]
+    if (current && (current.kind === 'loading' || current.kind === 'ready')) return
+    if (inflight.has(key)) return
+    const ac = new AbortController()
+    inflight.set(key, ac)
+    set((s) => ({ byKey: { ...s.byKey, [key]: { kind: 'loading' } } }))
+    translatePage(projectId, filename, page, { signal: ac.signal }).then(
       (payload) => {
         inflight.delete(key)
         if (ac.signal.aborted) return
