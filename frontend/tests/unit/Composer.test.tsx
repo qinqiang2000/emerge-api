@@ -6,15 +6,13 @@ import Composer from '../../src/components/Chat/Composer'
 const PLACEHOLDER = 'say something to the agent, or type / for a command…'
 
 describe('Composer', () => {
-  it('plain Enter does not submit — only ⌘/Ctrl+Enter does', async () => {
+  it('plain Enter submits (ChatGPT-style); ⌘/Ctrl+Enter also submits', async () => {
     const onSubmit = vi.fn()
     render(<Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={onSubmit} />)
     const input = screen.getByPlaceholderText(PLACEHOLDER)
     await userEvent.type(input, 'hello')
+    // With no slash menu open, plain Enter submits; Shift+Enter would newline.
     await userEvent.keyboard('{Enter}')
-    expect(onSubmit).not.toHaveBeenCalled()
-    await userEvent.keyboard('{Control>}{Enter}{/Control}')
-    // Enter inserted a newline before Ctrl+Enter; trimmed text is still "hello".
     expect(onSubmit).toHaveBeenCalledWith('hello')
   })
 
@@ -33,7 +31,7 @@ describe('Composer', () => {
     expect(screen.getByText('a.pdf')).toBeInTheDocument()
   })
 
-  it('Enter picks the active command and closes the menu; ⌘/Ctrl+Enter then submits', async () => {
+  it('Enter picks the active command and closes the menu; plain Enter then submits', async () => {
     const onSubmit = vi.fn()
     const { container } = render(
       <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={onSubmit} />,
@@ -48,10 +46,8 @@ describe('Composer', () => {
     expect(input.value).toBe('/eval ')
     expect(container.querySelector('.slashmenu')).toBeNull()   // menu closed
 
-    // Plain Enter no longer submits when the menu is closed — needs ⌘/Ctrl+Enter.
+    // Menu now closed → plain Enter submits the picked command (ChatGPT-style).
     await userEvent.keyboard('{Enter}')
-    expect(onSubmit).not.toHaveBeenCalled()
-    await userEvent.keyboard('{Control>}{Enter}{/Control}')
     expect(onSubmit).toHaveBeenCalledWith('/eval')
   })
 
@@ -66,7 +62,7 @@ describe('Composer', () => {
     expect(container.querySelector('.slashmenu')).toBeNull()
   })
 
-  it('typing a full command name closes the menu; ⌘/Ctrl+Enter then submits it', async () => {
+  it('typing a full command name closes the menu; plain Enter then submits it', async () => {
     const onSubmit = vi.fn()
     const { container } = render(
       <Composer disabled={false} pending={[]} onAttach={(_files: File[]) => {}} onSubmit={onSubmit} />,
@@ -75,8 +71,6 @@ describe('Composer', () => {
     await userEvent.type(input, '/eval')
     expect(container.querySelector('.slashmenu')).toBeNull()   // exact match → no menu
     await userEvent.keyboard('{Enter}')
-    expect(onSubmit).not.toHaveBeenCalled()
-    await userEvent.keyboard('{Control>}{Enter}{/Control}')
     expect(onSubmit).toHaveBeenCalledWith('/eval')
   })
 

@@ -8,6 +8,9 @@ import { useExperiments } from '../../../src/stores/experiments'
 import { useModels } from '../../../src/stores/models'
 import { useReview } from '../../../src/stores/review'
 import { useSchema } from '../../../src/stores/schema'
+import { useTextlayer } from '../../../src/stores/textlayer'
+import { useTranslate } from '../../../src/stores/translate'
+import { useReviewTune } from '../../../src/stores/reviewTune'
 import type { DocSummary } from '../../../src/types/review'
 
 const SCHEMA = [{ name: 'supplier', type: 'string', description: 'supplier name' }]
@@ -43,6 +46,14 @@ describe('ReviewBar title + delete + keyboard', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true, status: 200, json: async () => [],
     }))
+    // The blanket `fetch → []` mock resolves PdfViewer's async textlayer /
+    // translate fetches into shapeless `ready` payloads. Zustand stores persist
+    // across tests in a file, so a prior render's polluted entry bleeds into the
+    // next test's first synchronous render and crashes (PdfViewer reads
+    // payload.spans.length on a ready-but-shapeless key). Reset to clear it.
+    useTextlayer.setState({ byKey: {} })
+    useTranslate.setState({ byKey: {} })
+    useReviewTune.setState({ signal: null, dismissedKey: null })
   })
 
   it('renders "reviewing <filename> <status>" matching the design copy', () => {
@@ -53,7 +64,9 @@ describe('ReviewBar title + delete + keyboard', () => {
     expect(title.textContent).toContain('reviewing')
     // chip carries the bare filename — no `docs/` prefix
     expect(title.querySelector('.doc')?.textContent).toBe('2024-Q4-soylent.pdf')
-    expect(title.querySelector('.status')?.textContent).toBe('pending')
+    // no prediction + not reviewed → 'new' (the no-prediction state; 'pending'
+    // is now reserved for docs that have a prediction awaiting review)
+    expect(title.querySelector('.status')?.textContent).toBe('new')
   })
 
   it('status pill flips to "reviewed" when has_reviewed is true', () => {

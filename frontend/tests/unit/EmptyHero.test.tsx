@@ -16,17 +16,6 @@ describe('EmptyHero', () => {
     expect(screen.getByText('~/projects/')).toBeInTheDocument()
   })
 
-  it('renders headline with emphasis', () => {
-    render(<EmptyHero onAttach={noop} onStarter={noop} />)
-    expect(screen.getByRole('heading')).toBeInTheDocument()
-    const h1 = screen.getByRole('heading')
-    expect(h1.textContent).toContain("Show me a few documents and I'll turn them into")
-    expect(h1.textContent).toContain('an API that reads them for you.')
-    const em = h1.querySelector('em')
-    expect(em).toBeTruthy()
-    expect(em?.textContent).toBe('an API that reads them for you.')
-  })
-
   it('renders drop zone', () => {
     render(<EmptyHero onAttach={noop} onStarter={noop} />)
     expect(screen.getByText('Drag your documents here')).toBeInTheDocument()

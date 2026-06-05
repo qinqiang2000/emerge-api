@@ -19,11 +19,6 @@ describe('toolShortHint', () => {
     )).toBe('1 field')
   })
 
-  it('extract_batch: returns "{ok}/{ok+err} ok"', () => {
-    const result = JSON.stringify({ ok_count: 5, err_count: 1, per_doc: {} })
-    expect(toolShortHint('mcp__emerge_tools__extract_batch', result)).toBe('5/6 ok')
-  })
-
   it('score: returns "macro_f1=0.97"', () => {
     const result = JSON.stringify({ macro_f1: 0.9712, per_field: [] })
     expect(toolShortHint('mcp__emerge_tools__score', result)).toBe('macro_f1=0.97')

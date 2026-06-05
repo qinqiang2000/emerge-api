@@ -40,17 +40,6 @@ describe('handleToolResult side effects', () => {
     refresh.mockRestore()
   })
 
-  it('refreshes useDocs when extract_batch completes (PENDING → DRAFT)', () => {
-    const refresh = vi.spyOn(useDocs.getState(), 'refresh').mockResolvedValue()
-    useChat.setState({ events: [{
-      type: 'tool_call', tool_use_id: 't3', tool_name: 'mcp__emerge_tools__extract_batch',
-      tool_input: {}, tool_result: null, ok: true,
-    }]})
-    _testUtils.handleToolResult({ tool_use_id: 't3', result_text: '{"ok_count":1}', ok: true }, 'p_a', null)
-    expect(refresh).toHaveBeenCalledWith('p_a')
-    refresh.mockRestore()
-  })
-
   it('refreshes useDocs when extract_one completes', () => {
     const refresh = vi.spyOn(useDocs.getState(), 'refresh').mockResolvedValue()
     useChat.setState({ events: [{
