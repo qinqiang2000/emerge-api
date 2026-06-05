@@ -29,7 +29,11 @@ import pytest
 from app.provider.base import ProviderResult
 from app.tools.docs import pdf_render_page, upload_doc
 from app.tools.projects import create_project
-from app.tools.textlayer import extract_textlayer
+from app.tools.textlayer import (
+    _looks_garbled,
+    _span_is_garbled,
+    extract_textlayer,
+)
 from app.workspace.paths import doc_textlayer_path
 
 
@@ -547,3 +551,71 @@ async def test_extract_textlayer_electronic_pdf_dedupes_text_and_line(
 
     assert result["text_source"] == "fitz"
     assert len(result["spans"]) == fitz_only_count
+
+
+# ── Garbled-CJK guard (CID font, no ToUnicode) ────────────────────────────
+#
+# A PDF whose CJK font is a Type0/Identity-H subset with no ToUnicode CMap
+# makes fitz emit CID glyph indices reinterpreted as Unicode — garbage like
+# "㘞ỻ㋗匉☐" where "晶振芯片" should be. The strings below are verbatim from
+# such a real document (金进科技--TP25004430.pdf). The guard must drop these
+# while leaving real Chinese, Latin, and numbers untouched.
+
+# Verbatim garbled lines from the real doc — must all be flagged.
+_GARBLED_SAMPLES = [
+    "㘞ỻ㋗匉☐ġġġ",
+    "㶙⛛ⶪ㘞䥹搓⭆᷂㚱旸℔⎠",
+    "慹徃䥹㈨ĩ㶙⛛Ī㚱旸℔⎠",
+    "ıĸĶĶġĹĵķĶġĵķĲĲ↮㛢ĶĶı",
+    "ࢋⴽ١ߓॠ操ؘЏ߄ஒҸ՛",  # Microsoft YaHei garbage (Devanagari-ish)
+]
+
+# Must NEVER be flagged — well-formed Chinese / Latin / numbers / mixed.
+_CLEAN_SAMPLES = [
+    "金进科技(深圳)有限公司",
+    "深圳市晶科鑫实业有限公司",
+    "广东省深圳市龙岗区平湖街道山厦社区内环路5号",
+    "采购订单识别：发票号",          # with fullwidth colon
+    "PURCHASE ORDER",
+    "TP25004430",
+    "12,000.000",
+    "Crystal oscillator 12M/3225",
+]
+
+
+@pytest.mark.parametrize("text", _GARBLED_SAMPLES)
+def test_looks_garbled_flags_cid_garbage(text: str) -> None:
+    assert _looks_garbled(text) is True
+
+
+@pytest.mark.parametrize("text", _CLEAN_SAMPLES)
+def test_looks_garbled_passes_real_text(text: str) -> None:
+    assert _looks_garbled(text) is False
+
+
+def test_span_is_garbled_requires_suspect_font() -> None:
+    """Both signals must fire: garbled text alone (no suspect font) is kept,
+    so legit rare-character content on a healthy font is never dropped."""
+    garbled = {"font": "PMingLiU", "text": "㘞ỻ㋗匉☐"}
+    # Signal 1 absent (empty suspect set) → keep even though text looks bad.
+    assert _span_is_garbled(garbled, set()) is False
+    # Signal 1 present but font not in the suspect set → keep.
+    assert _span_is_garbled(garbled, {"SomeOtherFont"}) is False
+    # Both signals present → drop.
+    assert _span_is_garbled(garbled, {"PMingLiU"}) is True
+
+
+def test_span_is_garbled_keeps_recovered_cjk_on_suspect_font() -> None:
+    """A suspect CID font whose text fitz DID recover correctly (real Chinese)
+    must survive — guards against regressing normal PDFs that merely share the
+    no-ToUnicode font shape."""
+    good = {"font": "PMingLiU", "text": "金进科技有限公司"}
+    assert _span_is_garbled(good, {"PMingLiU"}) is False
+
+
+def test_span_is_garbled_keeps_latin_on_suspect_font() -> None:
+    """WinAnsi siblings share the basefont NAME with the broken Identity-H
+    variant, so a Latin-only span can carry a suspect font name — its lack of
+    non-ASCII chars must keep it (numbers/English never garble)."""
+    latin = {"font": "Microsoft YaHei", "text": "TP25004430"}
+    assert _span_is_garbled(latin, {"Microsoft YaHei"}) is False

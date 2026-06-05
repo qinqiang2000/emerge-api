@@ -481,9 +481,21 @@ def _cluster_quote_lines(spans: list[dict], quote_n: str) -> list[dict]:
 
     out: list[dict] = []
     for cl in clusters:
-        score = _merged_len([m["range"] for m in cl["members"]]) / qlen
+        members = cl["members"]
+        # If ONE span already covers the whole quote (a full-line match — e.g. an
+        # OCR-recovered "TO : 深圳…有限公司" line), every other matching member is a
+        # sub-fragment of that same line: a bare "TO " / ": " label slice, often in
+        # the WRONG column (a ": " under SHIP-TO matches the quote's own ": "). Keep
+        # only the full-cover span so the highlight is the whole line, not scattered
+        # label punctuation. The genuine cross-column label:value case (quote
+        # "Invoice No.: 74671636" split across two columns with NO single span
+        # covering it whole) is untouched — no member is full-cover, so every
+        # fragment is retained and unioned as before.
+        full = [m for m in members if m["range"][0] <= 0 and m["range"][1] >= qlen]
+        use = full or members
+        score = _merged_len([m["range"] for m in use]) / qlen
         out.append(
-            {"score": score, "status": "quote", "rects": [m["bbox"] for m in cl["members"]]}
+            {"score": score, "status": "quote", "rects": [m["bbox"] for m in use]}
         )
     return out
 

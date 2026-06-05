@@ -107,6 +107,88 @@ def _pixmap_dims(page_w: float, page_h: float, dpi: int = _RENDER_DPI) -> tuple[
     return math.ceil(page_w * factor), math.ceil(page_h * factor)
 
 
+# ── Garbled-CJK guard (CID font with no ToUnicode) ────────────────────────
+#
+# Some PDFs (国产 ERP / 打印导出常见) embed their CJK glyphs as a `Type0 /
+# Identity-H` subset font WITHOUT a `ToUnicode` CMap. The content stream then
+# carries raw CID glyph indices and fitz has nothing to map them back to real
+# Unicode — `get_text` reinterprets the 2-byte CID as a codepoint and emits
+# garbage like "㘞ỻ㋗匉☐" where "晶振芯片" should be. Copy → 乱码; locate can't
+# align the (correct) extracted value against the (garbled) text layer, so
+# every Chinese field silently fails to highlight while numbers / Latin (which
+# ride WinAnsi fonts) work fine.
+#
+# This is a defect of the FILE, not of most Chinese PDFs — so the guard is
+# gated on BOTH signals below and only drops a span when both fire. Dropped
+# spans leave the region empty in the fitz pass; the OCR supplement then fills
+# it (no fitz span to dedupe OCR against) with the correct text.
+#
+# A character is "clean CJK" if it lives in CJK-Unified (U+4E00–U+9FFF) or the
+# CJK / fullwidth punctuation ranges. Real Chinese text is overwhelmingly here;
+# CID-mismapped garbage scatters into Latin-Extended-Additional, Enclosed-CJK,
+# Kangxi-radical and symbol blocks instead.
+def _is_clean_cjk(ch: str) -> bool:
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF       # CJK Unified Ideographs (common)
+        or 0x3000 <= o <= 0x303F    # CJK symbols & punctuation （、。「」 …）
+        or 0xFF00 <= o <= 0xFFEF    # Fullwidth forms （：，（） …）
+    )
+
+
+# Fraction of a span's non-ASCII chars allowed to fall OUTSIDE the clean-CJK
+# ranges before the span is judged garbled. Garbled CID output is ~0.8+ out of
+# range; legitimate Chinese is ~0.0.
+_GARBLED_OOR_RATIO = 0.4
+
+
+def _looks_garbled(text: str) -> bool:
+    """True when a span carries non-ASCII content that doesn't look like
+    well-formed Chinese — the fingerprint of CID-without-ToUnicode garbage."""
+    high = [c for c in text if ord(c) > 0xFF]
+    if not high:
+        return False  # pure ASCII / Latin-1 — WinAnsi path, always trustworthy
+    out_of_range = sum(1 for c in high if not _is_clean_cjk(c))
+    return (out_of_range / len(high)) > _GARBLED_OOR_RATIO
+
+
+def _suspect_cid_basefonts(doc: Any, page: Any) -> set[str]:
+    """Base font names (subset prefix stripped) that have a `Type0 /
+    Identity-*` variant carrying NO `ToUnicode` table — the precondition for
+    the garbled-CJK guard. Empty set on any introspection failure (degrade to
+    trusting fitz, i.e. prior behaviour)."""
+    suspect: set[str] = set()
+    try:
+        fonts = page.get_fonts(full=True)
+    except Exception:
+        return suspect
+    for f in fonts:
+        xref, _ext, ftype, basefont, _refname, enc = f[0], f[1], f[2], f[3], f[4], f[5]
+        if ftype == "Type0" and "Identity" in str(enc or ""):
+            try:
+                keys = doc.xref_get_keys(xref)
+            except Exception:
+                continue
+            if "ToUnicode" not in keys:
+                # span["font"] reports the basefont WITHOUT the "ABCDEE+" subset
+                # tag, so strip it here to match.
+                suspect.add(str(basefont).split("+", 1)[-1])
+    return suspect
+
+
+def _span_is_garbled(span: dict[str, Any], suspect_basefonts: set[str]) -> bool:
+    """A fitz span is untrustworthy iff its font has a CID-no-ToUnicode variant
+    AND its text fails the well-formed-Chinese check. Both must fire — guards
+    legit rare-character content (signal 2 alone) and correctly-recovered CID
+    fonts (signal 1 alone) from false positives."""
+    if not suspect_basefonts:
+        return False
+    font = str(span.get("font", "")).split("+", 1)[-1]
+    if font not in suspect_basefonts:
+        return False
+    return _looks_garbled(str(span.get("text", "")))
+
+
 _DEDUPE_IOU_THRESHOLD = 0.3
 
 
@@ -411,6 +493,11 @@ async def extract_textlayer(
         # because each fragment was translated independently. Line-level
         # gives the translator the full phrase + the ghost a single bbox to
         # cover. Same downstream shape — frontend code is unchanged.
+        # Fonts whose CJK glyphs can't be mapped to real Unicode (CID subset,
+        # no ToUnicode) — spans drawn with these AND emitting garbled text are
+        # dropped so the OCR supplement can recover the region cleanly.
+        suspect_basefonts = _suspect_cid_basefonts(pdf, pg)
+
         spans: list[dict[str, Any]] = []
         data = pg.get_text("dict")
         for block in data.get("blocks", []):
@@ -419,16 +506,27 @@ async def extract_textlayer(
             if block.get("type") != 0:
                 continue
             for line in block.get("lines", []):
-                line_spans = line.get("spans", [])
+                raw_spans = line.get("spans", [])
+                if not raw_spans:
+                    continue
+                # Drop garbled-CID spans at SPAN granularity so a line that
+                # mixes a broken CJK cell with good Latin keeps the Latin.
+                line_spans = [
+                    s for s in raw_spans
+                    if not _span_is_garbled(s, suspect_basefonts)
+                ]
                 if not line_spans:
                     continue
                 line_text = "".join(s.get("text", "") for s in line_spans)
                 if not line_text.strip():
                     continue
-                bbox = line.get("bbox")
+                if len(line_spans) == len(raw_spans):
+                    bbox = line.get("bbox")
+                else:
+                    bbox = None  # dropped spans → line bbox over-covers; rebuild
                 if not bbox:
-                    # Defensive: union the spans' bboxes if fitz didn't
-                    # surface a line-level one (older PyMuPDF versions).
+                    # Union the (surviving) spans' bboxes if fitz didn't surface
+                    # a usable line-level one, or we trimmed garbled spans.
                     xs = [s.get("bbox", [0,0,0,0]) for s in line_spans]
                     bbox = [
                         min(b[0] for b in xs),
