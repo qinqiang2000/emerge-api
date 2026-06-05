@@ -12,7 +12,11 @@ const en: Dict = {
   'usermenu.logout': 'Log out',
 
   // ── Auth screen ────────────────────────────────────────────────────────
+  'auth.preview': 'Preview',
   'auth.tagline': 'Documents in. APIs emerge.',
+  'auth.tip.credentials': 'Already on the labeling platform? Your same username and password work here — no need to sign up again.',
+  'auth.tip.persist': 'Stay signed in — no need to re-enter your password each visit.',
+  'auth.tip.chat': "Once you're in, just tell it what you need — chat does everything.",
   'auth.login.title': 'Welcome back',
   'auth.login.cta': 'Log in',
   'auth.signup.title': 'Create your account',

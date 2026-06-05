@@ -67,6 +67,18 @@
 
 .user-pop .up-section{display:flex;flex-direction:column;gap:1px}
 
+/* Teams (workspace switcher) — each row carries a square org-icon tile, and the
+   whole block is fenced off from the menu below by a hairline rule so the
+   identity/switcher zone reads separately from the actions zone (claude.ai). */
+.user-pop .up-teams{border-bottom:1px solid var(--rule-soft);padding-bottom:5px;margin-bottom:5px}
+.user-pop .up-team-row{padding:7px 8px;gap:9px}
+.user-pop .up-team-ic{
+  display:inline-flex;align-items:center;justify-content:center;
+  flex-shrink:0;color:var(--ink-3);transition:color .12s;
+}
+.user-pop .up-team-row:hover .up-team-ic{color:var(--ink-2)}
+.user-pop .up-team-row.on .up-team-ic{color:var(--ochre)}
+
 .user-pop .up-row{
   display:flex;align-items:center;gap:8px;
   width:100%;padding:7px 8px;border:0;background:transparent;border-radius:6px;

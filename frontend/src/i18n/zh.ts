@@ -12,7 +12,11 @@ const zh: Dict = {
   'usermenu.logout': '退出登录',
 
   // ── Auth screen ────────────────────────────────────────────────────────
+  'auth.preview': '预览版',
   'auth.tagline': '文档进，API 涌现。',
+  'auth.tip.credentials': '原标注平台的用户名和密码，在这里可直接登录，无需重新注册。',
+  'auth.tip.persist': '登录后保持长期在线，不必每次重新输入密码。',
+  'auth.tip.chat': '进来后，凡事和它说一声就行 —— 对话即可完成全部操作。',
   'auth.login.title': '欢迎回来',
   'auth.login.cta': '登录',
   'auth.signup.title': '创建账户',

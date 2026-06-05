@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useAuth } from '../../stores/auth'
 import { useT } from '../../i18n'
 import './auth.css'
+
+/** Rotating ambient hints. Tip #0 reassures returning users that their old
+ *  labeling-platform credentials carry over — it leads so it shows first. */
+const TIP_KEYS = ['auth.tip.credentials', 'auth.tip.persist', 'auth.tip.chat']
 
 /** Read the invite token from `?invite=` (set by a shared invite link). */
 function readInvite(): string {
@@ -30,6 +34,12 @@ export default function AuthScreen() {
   const [fullName, setFullName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tip, setTip] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setTip(i => (i + 1) % TIP_KEYS.length), 5200)
+    return () => clearInterval(id)
+  }, [])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,7 +60,10 @@ export default function AuthScreen() {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <div className="auth-brand">emerge</div>
+        <div className="auth-brand">
+          Piaozone Studio
+          <span className="auth-badge">{t('auth.preview')}</span>
+        </div>
         <div className="auth-tagline">{t('auth.tagline')}</div>
 
         <h1 className="auth-title">
@@ -103,6 +116,11 @@ export default function AuthScreen() {
               : mode === 'signup' ? t('auth.signup.cta') : t('auth.login.cta')}
           </button>
         </form>
+
+        <div className="auth-tips" aria-live="polite">
+          <span className="auth-tip-dot" />
+          <span key={tip} className="auth-tip">{t(TIP_KEYS[tip])}</span>
+        </div>
 
         <div className="auth-switch">
           {mode === 'login' ? (

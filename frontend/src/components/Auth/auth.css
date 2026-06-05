@@ -20,11 +20,28 @@
 }
 
 .auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-family: var(--serif);
-  font-size: 28px;
+  font-size: 25px;
   font-weight: 600;
   color: var(--ink);
   letter-spacing: -0.01em;
+}
+
+.auth-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ochre-2, var(--ochre));
+  background: var(--ochre-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+  transform: translateY(1px);
+  white-space: nowrap;
 }
 
 .auth-tagline {
@@ -111,8 +128,41 @@
 .auth-submit:hover { opacity: 0.88; }
 .auth-submit:disabled { opacity: 0.5; cursor: default; }
 
+.auth-tips {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 20px;
+  min-height: 34px; /* reserve 2 lines so rotation never shifts layout */
+}
+
+.auth-tip-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--ochre-2, var(--ochre));
+}
+
+.auth-tip {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  animation: auth-tip-in 0.45s ease;
+}
+
+@keyframes auth-tip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-tip { animation: none; }
+}
+
 .auth-switch {
-  margin-top: 18px;
+  margin-top: 14px;
   text-align: center;
   font-size: 13px;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronRight, Settings as SettingsIcon, LogOut } from 'lucide-react'
+import { Check, ChevronRight, Settings as SettingsIcon, LogOut, Building2 } from 'lucide-react'
 import './usermenu.css'
 
 import { useI18n, useT, type Locale } from '../../i18n'
@@ -199,9 +199,12 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
               type="button"
               role="menuitemradio"
               aria-checked={tm.id === activeTeamId}
-              className={'up-row' + (tm.id === activeTeamId ? ' on' : '')}
+              className={'up-row up-team-row' + (tm.id === activeTeamId ? ' on' : '')}
               onClick={() => { if (tm.id !== activeTeamId) doSwitchTeam(tm.id) }}
             >
+              <span className="up-team-ic" aria-hidden="true">
+                <Building2 size={14} strokeWidth={1.75} />
+              </span>
               <span className="up-row-label">{tm.name}</span>
               {tm.id === activeTeamId && <Check size={14} strokeWidth={2} className="up-row-check" />}
             </button>
