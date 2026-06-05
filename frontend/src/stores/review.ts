@@ -389,6 +389,14 @@ export const useReview = create<State>((set, get) => ({
   adoptPrediction: (entities, evidence) => set({
     entities: entities.map((e) => ({ ...(e ?? {}) })),
     evidence: evidence ? evidence.map((e) => ({ ...(e ?? {}) })) : null,
+    // Adopting a prediction verbatim is a NEW baseline, not a human edit:
+    // re-anchor so save() diffs subsequent hand-edits against the adopted
+    // values (empty diff right after adopt → no spurious `_corrections`, no
+    // "据此改进" nudge). AutoResearch only learns from human edits on top of a
+    // model output; "after == some model's raw output" teaches nothing.
+    baselineEntities: deepCopyEntities(entities),
+    // Clear stale per-field "已修正" badges — they described the prior baseline.
+    corrections: {},
     // Switch to the editable annotation tab so the user sees the result.
     activeTabKey: 'active',
   }),

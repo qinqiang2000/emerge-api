@@ -20,6 +20,10 @@ import { evidencePageOf, type EvidenceValue } from '../../lib/locate'
 import { useT } from '../../i18n'
 import type { SchemaField } from '../../stores/schema'
 
+/** Stable empty map so read-only tabs don't churn renders by passing a fresh
+ *  `{}` literal each pass. */
+const EMPTY_CORRECTIONS: Record<string, { before: unknown; after: unknown }> = {}
+
 interface Props {
   schema: SchemaField[]
   entities: Record<string, unknown>[]
@@ -63,7 +67,11 @@ export default function FieldEditor({
   // column can read them without prop-drilling.
   const activeField = useReview(s => s.activeField)
   const setActiveField = useReview(s => s.setActiveField)
-  const corrections = useReview(s => s.corrections)
+  // `corrections` describes the editable 校订稿's diff. Read-only experiment /
+  // draft / pending tabs render a raw model output where "已修正" is meaningless
+  // — suppress the badges there instead of bleeding the 校订稿's痕迹 onto them.
+  const correctionsRaw = useReview(s => s.corrections)
+  const corrections = readOnly ? EMPTY_CORRECTIONS : correctionsRaw
   const pendingFocusField = useReview(s => s.pendingFocusField)
   const entityIdx = useReview(s => s.activeEntityIdx)
   const setEntityIdx = useReview(s => s.setActiveEntityIdx)

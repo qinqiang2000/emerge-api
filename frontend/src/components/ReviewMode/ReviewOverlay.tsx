@@ -463,7 +463,7 @@ export default function ReviewOverlay({
         onToggleRight={onToggleRight}
       />
 
-      {tuneSignal && tuneTargets.length > 0 && tuneKey !== dismissedKey && (
+      {!readOnly && tuneSignal && tuneTargets.length > 0 && tuneKey !== dismissedKey && (
         <div className="rev-tune-bar">
           <div className="rev-tune-row">
             <button
