@@ -133,7 +133,10 @@
   align-items: flex-start;
   gap: 8px;
   margin-top: 20px;
-  min-height: 34px; /* reserve 2 lines so rotation never shifts layout */
+  /* Fixed 3-line box: rotation (and any future longer tip) never reflows the
+     card. 3 × (12.5px × 1.45) ≈ 55px. */
+  height: 55px;
+  overflow: hidden;
 }
 
 .auth-tip-dot {
@@ -150,6 +153,12 @@
   line-height: 1.45;
   color: var(--ink-3);
   animation: auth-tip-in 0.45s ease;
+  /* Clamp to 3 lines so an over-long tip truncates instead of growing the box. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 @keyframes auth-tip-in {

@@ -79,7 +79,7 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
   // Open mode (no auth configured) → keep a friendly placeholder so the menu
   // still renders its language picker; identity rows hide.
   const user = me?.user ?? null
-  const displayEmail = user?.email ?? 'emerge'
+  const displayEmail = user?.email ?? 'Piaozone Studio'
   const displayName = user?.display_name || user?.full_name || displayEmail
   const teams = me?.teams ?? []
   const activeTeamId = user?.active_team_id ?? null
