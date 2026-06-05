@@ -23,6 +23,7 @@
 .user-menu.expanded .user-btn{padding:6px 8px;width:100%;justify-content:flex-start;font-size:12.5px}
 .user-menu.rail .user-btn{padding:4px;width:36px;height:36px;justify-content:center}
 
+.user-menu .avatar-wrap{position:relative;display:inline-flex;flex-shrink:0}
 .user-menu .avatar{
   display:inline-flex;align-items:center;justify-content:center;
   width:28px;height:28px;border-radius:50%;
@@ -30,11 +31,26 @@
   font-family:var(--sans);font-weight:600;font-size:12.5px;letter-spacing:.01em;
   flex-shrink:0;line-height:1;
 }
+.user-menu .avatar-badge{
+  position:absolute;bottom:-2px;right:-3px;
+  width:14px;height:14px;border-radius:4px;
+  background:var(--paper);border:1.5px solid var(--rule-soft);
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--ink-3);
+}
 .user-menu.rail .avatar{width:28px;height:28px}
+.user-menu .user-info{
+  display:flex;flex-direction:column;min-width:0;gap:1px;
+}
 .user-menu .email{
   font-family:var(--sans);font-size:12.5px;color:var(--ink-2);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
   letter-spacing:.005em;
+}
+.user-menu .team-label{
+  font-family:var(--sans);font-size:10.5px;color:var(--ink-4);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  letter-spacing:.02em;line-height:1.2;
 }
 
 /* ── popover ────────────────────────────────────────────────────────── */

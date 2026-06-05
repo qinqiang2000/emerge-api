@@ -174,6 +174,8 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
   // And on unmount.
   useEffect(() => () => cancelSubClose(), [cancelSubClose])
 
+  const activeTeam = me?.active_team ?? null
+
   const initial = initialsFromEmail(displayEmail)
   const wrapperClass = variant === 'rail' ? 'user-menu rail' : 'user-menu expanded'
 
@@ -303,9 +305,19 @@ export default function UserMenu({ variant = 'expanded' }: Props) {
         aria-expanded={open}
         title={displayEmail}
       >
-        <span className="avatar" aria-hidden="true">{initial}</span>
+        <span className="avatar-wrap" aria-hidden="true">
+          <span className="avatar">{initial}</span>
+          {activeTeam && (
+            <span className="avatar-badge">
+              <Building2 size={9} strokeWidth={2} />
+            </span>
+          )}
+        </span>
         {variant === 'expanded' && (
-          <span className="email">{displayName}</span>
+          <span className="user-info">
+            <span className="email">{displayName}</span>
+            {activeTeam && <span className="team-label">{activeTeam.name}</span>}
+          </span>
         )}
       </button>
 
