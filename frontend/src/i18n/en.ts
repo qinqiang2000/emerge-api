@@ -87,7 +87,9 @@ const en: Dict = {
   // ── FSSpine ────────────────────────────────────────────────────────────
   'spine.projects.empty': 'no projects yet',
   'spine.project.new': 'new project…',
-  'spine.tree.ls': 'ls',
+  'spine.filter.placeholder': 'filter projects…',
+  'spine.filter.empty': 'no match',
+  'spine.filter.clear': 'clear filter',
   'spine.none.yet': '(none yet)',
   'spine.versions.empty': '(no versions yet)',
   'spine.more': '{n} more',

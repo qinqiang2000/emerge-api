@@ -20,6 +20,7 @@ import UserMenu from '../Shell/UserMenu'
 import {
   Folder, FolderOpen, FolderPlus, FileText, ScrollText, Cpu,
   FlaskConical, Gauge, Tag, Star, ChevronRight, ChevronDown, MoreHorizontal,
+  Search, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -162,6 +163,17 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const [docsAutoload, setDocsAutoload] = useState(false)
   const moreBtnRef = useRef<HTMLDivElement | null>(null)
 
+  // Project filter — only surfaces once the list is long enough to need it.
+  // Pure client-side name match; never touches selection.
+  const [filter, setFilter] = useState('')
+  const selectedProjRef = useRef<HTMLDivElement | null>(null)
+
+  // Per-project tree expansion. Default collapsed: nothing here until the user
+  // explicitly opens a project, so landing via URL shows a tidy list, not a
+  // 369-doc tree shoving everything down. Selecting an unopened project opens
+  // it; clicking the already-open active project collapses it again.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
   // Reset pagination when switching project
   useEffect(() => {
     setDocsVisible(DOCS_INITIAL)
@@ -194,6 +206,17 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // Selection key is slug (folder name on disk); display label is `name`
   // (may contain spaces / unicode that the slug stripped or transcoded).
   const activeProject = projects.find(p => p.slug === selectedSlug) ?? null
+
+  // Filter is opt-in: show the input only when the list is long enough to
+  // warrant it. Match on the human `name`; the selected project always stays
+  // visible so its inline tree never vanishes mid-interaction.
+  const FILTER_THRESHOLD = 8
+  const showFilter = projects.length > FILTER_THRESHOLD
+  const filteredProjects = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter(p => p.slug === selectedSlug || p.name.toLowerCase().includes(q))
+  }, [projects, filter, selectedSlug])
 
   // Build prompts leaf nodes
   const promptItems: LeafNode[] = useMemo(() => {
@@ -339,6 +362,17 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     if (selectedDocFilename) setOpenDirs(s => (s['docs/'] ? s : { ...s, 'docs/': true }))
   }, [selectedDocFilename])
 
+  // When the active project changes, bring its row (and the inline tree that
+  // now renders directly beneath it) into view. Fixes the "I clicked a
+  // mid-list project but nothing seemed to happen" confusion — the tree was
+  // previously rendered far below the whole flat list, off-screen.
+  useEffect(() => {
+    if (!selectedSlug) return
+    const el = selectedProjRef.current
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedSlug])
+
   // Auto-load more docs once user has clicked "more" at least once and
   // the button is scrolled into view. Re-arms whenever the button remounts
   // (after each page load) by keying observer on docsVisible.
@@ -357,6 +391,106 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     obs.observe(el)
     return () => obs.disconnect()
   }, [docsAutoload, docsVisible, loadMoreDocs])
+
+  // The active project's file tree — rendered inline, directly beneath its
+  // own row in the project list (accordion). Previously this lived at the
+  // bottom of the whole flat list, so with many projects it sat off-screen.
+  const treeNode = activeProject && tree ? (
+    <div className="tree inline">
+      {tree.groups.map(g => {
+        const open = !!openDirs[g.name]
+        return (
+          <div key={g.name}>
+            <div className="branch dir" onClick={() => toggleDir(g.name)}>
+              {open
+                ? <ChevronDown size={13} className="arrow" strokeWidth={2} />
+                : <ChevronRight size={13} className="arrow" strokeWidth={2} />}
+              <span className="dir-name">{g.name}</span>
+              <span className="stamp">{g.count}</span>
+              {/* ── experiments/ → open Bench leaderboard ─────────
+                  Secondary affordance: a small ↗ icon button that
+                  deep-links to `?bench=1`. stopPropagation so the
+                  click never bubbles up to toggleDir (which would
+                  also fire from the parent .branch.dir handler).
+                  Disabled when there's no active project. */}
+              {g.name === 'experiments/' && (
+                <button
+                  type="button"
+                  className="bench-open"
+                  aria-label={t('spine.experiments.open_bench')}
+                  title={t('spine.experiments.open_bench')}
+                  disabled={!selectedSlug}
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (!selectedSlug) return
+                    window.history.pushState(null, '', pathForBench(selectedSlug))
+                    window.dispatchEvent(new PopStateEvent('popstate'))
+                  }}
+                >↗</button>
+              )}
+            </div>
+            {open && g.items.map((n, j) => {
+              if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
+              if (n.kind === 'more') {
+                return (
+                  <div
+                    key={j}
+                    ref={g.name === 'docs/' ? moreBtnRef : undefined}
+                    className="branch more"
+                    onClick={n.onClick}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.onClick() } }}
+                  >
+                    <MoreHorizontal size={14} className="leaf-icon" strokeWidth={1.75} />
+                    <span className="leaf-name">{t('spine.more', { n: n.remaining })}</span>
+                  </div>
+                )
+              }
+              const isVersion = g.name === 'versions/' && selectedSlug
+              const clickHandler = isVersion
+                ? () => openVersion(selectedSlug!, n.name)
+                : n.onClick
+              const isSelected = !!n.selected
+              const LeafIcon = n.active ? Star : (GROUP_ICON[g.name] ?? FileText)
+              return (
+                <div
+                  key={j}
+                  ref={isSelected ? selectedRowRef : undefined}
+                  className={'branch file' + (isSelected ? ' selected' : '')}
+                  onClick={clickHandler}
+                  role={clickHandler ? 'button' : undefined}
+                  tabIndex={clickHandler ? 0 : undefined}
+                  onKeyDown={clickHandler ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
+                  style={clickHandler ? { cursor: 'pointer' } : undefined}
+                  aria-current={isSelected ? 'true' : undefined}
+                >
+                  <LeafIcon
+                    size={14}
+                    strokeWidth={1.75}
+                    className={'leaf-icon' + (n.active ? ' active' : '')}
+                    {...(n.active ? { fill: 'currentColor' } : {})}
+                  />
+                  <span className="leaf-name">{n.name}</span>
+                  {n.stamp && <span className="stamp">{n.stamp}</span>}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+      {tree.rootFiles.map((n, k) => (
+        <div
+          key={'r' + k}
+          className="branch file root"
+        >
+          <FileText size={14} strokeWidth={1.75} className="leaf-icon" />
+          <span className="leaf-name">{n.name}</span>
+          {n.stamp && <span className="stamp">{n.stamp}</span>}
+        </div>
+      ))}
+    </div>
+  ) : null
 
   return (
     <div className="fs">
@@ -392,139 +526,83 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         ~/projects <span className="small">{projects.length}</span>
       </div>
 
-      {/* ── project rows ──────────────────────────────────────────────── */}
+      {/* ── project filter (surfaces only when the list is long) ───────── */}
+      {showFilter && (
+        <div className="fs-filter">
+          <Search size={13} className="fs-filter-icon" strokeWidth={1.75} />
+          <input
+            className="fs-filter-input"
+            type="text"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            placeholder={t('spine.filter.placeholder')}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          {filter && (
+            <button
+              type="button"
+              className="fs-filter-clear"
+              aria-label={t('spine.filter.clear')}
+              title={t('spine.filter.clear')}
+              onClick={() => setFilter('')}
+            >
+              <X size={13} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── project rows (each can expand its file tree inline) ────────── */}
       {projects.length === 0 && (
         <div className="ghost" style={{ padding: '4px 16px' }}>{t('spine.projects.empty')}</div>
       )}
-      {projects.map(p => {
+      {projects.length > 0 && filteredProjects.length === 0 && (
+        <div className="ghost" style={{ padding: '4px 16px' }}>{t('spine.filter.empty')}</div>
+      )}
+      {filteredProjects.map(p => {
         // React `key` and selection state are keyed on slug (the disk-truth
         // identifier). The visible label is the user-given `name`, which can
         // diverge from slug after rename / when name has chars slug stripped.
         const isActive = p.slug === selectedSlug
+        const isOpen = isActive && !!expanded[p.slug]
+        // Row click: open an unopened project (selecting it); re-clicking the
+        // already-open active project collapses it. The chevron mirrors state.
+        const onRowClick = () => {
+          if (isActive) {
+            setExpanded(s => ({ ...s, [p.slug]: !s[p.slug] }))
+          } else {
+            useProjects.getState().select(p.slug)
+            setExpanded(s => ({ ...s, [p.slug]: true }))
+          }
+        }
         return (
-          <div
-            key={p.slug}
-            className={'proj' + (isActive ? ' active' : '')}
-            onClick={() => useProjects.getState().select(p.slug)}
-          >
-            {isActive
-              ? <FolderOpen size={15} className="proj-icon" strokeWidth={1.75} />
-              : <Folder size={15} className="proj-icon" strokeWidth={1.75} />}
-            <span className="proj-name">{p.name}</span>
-            {isActive && (
-              <span
-                className="status-dot"
-                title={p.status ?? 'empty'}
-                style={{ background: STATUS_DOT[p.status ?? 'empty'] ?? 'var(--ink-5)' }}
-              />
-            )}
+          <div key={p.slug}>
+            <div
+              ref={isActive ? selectedProjRef : undefined}
+              className={'proj' + (isActive ? ' active' : '')}
+              onClick={onRowClick}
+            >
+              {isOpen
+                ? <ChevronDown size={13} className="proj-arrow" strokeWidth={2} />
+                : <ChevronRight size={13} className="proj-arrow" strokeWidth={2} />}
+              {isActive
+                ? <FolderOpen size={15} className="proj-icon" strokeWidth={1.75} />
+                : <Folder size={15} className="proj-icon" strokeWidth={1.75} />}
+              <span className="proj-name">{p.name}</span>
+              {isActive && (
+                <span
+                  className="status-dot"
+                  title={p.status ?? 'empty'}
+                  style={{ background: STATUS_DOT[p.status ?? 'empty'] ?? 'var(--ink-5)' }}
+                />
+              )}
+            </div>
+            {/* active project's docs/ prompts/ … expand right here */}
+            {isOpen && treeNode}
           </div>
         )
       })}
-
-      {/* ── active project tree ───────────────────────────────────────── */}
-      {activeProject && tree && (
-        <>
-          <hr />
-          <div className="fs-head">
-            {activeProject.name}/ <span className="small">{t('spine.tree.ls')}</span>
-          </div>
-          <div className="tree">
-            {tree.groups.map(g => {
-              const open = !!openDirs[g.name]
-              return (
-                <div key={g.name}>
-                  <div className="branch dir" onClick={() => toggleDir(g.name)}>
-                    {open
-                      ? <ChevronDown size={13} className="arrow" strokeWidth={2} />
-                      : <ChevronRight size={13} className="arrow" strokeWidth={2} />}
-                    <span className="dir-name">{g.name}</span>
-                    <span className="stamp">{g.count}</span>
-                    {/* ── experiments/ → open Bench leaderboard ─────────
-                        Secondary affordance: a small ↗ icon button that
-                        deep-links to `?bench=1`. stopPropagation so the
-                        click never bubbles up to toggleDir (which would
-                        also fire from the parent .branch.dir handler).
-                        Disabled when there's no active project. */}
-                    {g.name === 'experiments/' && (
-                      <button
-                        type="button"
-                        className="bench-open"
-                        aria-label={t('spine.experiments.open_bench')}
-                        title={t('spine.experiments.open_bench')}
-                        disabled={!selectedSlug}
-                        onClick={e => {
-                          e.stopPropagation()
-                          if (!selectedSlug) return
-                          window.history.pushState(null, '', pathForBench(selectedSlug))
-                          window.dispatchEvent(new PopStateEvent('popstate'))
-                        }}
-                      >↗</button>
-                    )}
-                  </div>
-                  {open && g.items.map((n, j) => {
-                    if (n.kind === 'ghost') return <div key={j} className="ghost">{n.name}</div>
-                    if (n.kind === 'more') {
-                      return (
-                        <div
-                          key={j}
-                          ref={g.name === 'docs/' ? moreBtnRef : undefined}
-                          className="branch more"
-                          onClick={n.onClick}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.onClick() } }}
-                        >
-                          <MoreHorizontal size={14} className="leaf-icon" strokeWidth={1.75} />
-                          <span className="leaf-name">{t('spine.more', { n: n.remaining })}</span>
-                        </div>
-                      )
-                    }
-                    const isVersion = g.name === 'versions/' && selectedSlug
-                    const clickHandler = isVersion
-                      ? () => openVersion(selectedSlug!, n.name)
-                      : n.onClick
-                    const isSelected = !!n.selected
-                    const LeafIcon = n.active ? Star : (GROUP_ICON[g.name] ?? FileText)
-                    return (
-                      <div
-                        key={j}
-                        ref={isSelected ? selectedRowRef : undefined}
-                        className={'branch file' + (isSelected ? ' selected' : '')}
-                        onClick={clickHandler}
-                        role={clickHandler ? 'button' : undefined}
-                        tabIndex={clickHandler ? 0 : undefined}
-                        onKeyDown={clickHandler ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
-                        style={clickHandler ? { cursor: 'pointer' } : undefined}
-                        aria-current={isSelected ? 'true' : undefined}
-                      >
-                        <LeafIcon
-                          size={14}
-                          strokeWidth={1.75}
-                          className={'leaf-icon' + (n.active ? ' active' : '')}
-                          {...(n.active ? { fill: 'currentColor' } : {})}
-                        />
-                        <span className="leaf-name">{n.name}</span>
-                        {n.stamp && <span className="stamp">{n.stamp}</span>}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-            {tree.rootFiles.map((n, k) => (
-              <div
-                key={'r' + k}
-                className="branch file root"
-              >
-                <FileText size={14} strokeWidth={1.75} className="leaf-icon" />
-                <span className="leaf-name">{n.name}</span>
-                {n.stamp && <span className="stamp">{n.stamp}</span>}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
 
       </div>{/* /fs-scroll */}
 

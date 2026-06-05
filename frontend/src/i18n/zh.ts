@@ -87,7 +87,9 @@ const zh: Dict = {
   // ── FSSpine ────────────────────────────────────────────────────────────
   'spine.projects.empty': '暂无项目',
   'spine.project.new': '新建项目…',
-  'spine.tree.ls': 'ls',
+  'spine.filter.placeholder': '过滤项目…',
+  'spine.filter.empty': '无匹配',
+  'spine.filter.clear': '清除过滤',
   'spine.none.yet': '（暂无）',
   'spine.versions.empty': '（暂无版本）',
   'spine.more': '还有 {n} 个',
