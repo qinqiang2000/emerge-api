@@ -66,6 +66,9 @@ _KIND_PATTERNS = {
     "experiment": "experiments/*/predictions/*.json",
 }
 _SKIP_DIRS = {"_trash", ".cache", "_staging", ".git", "__pycache__"}
+# Per-grounding hard ceiling (seconds). Generous vs the ~<60s normal round-trip;
+# its job is to break a dead-socket hang, not to cap healthy slow calls.
+_GROUND_TIMEOUT = 150.0
 
 
 def _resolve(blob_path: Path) -> tuple[Path, str, str]:
@@ -119,14 +122,24 @@ def _sort_key_newest(item: tuple[Path, str]) -> float:
 # (workspace, slug) → (provider, provider_model_id), so we read each project's
 # active-model config once, not once per blob.
 _model_cache: dict[tuple[str, str], tuple[object, str]] = {}
+# Optional global override of the grounding model (provider_model_id), set from
+# --model. Bypasses each project's active model — needed when a project's active
+# model is a decommissioned preview (e.g. gemini-2.5-flash-preview-04-17 → 404),
+# which makes every grounding fail and the count silently stall. Grounding is
+# model-agnostic value→{page,source} location, so a uniform live model is fine.
+_model_override: str | None = None
 
 
 async def _resolve_model(workspace: Path, slug: str):
     key = (str(workspace), slug)
     if key not in _model_cache:
-        mc = await read_active_model(workspace, slug)
-        mid = mc.provider_model_id
-        provider = get_provider_for_model(mid, provider=mc.provider)
+        if _model_override:
+            mid = _model_override
+            provider = get_provider_for_model(mid)
+        else:
+            mc = await read_active_model(workspace, slug)
+            mid = mc.provider_model_id
+            provider = get_provider_for_model(mid, provider=mc.provider)
         _model_cache[key] = (provider, mid)
     return _model_cache[key]
 
@@ -146,7 +159,16 @@ async def _ground_and_write(blob_path: Path, entities: list[dict], *, retries: i
     ev: list[dict] | None = None
     for attempt in range(retries + 1):
         try:
-            ev = await ground_entities(workspace, slug, filename, entities, provider=provider, model_id=mid)
+            # Hard per-call timeout: a grounding round-trip is <60s normally. If a
+            # TCP connection dies mid-flight (e.g. the process was SIGSTOP-paused
+            # and the provider dropped the socket) the underlying client may await
+            # a dead socket FOREVER — that deadlocked all concurrency slots for 9.5h
+            # in one overnight run. wait_for turns that hang into a TimeoutError so
+            # the retry loop opens a fresh connection instead of stalling silently.
+            ev = await asyncio.wait_for(
+                ground_entities(workspace, slug, filename, entities, provider=provider, model_id=mid),
+                timeout=_GROUND_TIMEOUT,
+            )
             break
         except Exception as e:  # noqa: BLE001 - best-effort; every error retried
             last = e
@@ -216,10 +238,17 @@ async def main() -> int:
     ap.add_argument("--order", choices=["newest", "oldest", "path"], default="newest",
                     help="processing order by source-doc mtime (default: newest first)")
     ap.add_argument("--limit", type=int, default=0, help="ground at most N blobs this run (0 = all)")
+    ap.add_argument("--model", default=None, metavar="PROVIDER_MODEL_ID",
+                    help="override grounding model for ALL blobs (e.g. gemini-2.5-flash); "
+                         "bypasses each project's active model — use when a project's active "
+                         "model is a dead preview returning 404")
     ap.add_argument("--concurrency", type=int, default=1, help="parallel grounding calls (default 1; prod: 6-8)")
     ap.add_argument("--retries", type=int, default=4, help="per-blob retry attempts on transient errors")
     ap.add_argument("--sleep", type=float, default=0.0, help="seconds to pause after each grounded blob (pacing)")
     args = ap.parse_args()
+
+    global _model_override
+    _model_override = args.model
 
     root = (args.root or get_settings().workspace_root).resolve()
     if not root.exists():
@@ -234,7 +263,8 @@ async def main() -> int:
 
     print(f"workspace: {root}")
     print(f"found {len(blobs)} blob(s) across kinds={args.kind}; order={args.order} "
-          f"conc={args.concurrency} limit={args.limit or 'all'} retries={args.retries} sleep={args.sleep}s")
+          f"conc={args.concurrency} limit={args.limit or 'all'} retries={args.retries} sleep={args.sleep}s"
+          + (f" model-override={args.model}" if args.model else ""))
     if args.exclude:
         print(f"excluding: {args.exclude}")
     print(flush=True)
