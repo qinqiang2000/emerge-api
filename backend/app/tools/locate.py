@@ -75,7 +75,19 @@ _DISTINCTIVE_LEN = 5
 _NUMERIC_TYPES = {"number", "integer", "decimal", "float", "money", "currency", "amount"}
 _DATE_TYPES = {"date", "datetime"}
 # Pulls number-like tokens out of a span ("Total 111.00 USD" → ["111.00"]).
+# Strict pass: a space is a hard boundary, so "EA 111.00 USD" → ["111.00"] and
+# two amounts on a line don't fuse.
 _NUM_TOKEN = re.compile(r"[-+]?\d[\d.,]*\d|\d")
+# Spaced pass: CJK / boxed-grid invoices letter-space the digits of ONE number
+# ("¥ 1 8 , 6 6 8", "18, 668", "18 668" → all the single amount 18668). After
+# _nfkc any whitespace run is already a single space, so a single space between
+# digit/separator chars is intra-number spacing — fold it in and parse the
+# joined run. Additive to the strict pass (results are unioned): we only ever
+# GAIN the spaced reading, never lose the column-split one, and a fused run that
+# parses invalid (two amounts with no text between: "111.00 111.00") just yields
+# nothing here while the strict pass still recovers each amount.
+_NUM_TOKEN_SPACED = re.compile(r"[-+]?\d(?: ?[\d.,])*")
+_INNER_WS = re.compile(r"\s+")
 # Strength gap above which the top cluster is considered a clear winner (so two
 # equally-good clusters → ambiguous → none).
 _DOMINANCE_EPS = 1e-6
@@ -220,12 +232,23 @@ def _field_is_date(field: SchemaField) -> bool:
 
 
 def _numeric_tokens(text: str) -> list[Decimal]:
-    """Extract number-like tokens from span text as Decimals (commas stripped)."""
+    """Extract number-like tokens from span text as Decimals.
+
+    Two passes, unioned: the strict pass treats a space as a hard boundary; the
+    spaced pass folds single intra-number spaces so a digit-spaced amount
+    ("1 8 , 6 6 8", "18, 668") reads as the one number it is. Commas are stripped
+    as thousands separators in both; equality downstream is Decimal-numeric, so
+    trailing-zero precision ("123.0" ⇄ "123.0000") already collapses."""
     out: list[Decimal] = []
-    for tok in _NUM_TOKEN.findall(text or ""):
-        d = _try_number(tok)
-        if d is not None:
-            out.append(d)
+    seen: set[Decimal] = set()
+    for rx, despace in ((_NUM_TOKEN, False), (_NUM_TOKEN_SPACED, True)):
+        for tok in rx.findall(text or ""):
+            if despace:
+                tok = _INNER_WS.sub("", tok)
+            d = _try_number(tok)
+            if d is not None and d not in seen:
+                seen.add(d)
+                out.append(d)
     return out
 
 

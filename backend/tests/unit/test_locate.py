@@ -378,6 +378,48 @@ def test_zero_value_excludes_digit_runs(monkeypatch):
     assert locs[0].rects == [[10.0, 20.0, 110.0, 32.0]]
 
 
+def test_numeric_value_matches_digit_spaced_amount(monkeypatch):
+    """CJK / boxed-grid invoices letter-space the digits of one amount: the value
+    18668 must match a span printed as '¥ 1 8 , 6 6 8' (every digit spaced) and as
+    '18, 668' (space after the thousands comma). Without the spaced-token pass the
+    strict tokenizer split these into ['1','8',...] / ['18','668'] and the value
+    lost its own literal anchor, silently degrading to quote-only. (The Yamato
+    invoice totalAmount case.)"""
+    fields = [SchemaField(name="totalAmount", type="number", description="t")]
+    pages = {
+        1: [
+            _span("¥ 1 8 , 6 6 8", bbox=(300, 100, 460, 118)),
+            _span("billed to ACME", bbox=(10, 300, 300, 312)),
+        ]
+    }
+    locs = _run(
+        [{"totalAmount": 18668}],
+        [{"totalAmount": {"page": 1, "source": "¥ 1 8 , 6 6 8"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].rects == [[300.0, 100.0, 460.0, 118.0]]
+
+
+def test_numeric_value_matches_trailing_zero_decimal(monkeypatch):
+    """Decimal trailing-zero precision must not block the value anchor: value
+    123.0 matches a span printed '123.0000' (Decimal-numeric equality, not
+    surface string)."""
+    fields = [SchemaField(name="unitPrice", type="number", description="p")]
+    pages = {1: [_span("123.0000", bbox=(300, 100, 360, 112))]}
+    locs = _run(
+        [{"unitPrice": 123.0}],
+        [{"unitPrice": {"page": 1, "source": "123.0000"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].rects == [[300.0, 100.0, 360.0, 112.0]]
+
+
 def test_source_quote_disambiguates_repeated_value(monkeypatch):
     """When the value repeats, the model's verbatim source quote is the anchor:
     quote 'Total 111.00 USD' pins the grand-total line, ignoring the line-item
