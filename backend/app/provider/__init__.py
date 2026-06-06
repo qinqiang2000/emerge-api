@@ -40,6 +40,9 @@ def get_provider_for_model(
         return AnthropicProvider(
             api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
             proxy=os.getenv("ANTHROPIC_PROXY") or None,
+            # Hard rule: never hit api.anthropic.com directly — route through the
+            # configured gateway. See MEMORY:feedback_anthropic_no_direct_api.
+            base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
         )
     if model_id.startswith("gemini"):
         from app.provider.google import GoogleProvider
@@ -54,5 +57,8 @@ def get_provider_for_model(
         return AnthropicProvider(
             api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
             proxy=os.getenv("ANTHROPIC_PROXY") or None,
+            # Hard rule: never hit api.anthropic.com directly — route through the
+            # configured gateway. See MEMORY:feedback_anthropic_no_direct_api.
+            base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
         )
     raise ValueError(f"no provider for model_id={model_id!r}")

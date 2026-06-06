@@ -19,6 +19,25 @@ _API_URL = "https://api.anthropic.com/v1/messages"
 _TOOL_NAME = "emit_extraction"
 
 
+def _messages_url(base_url: str | None) -> str:
+    """Resolve the /v1/messages endpoint.
+
+    Hard rule (MEMORY:feedback_anthropic_no_direct_api): Anthropic traffic must
+    route through the configured `ANTHROPIC_BASE_URL` gateway, never
+    api.anthropic.com directly. When a base_url is set we point at it; the
+    default constant is kept only as the no-gateway fallback. Tolerates a
+    base_url given as host-root, `…/v1`, or a full `…/v1/messages`.
+    """
+    if not base_url:
+        return _API_URL
+    b = base_url.rstrip("/")
+    if b.endswith("/messages"):
+        return b
+    if b.endswith("/v1"):
+        return b + "/messages"
+    return b + "/v1/messages"
+
+
 def _block_to_anthropic(b: ContentBlock) -> dict[str, Any]:
     if isinstance(b, TextBlock):
         return {"type": "text", "text": b.text}
@@ -41,12 +60,14 @@ class AnthropicProvider(Provider):
         *,
         api_key: str,
         proxy: str | None = None,
+        base_url: str | None = None,
         timeout: float = 120.0,
         retry_max_attempts: int = 3,
         retry_base_delay: float = 0.5,
     ) -> None:
         self._api_key = api_key
         self._proxy = proxy
+        self._url = _messages_url(base_url)
         self._timeout = timeout
         self._retry_max = retry_max_attempts
         self._retry_base = retry_base_delay
@@ -93,7 +114,7 @@ class AnthropicProvider(Provider):
                 client_kwargs["proxy"] = self._proxy
             try:
                 async with httpx.AsyncClient(**client_kwargs) as client:
-                    resp = await client.post(_API_URL, json=body, headers=headers)
+                    resp = await client.post(self._url, json=body, headers=headers)
                     if resp.status_code in (429, 502, 503, 504):
                         raise RetryableError(f"anthropic {resp.status_code}: {resp.text[:200]}")
                     resp.raise_for_status()

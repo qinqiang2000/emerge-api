@@ -248,6 +248,27 @@ async def _prewarm_claude_cli_on_startup() -> None:
 
 
 app.include_router(publish_route.router)
+from app.api.routes import monitor as monitor_route  # noqa: E402
+
+app.include_router(monitor_route.router)
+
+
+async def _start_monitor_on_startup() -> None:
+    """Auto-start the LLM availability watchdog when `EMERGE_MONITOR_ENABLED=1`.
+
+    Decoupled from the rest of boot: a self-contained background task that only
+    reads env + calls providers. Off by default (no behaviour change for
+    existing deploys); always controllable at runtime via `/lab/monitor/*`
+    regardless of this flag. Skipped under the test/prewarm-disable switches."""
+    if _skip_background_startup():
+        return
+    from app.monitor.monitor import get_monitor
+
+    monitor = get_monitor()
+    if monitor.cfg.enabled:
+        await monitor.start()
+
+
 app.router.on_startup.append(_load_keystore_on_startup)
 app.router.on_startup.append(_migrate_team_dirs_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
@@ -256,6 +277,7 @@ app.router.on_startup.append(_purge_trash_on_startup)
 app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_history_checkpoint_loop_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
+app.router.on_startup.append(_start_monitor_on_startup)
 
 
 @app.get("/healthz")
