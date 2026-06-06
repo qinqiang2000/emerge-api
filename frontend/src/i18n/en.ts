@@ -141,6 +141,7 @@ const en: Dict = {
   'empty.tagline': "Drop a few in. I'll pull out the fields, show you what I found, and fix whatever I get wrong — the more you correct me, the sharper I get. When it's solid, publish it as an API your systems can call.",
   'empty.guide.title': 'Not sure where to start?',
   'empty.guide.hint': "Tell me what documents you have and I'll walk you through it.",
+  'empty.help.nudge': '👋 New here? Type /help to see what I can do',
   'empty.guide.prompt': "I'm new here — I've got some documents to process but I'm not sure where to begin. Walk me through it.",
   'empty.drop.headline': 'Drag your documents here',
   'empty.drop.orRun': 'or add them with the + below',

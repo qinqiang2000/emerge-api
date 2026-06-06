@@ -15,6 +15,7 @@ from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
 from app.tools import pre_label as pre_label_mod
+from app.tools import project_config as project_config_mod
 from app.tools import promote as promote_mod
 from app.tools import publish as publish_mod
 from app.tools import projects as projects_mod
@@ -399,6 +400,79 @@ def build_emerge_mcp(
                 {"type": "text", "text": _json.dumps(out, ensure_ascii=False)}
             ]
         }
+
+    @tool(
+        "get_project_config",
+        "Snapshot this project's tunable LLM-role config — what `/config` "
+        "shows. Returns {active_prompt_id, extract, labeler, proposer, "
+        "translate, agent_brain}. `extract` is the live active model triple; "
+        "labeler/proposer/translate each carry {override, resolved, source} "
+        "so you can name the resolved model AND where it came from (project "
+        "override vs env default) without Reading project.json (which misses "
+        "env fallbacks). `agent_brain` is locked (system-level, not "
+        "project-tunable). No secrets/keys are ever included — selection only. "
+        "Call this for any 'what models are you using / 给我看看你的配置' ask.",
+        {
+            "type": "object",
+            "properties": {"slug": {"type": "string"}},
+            "required": ["slug"],
+        },
+    )
+    async def t_get_project_config(args: dict[str, Any]) -> dict[str, Any]:
+        out = await project_config_mod.get_project_config(workspace, args["slug"])
+        return {
+            "content": [
+                {"type": "text", "text": _json.dumps(out, ensure_ascii=False)}
+            ]
+        }
+
+    @tool(
+        "set_translate_model",
+        "Pin the review-mode translator model for this project (writes "
+        "project.json.translate_model). Use when the user names a translator "
+        "(\"翻译用 X\" / \"把翻译模型换成 X\"). Translate is review-UX only — it "
+        "never feeds the extract/labeler/proposer prompt — so there is no risk "
+        "gate; the override is recoverable. To see the current resolution call "
+        "`get_project_config` (the `translate` block).",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "model_id": {"type": "string"},
+            },
+            "required": ["slug", "model_id"],
+        },
+    )
+    async def t_set_translate_model(args: dict[str, Any]) -> dict[str, Any]:
+        await translate_mod.set_translate_model(
+            workspace, args["slug"], args["model_id"],
+        )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    @tool(
+        "set_proposer_model",
+        "Pin the AutoResearch proposer model for this project (writes "
+        "project.json.autoresearch_proposer_model). Use when the user names a "
+        "proposer for `/improve` (\"用 X 来调 prompt\" / \"proposer 换成 X\"). "
+        "DO NOT call this just because it's null — null means `/improve` falls "
+        "through to the project's active extract model, which is the normal "
+        "default. Takes effect on the next `/improve` job. Recoverable, no "
+        "risk gate. To see the current resolution call `get_project_config` "
+        "(the `proposer` block).",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "model_id": {"type": "string"},
+            },
+            "required": ["slug", "model_id"],
+        },
+    )
+    async def t_set_proposer_model(args: dict[str, Any]) -> dict[str, Any]:
+        from app.jobs.autoresearch import set_proposer_model
+
+        await set_proposer_model(workspace, args["slug"], args["model_id"])
+        return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "pdf_render_page",
@@ -1343,6 +1417,9 @@ def build_emerge_mcp(
             t_label_docs,
             t_set_labeler_model,
             t_get_labeler_config,
+            t_get_project_config,
+            t_set_translate_model,
+            t_set_proposer_model,
             t_pdf_render_page,
             t_read_doc_image,
             t_extract_textlayer,
@@ -1386,6 +1463,7 @@ _EMERGE_TOOL_NAMES = (
     "promote_chat_to_project",
     "promote_attachment_to_docs",
     "label_docs", "set_labeler_model", "get_labeler_config",
+    "get_project_config", "set_translate_model", "set_proposer_model",
     "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
     "derive_schema", "write_schema", "import_schema_from_yaml",
     "switch_active_prompt", "switch_active_model",

@@ -27,6 +27,7 @@ from app.api.routes import extract_lab as extract_lab_route
 from app.api.routes import history as history_route
 from app.api.routes import jobs as jobs_route
 from app.api.routes import label_docs as label_docs_route
+from app.api.routes import config as config_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
 from app.api.routes import models as models_route
@@ -114,6 +115,7 @@ app.include_router(models_route.router)
 app.include_router(experiments_route.router)
 app.include_router(reviewed_route.router)
 app.include_router(label_docs_route.router)
+app.include_router(config_route.router)
 app.include_router(eval_route.router)
 app.include_router(extract_lab_route.router)
 app.include_router(jobs_route.router)

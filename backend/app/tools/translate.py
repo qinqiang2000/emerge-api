@@ -35,7 +35,8 @@ from app.provider import get_provider_for_model
 from app.provider.base import ContentBlock, ImageBlock, TextBlock
 from app.tools.docs import read_doc_image
 from app.tools.textlayer import extract_textlayer
-from app.workspace.atomic import atomic_write_text
+from app.workspace.atomic import atomic_write_json, atomic_write_text
+from app.workspace.lock import project_lock
 from app.workspace.paths import (
     doc_translate_dir,
     doc_translate_path,
@@ -80,6 +81,36 @@ def resolve_translate_model(workspace: Path, slug: str) -> str:
     if override:
         return override
     return get_settings().default_translate_model or "gemini-flash-lite-latest"
+
+
+async def get_translate_config(workspace: Path, slug: str) -> dict[str, Any]:
+    """Translator-model resolution snapshot — the `/config` view of this axis.
+
+    Mirrors `pre_label.get_labeler_config`. Unlike labeler there is no
+    `unconfigured` state: translate always resolves (built-in safe default),
+    so `source` is only ``"override"`` or ``"env_default"``.
+    """
+    override = _read_project_translate_override(workspace, slug)
+    resolved = resolve_translate_model(workspace, slug)
+    return {
+        "override": override,
+        "env_default": get_settings().default_translate_model
+        or "gemini-flash-lite-latest",
+        "resolved": resolved,
+        "source": "override" if override else "env_default",
+    }
+
+
+async def set_translate_model(workspace: Path, slug: str, model_id: str) -> None:
+    """Persist `project.json.translate_model = model_id`. Mirrors
+    `pre_label.set_labeler_model` — called by the `set_translate_model` tool
+    when the user pins a translator for this project. Recoverable, no risk
+    gate (translate is review-UX only, never feeds the extract prompt)."""
+    async with project_lock(workspace, slug):
+        pj = project_json_path(workspace, slug)
+        blob = json.loads(pj.read_text())
+        blob["translate_model"] = model_id
+        atomic_write_json(pj, blob)
 
 
 # Response-schemas — kept in module scope so they're built once per process.

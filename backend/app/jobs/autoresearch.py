@@ -18,6 +18,7 @@ from app.tools.model import ModelNotFoundError, read_active_model, read_model
 from app.tools.score import score
 from app.tools.prompt import _content_hash
 from app.workspace.atomic import atomic_write_json
+from app.workspace.lock import project_lock
 from app.workspace.paths import candidate_dir, candidate_turn_path
 from app.workspace.paths import doc_content_sha, eval_extract_cache_path
 from app.workspace.paths import project_json_path, reviewed_dir
@@ -112,6 +113,76 @@ async def _resolve_proposer_model(
         "proposer_model not configured: no override, no project active model, "
         "and EMERGE_DEFAULT_PROPOSER_MODEL is unset",
     )
+
+
+async def get_proposer_config(workspace: Path, slug: str) -> dict[str, Any]:
+    """Proposer-model resolution snapshot — the `/config` view of this axis.
+
+    Mirrors `pre_label.get_labeler_config` and the 4-level proposer chain
+    (override → project active extract → env → unconfigured). `resolved` is the
+    concrete provider model id `/improve` would call; `source` names which
+    level won.
+
+    String-only resolution: this is a read, so it must NOT build a provider
+    client (that needs an API key). We mirror `_resolve_proposer_model`'s chain
+    via pure file reads (`read_model` / `read_active_model`) and never call
+    `get_provider_for_model`.
+    """
+    pj = project_json_path(workspace, slug)
+    override: str | None = None
+    project_active: str | None = None
+    if pj.exists():
+        try:
+            blob = json.loads(pj.read_text(encoding="utf-8"))
+            override = blob.get("autoresearch_proposer_model") or None
+            project_active = blob.get("active_model_id") or None
+        except (OSError, json.JSONDecodeError):
+            pass
+    env_default = get_settings().default_proposer_model or None
+
+    async def _token_to_model_id(tok: str) -> str:
+        """project `m_*` id → its provider_model_id; else the raw token (dual
+        lookup, matching `_resolve_proposer_model` steps 1/2)."""
+        try:
+            mc = await read_model(workspace, slug, tok)
+            return mc.provider_model_id
+        except ModelNotFoundError:
+            return tok
+
+    resolved: str | None
+    if override:
+        resolved, source = await _token_to_model_id(override), "override"
+    elif project_active:
+        try:
+            mc = await read_active_model(workspace, slug)
+            resolved, source = mc.provider_model_id, "project_active"
+        except ModelNotFoundError:
+            # active_model_id points at a missing file — the real chain falls
+            # through to the env default here.
+            resolved = env_default
+            source = "env_default" if env_default else "unconfigured"
+    elif env_default:
+        resolved, source = env_default, "env_default"
+    else:
+        resolved, source = None, "unconfigured"
+    return {
+        "override": override,
+        "project_active": project_active,
+        "env_default": env_default,
+        "resolved": resolved,
+        "source": source,
+    }
+
+
+async def set_proposer_model(workspace: Path, slug: str, model_id: str) -> None:
+    """Persist `project.json.autoresearch_proposer_model = model_id`. Mirrors
+    `pre_label.set_labeler_model`; takes effect on the next `/improve` job
+    (the chain re-resolves per job). Recoverable, no risk gate."""
+    async with project_lock(workspace, slug):
+        pj = project_json_path(workspace, slug)
+        blob = json.loads(pj.read_text())
+        blob["autoresearch_proposer_model"] = model_id
+        atomic_write_json(pj, blob)
 
 
 PROPOSER_SYSTEM_PROMPT = """You are improving a JSON extraction schema for a document-extraction API.

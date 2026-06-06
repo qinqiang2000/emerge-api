@@ -53,6 +53,16 @@ export default function EmptyHero({
     <div className="empty-hero">
       <div className="ey">{eyebrow}</div>
       {newProject && <div className="new-note">{t('empty.newproject.note')}</div>}
+      <div
+        className="help-nudge"
+        onClick={() => onStarter('/help')}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onStarter('/help') }}
+        style={{ color: 'var(--ink-4)', cursor: 'pointer', fontSize: '0.85em', marginBottom: 8 }}
+      >
+        {t('empty.help.nudge')}
+      </div>
       {/* <h1>
         {t('empty.headline.before')} <em>{t('empty.headline.em')}</em>
       </h1> */}

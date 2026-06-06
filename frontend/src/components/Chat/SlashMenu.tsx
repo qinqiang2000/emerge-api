@@ -3,6 +3,8 @@
 interface Item { cmd: string; desc: string }
 
 const COMMANDS: Item[] = [
+  { cmd: '/help',    desc: 'what I can do and how to work with me' },
+  { cmd: '/config',  desc: 'show or change the models I use' },
   { cmd: '/init',    desc: 'derive a prompt from the documents in this folder' },
   { cmd: '/extract', desc: 'run extraction on every doc, or a subset' },
   { cmd: '/review',  desc: 'open the next pending document for review' },

@@ -79,6 +79,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "label_docs":         ("POST", r"^/lab/projects/\{slug\}/label_docs$"),
     "set_labeler_model":  ("POST", r"^/lab/projects/\{slug\}/labeler_model$"),
     "get_labeler_config": ("GET",  r"^/lab/projects/\{slug\}/labeler_config$"),
+    # Project LLM-role config (/config surface)
+    "get_project_config": ("GET",  r"^/lab/projects/\{slug\}/config$"),
+    "set_translate_model": ("PUT", r"^/lab/projects/\{slug\}/translate_model$"),
+    "set_proposer_model":  ("PUT", r"^/lab/projects/\{slug\}/proposer_model$"),
     # Doc vision — both tools surface through the shared docs by-name page
     # render route (PDF→PNG / image bytes). The route doesn't take a
     # ``page`` body arg by name (it's part of the URL), but the byte-on-the-

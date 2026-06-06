@@ -141,6 +141,7 @@ const zh: Dict = {
   'empty.tagline': '',
   'empty.guide.title': '不确定从哪开始？',
   'empty.guide.hint': '告诉我你手上有什么文档，我带你走一遍。',
+  'empty.help.nudge': '👋 第一次见？输入 /help 了解我能做什么',
   'empty.guide.prompt': '我是新手 —— 手上有些文档要处理，但不太清楚怎么开始，带我走一遍。',
   'empty.drop.headline': '把文档拖到这里',
   'empty.drop.orRun': '或用下方的 + 添加',
