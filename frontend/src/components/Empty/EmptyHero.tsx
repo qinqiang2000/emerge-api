@@ -2,6 +2,7 @@
 import { useState } from 'react'
 
 import { useT } from '../../i18n'
+import { useOnboarding } from '../../stores/onboarding'
 
 const STARTER_KEYS = [
   'empty.starter.fork',
@@ -26,6 +27,9 @@ export default function EmptyHero({
 }: Props) {
   const t = useT()
   const [dragOver, setDragOver] = useState(false)
+  // 只对"本会话还没暴露熟练度"的人显示新手 nudge——一旦敲过 `/`/`@` 或提交过
+  // 一次 turn(见 stores/onboarding),它就该淡出,不再挡着老手。
+  const competent = useOnboarding(s => s.competent)
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault()
@@ -53,16 +57,18 @@ export default function EmptyHero({
     <div className="empty-hero">
       <div className="ey">{eyebrow}</div>
       {newProject && <div className="new-note">{t('empty.newproject.note')}</div>}
-      <div
-        className="help-nudge"
-        onClick={() => onStarter('/help')}
-        role="button"
-        tabIndex={0}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onStarter('/help') }}
-        style={{ color: 'var(--ink-4)', cursor: 'pointer', fontSize: '0.85em', marginBottom: 8 }}
-      >
-        {t('empty.help.nudge')}
-      </div>
+      {!competent && (
+        <div
+          className="help-nudge"
+          onClick={() => onStarter('/help')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onStarter('/help') }}
+          style={{ color: 'var(--ink-4)', cursor: 'pointer', fontSize: '0.85em', marginBottom: 8 }}
+        >
+          {t('empty.help.nudge')}
+        </div>
+      )}
       {/* <h1>
         {t('empty.headline.before')} <em>{t('empty.headline.em')}</em>
       </h1> */}

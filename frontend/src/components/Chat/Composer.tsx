@@ -5,6 +5,7 @@ import { useProjects } from '../../stores/projects'
 import { useModels, type ModelRow } from '../../stores/models'
 import { usePrompts, type PromptRow } from '../../stores/prompts'
 import { useT } from '../../i18n'
+import { markCompetent } from '../../stores/onboarding'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
 import { RESOURCE_SOURCES, modelCandidates, promptCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
 import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
@@ -477,6 +478,14 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   // Reset active index when slash menu opens/closes
   useEffect(() => { setActiveIdx(0) }, [showSlash])
 
+  // Onboarding: opening the slash or `@` menu is itself a "称职动作" — the
+  // person at the keyboard clearly knows the affordances, so retire the
+  // empty-hero new-here nudge for the rest of this session (see
+  // stores/onboarding). Submitting a turn also marks it (in `submit`).
+  useEffect(() => {
+    if (showSlash || showMention) markCompetent()
+  }, [showSlash, showMention])
+
   // Reset the mention activeIdx on dir / query change so the highlight always
   // tracks the first match — same UX as CC.
   useEffect(() => {
@@ -603,6 +612,8 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   function submit() {
     const trimmed = text.trim()
     if (!trimmed || disabled) return
+    // First real turn = demonstrated competence; retire the new-here nudge.
+    markCompetent()
     // Unbound-mode promotion shortcut: `/init <name>` skips the agent and
     // calls `POST /lab/chats/{cid}/promote` directly via the parent. A bare
     // `/init` (no name) falls through to the agent — that path runs the
