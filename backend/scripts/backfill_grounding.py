@@ -87,6 +87,36 @@ def _resolve(blob_path: Path) -> tuple[Path, str, str]:
     raise ValueError(f"no project.json above {blob_path}")
 
 
+def _kind_of(p: Path) -> str:
+    """Infer blob kind from its path (mirrors _KIND_PATTERNS), for --paths-file."""
+    s = str(p)
+    if "/experiments/" in s and "/predictions/" in s:
+        return "experiment"
+    if "/predictions/_pending/" in s:
+        return "_pending"
+    if "/predictions/_draft/" in s:
+        return "_draft"
+    if "/reviewed/" in s:
+        return "reviewed"
+    return "_draft"
+
+
+def _blobs_from_file(paths_file: Path, root: Path) -> list[tuple[Path, str]]:
+    """Explicit retry list: one blob path per line (abs or relative to root).
+    Blank lines and '#' comments are ignored; missing paths are warned, not fatal."""
+    out: list[tuple[Path, str]] = []
+    for raw in paths_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        p = Path(line) if Path(line).is_absolute() else (root / line)
+        if not p.exists():
+            print(f"  WARN  paths-file entry not found, skipping: {line}", flush=True)
+            continue
+        out.append((p, _kind_of(p)))
+    return out
+
+
 def _find_blobs(root: Path, kinds: list[str], exclude: list[str]) -> list[tuple[Path, str]]:
     """All (blob_path, kind) under root for the requested kinds, minus excludes."""
     out: list[tuple[Path, str]] = []
@@ -228,6 +258,7 @@ async def _backfill_one(
 
 
 async def main() -> int:
+    global _model_override, _GROUND_TIMEOUT
     ap = argparse.ArgumentParser(description="Backfill _evidence onto ungrounded blobs")
     ap.add_argument("--root", type=Path, default=None, help="workspace root (default: settings.workspace_root)")
     ap.add_argument("--dry-run", action="store_true", help="list what would be grounded; no LLM calls")
@@ -235,6 +266,9 @@ async def main() -> int:
                     help="which blob kinds to backfill (default: all)")
     ap.add_argument("--exclude", action="append", default=[], metavar="SUBSTR",
                     help="skip projects whose path contains SUBSTR (repeatable)")
+    ap.add_argument("--paths-file", type=Path, default=None, metavar="FILE",
+                    help="retry only these blobs (one path per line, abs or relative to --root); "
+                         "skips the full scan + --kind/--exclude. For surgical retries.")
     ap.add_argument("--order", choices=["newest", "oldest", "path"], default="newest",
                     help="processing order by source-doc mtime (default: newest first)")
     ap.add_argument("--limit", type=int, default=0, help="ground at most N blobs this run (0 = all)")
@@ -245,17 +279,23 @@ async def main() -> int:
     ap.add_argument("--concurrency", type=int, default=1, help="parallel grounding calls (default 1; prod: 6-8)")
     ap.add_argument("--retries", type=int, default=4, help="per-blob retry attempts on transient errors")
     ap.add_argument("--sleep", type=float, default=0.0, help="seconds to pause after each grounded blob (pacing)")
+    ap.add_argument("--call-timeout", type=float, default=_GROUND_TIMEOUT, metavar="SECS",
+                    help=f"hard per-grounding timeout (default {_GROUND_TIMEOUT:g}s; raise for big multi-page scans)")
     args = ap.parse_args()
 
-    global _model_override
     _model_override = args.model
+    _GROUND_TIMEOUT = args.call_timeout
 
     root = (args.root or get_settings().workspace_root).resolve()
     if not root.exists():
         print(f"workspace root not found: {root}", file=sys.stderr)
         return 2
 
-    blobs = _find_blobs(root, args.kind, args.exclude)
+    if args.paths_file:
+        blobs = _blobs_from_file(args.paths_file, root)
+        print(f"paths-file: {args.paths_file} -> {len(blobs)} blob(s) (surgical retry; scan/exclude skipped)")
+    else:
+        blobs = _find_blobs(root, args.kind, args.exclude)
     if args.order == "path":
         blobs.sort(key=lambda it: str(it[0]))
     else:
