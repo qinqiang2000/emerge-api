@@ -116,6 +116,10 @@ class MonitorConfig:
     # --- selection / lifecycle ------------------------------------------------
     # Explicit allowlist override ("google,anthropic,agent"). Empty = auto from keys.
     targets_override: tuple[str, ...] = field(default_factory=tuple)
+    # Subtractive: drop these from the auto-derived set ("google"). Applied after
+    # the allowlist, so it's surgical — leaves every other probe as-is (won't
+    # accidentally disable the agent-brain probe the way an allowlist of one would).
+    targets_exclude: tuple[str, ...] = field(default_factory=tuple)
     enabled: bool = False            # auto-start inside the API process on boot
     host: str = ""                   # tag in alerts so multi-box deploys are distinguishable
 
@@ -127,6 +131,8 @@ class MonitorConfig:
             ensure_env_loaded()
         targets_raw = os.getenv("EMERGE_MONITOR_TARGETS", "")
         targets = tuple(t.strip() for t in targets_raw.split(",") if t.strip())
+        exclude_raw = os.getenv("EMERGE_MONITOR_EXCLUDE", "")
+        exclude = tuple(t.strip() for t in exclude_raw.split(",") if t.strip())
         return cls(
             webhook_url=os.getenv("EMERGE_ALERT_WEBHOOK_URL", "").strip(),
             alert_proxy=os.getenv("EMERGE_ALERT_PROXY") or None,
@@ -149,6 +155,7 @@ class MonitorConfig:
             probe_agent=_env_bool("EMERGE_MONITOR_PROBE_AGENT", False),
             agent_min_interval=_env_float("EMERGE_MONITOR_AGENT_INTERVAL", 1800.0),
             targets_override=targets,
+            targets_exclude=exclude,
             enabled=_env_bool("EMERGE_MONITOR_ENABLED", False),
             host=os.getenv("EMERGE_MONITOR_HOST") or socket.gethostname(),
         )

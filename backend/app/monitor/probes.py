@@ -56,8 +56,11 @@ def build_targets(cfg: MonitorConfig) -> list[ProbeTarget]:
     """Resolve the probe set from config: a provider is probed only if its key
     is present (and, when `targets_override` is set, only if it's allowlisted)."""
     selected = set(cfg.targets_override) if cfg.targets_override else None
+    excluded = set(cfg.targets_exclude)
 
     def want(name: str) -> bool:
+        if name in excluded:
+            return False
         return selected is None or name in selected
 
     targets: list[ProbeTarget] = []

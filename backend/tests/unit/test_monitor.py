@@ -115,6 +115,18 @@ def test_build_targets_respects_override_allowlist():
     assert {t.name for t in build_targets(cfg)} == {"google"}
 
 
+def test_build_targets_excludes_named_probes():
+    # Subtractive: drop google, keep everything else auto-derived (incl. agent).
+    cfg = MonitorConfig(
+        google_api_key="g",
+        anthropic_api_key="a",
+        anthropic_base_url="https://gw.test",
+        probe_agent=True,
+        targets_exclude=("google",),
+    )
+    assert {t.name for t in build_targets(cfg)} == {"anthropic", "agent"}
+
+
 def test_probe_agent_target_is_opt_in():
     cfg = MonitorConfig(probe_agent=True, agent_min_interval=1800)
     targets = build_targets(cfg)
