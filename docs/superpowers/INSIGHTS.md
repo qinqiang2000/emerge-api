@@ -165,24 +165,15 @@ on the consumer side.
 
 ---
 
-## 7. SDK echoes `ToolResultBlock` and `UserMessage.tool_use_result`; both render as empty cards
+## 7. SDK surfaces each tool result TWICE (`ToolResultBlock` + `UserMessage` echo) — emit once, pair to the call by `tool_use_id`
 
-**Where:** `backend/app/chat/service.py` `_events_from_message`
+**Where:** `backend/app/chat/service.py` `_events_from_message`; frontend `frontend/src/stores/chat.ts` `handleToolResult`.
 
-**The trap:** The Claude Agent SDK emits `ToolUseBlock` (the call) AND a
-later `ToolResultBlock` (the result, with no `tool_name`, only `tool_use_id`)
-AND a `UserMessage` echo with `tool_use_result` set. We initially streamed
-all three to the frontend as `tool_call` events. The frontend's
-`ToolCallCard` rendered the result-only events as **empty buttons** (a11y
-read them as "(no content)").
+**The trap:** The Claude Agent SDK reports a tool's result in two places — a `ToolResultBlock` inside `AssistantMessage.content`, AND a `UserMessage` echo whose `content` is `list[ToolResultBlock]` (with `tool_use_result` set). Neither carries `tool_name`, only `tool_use_id`. Two failure modes seen: (a) the original M1 design dropped both, leaving the frontend blind to tool output (`ToolCallCard` showed **empty buttons**); (b) naively streaming each as its own card double-renders every result.
 
-**The fix:** drop both `ToolResultBlock` and `UserMessage.tool_use_result`
-echoes in `_events_from_message`. The original `ToolUseBlock` card is
-sufficient; the result content is consumed by the model on its next turn.
+**The fix (reversed the original drop, M2C T10):** `_events_from_message` emits ONE `tool_result` SSE event per block — `{tool_use_id, result_text, ok}` — from both the AssistantMessage `ToolResultBlock` path and the UserMessage echo path (plain-string UserMessage echoes are the user's own prompt, already logged at `chat_turn` entry → skipped). The frontend's `handleToolResult` finds the matching `tool_call` card by `tool_use_id` and folds the result INTO it (never a standalone card). This is what lets e.g. `JobProgressCard` read a `job_id` out of a tool result and subscribe to `/lab/jobs/{job_id}/events`.
 
-**Future:** when M2C/M3 wants result content shown (e.g. inline tool
-output for transparency), pair via `tool_use_id` and fold the result into
-the original card — don't emit a separate event.
+**Don't** revert to dropping the blocks (frontend goes blind), and don't emit a separate result card — always fold into the original call by `tool_use_id`.
 
 ---
 
@@ -205,25 +196,15 @@ filtered. Defense in depth: validate at the handler.
 
 ---
 
-## 9. Frontend cross-store refresh holes
+## 9. Cross-store refresh on agent tool calls — drive it off the SSE tool stream, not the composer
 
-**Where:** `frontend/src/components/Chat/ChatPanel.tsx`
+**Where:** `frontend/src/stores/chat.ts` `handleToolResult` (runs on each `tool_result` SSE event — see #7).
 
-**The trap:** When the agent calls `save_reviewed` / `upload_doc` via chat,
-the right-pane `DocList` doesn't auto-refresh. Stale badges. M1 had this
-for projects (chat creates project, list doesn't refresh until user
-navigates away/back). M2A inherited it for docs.
+**The trap:** When the agent mutates server state via chat (`create_project`, `upload_doc`, `save_reviewed`, `promote_experiment`, `freeze_version`, …), the affected panes (`useProjects` / `useDocs` / review tabs) show stale data until the user navigates away and back. M1 patched this by having `ChatPanel.onSubmit` manually call `refreshProjects()` + `refreshDocs()` after every send — fragile (fires regardless of what the tool actually did) and it coupled the composer to data stores.
 
-**The current patch:** `ChatPanel.onSubmit` explicitly calls
-`refreshProjects()` AND `if (selectedId) await refreshDocs(selectedId)`
-after each chat send.
+**The fix (M9.3+):** `handleToolResult` switches on the completed tool's name and refreshes ONLY the affected store — `useDocs.getState().refresh(pid)` after doc-mutating tools, `useProjects.getState().refresh()` after project-mutating ones, etc. Refresh is now a pure function of which tool just finished; the composer no longer imports data stores, and the old `refreshProjects`/`refreshDocs` hooks are gone.
 
-**The cleaner future fix:** emit a `tool_done` SSE event that stores
-subscribe to. Add this in M2C when `tool_use_id`/`ToolResultBlock` pairing
-is reworked.
-
-**Don't** add another store dependency to `ChatPanel` for the next
-milestone (e.g. metrics) — wire it to the SSE stream instead.
+**Don't** re-add manual refresh calls to `ChatPanel`/composer for a new milestone (metrics, experiments, …) — add a case to `handleToolResult`'s tool-name switch instead. This is the same SSE-stream-driven model the turn-as-resource design (#14) relies on.
 
 ---
 
@@ -335,16 +316,6 @@ Legacy on-disk shapes (`type:"date"`, `type:"array<object>"+children`) are upgra
 **Don't** rename `m_default` to track the active model id. **Don't** delete it on the assumption that `active_model_id` covers it. **Don't** change `create_project` to skip writing the `m_default` ModelConfig when env is unset — `read_active_model` would then crash on a fresh project. The label was deliberately decoupled from the env value (post-Phase 3 of `2026-05-27-default-extract-model-prompts-ev-eager-turing.md`): `"Default"` (no env-baked suffix) so the UI shows the same handle regardless of whether `EMERGE_DEFAULT_EXTRACT_MODEL` was changed; `provider_model_id` is what the user reads to know what's behind it.
 
 ---
-
-- A bug took >1 round to debug and the fix is non-obvious from reading the code
-- A library/SDK semantics differs from documentation (yours or theirs)
-- A spec invariant has a non-trivial enforcement (atomic write, flock, can_use_tool, ...)
-- A future agent could plausibly "simplify" the code and re-introduce the trap
-
-**Don't** add entries for:
-- Trivial bugs fixed in one commit
-- Style preferences
-- "How do I run tests" — that's CLAUDE.md
 
 ## field-source-grounding: source is TEXT, locate is a render route
 
@@ -600,3 +571,18 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 **The fix.** Rename the modifier to a non-utility word: `className="tree nested"`, `.fs .tree.nested{display:block;...}` (kept an explicit `display:block` as belt-and-braces). Clean hierarchy is now project 16 → dir 29 → file 43 px.
 
 **Don't** reuse single-word class names that collide with Tailwind utilities (`inline`, `block`, `hidden`, `fixed`, `static`, `relative`, `grid`, `flex`, `table`, `container`, …). **Latent twin:** `frontend/src/index.css` `.pub-stage.inline` has the same shape (sets `position` but not `display`) — audit it if pub-stage layout ever looks off.
+
+---
+
+## When to add an entry here
+
+**Add an entry when:**
+- A bug took >1 round to debug and the fix is non-obvious from reading the code
+- A library/SDK semantics differs from documentation (yours or theirs)
+- A spec invariant has a non-trivial enforcement (atomic write, flock, can_use_tool, ...)
+- A future agent could plausibly "simplify" the code and re-introduce the trap
+
+**Don't** add entries for:
+- Trivial bugs fixed in one commit
+- Style preferences
+- "How do I run tests" — that's CLAUDE.md
