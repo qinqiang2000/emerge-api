@@ -72,17 +72,27 @@ class GoogleProvider(Provider):
             else:
                 raise ValueError(f"unknown block type: {block!r}")
 
+        cfg_kwargs: dict[str, Any] = dict(
+            system_instruction=system_prompt,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            temperature=params.get("temperature", 0.0),
+        )
+        # Optional thinking control (Gemini 2.5+). `thinking_budget=0` turns
+        # reasoning OFF — right for transcription-style calls like OCR where
+        # thinking only adds latency / load (and worsens 503 "high demand"),
+        # with no quality gain. Only set when the caller asks via params, so
+        # extract / proposer / translate keep the model's default thinking.
+        tb = params.get("thinking_budget")
+        if tb is not None:
+            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=tb)
+
         async def _call() -> ProviderResult:
             try:
                 resp = await self._client.aio.models.generate_content(
                     model=model_id,
                     contents=[types.Content(role="user", parts=parts)],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        response_mime_type="application/json",
-                        response_schema=response_schema,
-                        temperature=params.get("temperature", 0.0),
-                    ),
+                    config=types.GenerateContentConfig(**cfg_kwargs),
                 )
             except Exception as e:  # noqa: BLE001
                 if is_transient(e):

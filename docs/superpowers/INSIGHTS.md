@@ -445,6 +445,38 @@ matcher, which is already capable. Producing source quotes is the extract/label
 pipeline's job (warmed into the blob at creation), not a lazy review-time call.
 `loadFor`'s `activeBacking` arg (the old ground cache target) is now ignored.
 
+## locate needs a TEXT LAYER, not just `_evidence` — warm it or it's "完全没定位"
+
+Migration completeness is two independent things and the obvious one hides the
+other. `backfill_grounding.py` writes `_evidence` (page + verbatim source quote)
+by sending the page IMAGE to the LLM — it never builds the text layer. But locate
+aligns that source quote against **text-layer spans** to recover rects; the text
+layer is built LAZILY the first time the viewer opens a doc (GET /textlayer →
+`extract_textlayer`). So a migrated corpus nobody clicked through has `_evidence`
+= full yet **zero spans → every field resolves to `none`** ("完全没定位"), and the
+translate sidecar is likewise cold ("还要实时翻译" every open). Real numbers from
+`invoice(发票)_海信日本`: 357/369 docs full-evidence, no text layer. `verify_grounding.py`
+audits ONLY evidence and reports these as healthy — it can't see the gap;
+`scripts/diagnose_doc_pipeline.py` adds the textlayer/translate dimension, and
+`scripts/warm_textlayer.py` is the missing warm step (the "Still open" item the
+locate-perf note flagged). Electronic pages warm via fitz for free (zero egress);
+only scanned pages spend an OCR call — so warm fitz-first, OCR only on empty.
+
+Two OCR traps the warm surfaced:
+- **flash-lite (`default_translate_model`) emits truncated / malformed JSON on
+  dense scanned pages** → the provider parse raises → `_ocr_extract_spans` returns
+  `[]` → an "empty" sidecar that can NEVER locate. It is NOT a blank page (same
+  page yields 82 spans on gemini-flash-latest). The lab doesn't budget tokens and
+  the image upload (the real cost on a bandwidth-capped host) is identical across
+  models, so a stronger OCR model is a free win — `extract_textlayer(..., ocr_model=)`
+  / `warm_textlayer.py --model gemini-flash-latest`. bbox quality also improves,
+  which is the same drift the original "highlight 上移" complaint was about.
+- **`extract_textlayer`'s cache guard (`ocr_attempted` True → return cached)
+  prevents re-OCR.** An empty-but-attempted sidecar short-circuits forever, so you
+  can't upgrade flash-lite's empties to a better model by just re-running — you
+  must DROP the sidecar first (`warm_textlayer.py --force`, which only ever unlinks
+  a page that currently has no spans; good fitz/OCR pages are returned before it).
+
 ## multi-tenancy: team is a workspace SUBDIR, auth has an open↔tenant switch
 
 Two non-obvious shapes from the Users & Teams milestone (2026-06-03) that a

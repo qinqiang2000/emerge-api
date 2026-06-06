@@ -19,6 +19,7 @@ import PdfViewer from './PdfViewer'
 import PreLabelNotice from './PreLabelNotice'
 import ReviewBar from './ReviewBar'
 import ReviewChatColumn, { readRevChatWidth, writeRevChatWidth } from './ReviewChatColumn'
+import { navigateToReview } from '../../lib/slugUrl'
 import { useT } from '../../i18n'
 
 type Props = {
@@ -51,7 +52,6 @@ export default function ReviewOverlay({
     removeEntity,
     goPage,
     save,
-    open,
     activeTabKey,
     predictionsByExp,
     loadExperimentPrediction,
@@ -305,7 +305,11 @@ export default function ReviewOverlay({
     if (!activeProjectId || currentIdx < 0) return
     const target = currentIdx + delta
     if (target < 0 || target >= docs.length) return
-    void open(activeProjectId, docs[target].filename)
+    // Navigate via the URL (not store.open) so `?review=<filename>` tracks the
+    // doc actually shown — App's URL→store effect drives the open. Otherwise the
+    // pager/keys switch docs while the URL stays pinned to the first-opened one,
+    // and a copied link points at the wrong doc.
+    navigateToReview(activeProjectId, docs[target].filename)
   }
   const handleDelete = async (target: string) => {
     if (!activeProjectId) return
@@ -322,7 +326,7 @@ export default function ReviewOverlay({
       return
     }
     if (fallback) {
-      void open(activeProjectId, fallback.filename)
+      navigateToReview(activeProjectId, fallback.filename)
     } else {
       onBack()
     }
@@ -445,7 +449,7 @@ export default function ReviewOverlay({
         docs={docs}
         activeFilename={activeFilename}
         activeProjectId={activeProjectId}
-        onOpen={open}
+        onOpen={navigateToReview}
         onSave={() => void save()}
         onBack={onBack}
         armedDelete={armedDelete}

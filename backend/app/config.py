@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # `project.json.translate_model`; this env value is the fallback. Defaults
     # to `gemini-flash-lite-latest` because translate is high-volume / cheap.
     default_translate_model: str = "gemini-flash-lite-latest"
+    # OCR model for the review text-layer (scanned-page span recovery in
+    # `textlayer._ocr_extract_spans`). DECOUPLED from translate on purpose: OCR
+    # needs document-recognition strength, and flash-lite emits truncated /
+    # malformed JSON on dense scanned pages → 0 spans → "完全没定位" (see INSIGHTS
+    # "locate needs a TEXT LAYER"). None = fall back to `default_translate_model`
+    # (unchanged behaviour when unset); set e.g. `EMERGE_DEFAULT_OCR_MODEL=
+    # gemini-2.5-flash` in prod. NB: gemini-flash-latest now points at 3.5-flash
+    # whose doc recognition regressed — prefer the pinned 2.5-flash for now.
+    default_ocr_model: str | None = None
     log_level: str = "INFO"
 
     # Colon-separated absolute paths appended to the built-in ingest allowlist.

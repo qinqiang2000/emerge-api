@@ -263,9 +263,18 @@ async def _ocr_extract_spans(
     page: int,
     page_w: float,
     page_h: float,
+    ocr_model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Call Gemini vision OCR on the rendered page and return spans in
     the same shape `extract_textlayer` would emit from fitz.
+
+    ``ocr_model`` overrides the OCR model (else ``default_ocr_model`` →
+    ``default_translate_model``).
+    flash-lite truncates / emits malformed JSON on dense scanned pages (the
+    parse fails → [] → an "empty" sidecar that can never locate); a stronger
+    model (gemini-flash-latest) returns well-formed spans. The batch warm
+    (`scripts/warm_textlayer.py --model`) passes one in; the lazy viewer path
+    leaves it None so per-doc behaviour is unchanged.
 
     bbox is denormalised from Gemini's `[y0,x0,y1,x1]` 0–1000 back to
     PDF-page units `[x0,y0,x1,y1]` — mirrors translate.py:_denormalise_bbox.
@@ -294,7 +303,10 @@ async def _ocr_extract_spans(
         return []
     image_block = ImageBlock(data_b64=img["data"], media_type=img["mime"])
 
-    model_id = get_settings().default_translate_model
+    # ocr_model arg (warm-script override) > configured default_ocr_model >
+    # default_translate_model (back-compat when neither is set).
+    settings = get_settings()
+    model_id = ocr_model or settings.default_ocr_model or settings.default_translate_model
     try:
         provider = get_provider_for_model(model_id)
     except ValueError:
@@ -306,6 +318,9 @@ async def _ocr_extract_spans(
             system_prompt=_OCR_SYSTEM,
             user_content=[TextBlock(text=_ocr_prompt()), image_block],
             response_schema=_OCR_RESPONSE_SCHEMA,
+            # OCR is transcription — thinking adds only latency / 503 load, no
+            # quality. Off for Gemini 2.5+; ignored by non-Gemini providers.
+            params={"thinking_budget": 0},
         )
     except Exception:
         # Network failure / quota / 5xx — return empty spans; caller
@@ -365,6 +380,7 @@ async def extract_textlayer(
     *,
     page: int,
     skip_ocr: bool = False,
+    ocr_model: str | None = None,
 ) -> dict[str, Any]:
     """Return the text spans for one page of one doc.
 
@@ -455,7 +471,7 @@ async def extract_textlayer(
         else:
             ocr_spans = await _ocr_extract_spans(
                 workspace, project_id, filename,
-                page=1, page_w=page_w, page_h=page_h,
+                page=1, page_w=page_w, page_h=page_h, ocr_model=ocr_model,
             )
         text_source = "ocr" if ocr_spans else "none"
 
@@ -565,7 +581,7 @@ async def extract_textlayer(
         if not skip_ocr:
             ocr_spans = await _ocr_extract_spans(
                 workspace, project_id, filename,
-                page=page, page_w=page_w, page_h=page_h,
+                page=page, page_w=page_w, page_h=page_h, ocr_model=ocr_model,
             )
             if ocr_spans:
                 spans = ocr_spans
@@ -576,7 +592,7 @@ async def extract_textlayer(
         if not skip_ocr:
             ocr_spans = await _ocr_extract_spans(
                 workspace, project_id, filename,
-                page=page, page_w=page_w, page_h=page_h,
+                page=page, page_w=page_w, page_h=page_h, ocr_model=ocr_model,
             )
             new_ocr = _dedupe_ocr_against_fitz(spans, ocr_spans)
             if new_ocr:
