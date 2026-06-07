@@ -420,6 +420,56 @@ def test_numeric_value_matches_trailing_zero_decimal(monkeypatch):
     assert locs[0].rects == [[300.0, 100.0, 360.0, 112.0]]
 
 
+def test_numeric_tokens_fold_only_unambiguous_spacing():
+    """_numeric_tokens folds intra-number spacing — letter-spaced digits
+    ('¥ 1 8 , 6 6 8') and a separator-hugging space ('18, 668') — but never
+    fuses two adjacent numbers. The bare multi-digit-group cases below are the
+    regression that scattered / stole amount highlights on otherwise-OK
+    invoices, so they must NOT produce the fused value while the real groups are
+    still recovered by the strict pass."""
+    from decimal import Decimal
+
+    def nt(s: str) -> list:
+        return locate_mod._numeric_tokens(locate_mod._nfkc(s))
+
+    # intended folds (one number, intra-number spacing)
+    assert Decimal("18668") in nt("¥ 1 8 , 6 6 8")
+    assert Decimal("18668") in nt("18, 668")
+    # ambiguous adjacencies — two numbers, a qty+price, a split date — never fuse
+    assert Decimal("18668") not in nt("18 668")
+    assert Decimal("21500.00") not in nt("2 1,500.00")
+    assert Decimal("20241231") not in nt("2024 12 31")
+    assert Decimal("1234567") not in nt("No. 1 234567")
+    # the real groups are still there (strict pass keeps each apart)
+    assert Decimal("668") in nt("18 668")
+    assert Decimal("1500.00") in nt("2 1,500.00")
+
+
+def test_spaced_fusion_does_not_steal_repeated_amount(monkeypatch):
+    """Regression guard for OK amount fields: the page carries the real total
+    'Total 21,500.00' and a line item '2 1,500.00' (qty 2 × unit 1,500). The old
+    spaced pass fused '2 1,500.00' → 21500.00, so the value 21,500 matched TWO
+    spans → ambiguous → none, silently breaking a field that used to land. With
+    folding gated to unambiguous spacing, only the real total matches → one
+    confident rect, and the line item keeps its own 1,500 group."""
+    fields = [SchemaField(name="grandTotal", type="number", description="g")]
+    pages = {
+        1: [
+            _span("Total 21,500.00", bbox=(300, 100, 460, 118)),
+            _span("2 1,500.00", bbox=(300, 400, 460, 418)),
+        ]
+    }
+    locs = _run(
+        [{"grandTotal": 21500.00}],
+        [{"grandTotal": {"page": 1, "source": None}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status in ("exact", "normalized")
+    assert locs[0].rects == [[300.0, 100.0, 460.0, 118.0]]
+
+
 def test_source_quote_disambiguates_repeated_value(monkeypatch):
     """When the value repeats, the model's verbatim source quote is the anchor:
     quote 'Total 111.00 USD' pins the grand-total line, ignoring the line-item

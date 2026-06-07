@@ -79,15 +79,18 @@ _DATE_TYPES = {"date", "datetime"}
 # two amounts on a line don't fuse.
 _NUM_TOKEN = re.compile(r"[-+]?\d[\d.,]*\d|\d")
 # Spaced pass: CJK / boxed-grid invoices letter-space the digits of ONE number
-# ("¥ 1 8 , 6 6 8", "18, 668", "18 668" → all the single amount 18668). After
-# _nfkc any whitespace run is already a single space, so a single space between
-# digit/separator chars is intra-number spacing — fold it in and parse the
-# joined run. Additive to the strict pass (results are unioned): we only ever
-# GAIN the spaced reading, never lose the column-split one, and a fused run that
-# parses invalid (two amounts with no text between: "111.00 111.00") just yields
-# nothing here while the strict pass still recovers each amount.
+# ("¥ 1 8 , 6 6 8", "18, 668" → the single amount 18668). After _nfkc any
+# whitespace run is already a single space; this regex captures a maximal digit
+# run that may carry single intra-run spaces. Whether such a run is really one
+# number (fold) or two adjacent ones (keep apart) is decided by _fold_spaced —
+# NOT every spaced run fuses: "18 668" / "2 1,500.00" / "2024 12 31" are two
+# numbers, a quantity+price, a split date, and fusing them would invent a value
+# (18668 / 21500 / 20241231) that scatters or steals an amount field's anchor.
+# Additive to the strict pass (results are unioned): we only ever GAIN an
+# unambiguous folded reading, never lose the column-split one.
 _NUM_TOKEN_SPACED = re.compile(r"[-+]?\d(?: ?[\d.,])*")
-_INNER_WS = re.compile(r"\s+")
+# Thousands / decimal grouping separators (a space hugging one is intra-number).
+_GROUP_SEP = (",", ".")
 # Strength gap above which the top cluster is considered a clear winner (so two
 # equally-good clusters → ambiguous → none).
 _DOMINANCE_EPS = 1e-6
@@ -231,24 +234,62 @@ def _field_is_date(field: SchemaField) -> bool:
     return fmt in ("date", "date-time", "time")
 
 
+def _fold_spaced(run: str) -> Optional[str]:
+    """If a spaced digit run is unambiguously ONE number whose spaces are
+    intra-number, return it de-spaced; otherwise None (leave the strict groups
+    apart). ``run`` is a maximal match of :data:`_NUM_TOKEN_SPACED` over already
+    NFKC-collapsed text, so its only spaces are single inter-group spaces.
+
+    A space folds only when it cannot mean "two different numbers next to each
+    other":
+
+    - **digit letter-spacing** — both sides are single chars ("1 8 , 6 6 8"); a
+      genuine multi-digit number is never printed one-digit-per-cell unless it is
+      being letter-spaced;
+    - **separator-hugging** — the space sits immediately beside a thousands /
+      decimal separator ("18, 668", "18 ,668"); the separator already marks the
+      grouping, so the space is just padding.
+
+    A bare space between two multi-digit groups is ambiguous — quantity+price
+    ("2 1,500.00"), a split date ("2024 12 31"), two columns ("18 668") — and is
+    NOT folded; the strict pass keeps each group as its own token, and we never
+    invent a fused value that could steal an amount field's anchor."""
+    groups = run.split(" ")
+    if len(groups) < 2:
+        return None  # no intra-run space — the strict pass already has it
+    for left, right in zip(groups, groups[1:]):
+        both_single = len(left) == 1 and len(right) == 1
+        sep_hugging = left.endswith(_GROUP_SEP) or right.startswith(_GROUP_SEP)
+        if not (both_single or sep_hugging):
+            return None
+    return run.replace(" ", "")
+
+
 def _numeric_tokens(text: str) -> list[Decimal]:
     """Extract number-like tokens from span text as Decimals.
 
     Two passes, unioned: the strict pass treats a space as a hard boundary; the
-    spaced pass folds single intra-number spaces so a digit-spaced amount
-    ("1 8 , 6 6 8", "18, 668") reads as the one number it is. Commas are stripped
-    as thousands separators in both; equality downstream is Decimal-numeric, so
-    trailing-zero precision ("123.0" ⇄ "123.0000") already collapses."""
+    spaced pass folds a space ONLY when :func:`_fold_spaced` deems it
+    intra-number (digit letter-spacing or separator-hugging), so a digit-spaced
+    amount ("1 8 , 6 6 8", "18, 668") reads as the one number it is while two
+    adjacent numbers stay apart. Commas are stripped as thousands separators in
+    both; equality downstream is Decimal-numeric, so trailing-zero precision
+    ("123.0" ⇄ "123.0000") already collapses."""
     out: list[Decimal] = []
     seen: set[Decimal] = set()
-    for rx, despace in ((_NUM_TOKEN, False), (_NUM_TOKEN_SPACED, True)):
-        for tok in rx.findall(text or ""):
-            if despace:
-                tok = _INNER_WS.sub("", tok)
-            d = _try_number(tok)
-            if d is not None and d not in seen:
-                seen.add(d)
-                out.append(d)
+
+    def emit(tok: str) -> None:
+        d = _try_number(tok)
+        if d is not None and d not in seen:
+            seen.add(d)
+            out.append(d)
+
+    for tok in _NUM_TOKEN.findall(text or ""):
+        emit(tok)
+    for run in _NUM_TOKEN_SPACED.findall(text or ""):
+        folded = _fold_spaced(run)
+        if folded is not None:
+            emit(folded)
     return out
 
 
