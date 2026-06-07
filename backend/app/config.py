@@ -72,11 +72,13 @@ class Settings(BaseSettings):
     # `textlayer._ocr_extract_spans`). DECOUPLED from translate on purpose: OCR
     # needs document-recognition strength, and flash-lite emits truncated /
     # malformed JSON on dense scanned pages → 0 spans → "完全没定位" (see INSIGHTS
-    # "locate needs a TEXT LAYER"). None = fall back to `default_translate_model`
-    # (unchanged behaviour when unset); set e.g. `EMERGE_DEFAULT_OCR_MODEL=
-    # gemini-2.5-flash` in prod. NB: gemini-flash-latest now points at 3.5-flash
-    # whose doc recognition regressed — prefer the pinned 2.5-flash for now.
-    default_ocr_model: str | None = None
+    # "locate needs a TEXT LAYER"). Pinned to `gemini-2.5-flash`: gemini-flash-latest
+    # rolled forward to 3.5-flash (pricier + doc-recognition regression), and
+    # flash-lite is too weak — so neither is used for OCR. The call runs with
+    # `thinking_budget=0` (transcription needs no reasoning; see textlayer.py).
+    # The offline backfill (warm_textlayer.py) runs this same model on GCP/Vertex;
+    # live prod runs it on AI Studio. Override per-deploy with `EMERGE_DEFAULT_OCR_MODEL`.
+    default_ocr_model: str = "gemini-2.5-flash"
     log_level: str = "INFO"
 
     # Colon-separated absolute paths appended to the built-in ingest allowlist.

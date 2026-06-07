@@ -24,6 +24,9 @@ class GoogleProvider(Provider):
         timeout: float = 120.0,
         retry_max_attempts: int = 3,
         retry_base_delay: float = 0.5,
+        use_vertex: bool = False,
+        vertex_project: str | None = None,
+        vertex_location: str | None = None,
     ) -> None:
         # Lazy import so test environments without google-genai still load the module.
         from google import genai
@@ -35,10 +38,25 @@ class GoogleProvider(Provider):
         client_args: dict[str, Any] = {"trust_env": False}
         if proxy:
             client_args["proxy"] = proxy
-        self._client = genai.Client(
-            api_key=api_key,
-            http_options=HttpOptions(client_args=client_args, async_client_args=client_args),
-        )
+        http_options = HttpOptions(client_args=client_args, async_client_args=client_args)
+        if use_vertex:
+            # GCP Vertex AI path: auth via Application Default Credentials (the ADC
+            # file / gcloud login on the host), NOT an API key — the two are
+            # mutually exclusive in the SDK, so we pass project+location and let
+            # google.auth resolve the bearer token. Used for the offline OCR
+            # backfill (warm_textlayer.py) so the heavy historical pass runs on
+            # GCP/Vertex while live prod stays on the AI Studio api_key path
+            # (use_vertex defaults False → unchanged). Same google-genai client,
+            # only the transport/auth differs; spans land in the identical
+            # content-addressed sidecar (provider-agnostic).
+            self._client = genai.Client(
+                vertexai=True,
+                project=vertex_project,
+                location=vertex_location,
+                http_options=http_options,
+            )
+        else:
+            self._client = genai.Client(api_key=api_key, http_options=http_options)
         self._timeout = timeout
         self._retry_max = retry_max_attempts
         self._retry_base = retry_base_delay

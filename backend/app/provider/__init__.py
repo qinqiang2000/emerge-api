@@ -23,17 +23,31 @@ def get_provider_for_model(
 
     Reads API keys and proxy URLs from environment unless explicitly passed.
     """
+    def _google() -> Provider:
+        from app.provider.google import GoogleProvider
+
+        # Vertex (GCP/ADC) vs AI Studio (api_key) is chosen by the SDK's own
+        # standard env var so the switch is config, not code. Off by default →
+        # live prod keeps using GOOGLE_API_KEY. The offline OCR backfill flips
+        # GOOGLE_GENAI_USE_VERTEXAI=true (+ GOOGLE_CLOUD_PROJECT/LOCATION) for its
+        # process only, routing the heavy historical pass through GCP/Vertex.
+        use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+        return GoogleProvider(
+            api_key=api_key or os.getenv("GOOGLE_API_KEY", ""),
+            proxy=os.getenv("GOOGLE_PROXY") or None,
+            use_vertex=use_vertex,
+            vertex_project=os.getenv("GOOGLE_CLOUD_PROJECT") or None,
+            vertex_location=os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1",
+        )
+
     if provider == "codex":
         from app.provider.codex import CodexCliProvider
 
         return CodexCliProvider()
     if provider == "google":
-        from app.provider.google import GoogleProvider
-
-        return GoogleProvider(
-            api_key=api_key or os.getenv("GOOGLE_API_KEY", ""),
-            proxy=os.getenv("GOOGLE_PROXY") or None,
-        )
+        return _google()
     if provider == "anthropic":
         from app.provider.anthropic import AnthropicProvider
 
@@ -45,12 +59,7 @@ def get_provider_for_model(
             base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
         )
     if model_id.startswith("gemini"):
-        from app.provider.google import GoogleProvider
-
-        return GoogleProvider(
-            api_key=api_key or os.getenv("GOOGLE_API_KEY", ""),
-            proxy=os.getenv("GOOGLE_PROXY") or None,
-        )
+        return _google()
     if model_id.startswith("claude") or model_id.startswith("anthropic"):
         from app.provider.anthropic import AnthropicProvider
 
