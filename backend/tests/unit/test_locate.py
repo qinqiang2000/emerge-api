@@ -470,6 +470,41 @@ def test_spaced_fusion_does_not_steal_repeated_amount(monkeypatch):
     assert locs[0].rects == [[300.0, 100.0, 460.0, 118.0]]
 
 
+def test_repeated_numeric_quote_disambiguates_across_space(monkeypatch):
+    """Real Kakaku / Hisense-JP invoice (000003388091): totalAmount 34650 prints
+    THREE times on page 1 — the big '34,650 円' display row and two table cells
+    '34,650' — so the value alone is ambiguous → none. The model's source quote
+    '請求金額\\n34,650円' pins the display row, BUT the span is '34,650 円' (space
+    before 円) while the quote is '34,650円' (no space): that lone space dropped
+    the display-row substring coverage to 36% < the 0.6 floor, the quote anchor
+    was lost, and the field fell to none ('此字段在文档中无法定位来源'). Space-
+    insensitive quote matching restores it — display row 100% wins, the two table
+    cells stay at 55% (no label/円) and are excluded."""
+    fields = [SchemaField(name="totalAmount", type="number", description="t")]
+    pages = {
+        1: [
+            _span("請求金額", bbox=(21, 341.5, 85, 357.5)),
+            _span(" 34,650 円", bbox=(191, 341.5, 271, 357.5)),
+            _span("31,500", bbox=(393, 435, 414, 442)),
+            _span("3,150", bbox=(474, 435, 492, 442)),
+            _span("34,650", bbox=(553, 435, 574, 442)),
+            _span("34,650", bbox=(552, 496.5, 573, 503.5)),
+        ]
+    }
+    locs = _run(
+        [{"totalAmount": 34650}],
+        [{"totalAmount": {"page": 1, "source": "請求金額\n34,650円"}}],
+        fields,
+        pages,
+        monkeypatch,
+    )
+    assert locs[0].status == "quote"
+    # the display row (請求金額 + 34,650 円), unioned; never a table cell.
+    assert {round(r[1]) for r in locs[0].rects} == {342}
+    assert [191.0, 341.5, 271.0, 357.5] in locs[0].rects
+    assert all(round(r[1]) not in (435, 496) for r in locs[0].rects)
+
+
 def test_source_quote_disambiguates_repeated_value(monkeypatch):
     """When the value repeats, the model's verbatim source quote is the anchor:
     quote 'Total 111.00 USD' pins the grand-total line, ignoring the line-item

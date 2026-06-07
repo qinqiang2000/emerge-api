@@ -120,6 +120,25 @@ def _nfkc(s: Any) -> str:
     return _WS.sub(" ", unicodedata.normalize("NFKC", str(s))).strip()
 
 
+def _despace(s: str) -> str:
+    """Drop ASCII spaces — for quote↔span substring comparison ONLY.
+
+    A model's verbatim source quote and the PyMuPDF text-layer span routinely
+    carry DIFFERENT spacing for the same characters: the page prints "34,650 円"
+    / "3, 150" (CJK letter-spacing, a space hugging the thousands comma) while
+    the model copies "34,650円" / "3,150" (or the reverse). :func:`_nfkc` already
+    collapses whitespace *runs* to a single space but cannot delete that lone
+    space, so the substring coverage in :func:`_cluster_quote_lines` silently
+    misses — and a *repeated* numeric value, whose only disambiguator is that
+    quote, then falls all the way to ``none`` (the Kakaku / Hisense-JP invoice
+    totalAmount: 34,650 appears as the display row AND two table cells). Matching
+    both sides space-free restores the anchor. Coverage stays measured in the
+    despaced quote so the fraction math is self-consistent, and the 0.6 floor +
+    richer-line-wins + tie→none rules are unchanged — the worst case is
+    abstention, never a confident wrong line."""
+    return s.replace(" ", "")
+
+
 _INDEXED = re.compile(r"\[\d+\]")
 
 
@@ -512,11 +531,17 @@ def _cluster_quote_lines(spans: list[dict], quote_n: str) -> list[dict]:
     "Total 111.00 USD" line. The best-covering line wins and its rects union into
     one whole-line highlight; lines that cover the quote equally (a value that
     genuinely repeats line-for-line) tie → the caller returns none.
+
+    Both the quote and each span are matched space-free (see :func:`_despace`):
+    the verbatim quote and the text-layer span often disagree on where lone
+    spaces fall ("34,650円" vs "34,650 円"), which would otherwise drop the line
+    below the coverage floor and lose a repeated value's only anchor.
     """
-    qlen = max(len(quote_n), 1)
+    quote_ds = _despace(quote_n)
+    qlen = max(len(quote_ds), 1)
     items: list[dict] = []
     for sp in spans:
-        rng = _quote_span_range(quote_n, _nfkc(sp.get("text", "")))
+        rng = _quote_span_range(quote_ds, _despace(_nfkc(sp.get("text", ""))))
         if rng is None:
             continue
         bbox = [float(v) for v in sp.get("bbox", [])]
