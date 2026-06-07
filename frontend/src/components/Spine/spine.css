@@ -8,6 +8,7 @@
 .fs .fs-brand-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 16px;border-bottom:1px solid var(--rule-soft);margin-bottom:4px}
 .fs .fs-brand{font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.005em;color:var(--ink);font-weight:500;display:flex;align-items:center;gap:8px}
 .fs .fs-brand .brand-icon{width:18px;height:18px;border-radius:4px;display:block;flex-shrink:0}
+.fs .fs-brand .fs-badge{font-family:var(--mono);font-style:normal;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ochre-2,var(--ochre));background:var(--ochre-soft);border-radius:999px;padding:1px 6px;white-space:nowrap;align-self:center}
 .fs .fs-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:24px;color:var(--ink-4);border-radius:6px;background:transparent;border:1px solid transparent;cursor:default;transition:background .15s, color .15s, border-color .15s}
 .fs .fs-toggle:hover{background:var(--paper-2);color:var(--ink);border-color:var(--rule-soft)}
 

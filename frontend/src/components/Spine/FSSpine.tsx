@@ -496,7 +496,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     <div className="fs">
       {/* ── brand + collapse toggle ───────────────────────────────────── */}
       <div className="fs-brand-row">
-        <div className="fs-brand"><img src={kdfpyIcon} alt="" className="brand-icon" />Piaozone</div>
+        <div className="fs-brand">
+          <img src={kdfpyIcon} alt="" className="brand-icon" />Piaozone
+          <span className="fs-badge">{t('auth.preview')}</span>
+        </div>
         {onToggleLeft && (
           <PanelToggle
             side="left"
