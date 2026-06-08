@@ -497,6 +497,12 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    const handler = () => taRef.current?.focus()
+    window.addEventListener('emerge:focus-composer', handler)
+    return () => window.removeEventListener('emerge:focus-composer', handler)
+  }, [])
+
   // While the agent is responding (`disabled` true) and a cancel handler is
   // wired, Esc at the window level stops the turn. The textarea is disabled
   // and can't receive focus during streaming, so its own onKeyDown won't fire.

@@ -574,7 +574,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
               if (e.key === 'Enter' && highlightIdx >= 0) {
                 e.preventDefault()
                 const p = filteredProjects[highlightIdx]
-                if (p) { useProjects.getState().select(p.slug); setExpanded(s => ({ ...s, [p.slug]: true })); setFilter(''); filterInputRef.current?.blur() }
+                if (p) {
+                  useProjects.getState().select(p.slug)
+                  setExpanded(s => ({ ...s, [p.slug]: true }))
+                  setFilter('')
+                  filterInputRef.current?.blur()
+                  setTimeout(() => window.dispatchEvent(new Event('emerge:focus-composer')), 50)
+                }
               }
             }}
             placeholder={filterPlaceholder}
