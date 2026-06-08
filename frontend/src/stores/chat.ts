@@ -1357,25 +1357,38 @@ function handleToolResult(
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
     }
-    if (
-      t === 'mcp__emerge_tools__write_prompt' ||
-      t === 'mcp__emerge_tools__create_prompt' ||
-      t === 'mcp__emerge_tools__switch_active_prompt' ||
-      t === 'mcp__emerge_tools__delete_prompt' ||
-      t === 'mcp__emerge_tools__import_prompt'
-    ) {
+    if (t === 'mcp__emerge_tools__switch_active_prompt') {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
     }
-    if (
-      t === 'mcp__emerge_tools__write_model' ||
-      t === 'mcp__emerge_tools__create_model' ||
-      t === 'mcp__emerge_tools__switch_active_model' ||
-      t === 'mcp__emerge_tools__delete_model'
-    ) {
+    if (t === 'mcp__emerge_tools__switch_active_model') {
       useModels.getState().invalidate(projectId)
       void useModels.getState().load(projectId)
+    }
+    // Step B (SDK reframe) removed the create/write/delete model & prompt
+    // MCP tools — the agent now adds/edits these by writing the JSON file
+    // directly with the built-in Write/Edit tools (the switch_active_* checks
+    // above are the only survivors of the old business-tool path). Those
+    // filesystem writes carry no business tool name, so without a path-based
+    // catch the models/prompts list store stays cached after a freshly added
+    // model and a review tab falls back to the raw model_id (e.g. "m_g25flash")
+    // instead of the model label. Key invalidation off the written file_path,
+    // mirroring exactly what the removed tools used to refresh (prompt writes
+    // also bumped schema + bench; model writes did not touch bench).
+    if (FS_WRITE_TOOLS.has(t)) {
+      const input = parent.tool_input as { file_path?: unknown } | null
+      const fp = input && typeof input.file_path === 'string' ? input.file_path : ''
+      if (/\/models\/[^/]+\.json$/.test(fp)) {
+        useModels.getState().invalidate(projectId)
+        void useModels.getState().load(projectId)
+      }
+      if (/\/prompts\/[^/]+\.json$/.test(fp)) {
+        useSchema.getState().invalidate(projectId)
+        usePrompts.getState().invalidate(projectId)
+        void usePrompts.getState().load(projectId)
+        useBench.getState().invalidate(projectId)
+      }
     }
     if (
       t === 'mcp__emerge_tools__upload_doc' ||
@@ -1472,6 +1485,11 @@ function handleToolResult(
     }
   }
 }
+
+/** Built-in SDK filesystem-write tools. Post-Step-B these — not the removed
+ *  create/write/delete business tools — are how the agent mutates model &
+ *  prompt JSON files, so cross-store invalidation keys off their file_path. */
+const FS_WRITE_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit'])
 
 /** Tools whose successful completion can change Bench leaderboard rows
  *  (score, axis activeness, axis label, experiment status) or per-doc strip

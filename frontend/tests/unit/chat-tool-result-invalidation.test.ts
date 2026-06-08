@@ -76,11 +76,12 @@ describe('handleToolResult side effects', () => {
     refresh.mockRestore()
   })
 
+  // Step B removed create_prompt/write_prompt/delete_prompt — only
+  // switch_active_prompt survives as a business tool. Create/write/delete now
+  // go through the built-in Write/Edit path (covered in stores/chat.test.ts
+  // "filesystem model/prompt writes").
   it.each([
-    'mcp__emerge_tools__write_prompt',
-    'mcp__emerge_tools__create_prompt',
     'mcp__emerge_tools__switch_active_prompt',
-    'mcp__emerge_tools__delete_prompt',
   ])('invalidates usePrompts (and useSchema) when %s completes', (toolName) => {
     useChat.setState({ events: [{
       type: 'tool_call', tool_use_id: 'tp', tool_name: toolName,
@@ -97,11 +98,11 @@ describe('handleToolResult side effects', () => {
     expect(useSchema.getState().byProject['p_a']).toBeUndefined()
   })
 
+  // Step B removed create_model/write_model/delete_model — only
+  // switch_active_model survives as a business tool. Create/write/delete now
+  // go through the built-in Write/Edit path (covered in stores/chat.test.ts).
   it.each([
-    'mcp__emerge_tools__write_model',
-    'mcp__emerge_tools__create_model',
     'mcp__emerge_tools__switch_active_model',
-    'mcp__emerge_tools__delete_model',
   ])('invalidates useModels when %s completes', (toolName) => {
     useChat.setState({ events: [{
       type: 'tool_call', tool_use_id: 'tm', tool_name: toolName,

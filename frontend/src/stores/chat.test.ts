@@ -26,6 +26,7 @@ import { useExperiments } from './experiments'
 import { useModels } from './models'
 import { useProjects } from './projects'
 import { usePrompts } from './prompts'
+import { useSchema } from './schema'
 
 // ── attachStream mock plumbing ───────────────────────────────────────────
 // Each test fills `queues[turnId]` with the events to yield (in order). The
@@ -535,5 +536,100 @@ describe('chat store: cross-store invalidation → useBench.invalidate', () => {
     )
 
     expect(benchSpy).not.toHaveBeenCalled()
+  })
+})
+
+// Step B removed the create_*/write_*/delete_* model & prompt MCP tools; the
+// agent now adds/edits these via the built-in Write/Edit filesystem tools.
+// Cross-store invalidation must therefore key off the written file_path, not a
+// business tool name — otherwise the models/prompts list store stays cached and
+// a review tab renders the raw model_id ("m_g25flash") instead of the label.
+describe('chat store: cross-store invalidation → filesystem model/prompt writes', () => {
+  const PID = 'proj-fs'
+  const TUID = 't_fs_1'
+
+  function seedFsWrite(toolName: string, filePath: string) {
+    useChat.setState({
+      chatId: 'c_fs00000001',
+      events: [{
+        type: 'tool_call',
+        tool_use_id: TUID,
+        tool_name: toolName,
+        tool_input: { file_path: filePath },
+        tool_result: null,
+        ok: true,
+      }],
+      busy: false,
+      loadedProjectId: PID,
+      loadedUnboundChatId: null,
+      chatsByProject: {},
+      chatsUnbound: [],
+      streamAbort: null,
+      inflightTurnId: null,
+      interrupted: false,
+    })
+  }
+
+  beforeEach(() => {
+    try { localStorage.clear() } catch { /* ignore */ }
+    vi.restoreAllMocks()
+    vi.spyOn(usePrompts.getState(), 'load').mockResolvedValue(undefined)
+    vi.spyOn(useModels.getState(), 'load').mockResolvedValue(undefined)
+  })
+
+  it('Write to models/*.json invalidates useModels (Step-B create_model replacement)', () => {
+    seedFsWrite('Write', '/ws/teams/发票云空间/北方工业/models/m_g25flash.json')
+    const modelSpy = vi.spyOn(useModels.getState(), 'invalidate')
+
+    _testUtils.handleToolResult(
+      { tool_use_id: TUID, result_text: 'File created', ok: true },
+      PID,
+      null,
+    )
+
+    expect(modelSpy).toHaveBeenCalledWith(PID)
+  })
+
+  it('Edit to prompts/*.json invalidates usePrompts + useSchema + useBench', () => {
+    seedFsWrite('Edit', '/ws/teams/x/proj/prompts/pr_abc123.json')
+    const promptSpy = vi.spyOn(usePrompts.getState(), 'invalidate')
+    const schemaSpy = vi.spyOn(useSchema.getState(), 'invalidate')
+    const benchSpy = vi.spyOn(useBench.getState(), 'invalidate')
+
+    _testUtils.handleToolResult(
+      { tool_use_id: TUID, result_text: 'ok', ok: true },
+      PID,
+      null,
+    )
+
+    expect(promptSpy).toHaveBeenCalledWith(PID)
+    expect(schemaSpy).toHaveBeenCalledWith(PID)
+    expect(benchSpy).toHaveBeenCalledWith(PID)
+  })
+
+  it('does NOT invalidate useModels for a Write outside models/ (nested or other dir)', () => {
+    // `[^/]+` must not cross a slash: only direct children of models/ count,
+    // and a docs write must not touch the models store.
+    const modelSpy = vi.spyOn(useModels.getState(), 'invalidate')
+
+    seedFsWrite('Write', '/ws/teams/x/proj/docs/1.jpg.txt')
+    _testUtils.handleToolResult({ tool_use_id: TUID, result_text: 'ok', ok: true }, PID, null)
+    seedFsWrite('Write', '/ws/teams/x/proj/models/_archive/m_x.json')
+    _testUtils.handleToolResult({ tool_use_id: TUID, result_text: 'ok', ok: true }, PID, null)
+
+    expect(modelSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT invalidate on a failed Write (ok=false)', () => {
+    seedFsWrite('Write', '/ws/teams/x/proj/models/m_x.json')
+    const modelSpy = vi.spyOn(useModels.getState(), 'invalidate')
+
+    _testUtils.handleToolResult(
+      { tool_use_id: TUID, result_text: 'err', ok: false },
+      PID,
+      null,
+    )
+
+    expect(modelSpy).not.toHaveBeenCalled()
   })
 })
