@@ -1,6 +1,6 @@
 # 2026-06-08 — Cowork / Desktop remote MCP connector
 
-> **Status**: P1 shipped (pending commit + live ngrok→Cowork dogfood); P2–P4 planned
+> **Status**: P1 + P1.5 shipped & committed (live ngrok→Cowork dogfood verified in P1.5); 依赖刷新 done (lock bumped, app-boot smoke green, **P2 长杆经实测被 mcp SDK 消掉** — 详见 tip 3 执行记录 + P2 缩范围)，待人跑全套 + dogfood 后 commit；P2–P4 planned
 > **Inputs**: research session 2026-06-08 (Anthropic Cowork docs) + tips: (1) 最优集成点为准，不照搬旧约定 (2) 现在就给客户队友用，不只是自己 (3) 评估包升级
 > **Closes**: 「同事」北极星的远程落地 —「换前端=换 agent 客户端」从理论变成可连的 connector
 > **Does NOT close**: OAuth 一键 onboarding（P2）、plugin marketplace 分发（P3）、工具收敛（P4）
@@ -68,9 +68,18 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 
 **Follow-up（P1.6 候选，未做）**：完整 reconcile —— Step B 砍的 23 个里还有哪些"读取/写入"在远程无 FS 下隐形（`get_prediction`/`get_reviewed`/`list_prompts`/`list_models`/`create_prompt`/`write_model`…）。本期只解锁 extract→review 最小闭环的发现三件；写操作与其余读取按 dogfood 反馈增量回归 headless 面。
 
-### P2 — OAuth 2.0 + DCR（planned）
+### P2 — OAuth 2.0 + DCR（planned；**长杆已被 SDK 消掉**，见 2026-06-09 依赖刷新）
 
-让 Cowork/Desktop「Add custom connector」用**登录**而非手贴 PAT onboard 队友。需要：authorization server（`/authorize` `/token` `/register` DCR）、consent、token↔user 映射（复用 PAT 存储层）、`WWW-Authenticate` + protected-resource metadata 让客户端发现。回调 `https://claude.ai/api/mcp/auth_callback`。**这是长杆**（官方自认 remote connector 最常栽在 auth）。企业可走 admin `managedMcpServers` + `headersHelper` 注入 per-user 短效 header，绕过 per-user OAuth。
+让 Cowork/Desktop「Add custom connector」用**登录**而非手贴 PAT onboard 队友。需要：authorization server（`/authorize` `/token` `/register` DCR）、consent、token↔user 映射（复用 PAT 存储层）、`WWW-Authenticate` + protected-resource metadata 让客户端发现。回调 `https://claude.ai/api/mcp/auth_callback`。企业可走 admin `managedMcpServers` + `headersHelper` 注入 per-user 短效 header，绕过 per-user OAuth。
+
+**重大缩范围（2026-06-09 实测）**：authorize/token/register/revoke/metadata **整套服务端脚手架已在 `mcp` SDK 里**（`mcp.server.auth`，刷新前 1.27.0 就有，非本次 bump 新带）。P2 不再手搓协议，只剩 4 件 emerge-specific 黏合：
+
+1. **实现 `OAuthAuthorizationServerProvider` Protocol**（`mcp.server.auth.provider`）——9 个方法 `get_client`/`register_client`/`authorize`/`load_authorization_code`/`exchange_authorization_code`/`load/exchange_refresh_token`/`load_access_token`/`revoke_token`，全部后端到 `_auth/{users,pats,clients}.json`（复用现有 keystore 模式；新增 oauth client + code 短效存储）。
+2. **mount 路由**：`create_auth_routes(provider, issuer_url, client_registration_options=ClientRegistrationOptions(enabled=True), …)` → `/authorize` `/token` `/register` `/revoke` + `/.well-known/oauth-authorization-server`；`create_protected_resource_routes(...)` → `/.well-known/oauth-protected-resource`（RFC9728，客户端发现入口）。
+3. **consent 页**：`authorize()` 里渲染最小同意屏（复用现有 session cookie 认 user → 授权该 client）。这是唯一真正要写 UI 的部分。
+4. **把 `TokenVerifier` 接进 `/mcp` 传输**：现 `_authenticate` 的三通道加第 4 路「OAuth bearer」（`ProviderTokenVerifier(provider).verify_token` → user → `_resolve_team_workspace`），与 PAT bearer 并列；`WWW-Authenticate` 头指向 protected-resource metadata。
+
+净效果：P2 从「自建 AS」降级为「实现一个 Protocol + 一个 consent 页 + 接线」。`?token=` query PAT 保留作 dev/curl 后路。
 
 ### P3 — plugin bundle（planned）
 
@@ -95,6 +104,26 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 ## tip 3：包升级评估
 
 当前 `mcp==1.27.0` 已含 `streamable_http_manager` + `TransportSecuritySettings` + stateless——P1 在现版本上一次写成，**升级不会省工**。`claude-agent-sdk>=0.2.87` 的 `create_sdk_mcp_server` 已复用。结论：**P1 不需要升级**；建议把「全量依赖刷新」作为**独立一次变更**（跑全套 + dogfood）放在 P2/OAuth 之前，别和功能耦合（升级风险 + 功能风险不叠加）。届时关注新 SDK 是否带 OAuth helper，可能省 P2 的工。
+
+### 依赖刷新执行记录（2026-06-09，P2 前置，独立变更）
+
+`uv lock --upgrade` + `uv sync --all-groups`，21 个包 bump（均 patch/minor，无 major 破坏跳跃）。重点：
+
+| 包 | 旧 → 新 | 关注面 |
+|---|---|---|
+| claude-agent-sdk | 0.2.87 → 0.2.94 | agent brain；无 server-OAuth helper（client 侧 only） |
+| mcp | 1.27.0 → 1.27.2 | patch；**server-side OAuth 框架早在 1.27.0 就有**（见下） |
+| starlette | 1.0.0 → 1.2.1 | auth deps 用 Request/session——app-boot 冒烟通过 |
+| fastapi | 0.136.1 → 0.136.3 | patch |
+| google-genai | 2.0.0 → 2.8.0 | provider/gemini |
+| uvicorn | 0.46.0 → 0.49.0 | 服务器 |
+| pyjwt | 2.12.1 → 2.13.0 | P2 OAuth 若发 JWT 用得上 |
+
+**OAuth-helper 关注点 → 已结论（tip 3 的核心问句）**：`claude-agent-sdk 0.2.94` 是 **client 侧**，不带 server-OAuth helper。但 server-side 整套 OAuth AS 脚手架在 **`mcp` SDK** 里（`mcp.server.auth.{provider,routes,settings,handlers/*}`），**且刷新前 1.27.0 就已存在**——所以诚实地说：本次刷新的价值是**版本 currency + 把 P2 缩范围这件事查实**，而非升级"解锁"了 OAuth。P2 详细缩范围已写进 P2 章节。
+
+**验证（不跑全套——本机由人跑 + dogfood）**：app boot 120 routes；`starlette 1.2.1 / fastapi 0.136.3 / mcp 1.27.2 / uvicorn 0.49.0 / claude-agent-sdk 0.2.94` 下 `app.main`、`app.api.mcp_remote`、`mcp.server.auth.*`、`mcp.server.streamable_http_manager` 全部 import OK。`PromptVariant` 的 `schema` shadow `UserWarning` 是既存项（裸 import 没走 app 启动 filter），非升级回归。
+
+**Pending（人来收口）**：① `uv run pytest -v` 全套绿 ② ngrok→Cowork dogfood 复跑一次 extract ③ 两者通过后 commit 这次独立变更（`pyproject.toml` 实际未改 pin，仅 `uv.lock` 变）。
 
 ---
 
