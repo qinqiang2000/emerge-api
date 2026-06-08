@@ -167,7 +167,9 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // Pure client-side name match; never touches selection.
   const [filter, setFilter] = useState('')
   const [filterFocused, setFilterFocused] = useState(false)
+  const [highlightIdx, setHighlightIdx] = useState(-1)
   const filterInputRef = useRef<HTMLInputElement | null>(null)
+  const highlightRowRef = useRef<HTMLDivElement | null>(null)
   const selectedProjRef = useRef<HTMLDivElement | null>(null)
 
   // Per-project tree expansion. Default collapsed: nothing here until the user
@@ -232,10 +234,16 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     return () => window.removeEventListener('keydown', handler)
   }, [])
   const filteredProjects = useMemo(() => {
+    setHighlightIdx(-1)
     const q = filter.trim().toLowerCase()
     if (!q) return projects
     return projects.filter(p => p.slug === selectedSlug || p.name.toLowerCase().includes(q))
   }, [projects, filter, selectedSlug])
+
+  // Scroll highlighted row into view when it changes
+  useEffect(() => {
+    highlightRowRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [highlightIdx])
 
   // Build prompts leaf nodes
   const promptItems: LeafNode[] = useMemo(() => {
@@ -559,7 +567,16 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
             value={filter}
             onChange={e => setFilter(e.target.value)}
             onBlur={() => { if (projects.length <= FILTER_THRESHOLD && !filter) setFilterFocused(false) }}
-            onKeyDown={e => { if (e.key === 'Escape') { setFilter(''); filterInputRef.current?.blur() } }}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { setFilter(''); setHighlightIdx(-1); filterInputRef.current?.blur(); return }
+              if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightIdx(i => Math.min(i + 1, filteredProjects.length - 1)); return }
+              if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlightIdx(i => Math.max(i - 1, 0)); return }
+              if (e.key === 'Enter' && highlightIdx >= 0) {
+                e.preventDefault()
+                const p = filteredProjects[highlightIdx]
+                if (p) { useProjects.getState().select(p.slug); setExpanded(s => ({ ...s, [p.slug]: true })); setFilter(''); filterInputRef.current?.blur() }
+              }
+            }}
             placeholder={filterPlaceholder}
             spellCheck={false}
             autoComplete="off"
@@ -585,12 +602,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       {projects.length > 0 && filteredProjects.length === 0 && (
         <div className="ghost" style={{ padding: '4px 16px' }}>{t('spine.filter.empty')}</div>
       )}
-      {filteredProjects.map(p => {
+      {filteredProjects.map((p, idx) => {
         // React `key` and selection state are keyed on slug (the disk-truth
         // identifier). The visible label is the user-given `name`, which can
         // diverge from slug after rename / when name has chars slug stripped.
         const isActive = p.slug === selectedSlug
         const isOpen = isActive && !!expanded[p.slug]
+        const isHighlighted = idx === highlightIdx
         // Row click: open an unopened project (selecting it); re-clicking the
         // already-open active project collapses it. The chevron mirrors state.
         const onRowClick = () => {
@@ -604,8 +622,8 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         return (
           <div key={p.slug}>
             <div
-              ref={isActive ? selectedProjRef : undefined}
-              className={'proj' + (isActive ? ' active' : '')}
+              ref={isActive ? selectedProjRef : isHighlighted ? highlightRowRef : undefined}
+              className={'proj' + (isActive ? ' active' : '') + (isHighlighted ? ' kbd-highlight' : '')}
               onClick={onRowClick}
             >
               {/* folder + chevron share one slot — the twisty replaces the

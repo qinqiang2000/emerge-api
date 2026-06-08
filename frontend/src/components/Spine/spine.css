@@ -32,6 +32,9 @@
 .fs .proj{display:flex;align-items:center;gap:7px;margin:1px 8px;padding:6px 8px;border-radius:8px;font-family:var(--sans);font-size:13px;color:var(--ink-3);cursor:default;white-space:nowrap;overflow:hidden;transition:background .12s, color .12s}
 .fs .proj:hover{background:var(--paper-2);color:var(--ink)}
 .fs .proj.active{color:var(--ink);background:var(--paper-3);font-weight:500}
+.fs .proj.kbd-highlight{background:var(--paper-2);color:var(--ink)}
+.fs .proj.kbd-highlight .proj-disc .proj-icon{opacity:0}
+.fs .proj.kbd-highlight .proj-disc .proj-arrow{opacity:1;color:var(--ink-3)}
 /* disclosure slot: folder icon + chevron share ONE 15px slot so the folder
    column sits flush under the ~/projects label (no reserved-chevron indent).
    Resting = folder; hover / active = the twisty takes over the same slot. */
