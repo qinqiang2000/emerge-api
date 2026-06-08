@@ -1,6 +1,6 @@
 # 2026-06-08 — Cowork / Desktop remote MCP connector
 
-> **Status**: P1 + P1.5 shipped & committed (live ngrok→Cowork dogfood verified in P1.5); 依赖刷新 done (lock bumped, app-boot smoke green, **P2 长杆经实测被 mcp SDK 消掉** — 详见 tip 3 执行记录 + P2 缩范围)，待人跑全套 + dogfood 后 commit；P2–P4 planned
+> **Status**: P1 + P1.5 + 依赖刷新 + **P2（OAuth 2.0 + DCR）shipped & committed**（P2 用 `mcp.server.auth` 脚手架，自写仅 provider+consent+接线；8 OAuth 测试含完整 HTTP loop 全绿）；待 ngrok→Cowork **登录式** dogfood；P3（plugin bundle）/ P4（工具收敛）planned
 > **Inputs**: research session 2026-06-08 (Anthropic Cowork docs) + tips: (1) 最优集成点为准，不照搬旧约定 (2) 现在就给客户队友用，不只是自己 (3) 评估包升级
 > **Closes**: 「同事」北极星的远程落地 —「换前端=换 agent 客户端」从理论变成可连的 connector
 > **Does NOT close**: OAuth 一键 onboarding（P2）、plugin marketplace 分发（P3）、工具收敛（P4）
@@ -68,7 +68,19 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 
 **Follow-up（P1.6 候选，未做）**：完整 reconcile —— Step B 砍的 23 个里还有哪些"读取/写入"在远程无 FS 下隐形（`get_prediction`/`get_reviewed`/`list_prompts`/`list_models`/`create_prompt`/`write_model`…）。本期只解锁 extract→review 最小闭环的发现三件；写操作与其余读取按 dogfood 反馈增量回归 headless 面。
 
-### P2 — OAuth 2.0 + DCR（planned；**长杆已被 SDK 消掉**，见 2026-06-09 依赖刷新）
+### P2 — OAuth 2.0 + DCR（✅ shipped 2026-06-09；**长杆经实测被 SDK 消掉**）
+
+**落地**（commit 见下）：
+- `app/auth/oauth.py`：`EmergeOAuthProvider` 实现 `OAuthAuthorizationServerProvider` Protocol，后端到 `_auth/oauth_{clients,txns,codes,tokens}.json`（真实根，cross-team global；token 存 sha256，`emrg_at_`/`emrg_rt_` 前缀；access 1h、refresh 永不过期可撤、code/txn 短 TTL；refresh 轮换、按 grant 撤销）。
+- `app/api/routes/oauth_consent.py`：session-gated 服务端渲染 consent 屏（未登录则同页 email/password 一步登录+授权，零前端耦合，emerge paper/ochre 配色，全字段 `html.escape`）。
+- `app/main.py`：`oauth_enabled()`（= 配了 `EMERGE_PUBLIC_BASE_URL`）时 `app.router.routes.extend(create_auth_routes(provider, issuer, ClientRegistrationOptions(enabled=True), RevocationOptions(enabled=True)))` + `create_protected_resource_routes(.../mcp)`；未配则只留 P1 `?token=`。
+- `app/api/mcp_remote.py`：`/mcp` bearer 第 4 通道（`emrg_at_`→`load_access_token`→subject→user→team workspace）+ 401 带 RFC9728 `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"`（仅 oauth_enabled 时）。
+- `paths.py`/`config.py`：4 个 `oauth_*` 路径 + `public_base_url` 设置。
+- `tests/unit/test_oauth.py`（8 passed）：provider 全生命周期 roundtrip、refresh 轮换、revoke 杀 grant、txn/code 过期、`/mcp` OAuth-bearer 路由、坏 token 401、`WWW-Authenticate` 开关，**+ 完整 HTTP loop**（DCR→/authorize→consent 登录+approve→/token+PKCE→用 access token 解析回 team）。回归：mcp_remote+symmetry 10、auth 32 全绿；OAuth-enabled app-boot 七路由齐挂。
+
+**Pending dogfood**：设 `EMERGE_PUBLIC_BASE_URL=<ngrok https>` → 在 Cowork/Desktop「Add custom connector」用**登录**（而非贴 PAT）onboard 一次。
+
+原计划（保留备查）：
 
 让 Cowork/Desktop「Add custom connector」用**登录**而非手贴 PAT onboard 队友。需要：authorization server（`/authorize` `/token` `/register` DCR）、consent、token↔user 映射（复用 PAT 存储层）、`WWW-Authenticate` + protected-resource metadata 让客户端发现。回调 `https://claude.ai/api/mcp/auth_callback`。企业可走 admin `managedMcpServers` + `headersHelper` 注入 per-user 短效 header，绕过 per-user OAuth。
 

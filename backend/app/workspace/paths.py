@@ -356,6 +356,29 @@ def pats_path(workspace_root: Path) -> Path:
     return auth_dir(workspace_root) / "pats.json"
 
 
+# --- OAuth 2.0 authorization server (P2; login-based custom connector) -------
+# All four live beside users/teams/pats at the TRUE root — OAuth identity is
+# cross-team global, just like PATs. See `app/auth/oauth.py`.
+def oauth_clients_path(workspace_root: Path) -> Path:
+    """DCR-registered OAuth clients (persistent)."""
+    return auth_dir(workspace_root) / "oauth_clients.json"
+
+
+def oauth_txns_path(workspace_root: Path) -> Path:
+    """Pending `/authorize` transactions awaiting consent (short TTL)."""
+    return auth_dir(workspace_root) / "oauth_txns.json"
+
+
+def oauth_codes_path(workspace_root: Path) -> Path:
+    """Issued authorization codes (one-time, short TTL)."""
+    return auth_dir(workspace_root) / "oauth_codes.json"
+
+
+def oauth_tokens_path(workspace_root: Path) -> Path:
+    """Issued access + refresh tokens (sha256 only, like pats.json)."""
+    return auth_dir(workspace_root) / "oauth_tokens.json"
+
+
 def teams_root(workspace_root: Path) -> Path:
     """`workspace_root/teams/` — the parent of every per-team workspace."""
     return workspace_root / "teams"

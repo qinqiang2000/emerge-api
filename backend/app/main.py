@@ -79,9 +79,14 @@ app.add_middleware(
 
 from app.api.routes import auth as auth_route
 from app.api.routes import chat as chat_route
+from app.api.routes import oauth_consent as oauth_consent_route
 from app.api.routes import turns as turns_route
 
 app.include_router(auth_route.router)
+# OAuth consent screen (P2). Self-managing session; safe to include always — the
+# SDK authorization-server routes that drive it are mounted separately below, only
+# when a public origin is configured.
+app.include_router(oauth_consent_route.router)
 
 if os.getenv("EMERGE_TEST_MODE") == "1":
     # Register the e2e stub turn routes *before* both the real ``turns_route``
@@ -283,6 +288,45 @@ from app.api.mcp_remote import RemoteMcpRegistry, make_mcp_asgi, remote_enabled 
 
 if remote_enabled():
     app.mount("/mcp", make_mcp_asgi(lambda: getattr(app.state, "mcp_registry", None)))
+
+# OAuth 2.0 Authorization Server (P2) — `/authorize` `/token` `/register` (DCR)
+# `/revoke` + `.well-known/oauth-authorization-server` come straight from the
+# `mcp.server.auth` scaffolding; we only supply `EmergeOAuthProvider`. Plus the
+# RFC 9728 protected-resource metadata that tells a Claude client where to find
+# this AS. Mounted only when a public origin is set (it is the advertised issuer
+# and consent-redirect base — see `Settings.public_base_url`); otherwise the P1
+# `?token=` PAT URL remains the onboarding path. Appending Starlette routes onto
+# `app.router.routes` (the FastMCP pattern) keeps these at the true root paths.
+from app.auth.oauth import get_oauth_provider, oauth_enabled  # noqa: E402
+
+if oauth_enabled():
+    from pydantic import AnyHttpUrl  # noqa: E402
+    from mcp.server.auth.routes import (  # noqa: E402
+        create_auth_routes,
+        create_protected_resource_routes,
+    )
+    from mcp.server.auth.settings import (  # noqa: E402
+        ClientRegistrationOptions,
+        RevocationOptions,
+    )
+
+    _oauth_base = get_settings().public_base_url.rstrip("/")
+    _oauth_issuer = AnyHttpUrl(_oauth_base)
+    app.router.routes.extend(
+        create_auth_routes(
+            get_oauth_provider(),
+            _oauth_issuer,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+            revocation_options=RevocationOptions(enabled=True),
+        )
+    )
+    app.router.routes.extend(
+        create_protected_resource_routes(
+            resource_url=AnyHttpUrl(f"{_oauth_base}/mcp"),
+            authorization_servers=[_oauth_issuer],
+            resource_name="emerge",
+        )
+    )
 
 
 async def _start_remote_mcp_on_startup() -> None:

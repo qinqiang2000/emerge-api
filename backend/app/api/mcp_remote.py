@@ -42,6 +42,7 @@ from starlette.requests import Request
 from app.auth import store
 from app.auth.deps import _resolve_team_workspace, _unauthorized
 from app.auth.models import User
+from app.auth.oauth import ACCESS_PREFIX, get_oauth_provider, oauth_enabled
 from app.auth.tokens import verify_pat
 from app.config import get_settings
 from app.jobs import get_runner
@@ -138,16 +139,29 @@ class RemoteMcpRegistry:
         self._by_ws.clear()
 
 
-async def _send_json(send: Callable[[dict], Awaitable[None]], status: int, payload: dict) -> None:
+async def _send_json(
+    send: Callable[[dict], Awaitable[None]],
+    status: int,
+    payload: dict,
+    extra_headers: Optional[list[tuple[bytes, bytes]]] = None,
+) -> None:
     body = json.dumps(payload).encode()
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", b"application/json")],
-        }
-    )
+    headers = [(b"content-type", b"application/json")]
+    if extra_headers:
+        headers.extend(extra_headers)
+    await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
+
+
+def _www_authenticate_header() -> Optional[list[tuple[bytes, bytes]]]:
+    """RFC 9728 challenge pointing a Claude client at this server's OAuth AS.
+    Only emitted when the OAuth flow is enabled (a public origin is configured);
+    without it the client just falls back to the `?token=` PAT URL."""
+    if not oauth_enabled():
+        return None
+    base = get_settings().public_base_url.rstrip("/")
+    prm = f"{base}/.well-known/oauth-protected-resource/mcp"
+    return [(b"www-authenticate", f'Bearer resource_metadata="{prm}"'.encode())]
 
 
 async def _authenticate(req: Request) -> Path:
@@ -170,9 +184,16 @@ async def _authenticate(req: Request) -> Path:
 
     user: Optional[User] = None
     if token:
-        uid = await verify_pat(root, token)
-        if uid:
-            user = await store.get_user(root, uid)
+        # An `emrg_at_…` is an OAuth access token (P2 login flow); anything else
+        # is treated as a PAT (P1). Both resolve to a User, then a team workspace.
+        if token.startswith(ACCESS_PREFIX):
+            access = await get_oauth_provider().load_access_token(token)
+            if access and access.subject:
+                user = await store.get_user(root, access.subject)
+        else:
+            uid = await verify_pat(root, token)
+            if uid:
+                user = await store.get_user(root, uid)
     if user is None:
         uid = req.scope.get("session", {}).get("uid") if req.scope.get("session") else None
         if uid:
@@ -214,10 +235,15 @@ def make_mcp_asgi(get_registry: Callable[[], Optional[RemoteMcpRegistry]]):
             workspace = await _authenticate(req)
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, dict) else {}
-            await _send_json(send, exc.status_code, {
-                "error_code": detail.get("error_code", "unauthorized"),
-                "error_message_en": detail.get("error_message_en", str(exc.detail)),
-            })
+            await _send_json(
+                send,
+                exc.status_code,
+                {
+                    "error_code": detail.get("error_code", "unauthorized"),
+                    "error_message_en": detail.get("error_message_en", str(exc.detail)),
+                },
+                extra_headers=_www_authenticate_header() if exc.status_code == 401 else None,
+            )
             return
 
         manager = await registry.manager_for(workspace)

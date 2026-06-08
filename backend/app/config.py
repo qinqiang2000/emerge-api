@@ -99,6 +99,13 @@ class Settings(BaseSettings):
     session_max_age: int = 90 * 24 * 60 * 60
     # Name of the team that existing pre-tenancy projects migrate into.
     bootstrap_team_name: str = "Default Team"
+    # Public origin this server is reachable at (e.g. https://abc.ngrok.app or
+    # the prod domain). REQUIRED to enable the OAuth 2.0 custom-connector flow
+    # (P2): it is the OAuth `issuer` advertised in `.well-known` metadata and
+    # the base of the consent-redirect URL, so it must be the exact HTTPS origin
+    # the Claude client sees. Empty → OAuth AS is not mounted and teammates
+    # onboard via the P1 `?token=` PAT URL instead. No trailing slash needed.
+    public_base_url: str = ""
     # First-boot superuser seed (optional). When both are set and no superuser
     # exists yet, `create_superuser` bootstrap mints one. Never logged.
     superuser_email: str | None = None
