@@ -2,7 +2,12 @@ import asyncio
 import logging
 import os
 import time
+import warnings
 from pathlib import Path
+
+# Pydantic v2 retains a deprecated v1 `BaseModel.schema()` classmethod for compat.
+# Our fields named "schema" shadow it harmlessly — suppress the noise.
+warnings.filterwarnings("ignore", message='Field name "schema".*shadows', category=UserWarning)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
