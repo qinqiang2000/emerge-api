@@ -26,16 +26,34 @@ def get_provider_for_model(
     def _google() -> Provider:
         from app.provider.google import GoogleProvider
 
-        # Vertex (GCP/ADC) vs AI Studio (api_key) is chosen by the SDK's own
-        # standard env var so the switch is config, not code. Off by default →
-        # live prod keeps using GOOGLE_API_KEY. The offline OCR backfill flips
-        # GOOGLE_GENAI_USE_VERTEXAI=true (+ GOOGLE_CLOUD_PROJECT/LOCATION) for its
-        # process only, routing the heavy historical pass through GCP/Vertex.
-        use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() in (
-            "1", "true", "yes",
+        # Three Gemini surfaces, picked by env (config, not code):
+        #   • AI Studio (default)         — GOOGLE_API_KEY, no flag.
+        #   • Vertex / "Gemini Enterprise Agent Platform" via API KEY (preferred
+        #     Vertex path, no host login) — flag on + a Vertex api key.
+        #   • Vertex via ADC (legacy, host gcloud login) — flag on + no api key,
+        #     resolves bearer from GOOGLE_CLOUD_PROJECT/LOCATION. Kept for the
+        #     offline OCR backfill on hosts that already have ADC.
+        # The flag is the SDK's own env var GOOGLE_GENAI_USE_VERTEXAI, or its
+        # newer alias GOOGLE_GENAI_USE_ENTERPRISE (the platform's rename).
+        def _truthy(name: str) -> bool:
+            return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
+
+        use_vertex = _truthy("GOOGLE_GENAI_USE_VERTEXAI") or _truthy(
+            "GOOGLE_GENAI_USE_ENTERPRISE"
         )
+        # In Vertex mode prefer a dedicated key so a present AI Studio
+        # GOOGLE_API_KEY needn't be overwritten; fall back to GOOGLE_API_KEY to
+        # match Google's docs (which reuse that var). An empty key → ADC branch.
+        if use_vertex:
+            key = (
+                api_key
+                or os.getenv("GOOGLE_VERTEX_API_KEY")
+                or os.getenv("GOOGLE_API_KEY", "")
+            )
+        else:
+            key = api_key or os.getenv("GOOGLE_API_KEY", "")
         return GoogleProvider(
-            api_key=api_key or os.getenv("GOOGLE_API_KEY", ""),
+            api_key=key,
             proxy=os.getenv("GOOGLE_PROXY") or None,
             use_vertex=use_vertex,
             vertex_project=os.getenv("GOOGLE_CLOUD_PROJECT") or None,

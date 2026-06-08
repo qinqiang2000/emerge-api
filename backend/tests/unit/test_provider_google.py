@@ -78,3 +78,93 @@ async def test_google_does_not_retry_non_retryable() -> None:
                 user_content=[TextBlock(text="x")],
                 response_schema=_SCHEMA,
             )
+
+
+# ── Client construction: which Gemini surface for which args ─────────────────
+
+
+def test_google_aistudio_default_branch() -> None:
+    """No vertex flag → plain AI Studio api_key client, never vertexai."""
+    from app.provider.google import GoogleProvider
+
+    with patch("google.genai.Client") as mock_client_cls:
+        GoogleProvider(api_key="ai-studio-key")
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["api_key"] == "ai-studio-key"
+        assert "vertexai" not in kwargs
+
+
+def test_google_vertex_apikey_express_branch() -> None:
+    """use_vertex + api_key → express mode: vertexai+api_key, NO project/location.
+
+    project/location are mutually exclusive with api_key in the SDK (it raises if
+    both are passed), and the key wins on conflict — so they must be dropped here.
+    """
+    from app.provider.google import GoogleProvider
+
+    with patch("google.genai.Client") as mock_client_cls:
+        GoogleProvider(
+            api_key="AQ.vertex-key",
+            use_vertex=True,
+            vertex_project="proj-x",
+            vertex_location="us-east4",
+        )
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["vertexai"] is True
+        assert kwargs["api_key"] == "AQ.vertex-key"
+        assert "project" not in kwargs
+        assert "location" not in kwargs
+
+
+def test_google_vertex_adc_branch_when_no_key() -> None:
+    """use_vertex + empty api_key → ADC: vertexai+project+location, no api_key."""
+    from app.provider.google import GoogleProvider
+
+    with patch("google.genai.Client") as mock_client_cls:
+        GoogleProvider(
+            api_key="",
+            use_vertex=True,
+            vertex_project="proj-x",
+            vertex_location="us-central1",
+        )
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["vertexai"] is True
+        assert kwargs["project"] == "proj-x"
+        assert kwargs["location"] == "us-central1"
+        assert "api_key" not in kwargs
+
+
+# ── Factory routing from env vars ────────────────────────────────────────────
+
+
+def test_factory_enterprise_alias_and_dedicated_key(monkeypatch) -> None:
+    """GOOGLE_GENAI_USE_ENTERPRISE flips Vertex; GOOGLE_VERTEX_API_KEY preferred,
+    and a present AI Studio GOOGLE_API_KEY is left untouched (key wins)."""
+    from app.provider import get_provider_for_model
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", "true")
+    monkeypatch.setenv("GOOGLE_VERTEX_API_KEY", "AQ.vertex-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "ai-studio-key")
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+
+    with patch("google.genai.Client") as mock_client_cls:
+        get_provider_for_model("gemini-2.5-flash")
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["vertexai"] is True
+        assert kwargs["api_key"] == "AQ.vertex-key"
+
+
+def test_factory_vertex_key_falls_back_to_google_api_key(monkeypatch) -> None:
+    """Doc-literal config: GOOGLE_API_KEY holds the Vertex key, no dedicated var."""
+    from app.provider import get_provider_for_model
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "1")
+    monkeypatch.delenv("GOOGLE_VERTEX_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_GENAI_USE_ENTERPRISE", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "AQ.in-google-api-key")
+
+    with patch("google.genai.Client") as mock_client_cls:
+        get_provider_for_model("gemini-2.5-flash")
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["vertexai"] is True
+        assert kwargs["api_key"] == "AQ.in-google-api-key"

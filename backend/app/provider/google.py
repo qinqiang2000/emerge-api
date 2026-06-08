@@ -39,16 +39,25 @@ class GoogleProvider(Provider):
         if proxy:
             client_args["proxy"] = proxy
         http_options = HttpOptions(client_args=client_args, async_client_args=client_args)
-        if use_vertex:
-            # GCP Vertex AI path: auth via Application Default Credentials (the ADC
-            # file / gcloud login on the host), NOT an API key — the two are
-            # mutually exclusive in the SDK, so we pass project+location and let
-            # google.auth resolve the bearer token. Used for the offline OCR
-            # backfill (warm_textlayer.py) so the heavy historical pass runs on
-            # GCP/Vertex while live prod stays on the AI Studio api_key path
-            # (use_vertex defaults False → unchanged). Same google-genai client,
-            # only the transport/auth differs; spans land in the identical
-            # content-addressed sidecar (provider-agnostic).
+        if use_vertex and api_key:
+            # Vertex AI (Gemini Enterprise Agent Platform) via API KEY — "express
+            # mode". No host login / ADC / gcloud needed: the key alone auth,
+            # routed to the global `aiplatform.googleapis.com` surface with an
+            # `x-goog-api-key` header. project/location are mutually exclusive
+            # with api_key in the SDK initializer (it raises if both are passed),
+            # and the API key wins on conflict, so we deliberately DON'T pass
+            # them here — they only matter for the ADC branch below. This is the
+            # preferred Vertex path: same capabilities as ADC, zero client-side
+            # credential setup.
+            self._client = genai.Client(
+                vertexai=True, api_key=api_key, http_options=http_options
+            )
+        elif use_vertex:
+            # GCP Vertex AI via Application Default Credentials (the ADC file /
+            # gcloud login on the host) — legacy / offline path kept for the OCR
+            # backfill (warm_textlayer.py) on hosts that already have ADC. Needs
+            # project+location so google.auth can resolve the bearer token; used
+            # only when no Vertex api_key is configured.
             self._client = genai.Client(
                 vertexai=True,
                 project=vertex_project,
@@ -56,6 +65,7 @@ class GoogleProvider(Provider):
                 http_options=http_options,
             )
         else:
+            # AI Studio (generativelanguage) via api_key — unchanged default.
             self._client = genai.Client(api_key=api_key, http_options=http_options)
         self._timeout = timeout
         self._retry_max = retry_max_attempts
