@@ -166,6 +166,8 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // Project filter — only surfaces once the list is long enough to need it.
   // Pure client-side name match; never touches selection.
   const [filter, setFilter] = useState('')
+  const [filterFocused, setFilterFocused] = useState(false)
+  const filterInputRef = useRef<HTMLInputElement | null>(null)
   const selectedProjRef = useRef<HTMLDivElement | null>(null)
 
   // Per-project tree expansion. Default collapsed: nothing here until the user
@@ -211,7 +213,24 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // warrant it. Match on the human `name`; the selected project always stays
   // visible so its inline tree never vanishes mid-interaction.
   const FILTER_THRESHOLD = 8
-  const showFilter = projects.length > FILTER_THRESHOLD
+  const showFilter = projects.length > FILTER_THRESHOLD || filterFocused
+
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  const filterPlaceholder = t('spine.filter.placeholder').replace('⌘K', isMac ? '⌘K' : 'Ctrl+K')
+
+  // Cmd+K (Mac) / Ctrl+K (Win/Linux) focuses the project filter
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setFilterFocused(true)
+        // defer so the input is rendered before focusing
+        setTimeout(() => filterInputRef.current?.focus(), 0)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
   const filteredProjects = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return projects
@@ -534,11 +553,14 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         <div className="fs-filter">
           <Search size={13} className="fs-filter-icon" strokeWidth={1.75} />
           <input
+            ref={filterInputRef}
             className="fs-filter-input"
             type="text"
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder={t('spine.filter.placeholder')}
+            onBlur={() => { if (projects.length <= FILTER_THRESHOLD && !filter) setFilterFocused(false) }}
+            onKeyDown={e => { if (e.key === 'Escape') { setFilter(''); filterInputRef.current?.blur() } }}
+            placeholder={filterPlaceholder}
             spellCheck={false}
             autoComplete="off"
           />
