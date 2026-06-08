@@ -93,3 +93,32 @@ async def test_tenant_mode_bad_token_rejected(workspace) -> None:
     with pytest.raises(HTTPException) as ei:
         await _authenticate(_req(headers={"Authorization": "Bearer emrg_pat_bogus"}))
     assert ei.value.status_code == 401
+
+
+async def _server_tool_names(headless: bool) -> set[str]:
+    from unittest.mock import AsyncMock
+
+    from mcp.types import ListToolsRequest
+
+    from app.tools import build_emerge_mcp
+
+    cfg = build_emerge_mcp(
+        workspace=get_settings().workspace_root,
+        provider=AsyncMock(),
+        job_runner=AsyncMock(),
+        headless=headless,
+    )
+    server = cfg["instance"]
+    handler = server.request_handlers[ListToolsRequest]
+    result = await handler(ListToolsRequest(method="tools/list"))
+    return {t.name for t in result.root.tools}
+
+
+async def test_discovery_tools_headless_only() -> None:
+    """list_projects/list_docs/read_schema appear on the headless (stdio/remote)
+    server but NOT on the in-session chat server (which uses built-in Bash)."""
+    discovery = {"list_projects", "list_docs", "read_schema"}
+    headless = await _server_tool_names(headless=True)
+    chat = await _server_tool_names(headless=False)
+    assert discovery <= headless, f"headless missing {discovery - headless}"
+    assert not (discovery & chat), f"chat server leaked discovery tools {discovery & chat}"

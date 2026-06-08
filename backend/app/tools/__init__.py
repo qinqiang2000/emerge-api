@@ -96,8 +96,20 @@ def build_emerge_mcp(
     workspace: Path,
     provider: Provider,
     job_runner: "JobRunner",
+    *,
+    headless: bool = False,
 ) -> McpSdkServerConfig:
     """Construct an in-process MCP server exposing emerge's business tools.
+
+    ``headless=True`` additionally registers the filesystem-*discovery* tools
+    (``list_projects`` / ``list_docs`` / ``read_schema``). emerge's own chat
+    agent shares the workspace filesystem and discovers via the SDK built-in
+    Bash/Read (Step B cut these wrappers), so it builds with ``headless=False``.
+    But a REMOTE MCP client (Cowork / Desktop, via ``build_mcp_server``) runs
+    its Bash in a different sandbox and cannot see this server's disk — without
+    these tools a remote agent has no way to enumerate what exists. This is the
+    additive twin of ``_HEADLESS_EXCLUDE`` (which subtracts the ``ui_*`` tools
+    from the same headless surface).
 
     Step B (SDK reframe) cut the filesystem-wrapper tools — ls/cp/rm/cat
     replacements (`list_docs`, `upload_doc`, `delete_doc`, `read_schema`,
@@ -1406,10 +1418,59 @@ def build_emerge_mcp(
         )
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
-    return create_sdk_mcp_server(
-        name="emerge_tools",
-        version="0.0.1",
-        tools=[
+    # ── headless discovery tools (stdio + remote MCP only) ─────────────────
+    # Registered only when `headless=True` — see the build_emerge_mcp docstring
+    # for why a remote agent (no shared filesystem) needs these but the
+    # in-session chat agent (Bash-on-workspace) does not. HTTP twins already
+    # exist (GET /lab/projects · .../docs · .../schema/raw) and are mapped in
+    # test_symmetry_invariant.py, so the dual-form contract holds.
+    @tool(
+        "list_projects",
+        "List all projects in the current team workspace. Returns "
+        "[{slug, status, ...}]; `slug` is the handle every other tool takes. "
+        "Call this FIRST when you don't yet know which projects exist — a "
+        "remote MCP client cannot `ls` this server's disk. Rendering: headless "
+        "→ print the projects as a list (slug + status).",
+        {"type": "object", "properties": {}},
+    )
+    async def t_list_projects(args: dict[str, Any]) -> dict[str, Any]:
+        out = await projects_mod.list_projects(workspace)
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "list_docs",
+        "List the documents in a project's docs/ sample set. Returns "
+        "[{filename, ...}]; `filename` is the doc handle for extract_one / "
+        "read_doc_image / save_reviewed. Pairs with list_projects so a remote "
+        "client can navigate without filesystem access. Rendering: headless → "
+        "print the filenames.",
+        {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
+    )
+    async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("list_docs"))}]}
+        out = await docs_mod.list_docs(workspace, args["slug"])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "read_schema",
+        "Read a project's active extraction schema as a list of field "
+        "definitions [{name, type, description, ...}]. Lets a remote client "
+        "inspect what the project extracts before running it (the in-session "
+        "agent Reads schema.json directly). Rendering: headless → summarise the "
+        "fields (name · type).",
+        {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
+    )
+    async def t_read_schema(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("read_schema"))}]}
+        fields = await schema_mod.read_schema(workspace, args["slug"])
+        return {"content": [{"type": "text", "text": _json.dumps(
+            [f.model_dump(mode="json") for f in fields], ensure_ascii=False)}]}
+
+    _tools = [
             t_create_project,
             t_delete_project,
             t_promote_chat_to_project,
@@ -1453,7 +1514,13 @@ def build_emerge_mcp(
             t_ui_set_active_tab,
             t_ui_set_active_entity,
             t_ask_user,
-        ],
+    ]
+    if headless:
+        _tools += [t_list_projects, t_list_docs, t_read_schema]
+    return create_sdk_mcp_server(
+        name="emerge_tools",
+        version="0.0.1",
+        tools=_tools,
     )
 
 

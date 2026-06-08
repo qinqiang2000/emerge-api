@@ -90,6 +90,10 @@ def build_mcp_server(
         workspace=workspace,
         provider=provider,
         job_runner=job_runner,
+        # Headless clients (stdio Claude Code/Desktop, remote Cowork) don't share
+        # this server's filesystem, so they need the discovery tools the chat
+        # agent gets from built-in Bash. See build_emerge_mcp docstring.
+        headless=True,
     )
     server = config["instance"]
 

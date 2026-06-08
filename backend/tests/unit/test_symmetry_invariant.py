@@ -124,6 +124,13 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "history_log":     ("GET",  r"^/lab/history$"),
     "history_diff":    ("GET",  r"^/lab/history/diff$"),
     "history_restore": ("POST", r"^/lab/history/restore$"),
+    # Headless discovery tools — registered only on the stdio/remote MCP
+    # surface (build_emerge_mcp(headless=True)); the in-session chat agent
+    # discovers via built-in Bash/Read instead. Their HTTP twins predate the
+    # Step B wrapper cut and are still live, so the dual-form contract holds.
+    "list_projects": ("GET", r"^/lab/projects$"),
+    "list_docs":     ("GET", r"^/lab/projects/\{slug\}/docs$"),
+    "read_schema":   ("GET", r"^/lab/projects/\{slug\}/schema/raw$"),
 }
 
 

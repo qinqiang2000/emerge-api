@@ -58,6 +58,16 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 
 **Pending:** commit；真机 dogfood = 本地 `/mcp` → ngrok → 在自己的 Cowork/Desktop「Add custom connector」跑通一次 extract。
 
+### P1.5 — headless discovery tools（✅ shipped；P1 dogfood 暴露）
+
+**根因**：SDK reframe（Step B）砍了 ~23 个 filesystem-wrapper 工具，改让 agent 用内置 Bash `ls`/`cat` 工作区——这**默认了 agent 与工作区共享文件系统**。emerge 自家 chat（agent brain 在服务器，cwd=工作区）和本地 Claude Code 成立；**远程 MCP 不成立**：Cowork 的 Bash 在它自己的云沙箱，看不到服务器磁盘。2026-06-08 首次 Cowork dogfood（team `发票云空间`，PAT 路由正确生效）实锤：agent 「没有列出所有项目的接口」——`list_projects` 只是撞到的第一个，这是整类"发现/读取"工具对任何不共享 FS 的客户端集体隐形。
+
+**修法**：在 **headless 层**（`build_emerge_mcp(headless=True)`，stdio + remote 都经 `build_mcp_server` 传入）加回三个只读发现工具 `list_projects` / `list_docs` / `read_schema`；emerge 自家 chat 走默认 `headless=False`，零影响。这是 `_HEADLESS_EXCLUDE`（headless 减 `ui_*`）的**加法孪生**。三者 HTTP twin 早已存在（`GET /lab/projects` · `.../docs` · `.../schema/raw`），补进 `_TOOL_HTTP_MAP` → 对称契约不破。`_discover_tools()` 正则扫 `__init__.py` 源码，故 `@tool` 常驻源码、仅注册受 flag 控制。
+
+**Verified**：单测 `test_discovery_tools_headless_only`（headless 46 工具含 3 发现 / chat 43 无泄漏）；symmetry 3 passed；广测 394 passed 零回归。Live remote（PAT over Streamable HTTP）`call_tool("list_projects")` → 真实列出 team 工作区项目 `[(远程发现验证, empty)]`。
+
+**Follow-up（P1.6 候选，未做）**：完整 reconcile —— Step B 砍的 23 个里还有哪些"读取/写入"在远程无 FS 下隐形（`get_prediction`/`get_reviewed`/`list_prompts`/`list_models`/`create_prompt`/`write_model`…）。本期只解锁 extract→review 最小闭环的发现三件；写操作与其余读取按 dogfood 反馈增量回归 headless 面。
+
 ### P2 — OAuth 2.0 + DCR（planned）
 
 让 Cowork/Desktop「Add custom connector」用**登录**而非手贴 PAT onboard 队友。需要：authorization server（`/authorize` `/token` `/register` DCR）、consent、token↔user 映射（复用 PAT 存储层）、`WWW-Authenticate` + protected-resource metadata 让客户端发现。回调 `https://claude.ai/api/mcp/auth_callback`。**这是长杆**（官方自认 remote connector 最常栽在 auth）。企业可走 admin `managedMcpServers` + `headersHelper` 注入 per-user 短效 header，绕过 per-user OAuth。
