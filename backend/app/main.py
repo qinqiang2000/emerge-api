@@ -269,6 +269,28 @@ async def _start_monitor_on_startup() -> None:
         await monitor.start()
 
 
+# Remote MCP (Streamable HTTP) — emerge as a Claude custom connector. Mounted at
+# import time; the per-team session managers are built lazily on first request.
+# NOT gated by `_skip_background_startup` (that switch conflates test + prewarm):
+# the registry constructor is cheap (no provider / no I/O), so creating it in
+# tests is harmless and no test hits `/mcp`. See `app/api/mcp_remote.py`.
+from app.api.mcp_remote import RemoteMcpRegistry, make_mcp_asgi, remote_enabled  # noqa: E402
+
+if remote_enabled():
+    app.mount("/mcp", make_mcp_asgi(lambda: getattr(app.state, "mcp_registry", None)))
+
+
+async def _start_remote_mcp_on_startup() -> None:
+    if remote_enabled():
+        app.state.mcp_registry = RemoteMcpRegistry()
+
+
+async def _stop_remote_mcp_on_shutdown() -> None:
+    registry = getattr(app.state, "mcp_registry", None)
+    if registry is not None:
+        await registry.shutdown()
+
+
 app.router.on_startup.append(_load_keystore_on_startup)
 app.router.on_startup.append(_migrate_team_dirs_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
@@ -278,6 +300,8 @@ app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_history_checkpoint_loop_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 app.router.on_startup.append(_start_monitor_on_startup)
+app.router.on_startup.append(_start_remote_mcp_on_startup)
+app.router.on_shutdown.append(_stop_remote_mcp_on_shutdown)
 
 
 @app.get("/healthz")
