@@ -4,13 +4,9 @@
 
 ## 配图
 
-- 本地文件（可拖进 excalidraw.com 或用 VS Code Excalidraw 插件打开）：
-  `docs/talks/2026-06-09-digital-colleague.excalidraw`
-- 在线（可分享 / 可二次编辑）：
-  https://excalidraw.com/#json=3kQ2m_tHcKeOtrq_0_Vcj,h7ehdrblTT9izZyWq7YShw
-
-图的主线（自上而下一条线 + 左侧旧范式对照）：
-人给目标 → 任意客户端（换前端=换 agent 客户端）→ Agent OS（替换专有 UI）← 能力包扩展 → MCP 连接器（工具=文件操作）→ 文件系统总线 → 提取/分类/匹配同源分叉。
+主白板（一张图含 ①范式 / ②应用全貌 / ③平台判断 + 右侧图例）：
+`docs/talks/2026-06-09-emerge-vision-board.excalidraw`（拖进 excalidraw.com 打开）。
+图例详表 + 架构判断全文见 `README.md`。本讲稿用图 ②「应用全貌」那一区即可。
 
 ---
 
