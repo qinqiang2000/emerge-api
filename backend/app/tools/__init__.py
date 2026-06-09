@@ -4,7 +4,12 @@ import json as _json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
+from claude_agent_sdk import (
+    McpSdkServerConfig,
+    ToolAnnotations,
+    create_sdk_mcp_server,
+    tool,
+)
 
 from app.provider.base import Provider
 from app.schemas.reviewed import ReviewedSource
@@ -90,6 +95,46 @@ def _extract_provider_error(exc: Exception) -> dict[str, Any]:
             "transient": transient,
         },
     }
+
+
+# ── tool annotations (MCP best practice) ───────────────────────────────────
+# `ToolAnnotations` are behavioural hints surfaced in the remote `tools/list`
+# (create_sdk_mcp_server bakes them into mcp.types.Tool). A client like Claude
+# Cowork uses them for its "Tool policy": auto-approve read-only tools, gate the
+# destructive ones. Per spec `destructiveHint` DEFAULTS TO TRUE, so a non-
+# destructive tool MUST say so explicitly — hence we annotate every tool from
+# these central buckets (single source of truth, easier to audit than 40
+# scattered decorator args). Anything not listed is a normal, non-destructive,
+# non-idempotent local mutation (destructiveHint=False, the safe-but-honest case).
+_READ_ONLY = frozenset({  # pure read / local compute — no durable state change
+    "list_projects", "list_docs", "read_prompt",
+    "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
+    "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
+    "readiness_check",
+})
+_DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should gate
+    "delete_project", "freeze_version", "issue_api_key", "promote_experiment",
+})
+_IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
+    "set_labeler_model", "set_translate_model", "set_proposer_model",
+    "switch_active_prompt", "switch_active_model", "write_schema",
+    "extract_textlayer", "translate_page",
+    "pause_job", "resume_job", "cancel_job",
+    "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
+})
+_TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
+    "derive_schema", "extract_one", "extract_with_experiment", "extract_textlayer",
+    "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
+})
+
+
+def _annotate(name: str) -> ToolAnnotations:
+    return ToolAnnotations(
+        readOnlyHint=name in _READ_ONLY,
+        destructiveHint=name in _DESTRUCTIVE,
+        idempotentHint=name in _IDEMPOTENT,
+        openWorldHint=name in _TOUCHES_PROVIDER,
+    )
 
 
 def build_emerge_mcp(
@@ -1523,6 +1568,10 @@ def build_emerge_mcp(
     ]
     if headless:
         _tools += [t_list_projects, t_list_docs, t_read_prompt]
+    # Stamp behavioural hints from the central buckets so the remote tools/list
+    # carries them (drives a client's auto-approve / destructive-gate policy).
+    for _t in _tools:
+        _t.annotations = _annotate(_t.name)
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",

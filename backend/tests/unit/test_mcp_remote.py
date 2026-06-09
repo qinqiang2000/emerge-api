@@ -122,3 +122,34 @@ async def test_discovery_tools_headless_only() -> None:
     chat = await _server_tool_names(headless=False)
     assert discovery <= headless, f"headless missing {discovery - headless}"
     assert not (discovery & chat), f"chat server leaked discovery tools {discovery & chat}"
+
+
+async def test_tool_annotations_drive_client_policy() -> None:
+    """Every tool carries MCP behavioural hints in the remote tools/list so a
+    client (Cowork) can auto-approve reads and gate destructive ops. Crucially,
+    a non-destructive mutation must say destructiveHint=False explicitly (the
+    spec default is True)."""
+    from unittest.mock import AsyncMock
+
+    from mcp.types import ListToolsRequest
+
+    from app.tools import build_emerge_mcp
+
+    server = build_emerge_mcp(
+        workspace=get_settings().workspace_root,
+        provider=AsyncMock(), job_runner=AsyncMock(), headless=True,
+    )["instance"]
+    handler = server.request_handlers[ListToolsRequest]
+    tools = (await handler(ListToolsRequest(method="tools/list"))).root.tools
+    ann = {t.name: t.annotations for t in tools}
+
+    assert all(a is not None for a in ann.values()), "every tool must be annotated"
+    # read-only getter → safe to auto-approve
+    assert ann["read_prompt"].readOnlyHint and not ann["read_prompt"].destructiveHint
+    assert ann["list_projects"].readOnlyHint
+    # irreversible / outward-facing → client should gate
+    assert ann["delete_project"].destructiveHint
+    assert ann["issue_api_key"].destructiveHint
+    # a normal mutation is explicitly NON-destructive (overrides the spec default)
+    assert ann["save_reviewed"].destructiveHint is False
+    assert ann["save_reviewed"].readOnlyHint is False
