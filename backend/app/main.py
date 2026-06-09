@@ -36,6 +36,7 @@ from app.api.routes import config as config_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
 from app.api.routes import ws as ws_route
+from app.api.routes import match as match_route
 from app.api.routes import models as models_route
 from app.api.routes import prompts as prompts_route
 from app.api.routes import publish as publish_route
@@ -112,6 +113,7 @@ app.include_router(chat_route.router)
 app.include_router(upload_route.router)
 app.include_router(projects_route.router)
 app.include_router(ws_route.router)
+app.include_router(match_route.router)
 app.include_router(docs_route.router)
 app.include_router(textlayer_route.router)
 app.include_router(translate_route.router)

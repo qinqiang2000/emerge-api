@@ -126,6 +126,7 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
 _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
     "derive_schema", "extract_one", "extract_with_experiment", "extract_textlayer",
     "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
+    "run_match", "score_match",  # L2 judge tie-breaker may call the LLM
 })
 
 
@@ -1633,6 +1634,136 @@ def build_emerge_mcp(
         return _ws_guard(lambda a: workspace_fs.ws_grep(
             workspace, a["pattern"], a.get("path", "."), a.get("glob")))(args)
 
+    # ── document matching (reconciliation) ─────────────────────────────────
+    # A match project references existing extract projects (anchor + sources)
+    # and reconciles their extracted fields. Rules live in a versioned match
+    # prompt (key_mappings + NL rules). See plan 2026-06-10-matching-p0-impl.md.
+    @tool(
+        "create_match_project",
+        "Create a reconciliation (match) project that cross-checks one ANCHOR "
+        "document set against one or more SOURCE sets — e.g. invoices ↔ "
+        "{payments, purchase orders, receipts}. `anchor` and each of `sources` "
+        "must be the slug of an EXISTING extract project (matching reads their "
+        "already-extracted fields, it does not re-extract). Returns "
+        "{project_id, slug}. Next: write_match_prompt to declare the key "
+        "field-mappings + rules, then run_match.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "anchor": {"type": "string"},
+                "sources": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["name", "anchor", "sources"],
+        },
+    )
+    async def t_create_match_project(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_project import MatchProjectError, create_match_project
+        try:
+            out = await create_match_project(
+                workspace, name=args["name"], anchor=args["anchor"],
+                sources=list(args.get("sources") or []),
+            )
+        except MatchProjectError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "write_match_prompt",
+        "Declare/refine a match project's rules — the prompt twin for matching. "
+        "`mappings` is keyed by SOURCE project slug; each entry is a list of "
+        "{anchor: <anchor field>, source: <source field>, tol: {type, abs?, "
+        "days?}} pairs. tol.type ∈ exact | number (abs tolerance) | date_days "
+        "(±days). `rules` is natural-language guidance for the L2 judge (e.g. "
+        "'订单号是主键，必须精确对上；商户名不同写法但同一公司视为一致'). Upserts the "
+        "project's single active match prompt (version bumps on content change). "
+        "Returns the match-prompt id.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "mappings": {"type": "object"},
+                "rules": {"type": "string"},
+                "label": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["slug", "mappings"],
+        },
+    )
+    async def t_write_match_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_prompt import write_match_prompt
+        mpr_id = await write_match_prompt(
+            workspace, args["slug"],
+            mappings=args["mappings"], rules=args.get("rules", ""),
+            label=args.get("label", ""), reason=args.get("reason", ""),
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(
+            {"match_prompt_id": mpr_id}, ensure_ascii=False)}]}
+
+    @tool(
+        "run_match",
+        "Run a match project's reconciliation: reads the anchor + source "
+        "extract results, judges candidate pairs (rules first, LLM tie-break on "
+        "ambiguous cases), assigns 1:1 per source, and writes a result with one "
+        "card per anchor (matched source doc or 'missing' per source) plus "
+        "orphan source docs. Returns a summary {run_id, cards, complete, "
+        "partial, unmatched, orphans}.",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_run_match(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_run import run_match
+        out = await run_match(workspace, args["slug"])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "save_reviewed_match",
+        "Record the human-verified pairing for one anchor doc as ground truth. "
+        "`expected` maps each source project slug → the TRUE source filename "
+        "that pairs with this anchor, or null when the anchor correctly has no "
+        "match in that source (e.g. an unpaid invoice). Feeds score_match.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "anchor_doc": {"type": "string"},
+                "expected": {"type": "object"},
+                "reason": {"type": "string"},
+            },
+            "required": ["slug", "anchor_doc", "expected"],
+        },
+    )
+    async def t_save_reviewed_match(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_project import MatchProjectError
+        from app.tools.match_review import save_reviewed_match
+        try:
+            out = await save_reviewed_match(
+                workspace, args["slug"], anchor_doc=args["anchor_doc"],
+                expected=dict(args.get("expected") or {}), reason=args.get("reason", ""),
+            )
+        except MatchProjectError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "score_match",
+        "Score a match project against its reviewed ground truth: re-runs the "
+        "match, then reports per-source precision/recall (over reviewed anchors "
+        "only) + doc_completeness (fraction of reviewed anchors whose full "
+        "pairing was exactly right). Returns {reviewed, per_source, "
+        "doc_completeness}.",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_score_match(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_review import score_match
+        out = await score_match(workspace, args["slug"])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -1660,6 +1791,11 @@ def build_emerge_mcp(
             t_promote_experiment,
             t_bench_view,
             t_fork_project,
+            t_create_match_project,
+            t_write_match_prompt,
+            t_run_match,
+            t_save_reviewed_match,
+            t_score_match,
             t_extract_one,
             t_save_reviewed,
             t_score,

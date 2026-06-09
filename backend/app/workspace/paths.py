@@ -538,3 +538,50 @@ def next_version_n(workspace: Path, slug: str) -> int:
         if n is not None:
             seen.append(n)
     return max(seen) + 1 if seen else 1
+
+
+# --- document matching (一锚多源核对, 2026-06-10) ----------------------------
+# A *match project* lives at `workspace/{slug}/` like any project — its
+# `project.json` carries `project_type="match"` + anchor/source references.
+# These mirror the prompt/version layout so the match prompt versions the same
+# way the extract prompt does.
+def match_prompts_dir(workspace: Path, slug: str) -> Path:
+    return project_dir(workspace, slug) / "match_prompts"
+
+
+def match_prompt_path(workspace: Path, slug: str, mpr_id: str) -> Path:
+    return match_prompts_dir(workspace, slug) / f"{mpr_id}.json"
+
+
+def match_prompt_versions_dir(workspace: Path, slug: str, mpr_id: str) -> Path:
+    """Append-only snapshot history for one match prompt. A DIR under
+    `match_prompts/_versions/{id}/` so a file-only scan of `match_prompts/`
+    skips it (mirrors `prompt_versions_dir`)."""
+    return match_prompts_dir(workspace, slug) / "_versions" / mpr_id
+
+
+def match_prompt_version_path(
+    workspace: Path, slug: str, mpr_id: str, version: int,
+) -> Path:
+    return match_prompt_versions_dir(workspace, slug, mpr_id) / f"v{version}.json"
+
+
+def matches_dir(workspace: Path, slug: str) -> Path:
+    """Root for `run_match` outputs: `{slug}/matches/{run_id}/result.json`.
+    These are DERIVED caches (re-run = re-build), so the whole `{run_id}/`
+    subtree may be `rmtree`'d — never user data."""
+    return project_dir(workspace, slug) / "matches"
+
+
+def match_result_path(workspace: Path, slug: str, run_id: str) -> Path:
+    return matches_dir(workspace, slug) / run_id / "result.json"
+
+
+def reviewed_matches_dir(workspace: Path, slug: str) -> Path:
+    """Human-confirmed reconcile cards (ground truth for `score_match`):
+    `{slug}/reviewed_matches/{anchor_doc}.json`. User data — never rmtree'd."""
+    return project_dir(workspace, slug) / "reviewed_matches"
+
+
+def reviewed_match_path(workspace: Path, slug: str, anchor_doc: str) -> Path:
+    return reviewed_matches_dir(workspace, slug) / f"{anchor_doc}.json"

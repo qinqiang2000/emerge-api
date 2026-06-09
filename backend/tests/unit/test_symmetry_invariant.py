@@ -112,6 +112,12 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Bench leaderboard (project-level horizontal view of prompt × model evals).
     # Both forms thin-delegate to `app.services.bench.compute_bench`.
     "bench_view":      ("GET",  r"^/lab/projects/\{slug\}/bench$"),
+    # Document matching (reconciliation) — app/api/routes/match.py.
+    "create_match_project": ("POST", r"^/lab/match/projects$"),
+    "write_match_prompt":   ("PUT",  r"^/lab/match/projects/\{slug\}/prompt$"),
+    "run_match":            ("POST", r"^/lab/match/projects/\{slug\}/run$"),
+    "save_reviewed_match":  ("POST", r"^/lab/match/projects/\{slug\}/reviewed$"),
+    "score_match":          ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
     # Publish + keys
     "freeze_version": ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
     "issue_api_key":  ("POST", r"^/lab/keys$"),

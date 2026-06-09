@@ -50,3 +50,11 @@ def new_team_id() -> str:
 
 def new_pat_id() -> str:
     return _new("pat")
+
+
+def new_match_prompt_id() -> str:
+    return _new("mpr")
+
+
+def new_match_run_id() -> str:
+    return _new("mr")
