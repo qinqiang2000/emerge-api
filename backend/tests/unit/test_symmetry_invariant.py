@@ -133,6 +133,11 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # read_prompt returns the active prompt (schema + global_notes) — its twin is
     # the active-prompt route, NOT schema/raw (which is fields-only YAML).
     "read_prompt":   ("GET", r"^/lab/projects/\{slug\}/prompts/active$"),
+    # Workspace filesystem bus (headless): generic ws_* tools share their pure
+    # logic with these team-scoped twins (app/api/routes/ws.py).
+    "ws_list":       ("GET", r"^/lab/ws/list$"),
+    "ws_read":       ("GET", r"^/lab/ws/read$"),
+    "ws_grep":       ("GET", r"^/lab/ws/grep$"),
 }
 
 

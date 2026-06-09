@@ -108,6 +108,7 @@ def _extract_provider_error(exc: Exception) -> dict[str, Any]:
 # non-idempotent local mutation (destructiveHint=False, the safe-but-honest case).
 _READ_ONLY = frozenset({  # pure read / local compute — no durable state change
     "list_projects", "list_docs", "read_prompt",
+    "ws_list", "ws_read", "ws_grep",
     "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
     "readiness_check",
@@ -1521,6 +1522,82 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(
             pv.model_dump(mode="json", exclude_none=True), ensure_ascii=False)}]}
 
+    # ── workspace filesystem tools (headless only) ─────────────────────────
+    # emerge's agent model is "paths are the API" (emerge_extractor.md). The
+    # in-session agent does this with built-in Bash/Glob/Grep/Read on the shared
+    # workspace FS; a REMOTE client's Bash is in a different sandbox, so we
+    # re-expose the SAME six verbs as MCP tools scoped to the team root. One
+    # surface restores every core object's read CRUD (objects ARE files). All
+    # paths are contained to the team workspace by `workspace_fs._safe_ws_path`.
+    # See plan 2026-06-09-filesystem-over-mcp.md.
+    def _ws_result(payload: dict) -> dict[str, Any]:
+        return {"content": [{"type": "text", "text": _json.dumps(payload, ensure_ascii=False)}]}
+
+    def _ws_guard(fn):
+        from app.tools.workspace_fs import WsPathError
+
+        def _run(args: dict[str, Any]) -> dict[str, Any]:
+            try:
+                return _ws_result(fn(args))
+            except WsPathError as exc:
+                return _ws_result({"error_code": "ws_path_blocked", "error_message_en": str(exc)})
+
+        return _run
+
+    @tool(
+        "ws_list",
+        "List a directory in the team workspace — the remote replacement for "
+        "`ls`. `path` is relative to the workspace root (e.g. \".\" for all "
+        "projects, \"{slug}\" for a project, \"{slug}/models\" for its model "
+        "files). Set recursive=true for a tree. emerge's core objects ARE files "
+        "(project.json, models/{id}.json, prompts/{id}.json, predictions/*.json) "
+        "so this is how a remote client discovers everything the in-session "
+        "agent would `ls`. Hidden dot/underscore entries are skipped. Rendering: "
+        "headless → print the entries (name · type · size).",
+        {"type": "object", "properties": {
+            "path": {"type": "string", "default": "."},
+            "recursive": {"type": "boolean", "default": False},
+        }},
+    )
+    async def t_ws_list(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_list(
+            workspace, a.get("path", "."), bool(a.get("recursive", False))))(args)
+
+    @tool(
+        "ws_read",
+        "Read a UTF-8 text/JSON file in the team workspace — the remote `cat`. "
+        "`path` is relative to the workspace root (e.g. \"{slug}/project.json\", "
+        "\"{slug}/models/{id}.json\", \"{slug}/predictions/_draft/{f}.json\"). "
+        "Use this to inspect any core object's raw on-disk form a remote client "
+        "cannot `cat`. PDFs/images are refused — pull those with read_doc_image / "
+        "pdf_render_page instead. Output truncates at 64 KiB. Rendering: headless "
+        "→ print the file content.",
+        {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+    )
+    async def t_ws_read(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_read(workspace, a["path"]))(args)
+
+    @tool(
+        "ws_grep",
+        "Recursive content search in the team workspace — the remote `grep`. "
+        "`pattern` is a regex; `path` scopes the search (default whole "
+        "workspace); optional `glob` filters filenames (e.g. \"*.json\"). Returns "
+        "{file, line, text} hits (capped). Use it to find which project/model/"
+        "prompt mentions a value when you don't know the path. Binary files and "
+        "hidden sentinels are skipped. Rendering: headless → print the hits.",
+        {"type": "object", "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string", "default": "."},
+            "glob": {"type": "string"},
+        }, "required": ["pattern"]},
+    )
+    async def t_ws_grep(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_grep(
+            workspace, a["pattern"], a.get("path", "."), a.get("glob")))(args)
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -1567,7 +1644,8 @@ def build_emerge_mcp(
             t_ask_user,
     ]
     if headless:
-        _tools += [t_list_projects, t_list_docs, t_read_prompt]
+        _tools += [t_list_projects, t_list_docs, t_read_prompt,
+                   t_ws_list, t_ws_read, t_ws_grep]
     # Stamp behavioural hints from the central buckets so the remote tools/list
     # carries them (drives a client's auto-approve / destructive-gate policy).
     for _t in _tools:
