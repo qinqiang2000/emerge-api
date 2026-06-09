@@ -5,10 +5,11 @@ import { useProjects } from '../../stores/projects'
 import { useModels, type ModelRow } from '../../stores/models'
 import { usePrompts, type PromptRow } from '../../stores/prompts'
 import { useT } from '../../i18n'
-import { markCompetent } from '../../stores/onboarding'
+import { markCompetent, useOnboarding } from '../../stores/onboarding'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
 import { RESOURCE_SOURCES, modelCandidates, promptCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
 import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
+import { pickTipKey } from './composerTips'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
 // affordances are visually familiar. Both render at 14px in a 28x28 button.
@@ -138,6 +139,11 @@ interface Props {
    *  shell vs. compact side-chat don't bleed into each other. Omit (tests /
    *  legacy) → the textarea behaves as plain ephemeral local state. */
   draftKey?: string
+  /** When present, renders the dynamic above-the-box tip line (Claude-Code
+   *  style). Carries the project-state signals the tip resolver needs;
+   *  `unbound` / pending / competence are read from props + store here. Omit
+   *  (compact review column, tests) → no tip line at all. */
+  tip?: { docCount: number; fieldCount: number; hasEvents: boolean }
 }
 
 // Per-chip status indicator. Lives next to the filename so the row reads
@@ -177,7 +183,7 @@ function parseMentionToken(text: string, caret: number): { token: string; tokenS
   return { token, tokenStart: start, dir, query }
 }
 
-export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRemoveAll, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder, draftKey }: Props) {
+export default function Composer({ disabled, pending, onAttach, onAttachFailed, onSubmit, onRemove, onRemoveAll, onRetry, onCancel, focusOnMount, projectId, unbound = false, onPromote, placeholder, draftKey, tip }: Props) {
   const t = useT()
   // Seed from the persisted draft so a remount (chat → review → back) shows the
   // half-typed message instead of an empty box. Write-through + key-swap are
@@ -953,6 +959,31 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   const failedInline = failedIndices.slice(0, FAILED_INLINE_MAX)
   const failedHidden = failedIndices.length - failedInline.length
 
+  // Dynamic above-the-box tip. Subscribe to competence reactively so the tip
+  // swaps from the newcomer "type /" nudge to the power-user line the moment
+  // the user opens a menu or sends their first turn.
+  const competent = useOnboarding(s => s.competent)
+  const tipKey = useMemo(() => {
+    if (!tip) return null
+    let pendingReady = 0
+    let pendingInFlight = 0
+    for (const p of pending) {
+      const s = p.status ?? 'uploaded'
+      if (s === 'staging' || s === 'uploading') pendingInFlight += 1
+      else if (s !== 'failed') pendingReady += 1
+    }
+    return pickTipKey({
+      unbound,
+      docCount: tip.docCount,
+      fieldCount: tip.fieldCount,
+      pendingReady,
+      pendingInFlight,
+      hasText: text.trim().length > 0,
+      competent,
+      hasEvents: tip.hasEvents,
+    })
+  }, [tip, pending, unbound, text, competent])
+
   return (
     <div
       className={'composer-wrap' + (dragOver ? ' dragover' : '')}
@@ -960,6 +991,10 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
+      <div className="composer-col">
+      {tipKey && (
+        <div className="composer-tip" aria-live="polite">{t(tipKey)}</div>
+      )}
       <div className="composer" onClick={(e) => {
         // claude.ai: clicking anywhere inside the card focuses the textarea
         if (e.target === e.currentTarget) taRef.current?.focus()
@@ -1156,6 +1191,7 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

@@ -307,12 +307,6 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
     }
   }
 
-  async function handleStarter(text: string) {
-    // Empty-hero starters submit through the unbound path so no project is
-    // minted server-side. The legacy `p_unset` mint is intentionally avoided.
-    await send(selectedSlug ?? UNBOUND_SLUG, text)
-  }
-
   /** Promote the current unbound chat to a project. Hands the typed name to
    *  `POST /lab/chats/{cid}/promote`; on success the URL flips to
    *  `/p/<slug>` via the App.tsx sync effect once `selectedSlug` lands. */
@@ -415,7 +409,6 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
           projectName={projectName}
           newProject={newProjectIntent && !selectedSlug}
           onAttach={(files: File[]) => { void attach(files) }}
-          onStarter={(text) => { void handleStarter(text) }}
         />
       )}
       <Composer
@@ -429,6 +422,12 @@ export default function ChatPanel({ compact = false, composerPlaceholder, histor
         draftKey={`${compact ? 'compact' : 'main'}:${selectedSlug ?? UNBOUND_SLUG}:${chatId}`}
         projectId={selectedSlug ?? undefined}
         unbound={!selectedSlug}
+        // Dynamic above-the-box tip (Claude-Code style). Only the main shell
+        // gets it — the compact review/drilldown column is too narrow and
+        // already context-rich. docCount/fieldCount drive the project-state
+        // branches in pickTipKey; unbound/pending/competent are read by the
+        // composer itself.
+        tip={compact ? undefined : { docCount, fieldCount, hasEvents: events.length > 0 }}
         onPromote={isUnbound ? handlePromote : undefined}
         placeholder={composerPlaceholder}
         onAttach={(files: File[]) => { void attach(files) }}

@@ -134,21 +134,23 @@ const zh: Dict = {
   'menu.mention.noDir': '目录不存在',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': '给我几份文档，我帮你把它们读准 ——',
-  'empty.headline.em': '稳了，它自己就是个 API。',
   'empty.eyebrow.newProject': '~/projects/新项目/',
   'empty.newproject.note': '拖入文档，我帮你自动起名。',
-  'empty.tagline': '',
-  'empty.guide.title': '不确定从哪开始？',
-  'empty.guide.hint': '告诉我你手上有什么文档，我带你走一遍。',
-  'empty.help.nudge': '👋 第一次见？输入 /help 了解我能做什么',
-  'empty.guide.prompt': '我是新手 —— 手上有些文档要处理，但不太清楚怎么开始，带我走一遍。',
   'empty.drop.headline': '把文档拖到这里',
   'empty.drop.orRun': '或用下方的 + 添加',
-  'empty.starters.label': '或者直接跟我说 ·',
-  'empty.starter.fork': '基于我已有的项目改一个 —— 我不想从零定义每个字段',
-  'empty.starter.invoices': '从这些 PDF 里抽发票 —— 供应商、合计、行项目',
-  'empty.starter.schemaThenEdit': '先给我一份字段草稿，我改一改再开始提取',
+
+  // ── 输入框上方的动态 tip（按当前情况切换，见 Chat/composerTips.ts）──────
+  'tip.uploading': '正在读取文档…稍等',
+  'tip.filesReady': '文档已就位 —— 告诉我抽什么，或直接按 ↵ 让我先看看',
+  'tip.unbound.new': '第一次见？拖入文档，或输入 / 看看我能做什么',
+  'tip.unbound.competent': '用 @ 接着改已有项目，或拖入文档新建一个',
+  'tip.noFields': '还没定义字段 —— 直接说要抽哪些信息，我来起草',
+  'tip.noDocs': '拖入几份文档，我就开始抽取',
+  'tip.run': '输入 /run 重新抽取，或在评审里逐字段纠正我',
+  'tip.review': '纠正我几次我会越来越准 —— 评审里点字段就能改值',
+  'tip.compare': '拿不准用哪个模型？/compare 让两个模型同台比一比',
+  'tip.publish': '稳了就 /publish，把它变成可调用的 API',
+  'tip.slash': '输入 / 看看我能做的所有事',
 
   // ── relative time ──────────────────────────────────────────────────────
   'time.yesterday': '昨天',

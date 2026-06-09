@@ -134,21 +134,23 @@ const en: Dict = {
   'menu.mention.noDir': 'no such directory',
 
   // ── EmptyHero ──────────────────────────────────────────────────────────
-  'empty.headline.before': "Give me a few documents and I'll read them accurately —",
-  'empty.headline.em': "once it's solid, it's an API.",
   'empty.eyebrow.newProject': '~/projects/new-project/',
   'empty.newproject.note': "New project — not named yet. Drop in a document or tell me what you're working on, and I'll set up the folder and name it.",
-  'empty.tagline': "Drop a few in. I'll pull out the fields, show you what I found, and fix whatever I get wrong — the more you correct me, the sharper I get. When it's solid, publish it as an API your systems can call.",
-  'empty.guide.title': 'Not sure where to start?',
-  'empty.guide.hint': "Tell me what documents you have and I'll walk you through it.",
-  'empty.help.nudge': '👋 New here? Type /help to see what I can do',
-  'empty.guide.prompt': "I'm new here — I've got some documents to process but I'm not sure where to begin. Walk me through it.",
   'empty.drop.headline': 'Drag your documents here',
   'empty.drop.orRun': 'or add them with the + below',
-  'empty.starters.label': 'or just tell me ·',
-  'empty.starter.fork': "Start from one of my existing projects — I don't want to define every field from scratch",
-  'empty.starter.invoices': 'Pull invoices out of these PDFs — vendor, totals, line items',
-  'empty.starter.schemaThenEdit': "Draft the fields first, I'll tweak them before we extract",
+
+  // ── Dynamic above-the-box tip (context-driven, see Chat/composerTips.ts) ─
+  'tip.uploading': 'Reading your documents… one moment',
+  'tip.filesReady': "Files are in — tell me what to pull out, or press ↵ and I'll take a look",
+  'tip.unbound.new': 'New here? Drop in a document, or type / to see what I can do',
+  'tip.unbound.competent': 'Type @ to pick up an existing project, or drop files to start a new one',
+  'tip.noFields': "No fields yet — just tell me what to extract and I'll draft them",
+  'tip.noDocs': "Drop in a few documents and I'll start extracting",
+  'tip.run': 'Type /run to re-extract, or correct me field-by-field in review',
+  'tip.review': "Correct me a few times and I'll sharpen up — click a field in review to fix it",
+  'tip.compare': '/compare runs two models side by side when you are unsure which to use',
+  'tip.publish': "When it's solid, /publish turns it into a callable API",
+  'tip.slash': 'Type / to see everything I can do',
 
   // ── relative time (short labels) ───────────────────────────────────────
   'time.yesterday': 'yesterday',
