@@ -118,6 +118,8 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "run_match":            ("POST", r"^/lab/match/projects/\{slug\}/run$"),
     "save_reviewed_match":  ("POST", r"^/lab/match/projects/\{slug\}/reviewed$"),
     "score_match":          ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
+    "write_audit_rules":    ("PUT",  r"^/lab/match/projects/\{slug\}/audit-rules$"),
+    "run_audit":            ("POST", r"^/lab/match/projects/\{slug\}/audit$"),
     # Publish + keys
     "freeze_version": ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
     "issue_api_key":  ("POST", r"^/lab/keys$"),

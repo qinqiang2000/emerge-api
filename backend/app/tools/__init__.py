@@ -127,6 +127,7 @@ _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint s
     "derive_schema", "extract_one", "extract_with_experiment", "extract_textlayer",
     "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
     "run_match", "score_match",  # L2 judge tie-breaker may call the LLM
+    "run_audit",                 # audit judge reads fields + image via the LLM
 })
 
 
@@ -1764,6 +1765,71 @@ def build_emerge_mcp(
         out = await score_match(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
+    @tool(
+        "write_audit_rules",
+        "Set a match project's AUDIT rules — the compliance checks `run_audit` "
+        "evaluates over a grouped set of documents. `audit_rules` is a list of "
+        "natural-language rules, one per item (e.g. \"甲方为 环胜电子商务（上海）"
+        "有限公司\", \"乙方加盖合同专用章（红章）\", \"报价单费用总计与收货单折扣后含税"
+        "金额一致\"). Each rule may be single-doc (a field == constant, or a "
+        "visual mark like a seal), cross-doc (amounts/keywords/date-ranges across "
+        "documents). Rules are a versioned prompt — refine them to tune auditing. "
+        "Preserves any pairing mappings. Returns the match-prompt id.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "audit_rules": {"type": "array", "items": {"type": "string"}},
+                "label": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["slug", "audit_rules"],
+        },
+    )
+    async def t_write_audit_rules(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.match_prompt import write_audit_rules
+        mpr_id = await write_audit_rules(
+            workspace, args["slug"],
+            audit_rules=list(args.get("audit_rules") or []),
+            label=args.get("label", ""), reason=args.get("reason", ""),
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(
+            {"match_prompt_id": mpr_id}, ensure_ascii=False)}]}
+
+    @tool(
+        "run_audit",
+        "Audit one GROUP of related documents against the project's audit rules. "
+        "`anchor_doc` is the main document (e.g. the 报价单) and `source_docs` "
+        "maps each source-project slug → its document in this group. The judge "
+        "reads each doc's extracted fields + the anchor's image (for visual "
+        "rules) and returns per-rule pass/fail/unclear + an overall verdict. All "
+        "docs must already be extracted. Returns the audit report {group, checks, "
+        "overall}.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "anchor_doc": {"type": "string"},
+                "source_docs": {"type": "object"},
+            },
+            "required": ["slug", "anchor_doc", "source_docs"],
+        },
+    )
+    async def t_run_audit(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.audit_run import run_audit
+        from app.tools.match_project import MatchProjectError
+        try:
+            out = await run_audit(
+                workspace, args["slug"],
+                anchor_doc=args["anchor_doc"],
+                source_docs=dict(args.get("source_docs") or {}),
+            )
+        except MatchProjectError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -1796,6 +1862,8 @@ def build_emerge_mcp(
             t_run_match,
             t_save_reviewed_match,
             t_score_match,
+            t_write_audit_rules,
+            t_run_audit,
             t_extract_one,
             t_save_reviewed,
             t_score,

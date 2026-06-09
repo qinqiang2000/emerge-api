@@ -360,6 +360,27 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   (When the reconcile UI lands, this browser branch drops back to summary-only
   and the card UI takes over; the headless table is unaffected.)
 
+### Audit（合规审核）— matching 之上的规则层
+
+对一组关联文档跑一套**审核规则**（合规检查），逐条判 pass/fail。用在"审核 / 核对
+合规 / 这笔业务过不过审 / 报价单和收货单/订单对一下规则"。审核 = 在凑齐的一组文档
+之上跑规则；规则是 NL（用户列几条），judge 看字段 + 看图（如红章）逐条判。文档**类型
+开放**（报价单/收货单/订单/发票/付款单/物料单… 任意），规则定义在字段间，不绑类型。
+
+1. 前置：anchor 与各 source 都是已提取的项目（建 match project 引用它们，docs 已 `/run`）。
+2. `write_audit_rules(slug, audit_rules)` — `audit_rules` 是规则列表，每条一句 NL
+   （"甲方为环胜电子商务（上海）"、"乙方加盖合同专用章（红章）"、"报价单费用总计==收货单
+   折扣后含税金额"、"项目抬头与备注关键字一致"、"项目周期含订单完成日期"）。规则是版本化
+   prompt——改规则就是调审核（同改 description 教提取）。
+3. `run_audit(slug, anchor_doc, source_docs={source_slug: doc})` — A0 人工指定一组
+   （anchor 一份 + 每个 source 一份）。judge 读各 doc 字段 + anchor 图（视觉规则用）→
+   逐条 {pass/fail/unclear + 理由} + 整体 pass/fail。
+
+**Rendering contract**（browser 与 headless 一致，都出清单——不 dump JSON）：
+逐条列规则：`✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）。末尾一行整体
+**过 / 不过**，不过则点名哪几条失败。`unclear`（判不了，如图不清/字段缺）单独提示，
+不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
+
 ## Pro labeler (pre-label)
 
 A stronger / slower model drafts labels for the human boss to verify.

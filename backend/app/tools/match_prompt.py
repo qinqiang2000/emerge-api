@@ -38,15 +38,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _content_hash(mappings: dict[str, list[KeyMapping]], rules: str) -> str:
-    """Stable fingerprint of a match prompt's content — mappings + rules only.
-    Label is excluded (cosmetic). Mirrors `prompt._content_hash`."""
+def _content_hash(
+    mappings: dict[str, list[KeyMapping]], rules: str, audit_rules: list[str],
+) -> str:
+    """Stable fingerprint of a match prompt's content — mappings + rules +
+    audit_rules. Label is excluded (cosmetic). Mirrors `prompt._content_hash`."""
     payload = {
         "mappings": {
             src: [m.model_dump(mode="json", exclude_none=True) for m in maps]
             for src, maps in sorted(mappings.items())
         },
         "rules": rules,
+        "audit_rules": list(audit_rules),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
@@ -76,20 +79,23 @@ async def write_match_prompt(
     workspace: Path,
     slug: str,
     *,
-    mappings: dict[str, list[dict]] | dict[str, list[KeyMapping]],
-    rules: str = "",
+    mappings: dict[str, list[dict]] | dict[str, list[KeyMapping]] | None = None,
+    rules: str | None = None,
+    audit_rules: list[str] | None = None,
     label: str = "",
     reason: str = "",  # accepted for tool symmetry / audit; not persisted
 ) -> str:
-    """Upsert the project's active match prompt with new `mappings`/`rules`.
+    """Upsert the project's active match prompt. Each of `mappings`/`rules`/
+    `audit_rules` is a PARTIAL update — pass it to change that facet, omit (None)
+    to preserve the current value (defaults on first mint: {} / "" / []). This
+    lets `write_match_prompt` (pairing) and `write_audit_rules` (audit) touch
+    their own facet without clobbering the other.
 
-    Returns the match-prompt id. Mints a new prompt (version 1) when none is
-    active; otherwise mutates the active head in place, bumping `version` +
-    snapshotting only when the content actually changes (a no-op save keeps the
-    version). Sets `project.json.active_match_prompt_id`. Holds `project_lock`.
+    Mints a new prompt (version 1) when none is active; otherwise mutates the
+    active head in place, bumping `version` + snapshotting only when the content
+    actually changes (a no-op save keeps the version). Sets
+    `project.json.active_match_prompt_id`. Holds `project_lock`.
     """
-    coerced = _coerce_mappings(mappings)
-    new_hash = _content_hash(coerced, rules)
     async with project_lock(workspace, slug):
         pj = project_json_path(workspace, slug)
         project = json.loads(pj.read_text(encoding="utf-8"))
@@ -98,17 +104,15 @@ async def write_match_prompt(
         match_prompts_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
 
         if not active:
+            coerced = _coerce_mappings(mappings or {})
+            r = rules or ""
+            ar = list(audit_rules or [])
             mpr_id = new_match_prompt_id()
             mpv = MatchPromptVariant(
-                prompt_id=mpr_id,
-                label=label,
-                mappings=coerced,
-                rules=rules,
-                derived_from=None,
-                created_at=now,
-                updated_at=now,
-                version=1,
-                content_hash=new_hash,
+                prompt_id=mpr_id, label=label,
+                mappings=coerced, rules=r, audit_rules=ar,
+                derived_from=None, created_at=now, updated_at=now,
+                version=1, content_hash=_content_hash(coerced, r, ar),
             )
             atomic_write_json(
                 match_prompt_path(workspace, slug, mpr_id),
@@ -122,31 +126,49 @@ async def write_match_prompt(
         mpr_id = active
         mp = match_prompt_path(workspace, slug, mpr_id)
         existing = MatchPromptVariant(**json.loads(mp.read_text(encoding="utf-8")))
+        # Partial update: keep existing facet when its arg is None.
+        coerced = _coerce_mappings(mappings) if mappings is not None else existing.mappings
+        r = rules if rules is not None else existing.rules
+        ar = list(audit_rules) if audit_rules is not None else list(existing.audit_rules)
         existing_hash = existing.content_hash or _content_hash(
-            existing.mappings, existing.rules,
+            existing.mappings, existing.rules, existing.audit_rules,
         )
         if existing.content_hash is None:
             _snapshot_version(
                 workspace, slug,
                 existing.model_copy(update={"content_hash": existing_hash}),
             )
+        new_hash = _content_hash(coerced, r, ar)
         changed = new_hash != existing_hash
         new_version = existing.version + 1 if changed else existing.version
         updated = MatchPromptVariant(
             prompt_id=existing.prompt_id,
             label=label or existing.label,
-            mappings=coerced,
-            rules=rules,
+            mappings=coerced, rules=r, audit_rules=ar,
             derived_from=existing.derived_from,
-            created_at=existing.created_at,
-            updated_at=now,
-            version=new_version,
-            content_hash=new_hash,
+            created_at=existing.created_at, updated_at=now,
+            version=new_version, content_hash=new_hash,
         )
         atomic_write_json(mp, updated.model_dump(mode="json", exclude_none=True))
         if changed:
             _snapshot_version(workspace, slug, updated)
         return mpr_id
+
+
+async def write_audit_rules(
+    workspace: Path,
+    slug: str,
+    *,
+    audit_rules: list[str],
+    label: str = "",
+    reason: str = "",
+) -> str:
+    """Set the project's audit rules (the compliance checks run by `run_audit`),
+    preserving the pairing mappings/rules. Thin facet-update over
+    `write_match_prompt`."""
+    return await write_match_prompt(
+        workspace, slug, audit_rules=audit_rules, label=label, reason=reason,
+    )
 
 
 async def read_match_prompt(

@@ -15,7 +15,8 @@ from app.tools.match_project import (
     MatchProjectError,
     create_match_project,
 )
-from app.tools.match_prompt import write_match_prompt
+from app.tools.audit_run import run_audit
+from app.tools.match_prompt import write_audit_rules, write_match_prompt
 from app.tools.match_review import save_reviewed_match, score_match
 from app.tools.match_run import run_match
 
@@ -90,5 +91,38 @@ async def post_reviewed_match(slug: str, body: _ReviewedMatchBody) -> dict:
 async def get_match_score(slug: str) -> dict:
     try:
         return await score_match(current_ws(), slug)
+    except MatchProjectError as e:
+        raise _envelope(e)
+
+
+# --- audit layer (A0) -------------------------------------------------------
+
+class _AuditRulesBody(BaseModel):
+    audit_rules: list[str]
+    label: str = ""
+    reason: str = ""
+
+
+@router.put("/lab/match/projects/{slug}/audit-rules")
+async def put_audit_rules(slug: str, body: _AuditRulesBody) -> dict:
+    mpr_id = await write_audit_rules(
+        current_ws(), slug, audit_rules=body.audit_rules,
+        label=body.label, reason=body.reason,
+    )
+    return {"match_prompt_id": mpr_id}
+
+
+class _RunAuditBody(BaseModel):
+    anchor_doc: str
+    source_docs: dict[str, str]
+
+
+@router.post("/lab/match/projects/{slug}/audit")
+async def post_audit(slug: str, body: _RunAuditBody) -> dict:
+    try:
+        return await run_audit(
+            current_ws(), slug,
+            anchor_doc=body.anchor_doc, source_docs=body.source_docs,
+        )
     except MatchProjectError as e:
         raise _envelope(e)

@@ -55,3 +55,19 @@ async def test_read_active_without_prompt_raises(workspace):
     slug = await _match_project(workspace)
     with pytest.raises(MatchPromptNotFoundError):
         await read_active_match_prompt(workspace, slug)
+
+
+async def test_audit_rules_bump_and_preserve_mappings(workspace):
+    from app.tools.match_prompt import write_audit_rules
+    slug = await _match_project(workspace)
+    # set mappings first
+    await write_match_prompt(workspace, slug, mappings=_MAPS, rules="r1")
+    # adding audit rules bumps version + preserves mappings (partial update)
+    await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜", "盖红章"])
+    pv = await read_active_match_prompt(workspace, slug)
+    assert pv.version == 2
+    assert pv.audit_rules == ["甲方为环胜", "盖红章"]
+    assert "payments" in pv.mappings and pv.rules == "r1"   # not clobbered
+    # no-op rewrite keeps version
+    await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜", "盖红章"])
+    assert (await read_active_match_prompt(workspace, slug)).version == 2

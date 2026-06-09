@@ -585,3 +585,14 @@ def reviewed_matches_dir(workspace: Path, slug: str) -> Path:
 
 def reviewed_match_path(workspace: Path, slug: str, anchor_doc: str) -> Path:
     return reviewed_matches_dir(workspace, slug) / f"{anchor_doc}.json"
+
+
+# --- audit layer (A0) -------------------------------------------------------
+def audits_dir(workspace: Path, slug: str) -> Path:
+    return project_dir(workspace, slug) / "audits"
+
+
+def audit_result_path(workspace: Path, slug: str, run_id: str) -> Path:
+    """One audit run's report: `{slug}/audits/{run}/report.json` (derived
+    cache — re-running rebuilds it)."""
+    return audits_dir(workspace, slug) / run_id / "report.json"

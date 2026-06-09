@@ -62,6 +62,11 @@ class MatchPromptVariant(BaseModel):
     label: str = ""
     mappings: dict[str, list[KeyMapping]] = {}
     rules: str = ""
+    # Audit layer (A0): compliance rules judged over a grouped set of docs.
+    # Each entry is one NL rule (the user lists them as a numbered list); the
+    # judge returns an index-aligned verdict per rule. Distinct from `rules`
+    # (which is the pairing tie-break context). Empty = pure matching, no audit.
+    audit_rules: list[str] = []
     derived_from: Optional[str] = None
     created_at: str
     updated_at: str
@@ -112,3 +117,33 @@ class MatchResult(BaseModel):
     source_projects: list[str] = []
     cards: list[MatchCard] = []
     orphans: dict[str, list[str]] = {}
+
+
+# --- audit layer (A0) -------------------------------------------------------
+
+class RuleCheck(BaseModel):
+    """One compliance rule's verdict over a grouped set of docs. `unclear` is a
+    first-class status (the judge couldn't decide / the image was illegible) —
+    never silently coerced to fail."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule: str
+    status: Literal["pass", "fail", "unclear"]
+    reason: str = ""
+
+
+class AuditReport(BaseModel):
+    """The output of one `run_audit` over a single grouped set of documents.
+
+    `group` records which doc played each role (anchor slug / source slugs →
+    filename). `overall`: `fail` if any rule failed, else `pass` (A0 = all rules
+    must pass; `unclear` does not fail but is surfaced)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    created_at: str
+    group: dict[str, str]                 # role(slug) → filename
+    checks: list[RuleCheck] = []
+    overall: Literal["pass", "fail"]

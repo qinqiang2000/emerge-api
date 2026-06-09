@@ -58,3 +58,7 @@ def new_match_prompt_id() -> str:
 
 def new_match_run_id() -> str:
     return _new("mr")
+
+
+def new_audit_run_id() -> str:
+    return _new("au")
