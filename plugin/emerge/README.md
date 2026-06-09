@@ -1,10 +1,10 @@
 # emerge plugin
 
-Connect Claude (Code / Desktop / Cowork / web) to your team's **emerge** workspace —
-a document-processing colleague. Point it at documents and an API emerges: field
-extraction today, with classification and matching as it grows.
+Connect Claude to your team's **emerge** workspace — a document-processing
+colleague. Point it at documents and an API emerges: field extraction today,
+with classification and matching as it grows.
 
-One install gives you:
+In **Claude Code**, one install gives you:
 
 - the **emerge remote connector** (its tools appear as `mcp__emerge__*`),
 - an auto-loaded **`emerge` skill** that orients Claude to the workspace, and
@@ -12,7 +12,7 @@ One install gives you:
 
 ## Install
 
-From any Claude client that supports plugins:
+**Claude Code (CLI)** — install the plugin (gets the connector + skill + `/emerge:*` commands):
 
 ```
 /plugin marketplace add qinqiang2000/emerge-api
@@ -21,13 +21,15 @@ From any Claude client that supports plugins:
 
 (The marketplace lives in this repo. If it's private, you need git access to it.)
 
-On first use, the connector runs an OAuth login — your browser opens an emerge
-consent page. **Sign in with your emerge account** (the one with an active team);
-approve, and Claude is connected to that team's workspace. No tokens to paste.
+**Claude Desktop / Cowork / web** — these use *connectors*, not the plugin
+marketplace. Add the connector directly: "Add custom connector", URL
+`https://fpydoc.duckdns.org/mcp/`, OAuth = Auto-register (dynamic client
+registration).
 
-> Prefer not to install a plugin? You can also add the connector directly:
-> in "Add custom connector", URL `https://fpydoc.duckdns.org/mcp/`, OAuth =
-> Auto-register (dynamic client registration).
+Either way, on first use the connector runs an OAuth login — your browser opens
+an emerge consent page. **Sign in with your emerge account** (the one with an
+active team); approve, and Claude is connected to that team's workspace. No
+tokens to paste.
 
 ## Use
 

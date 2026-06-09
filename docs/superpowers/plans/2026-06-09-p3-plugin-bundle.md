@@ -1,6 +1,6 @@
 # 2026-06-09 — P3 plugin bundle（队友一键装 emerge connector）
 
-> **Status**: 📋 planned → implementing
+> **Status**: ✅ P3.0 shipped + dogfooded (2026-06-09)。marketplace 在仓库根 `.claude-plugin/`，plugin 在 `plugin/emerge/`，已 push 到 GitHub，`marketplace add`→`install` 全链路 CLI 验证通过。P3.1 commands 收敛 = 按未来 dogfood。
 > **Closes**: `2026-06-08-cowork-remote-mcp.md` 的 **P3**。把"贴个人 connector URL"升级为"一键装插件"——队友 `/plugin marketplace add` + `/plugin install` 即得 emerge 远程连接 + `/emerge:*` slash + 自动加载的 agent 引导。tip 2「现在就给客户队友用」的 onboarding 终态。
 > **Inputs**: 官方 plugin/marketplace/MCP 文档（已研究）；P0/P1/闭环 dogfood 暴露的远程语境真相。
 
@@ -58,7 +58,12 @@ Claude plugin = 自包含目录，经 marketplace（git 仓库）分发：
 - `plugin/emerge/README.md`：`/plugin marketplace add qinqiang2000/emerge-api` → `/plugin install emerge@emerge` → 浏览器 OAuth 登录（有 active team 的 emerge 账号）→ `/emerge:run` 等。
 - `backend/tests/unit/test_plugin_bundle.py`：plugin.json/marketplace.json/.mcp.json 合法 JSON；marketplace 引用 plugin source 存在；`.mcp.json` URL == `settings.public_base_url + /mcp/`（prod 同步守卫）；SKILL.md 有 frontmatter description。
 
-**Verified（计划）:** `claude plugin validate plugin/emerge`（若 CLI 在）；本地 `claude --plugin-dir plugin/emerge` 加载 → `/emerge:extract` 可见 → OAuth 连上 → 列工具。真机 dogfood：队友机器装一次跑通 extract。
+**Verified（已做，2026-06-09）:**
+- `claude plugin validate` 对 marketplace（仓库根）+ plugin 双双通过（顺手抓出并修了 SKILL.md frontmatter 的 YAML 解析 bug——description 里 `API:` 冒号破坏 YAML，改 folded block scalar `>-`）。
+- **真机 install dogfood（Claude Code CLI = 队友实际路径）**：push 后 `claude plugin marketplace add qinqiang2000/emerge-api` → 从 GitHub clone + 校验通过；`claude plugin install emerge@emerge` → 装上 **5 skills（emerge + run/compare/tune/publish）+ 1 MCP server（emerge connector）**，always-on ~305 tok（精简）；installed `.mcp.json` 携带正确 prod URL。dogfood 后 uninstall + marketplace remove 复原环境。
+- OAuth 登录式连接在 P2 connector dogfood 已验证 → 队友路径 = install → 首次 `/emerge:run` → 浏览器 OAuth 登录 → 连上 team workspace。
+
+**关键认知（dogfood 暴露）**：`/plugin marketplace add` 是 **Claude Code CLI** 能力；**Cowork 桌面端走 connector**（P2 的「Add custom connector」），不吃 plugin marketplace。所以 plugin = 给 Claude Code 队友的一键装；Cowork 队友走 connector（README 已写两条路）。
 
 ### P3.1 — 收敛 commands（按 dogfood，未来）
 
