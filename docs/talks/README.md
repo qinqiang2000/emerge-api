@@ -25,7 +25,10 @@
 | 程序 = Prompt / Skill | 源代码（改一句话就改软件） | `SKILL.md` |
 | 能力 = Tools / MCP | SDK / 库调用 | `extract` · `score` · `ws_*` |
 | 上下文 + 记忆 | RAM | Active context · `reviewed/` |
-| 文件系统总线 | 磁盘 / 数据库 | `project.json` · `models/` · `predictions/` |
+| 文件系统总线 | 磁盘 / 数据库 **+ 接口** | `project.json` · `models/` · `predictions/` |
+
+> **本会话最值钱的洞见 —— 存储即接口**：传统软件里存储（DB/磁盘）藏在专用 API 后面，是两层；emerge 把**同一批文件**经 MCP 直接暴露成通用文件操作 `ws_list / ws_read / ws_grep`，于是「文件系统」既是**磁盘（存储状态）**又是**接口（能力面）**。因为核心对象本来就是文件，一个通用文件操作面就打通了所有对象的 CRUD——无需 `list_models` 等几十个专用 API。这就是为什么叫「**总线**」（共享通道，内核/工具/agent 都挂上去）而非「磁盘」。对应架构判断那句「**数据当总线，不当私仓**」，也是 dogfood 名场面的根因：「`list_models` 不存在也没关系，agent 直接 `ws_read` 那个文件」。
+
 | 纠正闭环 | 单元测试（但会**学习**） | `score` · `save_reviewed` · autoresearch |
 | 能力包 / 交付 | App Store 安装 | `/plugin install` · Cowork Upload plugin |
 

@@ -53,9 +53,12 @@
     {"type":"text","id":"bmeml","x":465,"y":499,"width":200,"height":22,"text":"上下文 + 记忆","fontSize":15,"fontFamily":1,"strokeColor":"#155e63","textAlign":"center","verticalAlign":"top"},
     {"type":"text","id":"tagram","x":676,"y":500,"width":60,"height":20,"text":"= RAM","fontSize":14,"fontFamily":1,"strokeColor":"#0891b2","textAlign":"left","verticalAlign":"top"},
     {"type":"arrow","id":"bA4","x":565,"y":530,"width":0,"height":22,"points":[[0,0],[0,22]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow"},
-    {"type":"rectangle","id":"bbus","x":435,"y":552,"width":260,"height":46,"roundness":{"type":3},"backgroundColor":"#c3fae8","fillStyle":"solid","strokeColor":"#0e7490"},
+    {"type":"rectangle","id":"bbus","x":435,"y":552,"width":260,"height":46,"roundness":{"type":3},"backgroundColor":"#c3fae8","fillStyle":"solid","strokeColor":"#0e7490","strokeWidth":3},
     {"type":"text","id":"bbusl","x":435,"y":564,"width":260,"height":22,"text":"文件系统总线","fontSize":16,"fontFamily":1,"strokeColor":"#155e75","textAlign":"center","verticalAlign":"top"},
-    {"type":"text","id":"tagdisk","x":706,"y":565,"width":60,"height":20,"text":"= 磁盘","fontSize":14,"fontFamily":1,"strokeColor":"#0e7490","textAlign":"left","verticalAlign":"top"},
+    {"type":"text","id":"tagdisk","x":706,"y":556,"width":220,"height":20,"text":"= 磁盘 + 接口（存储即接口）","fontSize":14,"fontFamily":1,"strokeColor":"#0e7490","textAlign":"left","verticalAlign":"top"},
+    {"type":"arrow","id":"cap2bus","x":890,"y":464,"width":195,"height":88,"points":[[0,0],[0,88],[-195,88]],"strokeColor":"#d97706","strokeWidth":2,"strokeStyle":"dashed","endArrowhead":"arrow"},
+    {"type":"text","id":"cap2busl","x":726,"y":528,"width":180,"height":20,"text":"ws_list / read / grep","fontSize":14,"fontFamily":1,"strokeColor":"#9a3412","textAlign":"left","verticalAlign":"top"},
+    {"type":"text","id":"businsight","x":706,"y":578,"width":320,"height":20,"text":"MCP 把核心对象（本来就是文件）暴露成文件操作","fontSize":14,"fontFamily":1,"strokeColor":"#0e7490","textAlign":"left","verticalAlign":"top"},
     {"type":"arrow","id":"bA5","x":565,"y":598,"width":0,"height":22,"points":[[0,0],[0,22]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow"},
     {"type":"rectangle","id":"bout","x":485,"y":620,"width":160,"height":40,"roundness":{"type":3},"backgroundColor":"#b2f2bb","fillStyle":"solid","strokeColor":"#15803d"},
     {"type":"text","id":"boutl","x":485,"y":629,"width":160,"height":22,"text":"结果 / 输出","fontSize":15,"fontFamily":1,"strokeColor":"#166534","textAlign":"center","verticalAlign":"top"},
@@ -72,9 +75,9 @@
     {"type":"text","id":"pml","x":640,"y":714,"width":110,"height":22,"text":"匹配","fontSize":16,"fontFamily":1,"strokeColor":"#b45309","textAlign":"center","verticalAlign":"top"},
     {"type":"text","id":"payl","x":400,"y":752,"width":420,"height":20,"text":"同一套总线 / 闭环 → 新任务不做多个应用","fontSize":15,"fontFamily":1,"strokeColor":"#15803d","textAlign":"left","verticalAlign":"top"},
 
-    {"type":"rectangle","id":"lg","x":1040,"y":300,"width":340,"height":380,"roundness":{"type":3},"backgroundColor":"#f8f9fa","fillStyle":"solid","strokeColor":"#adb5bd","strokeWidth":1},
+    {"type":"rectangle","id":"lg","x":1040,"y":300,"width":340,"height":392,"roundness":{"type":3},"backgroundColor":"#f8f9fa","fillStyle":"solid","strokeColor":"#adb5bd","strokeWidth":1},
     {"type":"text","id":"lgt","x":1058,"y":312,"width":300,"height":24,"text":"图例 · ≈传统 · emerge 实例","fontSize":17,"fontFamily":1,"strokeColor":"#343a40","textAlign":"left","verticalAlign":"top"},
-    {"type":"text","id":"lgb","x":1058,"y":348,"width":310,"height":320,"text":"意图　≈ GUI　·　chat / 命令\n\nAgent 内核　= CPU　·　Claude\n\n程序　≈ 源代码　·　SKILL.md\n（改一句话就改了软件）\n\n能力　≈ SDK 调用　·　extract·score·ws_*\n\n上下文+记忆　= RAM　·　Active context·reviewed\n\n文件系统总线　= 磁盘　·　project.json·models·predictions\n\n纠正闭环　·　score·save_reviewed·autoresearch\n\n能力包　·　/plugin install · Upload plugin","fontSize":15,"fontFamily":1,"strokeColor":"#495057","textAlign":"left","verticalAlign":"top"},
+    {"type":"text","id":"lgb","x":1058,"y":348,"width":310,"height":332,"text":"意图　≈ GUI　·　chat / 命令\n\nAgent 内核　= CPU　·　Claude\n\n程序　≈ 源代码　·　SKILL.md\n（改一句话就改了软件）\n\n能力　≈ SDK 调用　·　extract·score·ws_*\n\n上下文+记忆　= RAM　·　Active context·reviewed\n\n文件系统总线　= 磁盘 + 接口　·　存储即接口：核心对象本来就是文件，MCP 暴露成 ls/read/grep，一次打通全部 CRUD（无需 list_models 等几十个专用 API）\n\n纠正闭环　·　score·save_reviewed·autoresearch\n\n能力包　·　/plugin install · Upload plugin","fontSize":15,"fontFamily":1,"strokeColor":"#495057","textAlign":"left","verticalAlign":"top"},
 
     {"type":"text","id":"hC","x":60,"y":830,"width":800,"height":26,"text":"③ 为 OS 编程 → 为 Agent 平台编程（架构判断）","fontSize":20,"fontFamily":1,"strokeColor":"#6741d9","textAlign":"left","verticalAlign":"top"},
     {"type":"rectangle","id":"cl1","x":60,"y":868,"width":420,"height":44,"roundness":{"type":3},"backgroundColor":"#a5d8ff","fillStyle":"solid","strokeColor":"#4a9eed"},
@@ -104,7 +107,7 @@
     {"type":"text","id":"cr5l","x":580,"y":1087,"width":480,"height":22,"text":"底座：Agent 内核 + OS 成底座","fontSize":15,"fontFamily":1,"strokeColor":"#4c1d95","textAlign":"center","verticalAlign":"top"},
 
     {"type":"rectangle","id":"jd","x":60,"y":1140,"width":1320,"height":152,"roundness":{"type":3},"backgroundColor":"#fff3bf","fillStyle":"solid","strokeColor":"#f59e0b","strokeWidth":2},
-    {"type":"text","id":"jdl","x":80,"y":1152,"width":1285,"height":130,"text":"架构判断 ·  Agent 平台 = OS 之上的新一层，不是替代 OS（跑在 Linux/macOS/Win 上，用其文件/进程/网络）\n· 别做 App，做能力包      · 编程对 MCP，不对 UI      · 数据当总线，不当私仓      · 分发/鉴权用平台标准，别自造\n· 护城河迁移：从『占住 UI / 工作流』 →『能力 + 数据纠正闭环（越纠正越准）』 —— UI 锁定已死\n· 时点 ≈ 2008 的 iOS：标准(MCP)刚稳 · marketplace 刚现 · OAuth/DCR 刚标准化 → 早在开放标准上建能力者吃复利\n· 关键差异：App 是确定调用；能力是被概率规划器『选中』调用 → 工具命名 / skill = 对 agent 的『营销』","fontSize":16,"fontFamily":1,"strokeColor":"#92400e","textAlign":"left","verticalAlign":"top"}
+    {"type":"text","id":"jdl","x":80,"y":1152,"width":1285,"height":130,"text":"架构判断 ·  Agent 平台 = OS 之上的新一层，不是替代 OS（跑在 Linux/macOS/Win 上，用其文件/进程/网络）\n· 别做 App，做能力包      · 编程对 MCP，不对 UI      · 数据当总线，不当私仓（存储即接口）      · 分发/鉴权用平台标准，别自造\n· 护城河迁移：从『占住 UI / 工作流』 →『能力 + 数据纠正闭环（越纠正越准）』 —— UI 锁定已死\n· 时点 ≈ 2008 的 iOS：标准(MCP)刚稳 · marketplace 刚现 · OAuth/DCR 刚标准化 → 早在开放标准上建能力者吃复利\n· 关键差异：App 是确定调用；能力是被概率规划器『选中』调用 → 工具命名 / skill = 对 agent 的『营销』","fontSize":16,"fontFamily":1,"strokeColor":"#92400e","textAlign":"left","verticalAlign":"top"}
   ],
   "appState": { "viewBackgroundColor": "#ffffff", "gridSize": null },
   "files": {}
