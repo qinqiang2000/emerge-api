@@ -1,6 +1,6 @@
 # 2026-06-10 — 审核 A0 实现（单组审核最小闭环）
 
-> **Status**: 📋 planned → implementing
+> **Status**: ✅ shipped + deployed prod (2026-06-10)。全量 1196 passed 零回归；E2E 实证（mock judge）报价单甲方签字栏空→正确判 fail。待真实数据 prod dogfood（含视觉 #2 红章）。
 > **Design**: `2026-06-10-audit-design.md`（含真实数据验证 + 文档类型开放）。
 > **范围**: 给**一组已凑齐**的文档（人工指定 anchor + 各 source 各一份）+ 一套 NL 审核规则 → `audit_group` judge（看字段 + 看图）逐条判 pass/fail → 审核报告。把「审核判定」这个新核心跑透。
 > **不在 A0**: 自动凑齐（A1，复用 matching）、交付核对（A1+）、区间/固定值 L1 快路（A3）、规则分级、lab 前端审核视图、prod API。
