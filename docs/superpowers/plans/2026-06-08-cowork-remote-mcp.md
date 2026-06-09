@@ -105,6 +105,15 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 
 38 个给非技术队友偏多。靠 skill prompt 引导 + per-tool policy（`ask`/`blocked`）把高危/低频收起，暴露给 Cowork 的核心动词 ~10 个。
 
+### MCP best-practices pass（2026-06-09，dogfood 触发）
+
+对照官方 `mcp-builder` best-practices 评估：emerge 整体优于多数实现（Streamable HTTP + stateless、OAuth2/DCR/PKCE、tool↔HTTP 对称、error envelope）。已修两项：
+
+- **`read_schema` → `read_prompt`**（shipped）：best-practice「名实精确匹配」。旧工具只返回字段，漏 `global_notes`——而 prompt = 字段 description + global_notes（硬规则）。改返回完整 active PromptVariant，对称 twin 指向现成的 `GET .../prompts/active`（`schema/raw` 是 fields-only YAML，保留）。dogfood 实锤：Cowork 问「项目 prompt 是?」时漏了 global_notes。
+- **tool annotations**（shipped）：remote `tools/list` 此前零 annotations，而 spec 的 `destructiveHint` 默认 true → 客户端把所有工具当潜在危险。集中分类表给全 46 工具打 `readOnly`/`destructive`/`idempotent`/`openWorld`（`app/tools/__init__.py::_annotate`）：12 readOnly 自动放行、4 destructive（`delete_project`/`freeze_version`/`issue_api_key`/`promote_experiment`）gate、其余显式 `destructiveHint=False`。直接喂 Cowork「Tool policy」。`create_sdk_mcp_server` bake 进 `mcp.types.Tool`。
+
+**仍待**（并入 P4）：**工具加 `emerge_` service 前缀**（best-practice：多 connector 并存防撞名；38 工具全局 rename，宜与 P4 收敛同批做）。低优先：`list_*` 分页、server 名 `emerge_tools`→`emerge_mcp`、少数非动词名。
+
 ---
 
 ## 红线（遵守）
