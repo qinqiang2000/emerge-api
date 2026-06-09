@@ -21,15 +21,20 @@ In **Claude Code**, one install gives you:
 
 (The marketplace lives in this repo. If it's private, you need git access to it.)
 
-**Claude Desktop / Cowork / web** — these use *connectors*, not the plugin
-marketplace. Add the connector directly: "Add custom connector", URL
-`https://fpydoc.duckdns.org/mcp/`, OAuth = Auto-register (dynamic client
-registration).
+**Claude Desktop / Cowork** — two options (Cowork can't `add` a git marketplace
+the way the CLI does):
 
-Either way, on first use the connector runs an OAuth login — your browser opens
-an emerge consent page. **Sign in with your emerge account** (the one with an
-active team); approve, and Claude is connected to that team's workspace. No
-tokens to paste.
+- *Connector only* (simplest — tools, no `/emerge:*` commands): Settings →
+  Customize → Connectors → **Add custom connector**, URL
+  `https://fpydoc.duckdns.org/mcp/`, OAuth = Auto-register.
+- *Full plugin* (connector + skill + `/emerge:*` commands): Customize →
+  Personal plugins **+** → Create plugin → **Upload plugin**, and drop a zip of
+  this `emerge/` folder. Build it with `cd plugin/emerge && zip -r ../../emerge-plugin.zip .`
+  (Disconnect the plain connector first so you don't get a duplicate `emerge`.)
+
+On first use the connector runs an OAuth login — your browser opens an emerge
+consent page. **Sign in with your emerge account** (the one with an active team);
+approve, and Claude is connected to that team's workspace. No tokens to paste.
 
 ## Use
 
