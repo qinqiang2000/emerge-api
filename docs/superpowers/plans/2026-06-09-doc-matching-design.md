@@ -135,5 +135,6 @@ anchor = 发票项目            sources = 付款 / 采购单 / 收货单 …（
 
 - 候选 blocking 的默认 key（金额桶 + 日期窗？还是从 key_mappings 自动推）。
 - 1:1 分配算法：贪心 vs 匈牙利（1:1 阶段贪心可能够；分数接近时再上最优）。
-- match project 怎么定位 source 的 extract 结果：读 `predictions/_draft` 还是要求 source 先 freeze？（倾向 draft，保 lab 灵活；prod reconcile 再说 published）。
-- left/right project 的 schema 漂移：source schema 改了，key_mappings 引用的字段没了怎么办（校验 + 友好报错）。
+- match project 怎么定位 anchor/source 的 extract 结果：读 `predictions/_draft` 还是要求先 freeze？（倾向 draft，保 lab 灵活；prod reconcile 再说 published）。
+- anchor/source schema 漂移：被引用的 extract project 改了 schema，mappings 引用的字段没了怎么办（校验 + 友好报错）。
+- 一张发票该集齐哪些 source 才算「完整核对」：所有 source 必配，还是 rules 里声明哪些必备/哪些可选（如收货单可缺）。
