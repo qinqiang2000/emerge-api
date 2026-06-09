@@ -316,6 +316,46 @@ active pair. Use when the user says "试试" / "A/B" / "对比 model X" /
    live unless asked). Delete with `Bash rm -r experiments/{exp_id}`
    (permission asks; never delete a promoted experiment — audit trail).
 
+## Document matching (reconciliation)
+
+Cross-check one **anchor** document set against one or more **source** sets —
+e.g. invoices ↔ {payments, purchase orders, receipts}. Matching sits ON TOP of
+extraction: it reads documents you've already extracted, it does not re-extract.
+Use when the user says "对账" / "核对" / "发票和付款/采购单对一下" / "reconcile" /
+"哪些发票没收款 / 缺单据".
+
+1. `create_match_project(name, anchor, sources)` — `anchor` and each of
+   `sources` must be slugs of EXISTING extract projects (both sides already
+   have docs + extractions). Returns `{slug}`. The match project references
+   them; it has no docs of its own.
+2. `write_match_prompt(slug, mappings, rules)` — the **matching rules are a
+   prompt** (key field-mappings + NL rules), versioned like an extract prompt.
+   `mappings` is keyed by SOURCE slug; each entry lists `{anchor: <anchor
+   field>, source: <source field>, tol}` where `tol.type` ∈ `exact` |
+   `number` (abs tolerance, strips currency/commas) | `date_days` (±days).
+   `rules` is NL guidance for the L2 judge (e.g. "订单号是主键，必须精确对上；
+   商户名不同写法但同一公司视为一致"). To tune matching, edit mappings/rules —
+   same as teaching extraction by editing description/global_notes.
+3. `run_match(slug)` — judges candidate pairs (rules first; LLM tie-break only
+   on the ambiguous middle), assigns 1:1 per source. Returns a summary
+   `{cards, complete, partial, unmatched, orphans}`.
+4. `save_reviewed_match(slug, anchor_doc, expected)` — confirm the true pairing
+   for one anchor doc (`expected` = {source_slug: true_filename | null}; null =
+   correctly unpaired). Ground truth for scoring.
+5. `score_match(slug)` — per-source precision/recall + doc_completeness against
+   the reviewed set.
+
+**Rendering contract**:
+- **browser** (`interface: browser`): one-line summary ("对账完成：12 张发票，9
+  全配 / 2 部分 / 1 未匹配，3 张孤儿凭证"); the lab reconcile view shows the cards.
+- **headless** (`interface: headless`): render the **reconcile cards as a
+  table** — one row per anchor doc, one column per source (✓ matched filename /
+  ✗ missing / ~ mismatch), plus an `overall` column (complete/partial/unmatched).
+  Then list **orphans** per source (source docs no anchor claimed = unexpected
+  extras). When a card is `partial`/`unmatched`, name which source is missing.
+  After `score_match`, print per-source precision/recall + 整单完整率 as a small
+  table. Never dump raw JSON — the table IS the deliverable.
+
 ## Pro labeler (pre-label)
 
 A stronger / slower model drafts labels for the human boss to verify.

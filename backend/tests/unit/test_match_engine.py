@@ -98,6 +98,50 @@ async def test_orphan_source_doc(workspace):
     assert res.orphans[src] == ["pay_orphan.jpg"]
 
 
+async def test_multi_source_card(workspace):
+    # one anchor (invoice) reconciled against TWO sources (payment + purchase
+    # order). Each source declares its own mappings; the card carries one pair
+    # per source. Locks the N-source star shape.
+    anchor = await _seed(workspace, "inv", {"inv1.jpg": {"amount": "100.00", "order_no": "A1"}})
+    pay = await _seed(workspace, "pay", {"pay1.jpg": {"amount": "100.00", "ref_no": "A1"}})
+    po = await _seed(workspace, "po", {"po1.jpg": {"order_no": "A1"}})  # PO has only the order no
+    mpv = _mpv({
+        pay: _AMOUNT_ORDER(pay),
+        po: [KeyMapping(anchor="order_no", source="order_no", tol=Tol(type="exact"))],
+    })
+
+    res = await run_engine(
+        workspace, run_id="mr_n", anchor_project=anchor, source_projects=[pay, po],
+        match_prompt=mpv, provider=None,
+    )
+    card = res.cards[0]
+    assert card.overall == "complete"
+    by_src = {p.source: p for p in card.pairs}
+    assert by_src[pay].status == "match" and by_src[pay].doc == "pay1.jpg"
+    assert by_src[po].status == "match" and by_src[po].doc == "po1.jpg"
+
+
+async def test_partial_card_one_source_missing(workspace):
+    # invoice matches payment but has no purchase order → partial, not complete.
+    anchor = await _seed(workspace, "inv", {"inv1.jpg": {"amount": "100.00", "order_no": "A1"}})
+    pay = await _seed(workspace, "pay", {"pay1.jpg": {"amount": "100.00", "ref_no": "A1"}})
+    po = await _seed(workspace, "po", {"po_other.jpg": {"order_no": "ZZZ"}})
+    mpv = _mpv({
+        pay: _AMOUNT_ORDER(pay),
+        po: [KeyMapping(anchor="order_no", source="order_no", tol=Tol(type="exact"))],
+    })
+
+    res = await run_engine(
+        workspace, run_id="mr_p", anchor_project=anchor, source_projects=[pay, po],
+        match_prompt=mpv, provider=None,
+    )
+    card = res.cards[0]
+    assert card.overall == "partial"
+    by_src = {p.source: p for p in card.pairs}
+    assert by_src[pay].status == "match" and by_src[po].status == "missing"
+    assert res.orphans[po] == ["po_other.jpg"]
+
+
 async def test_unmatched_anchor(workspace):
     anchor = await _seed(workspace, "inv", {"inv1.jpg": {"amount": "10.00", "order_no": "A"}})
     src = await _seed(workspace, "pay", {"pay1.jpg": {"amount": "999.00", "ref_no": "Z"}})
