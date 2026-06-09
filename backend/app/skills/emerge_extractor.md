@@ -302,6 +302,12 @@ active pair. Use when the user says "试试" / "A/B" / "对比 model X" /
    full `reviewed/` set; emits per-field + per-doc breakdown. This calls
    the experiment's LLM N times where N = number of reviewed docs.
    Surface the count up front: "this will call <provider/model> N times".
+   **Rendering (headless)**: after EACH eval print a one-line score
+   (`model · overall% · this-doc%`) so the user gets incremental feedback —
+   never leave an empty turn between back-to-back evals. When comparing
+   several experiments, print those per-eval lines as you go, THEN a final
+   comparison table once all evals finish (model | overall | per-doc), and
+   call out which fields drove the gap.
 4. `promote_experiment(experiment_id)` — flip active to the experiment's
    pair (ask first — re-seeds `predictions/_draft/` from the experiment's
    per-doc extracts).
