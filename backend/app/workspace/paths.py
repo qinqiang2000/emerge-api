@@ -356,6 +356,15 @@ def pats_path(workspace_root: Path) -> Path:
     return auth_dir(workspace_root) / "pats.json"
 
 
+# --- remote MCP tool-call usage log (informs P4 tool convergence) -----------
+# Append-only JSONL at the TRUE root (`_usage/` — auto-exempt from orphan sweep
+# via the leading-`_` rule). Records which tools teammates actually call over the
+# remote connector, so "keep which tools" is data-driven, not a guess. See
+# `app/tools/usage.py`. NOT user data — derived telemetry, safe to wipe.
+def usage_log_path(workspace_root: Path) -> Path:
+    return workspace_root / "_usage" / "calls.jsonl"
+
+
 # --- OAuth 2.0 authorization server (P2; login-based custom connector) -------
 # All four live beside users/teams/pats at the TRUE root — OAuth identity is
 # cross-team global, just like PATs. See `app/auth/oauth.py`.

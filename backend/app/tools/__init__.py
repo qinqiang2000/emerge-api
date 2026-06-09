@@ -1684,8 +1684,14 @@ def build_emerge_mcp(
                    t_ws_list, t_ws_read, t_ws_grep]
     # Stamp behavioural hints from the central buckets so the remote tools/list
     # carries them (drives a client's auto-approve / destructive-gate policy).
+    # On the headless (remote/stdio) surface only, also wrap each handler to log
+    # the call — emerge's own browser chat is the operator, not a teammate, so it
+    # isn't counted. The usage log feeds P4 tool convergence (see tools/usage.py).
     for _t in _tools:
         _t.annotations = _annotate(_t.name)
+        if headless:
+            from app.tools.usage import wrap_handler
+            _t.handler = wrap_handler(_t.handler, workspace, _t.name)
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",
