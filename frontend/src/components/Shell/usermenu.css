@@ -1,8 +1,8 @@
 /* ── pinned bottom row inside the expanded spine ─────────────────────── */
-.fs-foot{border-top:1px solid var(--rule-soft);padding:8px 10px;background:var(--paper);position:relative}
+.fs-foot{border-top:1px solid var(--rule-soft);padding:8px 10px;background:var(--sidebar-bg);position:relative}
 
 /* ── 52px icon rail (collapsed sidebar) ──────────────────────────────── */
-.fs-rail{height:100%;display:flex;flex-direction:column;align-items:center;padding:8px 0 10px;border-right:1px solid var(--rule-soft);background:var(--paper);overflow:hidden}
+.fs-rail{height:100%;display:flex;flex-direction:column;align-items:center;padding:8px 0 10px;border-right:1px solid var(--rule-soft);background:var(--sidebar-bg);overflow:hidden}
 .fs-rail-top{display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px}
 .fs-rail-spacer{flex:1}
 .fs-rail-bot{display:flex;flex-direction:column;align-items:center;padding-bottom:2px;position:relative}
@@ -34,7 +34,7 @@
 .user-menu .avatar-badge{
   position:absolute;bottom:-2px;right:-3px;
   width:14px;height:14px;border-radius:4px;
-  background:var(--paper);border:1.5px solid var(--rule-soft);
+  background:var(--sidebar-bg);border:1.5px solid var(--rule-soft);
   display:inline-flex;align-items:center;justify-content:center;
   color:var(--ink-3);
 }

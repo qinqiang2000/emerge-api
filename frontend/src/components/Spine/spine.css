@@ -18,7 +18,7 @@
 
 /* ── project filter ────────────────────────────────────────────────────── */
 .fs .fs-filter{display:flex;align-items:center;gap:6px;margin:2px 8px 4px;padding:5px 8px;border-radius:8px;background:var(--paper-2);border:1px solid transparent;transition:border-color .12s, background .12s}
-.fs .fs-filter:focus-within{border-color:var(--rule-soft);background:var(--paper)}
+.fs .fs-filter:focus-within{border-color:var(--rule-soft);background:var(--sidebar-bg)}
 .fs .fs-filter .fs-filter-icon{color:var(--ink-5);flex-shrink:0}
 .fs .fs-filter:focus-within .fs-filter-icon{color:var(--ink-4)}
 .fs .fs-filter-input{flex:1;min-width:0;border:0;background:transparent;outline:none;font-family:var(--sans);font-size:12.5px;color:var(--ink);padding:0}

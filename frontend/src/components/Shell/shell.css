@@ -3,7 +3,7 @@
    width to keep center icons from sliding under the floating .ctx overlay,
    but its empty slot blends seamlessly with center and left rail. The floating
    ctx panel is elevated white (#FFFFFF) and stands above paper via border+shadow. */
-.shell{--left-w:248px;--right-w:360px;position:relative;display:grid;grid-template-columns:var(--left-w) 1fr var(--right-w);grid-template-rows:1fr;height:100vh;width:100vw;background:var(--paper);transition:grid-template-columns .35s cubic-bezier(.4,.0,.2,1)}
+.shell{--left-w:248px;--right-w:360px;position:relative;display:grid;grid-template-columns:var(--left-w) 1fr var(--right-w);grid-template-rows:1fr;height:100vh;width:100vw;background:var(--chat-bg);transition:grid-template-columns .35s cubic-bezier(.4,.0,.2,1)}
 /* Pin children to their grid columns explicitly. If a child is hidden via
    display:none (responsive collapse), the remaining children would auto-flow
    into the wrong column and shrink to 0 — pinning prevents that. */
