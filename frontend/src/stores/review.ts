@@ -161,6 +161,8 @@ interface State {
   save: () => Promise<void>
   setActiveTab: (key: 'active' | '_draft' | '_pending' | string) => void
   loadExperimentPrediction: (experimentId: string) => Promise<void>
+  /** Remove a cached null (404) entry so the next loadExperimentPrediction re-fetches. */
+  evictExperimentPrediction: (experimentId: string) => void
   runExperimentPrediction: (experimentId: string) => Promise<void>
   // ── adopt-from-prediction (label-studio-style) ───────────────────
   adoptPrediction: (
@@ -377,6 +379,14 @@ export const useReview = create<State>((set, get) => ({
     if (experimentId in predictionsByExp) return  // already attempted (success or 404)
     const payload = await getExperimentPrediction(activeProjectId, experimentId, activeFilename)
     set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
+  },
+
+  evictExperimentPrediction: (experimentId) => {
+    set((s) => {
+      const next = { ...s.predictionsByExp }
+      delete next[experimentId]
+      return { predictionsByExp: next }
+    })
   },
 
   runExperimentPrediction: async (experimentId) => {

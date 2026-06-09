@@ -24,6 +24,7 @@ import { useExperiments } from './experiments'
 import { useModels } from './models'
 import { useProjects } from './projects'
 import { usePrompts } from './prompts'
+import { useReview } from './review'
 import { useSchema } from './schema'
 
 const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
@@ -1468,8 +1469,17 @@ function handleToolResult(
       void useModels.getState().load(projectId)
       void useDocs.getState().refresh(projectId)
     }
-    // extract_with_experiment writes to experiment's extracts (doc-scoped, handled
-    // in useReview T13) — no project-scoped store refresh needed here.
+    // extract_with_experiment: evict the null (404) cache entry that the
+    // tab strip's eager probe may have written before the prediction existed,
+    // then reload so the tab reappears without a hard refresh.
+    if (t === 'mcp__emerge_tools__extract_with_experiment') {
+      const input = parent.tool_input as { experiment_id?: unknown } | null
+      const eid = input && typeof input.experiment_id === 'string' ? input.experiment_id : null
+      if (eid) {
+        useReview.getState().evictExperimentPrediction(eid)
+        void useReview.getState().loadExperimentPrediction(eid)
+      }
+    }
     //
     // T9 — Bench leaderboard cache invalidation. Bench is a project-level
     // aggregator (prompt × model leaderboard rows + per-doc strip cells).
