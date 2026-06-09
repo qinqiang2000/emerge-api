@@ -15,7 +15,10 @@ import pytest
 # repo root = three up from this test file (backend/tests/unit/)
 _REPO = Path(__file__).resolve().parents[3]
 _PLUGIN = _REPO / "plugin" / "emerge"
-_MARKETPLACE = _REPO / "plugin" / ".claude-plugin" / "marketplace.json"
+# marketplace.json lives at the REPO ROOT `.claude-plugin/` — that's where
+# `/plugin marketplace add owner/repo` resolves it from. The plugin itself sits
+# under `plugin/emerge`, referenced by a relative `source`.
+_MARKETPLACE = _REPO / ".claude-plugin" / "marketplace.json"
 
 
 def _load(path: Path) -> dict:
@@ -43,7 +46,8 @@ def test_marketplace_references_plugin() -> None:
     mkt = _load(_MARKETPLACE)
     assert mkt["name"]
     entry = next(p for p in mkt["plugins"] if p["name"] == "emerge")
-    src = (_MARKETPLACE.parent.parent / entry["source"]).resolve()
+    # source is relative to the repo root (where marketplace.json lives)
+    src = (_REPO / entry["source"]).resolve()
     assert src == _PLUGIN, f"marketplace source {entry['source']} != plugin dir"
     assert (src / ".claude-plugin" / "plugin.json").exists()
 

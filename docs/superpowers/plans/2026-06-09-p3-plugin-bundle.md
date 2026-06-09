@@ -20,7 +20,7 @@ Claude plugin = 自包含目录，经 marketplace（git 仓库）分发：
 
 1. **SKILL.md 不照搬 server skill（dogfood 实证）**。`emerge_extractor.md`（39KB）是 emerge **自家 agent** 的系统提示：假设 cwd=工作区、每轮注入 `## Active context` 块、有 `ui_*` 浏览器工具。**远程 Cowork 插件用户三者全无**——"Read the Active context block first""use those absolute paths, agent cwd not guaranteed"对它**主动误导**。所以插件 SKILL.md = **手写的 remote-first 薄引导**：orientation + `ws_*` 总线 + 核心动词 cheatsheet + 红线子集 + "深度 playbook 见 connector 暴露的 MCP prompt"。**深度引导单一真相仍在 server**（薄 skill 不复制它，只指向它）→ drift 风险低。
 2. **命名 task-agnostic（CLAUDE.md 红线：UI chrome 任务类型无关）**。emerge 是**文档处理能力强的同事**，不是提取专用工具——后续有文档分类、文档匹配等。插件这个**新分发物**一开始就该通用：插件名 `emerge`（非 `emerge-extractor`）→ `/emerge:*`；skill 名 `emerge`，frame 成"文档处理同事：把文档变成 API——当前主力是字段提取，分类/匹配随能力增长"，不写死 invoice/extract 专用词。commands 用通用动词（`run`/`compare`/`tune`/`publish`），不叫 `extract`。server 侧 `emerge-extractor` prompt 名是历史内部命名（重命名是更大重构，本期不动）；插件层先立通用名。
-2. **marketplace 寄宿 emerge repo**（`github.com/qinqiang2000/emerge-api`）。bundle 落 `plugin/`，marketplace.json 在 `plugin/.claude-plugin/`。私有 repo → 队友需 git 访问（一客户一 team 的现状下可接受）；公开后即开放装。
+2. **marketplace 寄宿 emerge repo**（`github.com/qinqiang2000/emerge-api`）。marketplace.json 必须在**仓库根** `.claude-plugin/marketplace.json`（`/plugin marketplace add owner/repo` 从根解析它）；plugin 本体落 `plugin/emerge/`，marketplace `source` 用相对路径 `./plugin/emerge`（git-added marketplace 支持相对路径）。私有 repo → 队友需 git 访问（一客户一 team 的现状下可接受）；公开后即开放装。
 3. **`.mcp.json` URL 与 prod 同步靠测试守**。URL 硬编码 `https://fpydoc.duckdns.org/mcp/`；加 backend 测试断言它 == `public_base_url + /mcp/`，prod 域名变更时测试红（防 bundle 静默指向旧地址）。
 4. **commands 薄、通用动词、指向 MCP 工具**。`/emerge:run|compare|tune|publish` 各一个 md（通用动词，非 `extract`），body 指挥 Claude 用 connector 的 typed 工具跑对应 workflow（server 侧 slash 路由够不到远程客户端，故 plugin 侧自带）。
 
@@ -29,19 +29,20 @@ Claude plugin = 自包含目录，经 marketplace（git 仓库）分发：
 ## Bundle 布局
 
 ```
-plugin/                                   # = marketplace 根
+<repo-root>/                              # = marketplace 根（emerge-api repo）
 ├── .claude-plugin/
-│   └── marketplace.json                  # 目录：列 emerge 插件
-└── emerge/                               # = 插件
-    ├── .claude-plugin/
-    │   └── plugin.json                   # manifest（name=emerge → /emerge:*）
-    ├── .mcp.json                         # remote http connector（OAuth 自动）
-    ├── skills/
-    │   └── emerge/SKILL.md               # 薄 remote-first 引导（model-invoked）
-    ├── commands/
-    │   ├── run.md / compare.md
-    │   └── tune.md / publish.md          # /emerge:* slash（通用动词）
-    └── README.md                         # 安装 + 用法
+│   └── marketplace.json                  # 仓库根：列 emerge 插件，source ./plugin/emerge
+└── plugin/
+    └── emerge/                           # = 插件
+        ├── .claude-plugin/
+        │   └── plugin.json               # manifest（name=emerge → /emerge:*）
+        ├── .mcp.json                     # remote http connector（OAuth 自动）
+        ├── skills/
+        │   └── emerge/SKILL.md           # 薄 remote-first 引导（model-invoked）
+        ├── commands/
+        │   ├── run.md / compare.md
+        │   └── tune.md / publish.md      # /emerge:* slash（通用动词）
+        └── README.md                     # 安装 + 用法
 ```
 
 ## Phases
@@ -53,8 +54,8 @@ plugin/                                   # = marketplace 根
 - `plugin/emerge/.mcp.json`：`{"mcpServers":{"emerge":{"type":"http","url":"https://fpydoc.duckdns.org/mcp/"}}}`。
 - `plugin/emerge/skills/emerge/SKILL.md`：手写薄引导（见决策 1，task-agnostic）。
 - `plugin/emerge/commands/{run,compare,tune,publish}.md`：薄 slash 入口（通用动词）。
-- `plugin/.claude-plugin/marketplace.json`：目录条目。
-- `plugin/emerge/README.md`：`/plugin marketplace add github.com/qinqiang2000/emerge-api` → `/plugin install emerge@emerge` → 浏览器 OAuth 登录（有 active team 的 emerge 账号）→ `/emerge:extract` 等。
+- `.claude-plugin/marketplace.json`（**仓库根**）：目录条目，`source: ./plugin/emerge`。
+- `plugin/emerge/README.md`：`/plugin marketplace add qinqiang2000/emerge-api` → `/plugin install emerge@emerge` → 浏览器 OAuth 登录（有 active team 的 emerge 账号）→ `/emerge:run` 等。
 - `backend/tests/unit/test_plugin_bundle.py`：plugin.json/marketplace.json/.mcp.json 合法 JSON；marketplace 引用 plugin source 存在；`.mcp.json` URL == `settings.public_base_url + /mcp/`（prod 同步守卫）；SKILL.md 有 frontmatter description。
 
 **Verified（计划）:** `claude plugin validate plugin/emerge`（若 CLI 在）；本地 `claude --plugin-dir plugin/emerge` 加载 → `/emerge:extract` 可见 → OAuth 连上 → 列工具。真机 dogfood：队友机器装一次跑通 extract。

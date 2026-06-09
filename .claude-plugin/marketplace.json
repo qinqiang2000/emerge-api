@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "emerge",
-      "source": "./emerge",
+      "source": "./plugin/emerge",
       "description": "Connect Claude to your team's emerge workspace — a document-processing colleague (extraction today; classification & matching as it grows) over a remote MCP connector with login-based onboarding."
     }
   ]
