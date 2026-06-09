@@ -79,12 +79,31 @@ async def test_tenant_mode_bearer_pat_routes_to_team(workspace) -> None:
 
 
 async def test_tenant_mode_query_pat_routes_to_team(workspace) -> None:
+    # In dev/open posture (no public origin → OAuth off) the ?token= shortcut works.
     su = await bootstrap_superuser(workspace, email="a@b.com", password="pw-12345678")
     pat, _ = await mint_pat(workspace, su.id, "smoke")
     team = await store.get_team(workspace, su.active_team_id)
     expected = team_workspace_dir(workspace, team.slug or team.id)
 
     ws = await _authenticate(_req(query=f"token={pat}"))
+    assert ws == expected
+
+
+async def test_query_pat_disabled_when_oauth_enabled(workspace, monkeypatch) -> None:
+    """Once OAuth is configured (public origin set), the URL ?token= path is shut
+    off (leak surface) — header PAT still works, query token no longer does."""
+    monkeypatch.setenv("EMERGE_PUBLIC_BASE_URL", "https://emerge.example")
+    su = await bootstrap_superuser(workspace, email="a@b.com", password="pw-12345678")
+    pat, _ = await mint_pat(workspace, su.id, "smoke")
+    team = await store.get_team(workspace, su.active_team_id)
+    expected = team_workspace_dir(workspace, team.slug or team.id)
+
+    # query token is ignored → 401
+    with pytest.raises(HTTPException) as ei:
+        await _authenticate(_req(query=f"token={pat}"))
+    assert ei.value.status_code == 401
+    # same PAT in the header still authenticates
+    ws = await _authenticate(_req(headers={"Authorization": f"Bearer {pat}"}))
     assert ws == expected
 
 

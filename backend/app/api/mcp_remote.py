@@ -179,7 +179,13 @@ async def _authenticate(req: Request) -> Path:
     authz = req.headers.get("Authorization", "")
     if authz.startswith("Bearer "):
         token = authz[len("Bearer ") :].strip()
-    if not token:
+    if not token and not oauth_enabled():
+        # `?token=`/`?k=` query PAT was the P1 onboarding shortcut. Once OAuth is
+        # configured (a public origin is set) it's the better path, so we stop
+        # accepting tokens in the URL — a real logging / Referer leak surface.
+        # Header PAT (`Authorization: Bearer`) + OAuth bearer remain on every
+        # deploy; the query token survives only in dev/open mode (no OAuth) where
+        # curl convenience outweighs the leak risk.
         token = req.query_params.get("token") or req.query_params.get("k")
 
     user: Optional[User] = None
