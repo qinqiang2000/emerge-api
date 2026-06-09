@@ -858,6 +858,41 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
+        "add_model",
+        "Register an extract model in a project so it can be made active or used "
+        "in an experiment. Mints a fresh model_id and writes its config "
+        "atomically (the id + ModelConfig shape are invariants — do NOT hand-"
+        "write models/{id}.json). `provider` is one of anthropic|openai|google|"
+        "codex (Gemini → google); `provider_model_id` is the provider's own name "
+        "(e.g. \"gemini-2.5-flash\"). To copy another project's model, ws_read "
+        "its models/{id}.json for the provider + provider_model_id first. Returns "
+        "{model_id}. Follow with switch_active_model or create_experiment to use "
+        "it. Rendering: browser → one-line confirm; headless → state the new "
+        "model_id + label.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "label": {"type": "string"},
+                "provider": {"type": "string", "enum": ["anthropic", "openai", "google", "codex"]},
+                "provider_model_id": {"type": "string"},
+                "params": {"type": "object"},
+            },
+            "required": ["slug", "provider", "provider_model_id"],
+        },
+    )
+    async def t_add_model(args: dict[str, Any]) -> dict[str, Any]:
+        mid = await model_mod.create_model(
+            workspace, args["slug"],
+            label=args.get("label") or args["provider_model_id"],
+            provider=args["provider"],
+            provider_model_id=args["provider_model_id"],
+            params=args.get("params") or {},
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(
+            {"model_id": mid}, ensure_ascii=False)}]}
+
+    @tool(
         "switch_active_model",
         "Set the project's active model to the given model_id. Affects all "
         "subsequent extract calls when model_id arg is not explicitly provided.",
@@ -1617,6 +1652,7 @@ def build_emerge_mcp(
             t_write_schema,
             t_import_schema_from_yaml,
             t_switch_active_prompt,
+            t_add_model,
             t_switch_active_model,
             t_create_experiment,
             t_extract_with_experiment,

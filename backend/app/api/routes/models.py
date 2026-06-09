@@ -8,8 +8,10 @@ from pydantic import BaseModel
 
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
+from app.schemas.model_config import Provider
 from app.tools.model import (
     ModelNotFoundError,
+    create_model,
     list_models,
     read_active_model,
     read_model,
@@ -39,6 +41,31 @@ async def get_project_models(slug: str) -> list[dict]:
     workspace = _project_or_404(slug)
     await migrate_project_if_needed(workspace, slug)
     return await list_models(workspace, slug)
+
+
+class _CreateModelBody(BaseModel):
+    label: str = ""
+    provider: Provider
+    provider_model_id: str
+    params: dict = {}
+
+
+@router.post("/lab/projects/{slug}/models")
+async def post_project_model(slug: str, body: _CreateModelBody) -> dict:
+    """HTTP twin of the ``add_model`` tool — mint + register a model config.
+
+    Returns ``{model_id}``; the id is server-minted (``m_xxx``), never client-
+    chosen, so the on-disk invariant holds for both forms."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    mid = await create_model(
+        workspace, slug,
+        label=body.label or body.provider_model_id,
+        provider=body.provider,
+        provider_model_id=body.provider_model_id,
+        params=body.params,
+    )
+    return {"model_id": mid}
 
 
 @router.get("/lab/projects/{slug}/models/active")

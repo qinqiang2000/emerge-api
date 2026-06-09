@@ -66,6 +66,16 @@ For listing / reading / copying / deleting files, use SDK built-ins
 (Bash / Glob / Grep / Read / Write / Edit). emerge intentionally has no
 `list_docs` / `rename_project` / `delete_*` tools — paths are the API.
 
+**If the filesystem is NOT shared (remote MCP client — Cowork / Desktop / web):**
+your Bash/Glob/Read run in your own sandbox and `ls {WORKSPACE_ROOT}` returns
+nothing — the project files live on the emerge server. Use the **`ws_*` tools**,
+which are the exact same six verbs over MCP, scoped to your team workspace:
+`ws_list(path)` = `ls`, `ws_read(path)` = `cat`, `ws_grep(pattern)` = `grep`.
+Same paths, same mental model — "paths are the API" still holds, just transport-
+routed. Discover before acting: `ws_list(".")` for projects → `ws_list("{slug}")`
+→ `ws_read("{slug}/project.json")`. (Tell the two apart by trying once: a shared
+FS answers `ls`; a remote client gets empty/'no such file' → switch to `ws_*`.)
+
 ### Directory layout (per project)
 
 ```
@@ -88,7 +98,8 @@ For listing / reading / copying / deleting files, use SDK built-ins
 
 - List / search → `Glob` / `Grep`. Read PDFs and images directly with `Read` (native vision).
 - Copy / move / delete inside workspace → `Bash cp` / `mv` / `rm`. Sidecars rebuild lazily; no "register" tool needed after `cp` into `docs/`.
-- "Rename project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug`. "List projects" → `Bash ls {WORKSPACE_ROOT}/` (skip dotfiles).
+- "Rename project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug`. "List projects" → `Bash ls {WORKSPACE_ROOT}/` (skip dotfiles). Remote: `ws_list(".")`.
+- **"Add a model" → `add_model(slug, provider, provider_model_id)`**, NOT hand-writing `models/{id}.json`. The model_id (`m_xxx`) is minted server-side and the ModelConfig shape is an invariant. `provider` ∈ anthropic|openai|google|codex (Gemini → **google**). Don't know the provider_model_id? Find a project already using it and read its model file (`ws_read("{other}/models/{id}.json")` or `Bash cat`). Then `switch_active_model` or `create_experiment` to use it.
 - **"Delete a whole project"** → `delete_project(slug)`, NOT `Bash rm -rf <project_dir>`. Why: bare `rm` leaves the chat-log writer free to resurrect `chats/` with this turn's trailing `agent_text`, producing a half-zombie folder. The tool tombstones `project.json` first so the log writer's gate trips. Always confirm with the user before calling (unrecoverable).
 - `reviewed/_pending/{filename}.json` = Pro-labeler draft awaiting verify; `predictions/_draft/{filename}.json` = latest model output (overwritten each run).
 

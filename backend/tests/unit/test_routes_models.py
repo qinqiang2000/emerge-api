@@ -39,6 +39,26 @@ def test_list_models_returns_active_marker(client: TestClient, tmp_path: Path) -
     assert by_label["Sonnet 4.6"]["is_active"] is False
 
 
+def test_post_model_mints_id_and_registers(client: TestClient, tmp_path: Path) -> None:
+    """add_model twin: POST mints an m_xxx id, the model becomes listable +
+    switchable. Closes the dogfood flail (no way to register a model remotely)."""
+    import asyncio
+    from app.tools.projects import create_project as _create
+
+    pid = asyncio.run(_create(tmp_path, name="t"))["slug"]
+    r = client.post(f"/lab/projects/{pid}/models", json={
+        "label": "gemini-2.5-flash", "provider": "google",
+        "provider_model_id": "gemini-2.5-flash",
+    })
+    assert r.status_code == 200, r.text
+    mid = r.json()["model_id"]
+    assert mid.startswith("m_")
+    listed = {m["model_id"] for m in client.get(f"/lab/projects/{pid}/models").json()}
+    assert mid in listed
+    sw = client.put(f"/lab/projects/{pid}/models/active", json={"model_id": mid})
+    assert sw.status_code == 200 and sw.json()["model_id"] == mid
+
+
 def test_get_active_model_returns_full_blob(client: TestClient, tmp_path: Path) -> None:
     import asyncio
     from app.config import get_settings
