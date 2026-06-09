@@ -346,8 +346,6 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    the reviewed set.
 
 **Rendering contract**:
-- **browser** (`interface: browser`): one-line summary ("对账完成：12 张发票，9
-  全配 / 2 部分 / 1 未匹配，3 张孤儿凭证"); the lab reconcile view shows the cards.
 - **headless** (`interface: headless`): render the **reconcile cards as a
   table** — one row per anchor doc, one column per source (✓ matched filename /
   ✗ missing / ~ mismatch), plus an `overall` column (complete/partial/unmatched).
@@ -355,6 +353,12 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   extras). When a card is `partial`/`unmatched`, name which source is missing.
   After `score_match`, print per-source precision/recall + 整单完整率 as a small
   table. Never dump raw JSON — the table IS the deliverable.
+- **browser** (`interface: browser`): lead with a one-line summary ("对账完成：12
+  张发票，9 全配 / 2 部分 / 1 未匹配，3 张孤儿凭证"), THEN — until the lab reconcile
+  view (P0.5b) ships there is no UI card to fall back to — render the **same
+  table as the headless branch** so the user sees the per-anchor detail in chat.
+  (When the reconcile UI lands, this browser branch drops back to summary-only
+  and the card UI takes over; the headless table is unaffected.)
 
 ## Pro labeler (pre-label)
 
