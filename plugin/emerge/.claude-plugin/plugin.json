@@ -1,0 +1,12 @@
+{
+  "name": "emerge",
+  "displayName": "emerge",
+  "version": "0.1.0",
+  "description": "A document-processing colleague. Point it at documents; APIs emerge — field extraction today, with classification and matching as it grows. Connects to your team's emerge workspace over a remote MCP connector.",
+  "author": {
+    "name": "emerge"
+  },
+  "homepage": "https://fpydoc.duckdns.org",
+  "repository": "https://github.com/qinqiang2000/emerge-api",
+  "keywords": ["documents", "extraction", "classification", "matching", "mcp", "emerge"]
+}

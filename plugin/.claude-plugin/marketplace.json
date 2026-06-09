@@ -1,0 +1,17 @@
+{
+  "name": "emerge",
+  "metadata": {
+    "description": "The emerge marketplace — connect Claude to your team's document-processing workspace."
+  },
+  "owner": {
+    "name": "emerge",
+    "url": "https://github.com/qinqiang2000/emerge-api"
+  },
+  "plugins": [
+    {
+      "name": "emerge",
+      "source": "./emerge",
+      "description": "Connect Claude to your team's emerge workspace — a document-processing colleague (extraction today; classification & matching as it grows) over a remote MCP connector with login-based onboarding."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "emerge": {
+      "type": "http",
+      "url": "https://fpydoc.duckdns.org/mcp/"
+    }
+  }
+}
