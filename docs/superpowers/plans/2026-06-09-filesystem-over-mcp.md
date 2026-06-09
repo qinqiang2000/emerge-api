@@ -82,8 +82,18 @@ audit headless 面：`ws_*`（6）+ 保留的 typed 不变量动词（`delete_pr
 - **prod 产物落真实根**：`ws_*` scoped 到 team 工作区，够不到 `_published`/`_keys.json`（在真实根）——publish 红线不破。
 - **对称契约**：每个 `ws_*` 配 HTTP twin 或 `_HTTP_EXEMPT` 注明（`test_symmetry_invariant.py` 强制）。
 
+## Remote 闭环 dogfood（2026-06-09，computer-use 驱动 Cowork）
+
+接「补 remote 闭环」arc：在 Cowork（原生 Claude app，full tier）续跑 `北方工业` 的 extract→review→eval→compare，驱动方式 = computer-use 真机操作。**结论：闭环在 remote/headless 下全程自助跑通且输出优质，无大洞。**
+
+- ✅ **review→save_reviewed**：一句"存为 ground truth"→ agent 一步 `Save reviewed`，没要路径、没撞墙。
+- ✅ **eval→compare**：要求对比 gemini-2.5-flash vs 默认（gemini-3-flash-preview）→ agent 自主编排 `get_project_config`→`create_experiment`(默认模型)→`extract_with_experiment`→两次 `run_experiment_eval`→渲染对比表（flash 90.9% vs preview 81.8% @1.jpg）+ **自诊断** `merchantName` 丢分=两模型都多带括号业态描述、GT 没有 + 建议 prompt 修法。AutoResearch 式洞察自然涌现。
+- 🟡 **修掉**：背靠背两次 eval 间 agent 不出文字 → Cowork 渲染成 `(empty placeholder)`（非 emerge bug，是 client 对无文字 turn 的渲染）。skill 补 headless 渲染契约（每次 eval 出一行分）消掉空 turn + 流式反馈。已 deploy。
+- 🟡 **client 配置项（非 emerge fix）**：Cowork 默认对**每个** tool call 弹权限确认（含 readOnly 的 `get_project_config`）。已 ship 的 annotations 让用户**可**设 tool-policy 自动放行 readOnly，但默认仍 ask——告诉用户去 Cowork 设 policy 即可。
+
 ## Follow-ups
 
 - `ws_read` 大目录/大文件分页（best-practice pagination）。
 - 旧 P1.6 列表（`get_prediction`/`list_prompts`/`create_prompt`/`write_model`…）**本 plan 一次性覆盖**——它们都是 `ws_read`/`ws_list`/`ws_write` 的特例，逐个 typed 工具不再需要。
+- **archive/delete experiment 远程无 FS 下断**：skill 行 308 用 `Bash mv experiments/{id} ...` 归档，远程客户端 Bash 在沙箱够不到——需 `ws_move`(deferred) 或把 `archive_experiment` 暴露成 typed 工具（dogfood 未撞，低频，留 follow-up）。
 - Tier-2 code-exec/CLI 单开 plan。
