@@ -102,7 +102,7 @@ def build_emerge_mcp(
     """Construct an in-process MCP server exposing emerge's business tools.
 
     ``headless=True`` additionally registers the filesystem-*discovery* tools
-    (``list_projects`` / ``list_docs`` / ``read_schema``). emerge's own chat
+    (``list_projects`` / ``list_docs`` / ``read_prompt``). emerge's own chat
     agent shares the workspace filesystem and discovers via the SDK built-in
     Bash/Read (Step B cut these wrappers), so it builds with ``headless=False``.
     But a REMOTE MCP client (Cowork / Desktop, via ``build_mcp_server``) runs
@@ -1454,21 +1454,27 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
-        "read_schema",
-        "Read a project's active extraction schema as a list of field "
-        "definitions [{name, type, description, ...}]. Lets a remote client "
-        "inspect what the project extracts before running it (the in-session "
-        "agent Reads schema.json directly). Rendering: headless → summarise the "
-        "fields (name · type).",
+        "read_prompt",
+        "Read a project's active extraction PROMPT — the schema fields (each with "
+        "its description) AND the project-level `global_notes`. These two halves "
+        "together ARE the prompt the extract model runs, so this is the tool to "
+        "answer 'what is this project's prompt / what does it extract'. Returns "
+        "the active prompt variant: {schema:[{name,type,description,...}], "
+        "global_notes, version, ...}. (The in-session agent Reads the prompt "
+        "files directly; a remote client cannot.) Rendering: browser → one-line "
+        "summary, the UI prompt panel shows the rest; headless → tabulate the "
+        "fields (name · type · description), THEN print `global_notes` verbatim "
+        "under its own heading — it is half the prompt, never omit it.",
         {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
     )
-    async def t_read_schema(args: dict[str, Any]) -> dict[str, Any]:
+    async def t_read_prompt(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
             return {"content": [{"type": "text", "text": _json.dumps(
-                _chat_not_bound_error("read_schema"))}]}
-        fields = await schema_mod.read_schema(workspace, args["slug"])
+                _chat_not_bound_error("read_prompt"))}]}
+        from app.tools.prompt import read_active_prompt
+        pv = await read_active_prompt(workspace, args["slug"])
         return {"content": [{"type": "text", "text": _json.dumps(
-            [f.model_dump(mode="json") for f in fields], ensure_ascii=False)}]}
+            pv.model_dump(mode="json", exclude_none=True), ensure_ascii=False)}]}
 
     _tools = [
             t_create_project,
@@ -1516,7 +1522,7 @@ def build_emerge_mcp(
             t_ask_user,
     ]
     if headless:
-        _tools += [t_list_projects, t_list_docs, t_read_schema]
+        _tools += [t_list_projects, t_list_docs, t_read_prompt]
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",

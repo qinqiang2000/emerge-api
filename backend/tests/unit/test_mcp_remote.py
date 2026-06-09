@@ -115,9 +115,9 @@ async def _server_tool_names(headless: bool) -> set[str]:
 
 
 async def test_discovery_tools_headless_only() -> None:
-    """list_projects/list_docs/read_schema appear on the headless (stdio/remote)
+    """list_projects/list_docs/read_prompt appear on the headless (stdio/remote)
     server but NOT on the in-session chat server (which uses built-in Bash)."""
-    discovery = {"list_projects", "list_docs", "read_schema"}
+    discovery = {"list_projects", "list_docs", "read_prompt"}
     headless = await _server_tool_names(headless=True)
     chat = await _server_tool_names(headless=False)
     assert discovery <= headless, f"headless missing {discovery - headless}"

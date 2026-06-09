@@ -130,7 +130,9 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Step B wrapper cut and are still live, so the dual-form contract holds.
     "list_projects": ("GET", r"^/lab/projects$"),
     "list_docs":     ("GET", r"^/lab/projects/\{slug\}/docs$"),
-    "read_schema":   ("GET", r"^/lab/projects/\{slug\}/schema/raw$"),
+    # read_prompt returns the active prompt (schema + global_notes) — its twin is
+    # the active-prompt route, NOT schema/raw (which is fields-only YAML).
+    "read_prompt":   ("GET", r"^/lab/projects/\{slug\}/prompts/active$"),
 }
 
 
