@@ -1,6 +1,6 @@
 # 2026-06-09 — Filesystem over MCP（把"文件系统总线"暴露给远程客户端）
 
-> **Status**: 📋 planned
+> **Status**: ✅ P0 (read 三件 ws_list/ws_read/ws_grep) + P1 关键部分 (add_model typed 工具 + skill interface-aware FS 分支) shipped & deployed prod (2026-06-09)；P1 的通用 ws_write/ws_edit/ws_move **deferred**（model 注册已被 add_model 闭合；raw 文件写是最险面，按 dogfood 需求再加）；P2 收敛 + Tier-2 code-exec planned。**Pending**: Cowork 重连重跑「增加 gemini-2.5-flash 然后提取」登录式 dogfood。
 > **Closes**: 远程 MCP 客户端（Cowork/Desktop）"大量能力不可用或不好用"的根因——`emerge_extractor.md` 把"文件系统 = API"硬编码，而远程客户端的 Bash 在自己的云沙箱，看不到服务器磁盘。
 > **Supersedes**: `2026-06-08-cowork-remote-mcp.md` 的 **P1.6**（逐个 reconcile Step B 砍的工具）——本 plan 用一个文件系统面**一次性**恢复，而非逐点补 typed 工具。
 > **Reframes**: 该 plan 的 **P4**（工具收敛）——headless 面收敛成"~6 个 `ws_*` + 少数 typed 不变量动词"，自然 ~15 而非 38。
