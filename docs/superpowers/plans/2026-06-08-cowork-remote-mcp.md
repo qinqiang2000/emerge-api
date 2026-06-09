@@ -78,7 +78,11 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 - `paths.py`/`config.py`：4 个 `oauth_*` 路径 + `public_base_url` 设置。
 - `tests/unit/test_oauth.py`（8 passed）：provider 全生命周期 roundtrip、refresh 轮换、revoke 杀 grant、txn/code 过期、`/mcp` OAuth-bearer 路由、坏 token 401、`WWW-Authenticate` 开关，**+ 完整 HTTP loop**（DCR→/authorize→consent 登录+approve→/token+PKCE→用 access token 解析回 team）。回归：mcp_remote+symmetry 10、auth 32 全绿；OAuth-enabled app-boot 七路由齐挂。
 
-**Pending dogfood**：设 `EMERGE_PUBLIC_BASE_URL=<ngrok https>` → 在 Cowork/Desktop「Add custom connector」用**登录**（而非贴 PAT）onboard 一次。
+**Prod 上线 2026-06-09**：prod 现为 `https://fpydoc.duckdns.org`（nginx :443，后端 127.0.0.1:8080）。两处启用：① `deploy/emerge.nginx.conf` 把 `/mcp /authorize /token /register /revoke /oauth/* /.well-known/oauth-*` 并进后端代理（此前只代理 `lab|v1|auth|healthz`，OAuth 路径会落 SPA fallback 返回 index.html → MCP `initialize` 收非 JSON）；② server `backend/.env` 加 `EMERGE_PUBLIC_BASE_URL=https://fpydoc.duckdns.org`（= OAuth issuer，满足 HTTPS）。`./deploy.sh` 全量部署。**公网验证全过**：`.well-known/oauth-{authorization-server,protected-resource/mcp}` 返 JSON；`/mcp/`→401+RFC9728 `WWW-Authenticate`；DCR `/register`→client_id；`/authorize`→302→`/oauth/consent?txn=`；consent 页正确渲染登录字段。
+
+**坑**：`Mount("/mcp")` 对无尾斜杠 `/mcp` 发 307→`/mcp/`（客户端跟随即可，但**连接器 URL 建议直接用 `https://fpydoc.duckdns.org/mcp/`** 免重定向）。
+
+**Pending dogfood**：Cowork/Desktop「Add custom connector」URL=`https://fpydoc.duckdns.org/mcp/`，OAuth=Auto-register(DCR)，Sign in & test → 浏览器 emerge consent 登录（有 active team 的账号）→ Allow → 应列出工具。
 
 原计划（保留备查）：
 
