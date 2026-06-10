@@ -66,6 +66,13 @@
      overall: pass | fail   ← 任一关键规则 fail → fail
 ```
 
+## 一趟，不是两趟（用户修正 2026-06-10，A0 已改）
+
+**审核 judge 直接吃文档原图（图/pdf），一趟出逐条结果——提取不是前置。** 原设计把 audit 焊在 extract 之上（两趟：先提取字段 → 再判规则）是惯性错误。理由：① 审核规则**开放**，提取 schema 覆盖不全 → 字段是信息瓶颈；② 视觉规则（红章）提取根本抽不出，**无论如何要看图**；③ 审核是**独立任务**，不共享 extract 的 draft，所以"坚持两趟"的 lab=prod 论据（inline-grounding 否决）**不适用**。
+- **文档图 = 必须**（原文为准，read_doc_image→ImageBlock；A0 page 1，多页 A1）。
+- **已提取字段 = 可选辅助**（若 draft 存在则附给 judge 当 hint，数字更准；没提取也能审核）。
+- 返回格式（response_schema）+ 规则（audit_rules）复用 emerge prompt/schema 机制——输入端改原文，输出端不变。
+
 ## judge 升级：配对判定器 → 审核判定器
 
 - 现在 `judge_pair(anchor, source, mappings, rules) → match/mismatch`（用于凑齐）。

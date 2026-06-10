@@ -45,38 +45,41 @@ _AUDIT_SCHEMA = {
 
 _SYSTEM = (
     "You are a meticulous document-compliance auditor. You are given a GROUP of "
-    "related documents (each shown by role with its already-extracted fields), an "
-    "optional image of the anchor document, and a numbered list of compliance "
-    "rules. For EACH rule, decide whether the group satisfies it.\n"
+    "related documents — EACH shown as one or more images, labelled by role — and "
+    "a numbered list of compliance rules. Some pre-extracted fields may also be "
+    "provided for reference, but the DOCUMENT IMAGES ARE THE SOURCE OF TRUTH: read "
+    "values, stamps, signatures, dates and amounts off the images; use the fields "
+    "only as a hint. For EACH rule, decide whether the group satisfies it.\n"
     "- Output one verdict per rule, keyed by the rule's `index` (0-based).\n"
     "- status: 'pass' = clearly satisfied; 'fail' = clearly violated; 'unclear' "
-    "= you cannot determine it from the given fields/image (e.g. a needed field "
-    "is absent, or a visual mark is illegible). NEVER guess 'fail' when unsure — "
-    "use 'unclear'.\n"
-    "- For VISUAL rules (e.g. a stamp/seal/signature is present), inspect the "
-    "anchor image. If no image is provided and the rule needs one, return "
-    "'unclear'.\n"
-    "- For cross-document rules, compare the relevant fields across roles. Allow "
-    "sensible tolerances (amounts equal within rounding; a date inside a stated "
-    "period; the same company written differently; keyword overlap for fuzzy "
-    "title/remark matches).\n"
-    "- `reason`: one short sentence citing the concrete values you compared."
+    "= you cannot determine it from the documents (e.g. the relevant area is "
+    "absent or illegible). NEVER guess 'fail' when unsure — use 'unclear'.\n"
+    "- VISUAL rules (a stamp/seal/red chop, a signature present): inspect the "
+    "relevant document image directly.\n"
+    "- CROSS-DOCUMENT rules: locate the relevant value on each document and "
+    "compare. Allow sensible tolerances (amounts equal within rounding; a date "
+    "inside a stated period; the same company written differently; keyword "
+    "overlap for fuzzy title/remark matches).\n"
+    "- `reason`: one short sentence citing the concrete values/marks you saw."
 )
 
 
 async def audit_group(
     *,
-    group_docs: dict[str, dict],
+    doc_images: dict[str, list[ImageBlock]],
     audit_rules: list[str],
-    anchor_image: Optional[ImageBlock] = None,
+    doc_fields: Optional[dict[str, dict]] = None,
     provider: Optional[Provider] = None,
     model_id: Optional[str] = None,
 ) -> list[RuleCheck]:
-    """Judge `audit_rules` over `group_docs` (= {role: extracted_fields}).
+    """Judge `audit_rules` over a group of documents, one trip.
 
-    Returns one `RuleCheck` per rule, in the rules' order. With no provider (or
-    on provider/parse failure) every rule comes back `unclear` — audit is
-    inherently LLM-judged, so there is no deterministic fallback verdict.
+    `doc_images` = {role: [page images]} — the documents themselves, the source
+    of truth (read fields, stamps, dates off them). `doc_fields` = {role: fields}
+    is OPTIONAL pre-extracted data passed as a hint (better number precision);
+    audit does NOT require prior extraction. Returns one `RuleCheck` per rule, in
+    order. With no provider (or on failure) every rule comes back `unclear` —
+    audit is inherently LLM-judged.
     """
     if not audit_rules:
         return []
@@ -85,16 +88,17 @@ async def audit_group(
                           reason="no judge model available") for r in audit_rules]
 
     numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(audit_rules))
-    payload = {
-        "documents": group_docs,           # {role: {field: value}}
-        "rules": [{"index": i, "rule": r} for i, r in enumerate(audit_rules)],
-    }
-    blocks: list = [TextBlock(
-        text="Documents and rules:\n" + json.dumps(payload, ensure_ascii=False)
-        + "\n\nRules (numbered):\n" + numbered,
-    )]
-    if anchor_image is not None:
-        blocks.append(anchor_image)
+    intro = "Compliance rules (numbered):\n" + numbered
+    if doc_fields:
+        intro += (
+            "\n\nPre-extracted fields (reference only — verify against the images):\n"
+            + json.dumps(doc_fields, ensure_ascii=False)
+        )
+    intro += "\n\nThe documents follow, each labelled by role:"
+    blocks: list = [TextBlock(text=intro)]
+    for role, imgs in doc_images.items():
+        blocks.append(TextBlock(text=f"--- Document: {role} ---"))
+        blocks.extend(imgs)
 
     try:
         result = await provider.extract(

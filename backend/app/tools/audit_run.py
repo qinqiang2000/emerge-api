@@ -30,7 +30,8 @@ from app.workspace.paths import audit_result_path, prediction_draft_path
 
 def _load_fields(workspace: Path, project: str, filename: str) -> Optional[dict]:
     """First extracted entity (the doc's field record) from its draft, or None
-    when the doc hasn't been extracted yet."""
+    when the doc hasn't been extracted — fields are an OPTIONAL hint for audit,
+    not a prerequisite."""
     p = prediction_draft_path(workspace, project, filename)
     if not p.exists():
         return None
@@ -45,14 +46,12 @@ def _load_fields(workspace: Path, project: str, filename: str) -> Optional[dict]
     return None
 
 
-async def _anchor_image(workspace: Path, project: str, filename: str) -> Optional[ImageBlock]:
-    """Pull the anchor doc's image for visual rules. Best-effort: None on any
-    failure (judge then returns `unclear` for visual rules)."""
-    try:
-        out = await read_doc_image(workspace, project, filename, page=1)
-        return ImageBlock(media_type=out["mime"], data_b64=out["data"])
-    except Exception:
-        return None
+async def _doc_images(workspace: Path, project: str, filename: str) -> list[ImageBlock]:
+    """Render a doc to image block(s) — the audit judge's source of truth. A0
+    uses page 1 (the demo docs are single-page or key-info-on-p1); full-page
+    coverage is A1. Raises if the doc file is missing (audit needs the doc)."""
+    out = await read_doc_image(workspace, project, filename, page=1)
+    return [ImageBlock(media_type=out["mime"], data_b64=out["data"])]
 
 
 async def run_audit(
@@ -64,9 +63,11 @@ async def run_audit(
     provider: Optional[Provider] = None,
     model_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Audit one group. `source_docs` maps source-project slug → its doc in the
-    group. Returns the report as a dict. Raises MatchProjectError on a bad
-    group (unknown source / un-extracted doc)."""
+    """Audit one group in a single LLM trip: the judge reads the DOCUMENT IMAGES
+    (source of truth) + the audit rules, with any pre-extracted fields passed
+    only as a hint. `source_docs` maps source-project slug → its doc in the
+    group. Returns the report dict. Raises MatchProjectError on a bad group
+    (unknown source / missing doc / no rules)."""
     project = await read_match_project(workspace, slug)
     anchor_project = project["anchor_project"]
     valid_sources = set(project["source_projects"])
@@ -90,36 +91,32 @@ async def run_audit(
             "no audit rules set — call write_audit_rules first",
         )
 
-    # Load each doc's fields, keyed by project slug (its role in the group).
-    group_docs: dict[str, dict] = {}
+    # Load each doc as image(s) (source of truth, required) + optional fields
+    # (hint, only if already extracted). Keyed by project slug = role in group.
     group_files: dict[str, str] = {anchor_project: anchor_doc}
-    af = _load_fields(workspace, anchor_project, anchor_doc)
-    if af is None:
-        raise MatchProjectError(
-            "audit_doc_not_extracted",
-            f"anchor doc '{anchor_doc}' has no extraction — run extract first",
-        )
-    group_docs[anchor_project] = af
-    for src_slug, src_doc in source_docs.items():
-        sf = _load_fields(workspace, src_slug, src_doc)
-        if sf is None:
+    group_files.update(source_docs)
+    doc_images: dict[str, list[ImageBlock]] = {}
+    doc_fields: dict[str, dict] = {}
+    for role, filename in group_files.items():
+        try:
+            doc_images[role] = await _doc_images(workspace, role, filename)
+        except Exception:
             raise MatchProjectError(
-                "audit_doc_not_extracted",
-                f"source doc '{src_doc}' in '{src_slug}' has no extraction — run extract first",
+                "audit_doc_not_found",
+                f"document '{filename}' not found in project '{role}'",
             )
-        group_docs[src_slug] = sf
-        group_files[src_slug] = src_doc
+        fields = _load_fields(workspace, role, filename)
+        if fields is not None:
+            doc_fields[role] = fields
 
     if provider is None:
         provider, resolved_model = await _resolve_judge_provider(workspace, slug)
         model_id = model_id or resolved_model
 
-    anchor_img = await _anchor_image(workspace, anchor_project, anchor_doc)
-
     checks = await audit_group(
-        group_docs=group_docs,
+        doc_images=doc_images,
         audit_rules=audit_rules,
-        anchor_image=anchor_img,
+        doc_fields=doc_fields or None,
         provider=provider,
         model_id=model_id,
     )
