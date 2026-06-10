@@ -58,9 +58,12 @@ def _sign(payload: bytes) -> str:
 
 
 def mint_token(workspace: Path, slug: str, filename: str) -> str:
-    """One capability = one (team workspace, slug, filename) for TTL seconds."""
+    """One capability = one (team workspace, slug, filename) for TTL seconds.
+    The workspace is resolved to an absolute path — redemption runs whenever
+    the token comes back and must not depend on the process cwd of the moment.
+    """
     payload = json.dumps(
-        {"ws": str(workspace), "slug": slug, "fn": filename,
+        {"ws": str(workspace.resolve()), "slug": slug, "fn": filename,
          "exp": int(time.time()) + _TTL_SECONDS},
         separators=(",", ":"),
     ).encode()
