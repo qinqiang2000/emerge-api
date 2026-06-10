@@ -139,6 +139,7 @@ const zh: Dict = {
   'empty.newproject.note': '拖入文档，我帮你自动起名。',
   'empty.drop.headline': '把文档拖到这里',
   'empty.drop.orRun': '或用下方的 + 添加',
+  'empty.drop.orClick': '或点击此处选择文件',
 
   // ── 输入框上方的动态 tip（按当前情况切换，见 Chat/composerTips.ts）──────
   'tip.uploading': '正在读取文档…稍等',

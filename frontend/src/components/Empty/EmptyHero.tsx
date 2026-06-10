@@ -2,7 +2,7 @@
 //
 // 主页只留"拖拽区"这一个核心动作。原先的 /help nudge、引导卡片、starter 列表
 // 已收敛进 composer 上方的动态 tip（见 Chat/composerTips.ts）——主页不再堆提示。
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { useT } from '../../i18n'
 
@@ -21,6 +21,7 @@ export default function EmptyHero({
 }: Props) {
   const t = useT()
   const [dragOver, setDragOver] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault()
@@ -48,15 +49,28 @@ export default function EmptyHero({
     <div className="empty-hero">
       <div className="ey">{eyebrow}</div>
       {newProject && <div className="new-note">{t('empty.newproject.note')}</div>}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/pdf,.pdf,image/*"
+        multiple
+        hidden
+        onChange={e => {
+          const files = Array.from(e.target.files ?? [])
+          if (files.length > 0) onAttach(files)
+          e.target.value = ''
+        }}
+      />
       <div
         className="drop"
-        style={dragOver ? { borderColor: 'var(--ochre-2)', background: 'var(--ochre-soft)' } : undefined}
+        style={dragOver ? { borderColor: 'var(--ochre-2)', background: 'var(--ochre-soft)', cursor: 'copy' } : { cursor: 'pointer' }}
+        onClick={() => fileRef.current?.click()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         <b>{t('empty.drop.headline')}</b>
-        <span>{t('empty.drop.orRun')}</span>
+        <span>{t('empty.drop.orClick')}</span>
       </div>
     </div>
   )

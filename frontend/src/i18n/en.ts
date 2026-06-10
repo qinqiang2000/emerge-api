@@ -139,6 +139,7 @@ const en: Dict = {
   'empty.newproject.note': "New project — not named yet. Drop in a document or tell me what you're working on, and I'll set up the folder and name it.",
   'empty.drop.headline': 'Drag your documents here',
   'empty.drop.orRun': 'or add them with the + below',
+  'empty.drop.orClick': 'or click here to browse files',
 
   // ── Dynamic above-the-box tip (context-driven, see Chat/composerTips.ts) ─
   'tip.uploading': 'Reading your documents… one moment',
