@@ -33,6 +33,15 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v"
+# Hang guardrail: any test stuck >120s fails with a stack dump instead of
+# silently eating the suite (2026-06-10: turns SSE tests deadlocked and full
+# runs sat 1h+ at 0% CPU). Method MUST be "signal": the observed deadlocks
+# block the MAIN thread, which SIGALRM can interrupt so the suite keeps going;
+# "thread" mode would kill the whole pytest process at the first hang. Legit
+# slow tests opt out EXPLICITLY via @pytest.mark.timeout(...) — never raise
+# this global value.
+timeout = 120
+timeout_method = "signal"
 
 [build-system]
 requires = ["hatchling"]
