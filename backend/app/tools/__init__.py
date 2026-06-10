@@ -113,7 +113,7 @@ def _extract_provider_error(exc: Exception) -> dict[str, Any]:
 SERVICE_PREFIX = "emerge_"
 
 _READ_ONLY = frozenset({  # pure read / local compute — no durable state change
-    "list_projects", "list_docs", "read_prompt",
+    "list_projects", "list_docs", "read_prompt", "read_skill",
     "ws_list", "ws_read", "ws_grep",
     "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
@@ -1723,6 +1723,33 @@ def build_emerge_mcp(
             bool(a.get("copy", False))))(args)
 
     @tool(
+        "read_skill",
+        "Read one of emerge's domain playbooks — REQUIRED before working a "
+        "task family whose detail is not in your core instructions. Domains: "
+        "'experiments' (A/B, /compare, /eval, score rendering, fork/clone) · "
+        "'match_audit' (reconciliation 对账 + compliance audit 审核, rules, "
+        "rendering contracts) · 'review' (review-mode triage, ui_* navigation, "
+        "pre-label) · 'attachments' (chat attachments, schema import, "
+        "empty-hero) · 'self' (/help, /config). Call ONCE per domain per "
+        "conversation, then act. Rendering: do not echo the playbook to the "
+        "user — it is instructions for you.",
+        {"type": "object", "properties": {
+            "domain": {"type": "string", "enum": [
+                "experiments", "match_audit", "review", "attachments", "self"]},
+        }, "required": ["domain"]},
+    )
+    async def t_read_skill(args: dict[str, Any]) -> dict[str, Any]:
+        from app.skills import load_domain_skill
+        try:
+            text = load_domain_skill(str(args["domain"]))
+        except KeyError:
+            return {"content": [{"type": "text", "text": _json.dumps({
+                "error_code": "unknown_skill_domain",
+                "error_message_en": f"no such domain: {args['domain']!r}",
+            })}]}
+        return {"content": [{"type": "text", "text": text}]}
+
+    @tool(
         "request_upload_url",
         "Get presigned upload URLs for putting BINARY docs (pdf/png/jpg) into "
         "a project's docs/ from YOUR side of the connection. Use when the user "
@@ -2118,6 +2145,7 @@ def build_emerge_mcp(
             t_ui_set_active_tab,
             t_ui_set_active_entity,
             t_ask_user,
+            t_read_skill,  # both surfaces — skills live outside the workspace
     ]
     if headless:
         _tools += [t_list_projects, t_list_docs, t_read_prompt,
@@ -2168,6 +2196,7 @@ _EMERGE_TOOL_NAMES = (
     "get_surface_state",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
     "ask_user",
+    "read_skill",
 )
 
 

@@ -102,11 +102,14 @@ def _load_skill(name: str) -> str:
 
 
 def test_extractor_skill_has_headless_eval_rendering() -> None:
-    """emerge_extractor.md must describe headless rendering for /eval."""
-    skill = _load_skill("emerge_extractor")
-    assert "headless" in skill.lower(), "Skill must mention headless rendering path"
-    # Must have a table rendering instruction for headless
-    assert "markdown table" in skill.lower() or "| Field" in skill or "| field" in skill.lower()
+    """The /eval headless rendering contract lives in the experiments domain
+    playbook (progressive disclosure, 2026-06-10); the always-on core still
+    must carry the headless concept."""
+    core = _load_skill("emerge_extractor")
+    assert "headless" in core.lower(), "Core must mention headless rendering path"
+    from app.skills import load_domain_skill
+    exp = load_domain_skill("experiments")
+    assert "markdown table" in exp.lower() or "| Field" in exp or "| field" in exp.lower()
 
 
 def test_extractor_skill_ui_tools_headless_guidance() -> None:

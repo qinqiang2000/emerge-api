@@ -44,6 +44,7 @@ from app.api.routes import reviewed as reviewed_route
 from app.api.routes import schema as schema_route
 from app.api.routes import textlayer as textlayer_route
 from app.api.routes import translate as translate_route
+from app.api.routes import skills as skills_route
 from app.api.routes import upload as upload_route
 from app.api.routes import upload_token as upload_token_route
 from app.config import get_settings
@@ -116,6 +117,7 @@ app.include_router(upload_token_route.router)
 # Data-plane redemption: deliberately UNAUTHED — the HMAC token is the auth
 # (see app/tools/upload_url.py). Keep it out of any bind_workspace router.
 app.include_router(upload_token_route.redeem_router)
+app.include_router(skills_route.router)
 app.include_router(projects_route.router)
 app.include_router(ws_route.router)
 app.include_router(match_route.router)
