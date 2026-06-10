@@ -229,3 +229,9 @@ class AuditReport(BaseModel):
     group: dict[str, str]                 # role(slug) → filename
     checks: list[RuleCheck] = []
     overall: Literal["pass", "warn", "fail"]
+    # Idempotency-window key (None on pre-2026-06-11 reports → never
+    # cache-hit): which rules version produced this report, and the sha256 of
+    # each audited doc — replacing a doc under the same filename (e.g. the
+    # re-stamped 报价单) must bypass the cache.
+    rules_version: Optional[int] = None
+    doc_shas: Optional[dict[str, str]] = None

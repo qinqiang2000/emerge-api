@@ -33,6 +33,14 @@ from app.workspace.paths import audit_result_path, audits_dir, prediction_draft_
 _MAX_PAGES_PER_DOC = 20
 _MAX_TOTAL_PAGES = 40
 
+# Idempotency window (2026-06-11): a dogfooded agent-brain loop re-called
+# run_audit 4× with identical args, burning a full multi-page judge trip each
+# time. Same docs + same rules version within this window → same verdict
+# (modulo judge nondeterminism), so serve the fresh report instead of paying
+# the judge again. Any loop source becomes a free no-op; a genuine re-audit
+# (rules edited → version bump, docs added → group change) always re-runs.
+_IDEMPOTENT_WINDOW_S = 120
+
 
 class AuditError(Exception):
     """Audit precondition failure, carrying a stable error_code for the envelope."""
@@ -60,6 +68,37 @@ def _load_fields(workspace: Path, slug: str, filename: str) -> Optional[dict]:
     return None
 
 
+def _fresh_identical_report(
+    workspace: Path, slug: str, rules_version: Optional[int],
+    audited_shas: dict[str, str],
+) -> Optional[dict]:
+    """The latest report iff it is younger than the idempotency window AND was
+    produced by the same rules version over the same doc CONTENTS (filename +
+    sha — a re-uploaded doc under the same name must re-run). None = run."""
+    if rules_version is None:
+        return None
+    import time
+
+    adir = audits_dir(workspace, slug)
+    reports = sorted(
+        adir.glob("*/report.json"), key=lambda p: p.stat().st_mtime,
+    ) if adir.is_dir() else []
+    if not reports:
+        return None
+    p = reports[-1]
+    if time.time() - p.stat().st_mtime > _IDEMPOTENT_WINDOW_S:
+        return None
+    try:
+        rep = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if rep.get("rules_version") != rules_version:
+        return None
+    if rep.get("doc_shas") != audited_shas:
+        return None
+    return rep
+
+
 async def run_audit(
     workspace: Path,
     slug: str,
@@ -85,8 +124,20 @@ async def run_audit(
             "audit_no_rules", "no audit rules set — call write_audit_rules first",
         )
 
+    rules_version = getattr(mpv, "version", None)
+
     docs = await list_docs(workspace, slug)
     want = set(filenames) if filenames else None
+    audited_shas = {d["filename"]: str(d.get("sha256") or "")
+                    for d in docs
+                    if d.get("filename") and (want is None or d["filename"] in want)}
+
+    # ── idempotency window: identical re-run seconds later → cached report ──
+    cached = _fresh_identical_report(workspace, slug, rules_version, audited_shas)
+    if cached is not None:
+        cached["cached"] = True
+        return cached
+
     doc_images: dict[str, list[ImageBlock]] = {}
     doc_fields: dict[str, dict] = {}
     total_pages = 0
@@ -167,6 +218,8 @@ async def run_audit(
         group={fn: fn for fn in doc_images},   # the documents that were audited
         checks=checks,
         overall=overall,
+        rules_version=rules_version,
+        doc_shas={fn: audited_shas.get(fn, "") for fn in doc_images},
     )
     out_path = audit_result_path(workspace, slug, run_id)
     out_path.parent.mkdir(parents=True, exist_ok=True)

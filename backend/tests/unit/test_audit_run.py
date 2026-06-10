@@ -287,6 +287,12 @@ async def test_read_audit_report_returns_latest(workspace):
         {"index": 2, "status": "fail", "reason": "未盖章"},
     ])
     first = await run_audit(workspace, slug, provider=p1, model_id="m")
+    # the user re-uploads the stamped 报价单 under the same filename — the doc
+    # sha changes, which must bypass the idempotency window
+    atomic_write_json(
+        docs_meta_dir(workspace, slug) / "报价单.jpg.json",
+        {"filename": "报价单.jpg", "sha256": "restamped", "page_count": 1, "ext": "jpg"},
+    )
     p2 = _MockProvider([
         {"index": 0, "status": "pass", "reason": "ok"},
         {"index": 1, "status": "pass", "reason": "ok"},
@@ -379,3 +385,53 @@ async def test_audit_page_budget_caps_but_never_drops_a_doc(workspace, monkeypat
 
     assert len(captured["巨册.pdf"]) == 20      # per-doc/trip cap
     assert len(captured["收货单.pdf"]) == 1     # budget gone → still page 1
+
+
+# --- idempotency window (2026-06-11 agent-brain loop guard) -------------------
+
+async def test_rerun_within_window_serves_cached_report(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
+    p = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    first = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert p.calls == 1
+    second = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert p.calls == 1, "identical re-run must not pay the judge again"
+    assert second["run_id"] == first["run_id"]
+    assert second.get("cached") is True
+
+
+async def test_rules_change_bypasses_cache(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
+    p = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    first = await run_audit(workspace, slug, provider=p, model_id="m")
+    await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜", "盖红章"])
+    p2 = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "fail", "reason": "缺章"},
+    ])
+    second = await run_audit(workspace, slug, provider=p2, model_id="m")
+    assert p2.calls == 1, "version bump must re-run the judge"
+    assert second["run_id"] != first["run_id"]
+    assert "cached" not in second
+
+
+async def test_doc_set_change_bypasses_cache(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
+    p = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    await run_audit(workspace, slug, provider=p, model_id="m")
+    second = await run_audit(
+        workspace, slug, provider=p, model_id="m", filenames=["报价单.jpg"])
+    assert p.calls == 2, "different doc set must re-run"
+    assert "cached" not in second
