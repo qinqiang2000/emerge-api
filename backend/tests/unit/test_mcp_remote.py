@@ -170,10 +170,14 @@ async def test_minimal_surface_is_default(monkeypatch) -> None:
     assert {"emerge_ws_list", "emerge_ws_write", "emerge_ws_move",
             "emerge_request_upload_url",
             "emerge_add_model", "emerge_write_schema", "emerge_extract_one",
-            "emerge_get_project_config"} <= names
+            "emerge_get_project_config",
+            # provider-judge verbs are not ws_*-replaceable (2026-06-10
+            # dogfood: cutting run_audit made the agent improvise as its own
+            # judge — the agent-self-audit red line)
+            "emerge_run_audit", "emerge_write_audit_rules", "emerge_run_match"} <= names
     assert not ({"emerge_list_projects", "emerge_read_prompt", "emerge_bench_view",
-                 "emerge_set_labeler_model", "emerge_run_audit"} & names)
-    assert len(names) < 35, f"minimal surface grew to {len(names)}"
+                 "emerge_set_labeler_model", "emerge_history_log"} & names)
+    assert len(names) < 45, f"minimal surface grew to {len(names)}"
 
 
 async def test_full_surface_via_env(monkeypatch) -> None:

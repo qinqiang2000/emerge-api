@@ -91,6 +91,16 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment", "score",
     "start_job", "get_job", "cancel_job",
+    # audit + match: provider-judge verbs (c) + versioned-rule writes (b).
+    # Cut in the first minimal pass "by suite" — wrong taxonomy: within hours
+    # a real audit ask (2026-06-10 dogfood) left the agent with no legal path
+    # and it improvised as its own judge via read_doc_image (the agent-self-
+    # audit red line). LLM verbs are never ws_*-replaceable; they list or the
+    # capability doesn't exist remotely.
+    "write_audit_rules", "run_audit", "read_audit_report",
+    "save_reviewed_audit", "score_audit",
+    "create_match_project", "write_match_prompt", "run_match",
+    "save_reviewed_match", "score_match",
     # env-fallback resolution for all four LLM roles — invisible in the files
     "get_project_config",
 })
