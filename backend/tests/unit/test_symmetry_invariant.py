@@ -150,6 +150,9 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "ws_list":       ("GET", r"^/lab/ws/list$"),
     "ws_read":       ("GET", r"^/lab/ws/read$"),
     "ws_grep":       ("GET", r"^/lab/ws/grep$"),
+    "ws_write":      ("POST", r"^/lab/ws/write$"),
+    "ws_edit":       ("POST", r"^/lab/ws/edit$"),
+    "ws_move":       ("POST", r"^/lab/ws/move$"),
 }
 
 

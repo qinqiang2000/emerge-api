@@ -9,6 +9,7 @@ agent uses.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.auth.deps import bind_workspace, current_ws
 from app.tools import workspace_fs
@@ -39,3 +40,40 @@ async def ws_read(path: str = Query(...)) -> dict:
 @router.get("/lab/ws/grep")
 async def ws_grep(pattern: str = Query(...), path: str = ".", glob: str | None = None) -> dict:
     return _guard(lambda: workspace_fs.ws_grep(current_ws(), pattern, path, glob))
+
+
+class _WriteBody(BaseModel):
+    file_path: str
+    content: str
+
+
+@router.post("/lab/ws/write")
+async def ws_write(body: _WriteBody) -> dict:
+    return _guard(lambda: workspace_fs.ws_write(current_ws(), body.file_path, body.content))
+
+
+class _EditBody(BaseModel):
+    file_path: str
+    old_string: str
+    new_string: str
+    replace_all: bool = False
+
+
+@router.post("/lab/ws/edit")
+async def ws_edit(body: _EditBody) -> dict:
+    return _guard(lambda: workspace_fs.ws_edit(
+        current_ws(), body.file_path, body.old_string, body.new_string, body.replace_all))
+
+
+class _MoveBody(BaseModel):
+    source_path: str
+    destination_path: str
+    # named `copy` on the wire (mirrors the MCP tool arg); aliased because
+    # `copy` shadows a BaseModel attribute
+    copy_: bool = Field(False, alias="copy")
+
+
+@router.post("/lab/ws/move")
+async def ws_move(body: _MoveBody) -> dict:
+    return _guard(lambda: workspace_fs.ws_move(
+        current_ws(), body.source_path, body.destination_path, body.copy_))

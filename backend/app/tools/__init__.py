@@ -120,6 +120,7 @@ _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should ga
 _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "set_labeler_model", "set_translate_model", "set_proposer_model",
     "switch_active_prompt", "switch_active_model", "write_schema",
+    "ws_write",  # same content → same file state; binary overwrite refused
     "extract_textlayer", "translate_page",
     "pause_job", "resume_job", "cancel_job",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
@@ -1649,6 +1650,73 @@ def build_emerge_mcp(
         return _ws_guard(lambda a: workspace_fs.ws_grep(
             workspace, a["pattern"], a.get("path", "."), a.get("glob")))(args)
 
+    # Write side — parameter names CLONE the SDK built-in Write/Edit schemas so
+    # the model's trained muscle memory transfers (skill local branch says
+    # Write/Edit, remote branch says ws_write/ws_edit, same args). Invariant
+    # writes stay typed: models → add_model, schema → write_schema (the guard
+    # hard-blocks schema.json), active pointers → switch_active_*. No ws_delete.
+    @tool(
+        "ws_write",
+        "Create or overwrite a UTF-8 text file in the team workspace — the "
+        "remote built-in `Write`. `file_path` is relative to the workspace root "
+        "(e.g. \"{slug}/prompts/{id}.json\"). Parents are created; overwriting "
+        "a binary doc is refused. Use typed tools for invariant files: "
+        "add_model (NOT hand-writing models/*.json), write_schema (schema.json "
+        "is hard-blocked here), switch_active_* for project.json pointers. "
+        "Rendering: browser → one-line confirm; headless → state the path "
+        "written and byte count.",
+        {"type": "object", "properties": {
+            "file_path": {"type": "string"},
+            "content": {"type": "string"},
+        }, "required": ["file_path", "content"]},
+    )
+    async def t_ws_write(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_write(
+            workspace, a["file_path"], a["content"]))(args)
+
+    @tool(
+        "ws_edit",
+        "Exact-string replacement in a workspace text file — the remote "
+        "built-in `Edit`, same contract: `old_string` must match the file "
+        "exactly and be unique, or set `replace_all` to replace every "
+        "occurrence. `file_path` is relative to the workspace root. Prefer "
+        "this over ws_write for point changes (e.g. one field description in "
+        "a prompt json). Rendering: browser → one-line confirm; headless → "
+        "state the path and replacement count.",
+        {"type": "object", "properties": {
+            "file_path": {"type": "string"},
+            "old_string": {"type": "string"},
+            "new_string": {"type": "string"},
+            "replace_all": {"type": "boolean", "default": False},
+        }, "required": ["file_path", "old_string", "new_string"]},
+    )
+    async def t_ws_edit(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_edit(
+            workspace, a["file_path"], a["old_string"], a["new_string"],
+            bool(a.get("replace_all", False))))(args)
+
+    @tool(
+        "ws_move",
+        "Move (or with copy=true, copy) a file/directory inside the team "
+        "workspace — the remote `mv` / `cp`. copy=true is how you get a binary "
+        "doc into another project's docs/ (sidecars rebuild lazily, no register "
+        "step). Refuses to overwrite an existing destination. There is NO "
+        "ws_delete — deleting a project goes through delete_project. Rendering: "
+        "browser → one-line confirm; headless → state src → dst.",
+        {"type": "object", "properties": {
+            "source_path": {"type": "string"},
+            "destination_path": {"type": "string"},
+            "copy": {"type": "boolean", "default": False},
+        }, "required": ["source_path", "destination_path"]},
+    )
+    async def t_ws_move(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools import workspace_fs
+        return _ws_guard(lambda a: workspace_fs.ws_move(
+            workspace, a["source_path"], a["destination_path"],
+            bool(a.get("copy", False))))(args)
+
     # ── document matching (reconciliation) ─────────────────────────────────
     # A match project references existing extract projects (anchor + sources)
     # and reconciles their extracted fields. Rules live in a versioned match
@@ -2025,7 +2093,8 @@ def build_emerge_mcp(
     ]
     if headless:
         _tools += [t_list_projects, t_list_docs, t_read_prompt,
-                   t_ws_list, t_ws_read, t_ws_grep]
+                   t_ws_list, t_ws_read, t_ws_grep,
+                   t_ws_write, t_ws_edit, t_ws_move]
     # Stamp behavioural hints from the central buckets so the remote tools/list
     # carries them (drives a client's auto-approve / destructive-gate policy).
     # On the headless (remote/stdio) surface only, also wrap each handler to log

@@ -42,6 +42,11 @@ _SECRET_RE = re.compile(r"(^|/)(\.env|.*\.key|.*\.pem|.*secret.*|_keys.*|_auth.*
 _MAX_READ_BYTES = 64 * 1024
 _MAX_LIST_ENTRIES = 500
 _MAX_GREP_HITS = 200
+_MAX_WRITE_BYTES = 1024 * 1024
+
+# Red line: `schema.json` is only ever modified through the `write_schema` tool
+# (atomic prompt versioning). Enforced server-side like the secret denylist.
+_TYPED_ONLY_BASENAMES = frozenset({"schema.json"})
 
 
 class WsPathError(ValueError):
@@ -53,12 +58,13 @@ class WsPathError(ValueError):
         super().__init__(f"{reason}: {rel!r}")
 
 
-def _safe_ws_path(workspace: Path, rel: str) -> Path:
+def _safe_ws_path(workspace: Path, rel: str, write: bool = False) -> Path:
     """Resolve ``rel`` under ``workspace`` and prove it stays inside.
 
     ``.resolve()`` collapses ``..`` and follows symlinks, so the post-resolve
     containment check defeats both traversal and symlink-escape. The team root
     is itself resolved so a symlinked workspace still compares correctly.
+    ``write=True`` additionally refuses files that only a typed tool may touch.
     """
     if not isinstance(rel, str):
         raise WsPathError(str(rel), "path must be a string")
@@ -75,6 +81,8 @@ def _safe_ws_path(workspace: Path, rel: str) -> Path:
     relpath = candidate.relative_to(root).as_posix()
     if _SECRET_RE.search(relpath) or _SECRET_RE.search("/" + relpath):
         raise WsPathError(rel, "path is blocked (secret)")
+    if write and candidate.name in _TYPED_ONLY_BASENAMES:
+        raise WsPathError(rel, "schema.json is only modified through write_schema")
     return candidate
 
 
@@ -179,3 +187,94 @@ def ws_grep(workspace: Path, pattern: str, path: str = ".", glob: str | None = N
                 if len(matches) >= _MAX_GREP_HITS:
                     break
     return {"pattern": pattern, "matches": matches}
+
+
+# ── write side ───────────────────────────────────────────────────────────────
+# Parameter names deliberately CLONE the SDK built-in Write/Edit schemas
+# (file_path/content, file_path/old_string/new_string/replace_all): the model's
+# trained muscle memory on the built-ins transfers, so the skill's local branch
+# (built-in Write/Edit) and remote branch (ws_write/ws_edit) read identically.
+# There is NO ws_delete — deletion goes through trash.py / delete_project (red
+# line: never physically destroy user data).
+
+def ws_write(workspace: Path, file_path: str, content: str) -> dict:
+    """Create or overwrite a UTF-8 text file under the team workspace.
+
+    Parents are created. Overwriting an existing *binary* file is refused —
+    that would irrecoverably destroy a user doc (text overwrites are the normal
+    edit cycle; docs are not). Invariant-bearing files stay typed-only:
+    ``schema.json`` → ``write_schema`` (enforced in the path guard).
+    """
+    target = _safe_ws_path(workspace, file_path, write=True)
+    if len(content.encode("utf-8")) > _MAX_WRITE_BYTES:
+        return {"path": file_path, "error": f"content exceeds {_MAX_WRITE_BYTES} bytes"}
+    if target.is_dir():
+        return {"path": file_path, "error": "path is a directory"}
+    created = not target.exists()
+    if not created:
+        try:
+            target.read_bytes()[:4096].decode("utf-8")
+        except UnicodeDecodeError:
+            return {"path": file_path, "error": "refusing to overwrite a binary file (use a new path)"}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return {"path": file_path, "created": created, "bytes": len(content.encode("utf-8"))}
+
+
+def ws_edit(
+    workspace: Path, file_path: str, old_string: str, new_string: str,
+    replace_all: bool = False,
+) -> dict:
+    """Exact-string replacement in a workspace text file (built-in Edit clone).
+
+    Same contract as the SDK built-in: ``old_string`` must exist and — unless
+    ``replace_all`` — be unique; ``old_string == new_string`` is an error.
+    """
+    target = _safe_ws_path(workspace, file_path, write=True)
+    if not target.exists() or not target.is_file():
+        return {"path": file_path, "error": "no such file"}
+    if old_string == new_string:
+        return {"path": file_path, "error": "old_string and new_string are identical"}
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return {"path": file_path, "error": "binary file — ws_edit only edits text"}
+    count = text.count(old_string)
+    if count == 0:
+        return {"path": file_path, "error": "old_string not found in file"}
+    if count > 1 and not replace_all:
+        return {"path": file_path,
+                "error": f"old_string matches {count} times — add context to make it unique, "
+                         "or set replace_all=true"}
+    target.write_text(text.replace(old_string, new_string), encoding="utf-8")
+    return {"path": file_path, "replacements": count if replace_all else 1}
+
+
+def ws_move(
+    workspace: Path, source_path: str, destination_path: str, copy: bool = False,
+) -> dict:
+    """Move (or with ``copy=True`` copy) a file/directory inside the team
+    workspace — remote ``mv`` / ``cp``. Copy is how a remote client gets a
+    binary doc into ``docs/`` (``ws_write`` is text-only). Refuses to clobber
+    an existing destination: silent overwrite is data destruction, and
+    deletion never happens through ``ws_*``.
+    """
+    src = _safe_ws_path(workspace, source_path, write=not copy)
+    dst = _safe_ws_path(workspace, destination_path, write=True)
+    if not src.exists():
+        return {"src": source_path, "error": "no such source"}
+    if dst.exists():
+        return {"src": source_path, "dst": destination_path,
+                "error": "destination already exists — refusing to overwrite"}
+    if src == workspace.resolve():
+        return {"src": source_path, "error": "cannot move the workspace root"}
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if copy:
+        import shutil
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+    else:
+        src.rename(dst)
+    return {"src": source_path, "dst": destination_path, ("copied" if copy else "moved"): True}
