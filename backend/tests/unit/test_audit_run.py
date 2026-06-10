@@ -1,11 +1,10 @@
-"""run_audit — single-group audit end-to-end (app/tools/audit_run.py)."""
+"""run_audit — audit ONE project's own document group (app/tools/audit_run.py)."""
 from __future__ import annotations
 
 import pytest
 
 from app.provider.base import ProviderResult
-from app.tools.audit_run import run_audit
-from app.tools.match_project import MatchProjectError, create_match_project
+from app.tools.audit_run import AuditError, run_audit
 from app.tools.match_prompt import write_audit_rules
 from app.tools.projects import create_project
 from app.workspace.atomic import atomic_write_json
@@ -20,10 +19,9 @@ class _MockProvider:
         return ProviderResult(raw_json={"checks": self._checks}, model_id=model_id)
 
 
-async def _seed_extract(workspace, name, docs, *, with_draft=True):
-    """Seed an extract project. `with_draft=False` writes the doc FILE but no
-    extraction (audit must still work — extraction is an optional hint)."""
-    slug = (await create_project(workspace, name=name))["slug"]
+async def _audit_project(workspace, *, docs, rules=True, with_draft=False):
+    """One audit project: a single business's docs in its own docs/, + rules."""
+    slug = (await create_project(workspace, name="审核"))["slug"]
     docs_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
     docs_meta_dir(workspace, slug).mkdir(parents=True, exist_ok=True)
     for fn, rec in docs.items():
@@ -36,100 +34,74 @@ async def _seed_extract(workspace, name, docs, *, with_draft=True):
             pd = prediction_draft_path(workspace, slug, fn)
             pd.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_json(pd, {"entities": [rec]})
+    if rules:
+        await write_audit_rules(workspace, slug, audit_rules=[
+            "报价单甲方为环胜", "报价单金额与收货单一致", "报价单盖红章",
+        ])
     return slug
 
 
-async def _build(workspace, with_rules=True):
-    quote = await _seed_extract(workspace, "quote", {"q1.jpg": {"甲方": "环胜", "金额": "100"}})
-    receipt = await _seed_extract(workspace, "receipt", {"r1.jpg": {"金额": "100"}})
-    slug = (await create_match_project(
-        workspace, name="审核", anchor=quote, sources=[receipt]))["slug"]
-    if with_rules:
-        await write_audit_rules(workspace, slug, audit_rules=[
-            "报价单甲方为环胜", "金额与收货单一致", "乙方盖红章",
-        ])
-    return slug, quote, receipt
+_DOCS = {"报价单.jpg": {"甲方": "环胜"}, "收货单.jpg": {"金额": "100"}, "订单.jpg": {}}
 
 
-async def test_run_audit_pass(workspace):
-    slug, quote, receipt = await _build(workspace)
+async def test_audit_pass(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
     p = _MockProvider([
         {"index": 0, "status": "pass", "reason": "甲方=环胜"},
         {"index": 1, "status": "pass", "reason": "金额一致"},
         {"index": 2, "status": "pass", "reason": "见红章"},
     ])
-    report = await run_audit(
-        workspace, slug, anchor_doc="q1.jpg", source_docs={receipt: "r1.jpg"},
-        provider=p, model_id="m",
-    )
+    report = await run_audit(workspace, slug, provider=p, model_id="m")
     assert report["overall"] == "pass"
     assert [c["status"] for c in report["checks"]] == ["pass", "pass", "pass"]
-    assert report["group"][quote] == "q1.jpg" and report["group"][receipt] == "r1.jpg"
+    # all three docs in the project participated
+    assert set(report["group"]) == {"报价单.jpg", "收货单.jpg", "订单.jpg"}
 
 
-async def test_run_audit_fail(workspace):
-    slug, quote, receipt = await _build(workspace)
+async def test_audit_fail(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
     p = _MockProvider([
         {"index": 0, "status": "pass", "reason": "ok"},
         {"index": 1, "status": "pass", "reason": "ok"},
         {"index": 2, "status": "fail", "reason": "未盖章"},
     ])
-    report = await run_audit(
-        workspace, slug, anchor_doc="q1.jpg", source_docs={receipt: "r1.jpg"},
-        provider=p, model_id="m",
-    )
-    assert report["overall"] == "fail"   # one fail → overall fail
+    report = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert report["overall"] == "fail"
 
 
-async def test_run_audit_unclear_does_not_fail(workspace):
-    slug, quote, receipt = await _build(workspace)
+async def test_audit_unclear_does_not_fail(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
     p = _MockProvider([
         {"index": 0, "status": "pass", "reason": "ok"},
         {"index": 1, "status": "pass", "reason": "ok"},
         {"index": 2, "status": "unclear", "reason": "图不清"},
     ])
-    report = await run_audit(
-        workspace, slug, anchor_doc="q1.jpg", source_docs={receipt: "r1.jpg"},
-        provider=p, model_id="m",
-    )
-    assert report["overall"] == "pass"   # unclear is surfaced but doesn't fail
+    report = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert report["overall"] == "pass"
 
 
-async def test_run_audit_unknown_source(workspace):
-    slug, quote, receipt = await _build(workspace)
-    with pytest.raises(MatchProjectError) as ei:
-        await run_audit(workspace, slug, anchor_doc="q1.jpg",
-                        source_docs={"ghost": "x.jpg"}, provider=_MockProvider([]))
-    assert ei.value.error_code == "audit_unknown_source"
+async def test_audit_without_extraction(workspace):
+    # docs never extracted — images are the source of truth
+    slug = await _audit_project(workspace, docs=_DOCS, with_draft=False)
+    p = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "见红章"},
+    ])
+    report = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert report["overall"] == "pass"
 
 
-async def test_run_audit_no_rules(workspace):
-    slug, quote, receipt = await _build(workspace, with_rules=False)
-    with pytest.raises(MatchProjectError) as ei:
-        await run_audit(workspace, slug, anchor_doc="q1.jpg",
-                        source_docs={receipt: "r1.jpg"}, provider=_MockProvider([]))
+async def test_audit_no_rules(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS, rules=False)
+    with pytest.raises(AuditError) as ei:
+        await run_audit(workspace, slug, provider=_MockProvider([]))
     assert ei.value.error_code == "audit_no_rules"
 
 
-async def test_run_audit_doc_not_found(workspace):
-    slug, quote, receipt = await _build(workspace)
-    with pytest.raises(MatchProjectError) as ei:
-        await run_audit(workspace, slug, anchor_doc="nonexist.jpg",
-                        source_docs={receipt: "r1.jpg"}, provider=_MockProvider([]))
-    assert ei.value.error_code == "audit_doc_not_found"
-
-
-async def test_run_audit_without_extraction(workspace):
-    # audit works on docs that were NEVER extracted — images are the source of
-    # truth, fields are only an optional hint.
-    quote = await _seed_extract(workspace, "quote", {"q1.jpg": {}}, with_draft=False)
-    receipt = await _seed_extract(workspace, "receipt", {"r1.jpg": {}}, with_draft=False)
-    slug = (await create_match_project(
-        workspace, name="审核", anchor=quote, sources=[receipt]))["slug"]
-    await write_audit_rules(workspace, slug, audit_rules=["报价单有红章"])
-    p = _MockProvider([{"index": 0, "status": "pass", "reason": "见红章"}])
-    report = await run_audit(
-        workspace, slug, anchor_doc="q1.jpg", source_docs={receipt: "r1.jpg"},
-        provider=p, model_id="m",
-    )
-    assert report["overall"] == "pass" and report["checks"][0]["status"] == "pass"
+async def test_audit_no_docs(workspace):
+    slug = (await create_project(workspace, name="空审核"))["slug"]
+    await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜"])
+    with pytest.raises(AuditError) as ei:
+        await run_audit(workspace, slug, provider=_MockProvider([]))
+    assert ei.value.error_code == "audit_no_docs"

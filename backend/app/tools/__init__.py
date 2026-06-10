@@ -1767,8 +1767,8 @@ def build_emerge_mcp(
 
     @tool(
         "write_audit_rules",
-        "Set a match project's AUDIT rules — the compliance checks `run_audit` "
-        "evaluates over a grouped set of documents. `audit_rules` is a list of "
+        "Set a project's AUDIT rules — the compliance checks `run_audit` "
+        "evaluates over the documents in that project. `audit_rules` is a list of "
         "natural-language rules, one per item (e.g. \"甲方为 环胜电子商务（上海）"
         "有限公司\", \"乙方加盖合同专用章（红章）\", \"报价单费用总计与收货单折扣后含税"
         "金额一致\"). Each rule may be single-doc (a field == constant, or a "
@@ -1798,33 +1798,24 @@ def build_emerge_mcp(
 
     @tool(
         "run_audit",
-        "Audit one GROUP of related documents against the project's audit rules. "
-        "`anchor_doc` is the main document (e.g. the 报价单) and `source_docs` "
-        "maps each source-project slug → its document in this group. The judge "
-        "reads each doc's extracted fields + the anchor's image (for visual "
-        "rules) and returns per-rule pass/fail/unclear + an overall verdict. All "
-        "docs must already be extracted. Returns the audit report {group, checks, "
-        "overall}.",
+        "Audit a project's group of documents against its audit rules. The "
+        "project holds ONE business's related documents in its docs/ (报价单 + "
+        "收货单 + 订单 + … — any types, upload them all into the SAME project, do "
+        "NOT split into multiple projects). The judge reads every document as an "
+        "image (the source of truth, incl. visual marks like 红章) plus the rules "
+        "and returns per-rule pass/fail/unclear + an overall verdict. Documents "
+        "need NOT be extracted. Returns the audit report {group, checks, overall}.",
         {
             "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "anchor_doc": {"type": "string"},
-                "source_docs": {"type": "object"},
-            },
-            "required": ["slug", "anchor_doc", "source_docs"],
+            "properties": {"slug": {"type": "string"}},
+            "required": ["slug"],
         },
     )
     async def t_run_audit(args: dict[str, Any]) -> dict[str, Any]:
-        from app.tools.audit_run import run_audit
-        from app.tools.match_project import MatchProjectError
+        from app.tools.audit_run import AuditError, run_audit
         try:
-            out = await run_audit(
-                workspace, args["slug"],
-                anchor_doc=args["anchor_doc"],
-                source_docs=dict(args.get("source_docs") or {}),
-            )
-        except MatchProjectError as e:
+            out = await run_audit(workspace, args["slug"])
+        except AuditError as e:
             return {"content": [{"type": "text", "text": _json.dumps(
                 {"error_code": e.error_code, "error_message_en": e.error_message_en},
                 ensure_ascii=False)}]}

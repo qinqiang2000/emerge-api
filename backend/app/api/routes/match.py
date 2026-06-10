@@ -103,7 +103,7 @@ class _AuditRulesBody(BaseModel):
     reason: str = ""
 
 
-@router.put("/lab/match/projects/{slug}/audit-rules")
+@router.put("/lab/projects/{slug}/audit-rules")
 async def put_audit_rules(slug: str, body: _AuditRulesBody) -> dict:
     mpr_id = await write_audit_rules(
         current_ws(), slug, audit_rules=body.audit_rules,
@@ -112,17 +112,13 @@ async def put_audit_rules(slug: str, body: _AuditRulesBody) -> dict:
     return {"match_prompt_id": mpr_id}
 
 
-class _RunAuditBody(BaseModel):
-    anchor_doc: str
-    source_docs: dict[str, str]
-
-
-@router.post("/lab/match/projects/{slug}/audit")
-async def post_audit(slug: str, body: _RunAuditBody) -> dict:
+@router.post("/lab/projects/{slug}/audit")
+async def post_audit(slug: str) -> dict:
+    from app.tools.audit_run import AuditError
     try:
-        return await run_audit(
-            current_ws(), slug,
-            anchor_doc=body.anchor_doc, source_docs=body.source_docs,
+        return await run_audit(current_ws(), slug)
+    except AuditError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": e.error_code, "error_message_en": e.error_message_en},
         )
-    except MatchProjectError as e:
-        raise _envelope(e)
