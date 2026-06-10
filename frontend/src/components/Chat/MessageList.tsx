@@ -421,24 +421,26 @@ export default function MessageList({ events, busy }: Props) {
           && (latest.tool_result === undefined || latest.tool_result === null)
           && latest.ok !== false
         const name = running ? latest.tool_name.replace(/^mcp__emerge_tools__/, '') : null
-        // Reasoning caption: while the model is thinking (no tool running yet)
-        // and we have streamed thinking tokens, show the tail on one line so it
-        // reads as a live, in-place updating status rather than a growing block.
-        const reasoning = !name && thinkingLine
-          ? (thinkingLine.length > 200 ? '…' + thinkingLine.slice(-200) : thinkingLine)
-          : null
+        // Reasoning stream: while the model is thinking (no tool running yet)
+        // and we have streamed thinking tokens, render them in a fixed-height
+        // window that wraps and reads top-to-bottom. New text enters at the
+        // bottom and pushes older lines up past a fade mask — readable vertical
+        // motion, not the unreadable left-scrolling single line. Height caps at
+        // ~3 lines so it never grows into a layout-shoving block. Slice keeps
+        // the DOM light; the fade communicates "more above".
+        const reasoning = !name && thinkingLine ? thinkingLine.slice(-600) : null
         return (
           <div
-            className="text-ink-4 italic flex items-center gap-2 px-1 mt-4 min-w-0"
+            className="text-ink-4 italic flex items-start gap-2 px-1 mt-4 min-w-0"
             aria-live="polite"
             aria-label={name ? t('tool.calling.aria', { name }) : t('tool.thinking.aria')}
           >
             <ThinkingIcon size={name ? 20 : 26} />
             {name && <span className="text-xs">{t('tool.calling.aria', { name })}...</span>}
             {reasoning && (
-              <span className="text-xs truncate whitespace-nowrap overflow-hidden min-w-0 flex-1 text-ink-4/80">
-                {reasoning}
-              </span>
+              <div className="thinking-stream text-xs text-ink-4/80 flex-1 min-w-0">
+                <div>{reasoning}</div>
+              </div>
             )}
           </div>
         )
