@@ -63,6 +63,11 @@ class _FakeChatService:
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
         surface_context: dict[str, Any] | None = None,
+        # Must mirror the real ``ChatService.chat_turn`` signature — the
+        # runner factory passes ``interface=`` explicitly; a mismatch
+        # raises TypeError inside the registry wrapper task (see the
+        # lifecycle-test fake for the deadlock story).
+        interface: str = "browser",
     ) -> AsyncIterator[str]:
         return self._turn_impl(
             workspace=self.workspace,

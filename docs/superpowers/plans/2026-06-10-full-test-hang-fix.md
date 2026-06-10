@@ -1,6 +1,41 @@
 # 2026-06-10 — full test 卡死根治（SSE turn 测试死锁 + 永不再裸挂）
 
-> **Status**: 📝 plan
+> **Status**: ✅ T1–T3 done（T1 护栏主会话落地；T2/T3 子代理 2026-06-10 完成，根因见下）
+
+## 根因记录（T2 结论，2026-06-10）
+
+**不是依赖漂移。** 首坏 commit = `5829668`（feat(headless): interface signal，2026-06-02）。两层叠加：
+
+1. **测试 fake 签名漂移（触发器）**：`5829668` 给 `turns.py::_start_turn_for` 的
+   `svc.chat_turn(...)` 调用加了 `interface=body.interface`，但
+   `test_chat_turns_lifecycle.py` / `test_turns_reattach_after_finish.py` 里的
+   `_FakeChatService.chat_turn` 签名没加 `interface` → `runner_factory()` 抛
+   `TypeError`。
+2. **产品真 bug（死锁机制）**：`turn_registry.py::_run_turn` 的
+   `runner = runner_factory()` 在 **try 之外**——factory 同步抛异常时 task 带异常
+   死掉，`entry.status` 永远卡 RUNNING、sentinel 永不广播 → SSE `gen()` 在
+   `await queue.get()`（turns.py:384）无限等待，TestClient portal future 永不
+   resolve；且该 chat 永远 409 `turn_already_active`（prod 同样会中招）。
+
+**取证链**：依赖 overlay 二分（starlette 1.0.0 / sse-starlette 3.4.2 / 双旧 /
+pytest-asyncio 1.3.0 全部仍死锁）排除版本漂移；gc 协程栈 dump 定位 `gen()` 悬挂点 +
+`turn-xxx` task `done=True` 但无 sentinel；独立复刻脚本（fake 恰好带 `interface`
+形参）通过 → 锁定签名不匹配。注：repo **没有 CI**（无 `.github/`），旧 memory
+"CI 里能过" 无据。
+
+**修复**（不改产品语义，只补健壮性）：
+- `app/chat/turn_registry.py`：`runner_factory()` 移入 try，sync 异常 →
+  `status=error` + 标准 envelope + sentinel 广播（runner=None 时 aclose 跳过）。
+- 两个测试 fake 补 `interface: str = "browser"` 形参。
+- 新增回归单测 `test_factory_exception_flips_error_and_sends_sentinel`
+  （tests/unit/test_turn_registry.py）。
+
+**验证**：两文件各 3 连跑全绿（lifecycle ~1.3s×3、reattach ~0.8s×3）；全量
+`uv run pytest -n 8 --dist loadfile -q` → **1471 passed, 2 skipped, 1 xfailed,
+10.68s**，零 hang 零 Timeout。
+
+**T3 体检**：`--durations=25` 最慢 3.82s（`test_extract_one_reads_schema_from_active_prompt`），
+无 >10s 测试，全量 11s ≪ 5 分钟目标，无需放宽任何 timeout。
 > **现象**: 全量 `uv run pytest` 经常 1h+ 跑不完。今日取证:卡死点是 `tests/integration/test_chat_turns_lifecycle.py::test_start_then_stream_full_turn`,**非沙箱也死锁**(0% CPU),**单独跑该文件也死锁**(排除跨测试污染)。此前 memory 记"沙箱才挂"已过时。
 > **证据**(faulthandler SIGABRT dump,2026-06-10):
 > - 主线程:阻塞在 `_drain_stream_to_eof` → `client.stream(GET …/turns/{tid}/stream)`,portal future 永不 resolve。

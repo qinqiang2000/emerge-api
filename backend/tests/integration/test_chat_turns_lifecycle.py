@@ -114,7 +114,14 @@ class _FakeChatService:
         user_message: str,
         attachments: list[dict[str, Any]] | None = None,
         surface_context: dict[str, Any] | None = None,
+        interface: str = "browser",
     ) -> AsyncIterator[str]:
+        # ``interface`` mirrors the real ``ChatService.chat_turn`` signature
+        # (added 2026-06-02, headless support). The fake MUST accept it: the
+        # route's runner factory passes it explicitly, and a signature
+        # mismatch raises TypeError inside the registry's wrapper task —
+        # which (pre-fix) wedged the turn at status=RUNNING and deadlocked
+        # every streaming test in this file.
         return self._turn_impl(
             workspace=self.workspace,
             slug=slug,

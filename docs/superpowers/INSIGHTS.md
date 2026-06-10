@@ -606,6 +606,23 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## turn wrapper task: a sync-raising `runner_factory()` used to wedge the chat forever
+
+**Where:** `backend/app/chat/turn_registry.py::_run_turn` + the `_FakeChatService` stubs in `tests/integration/test_chat_turns_lifecycle.py` / `test_turns_reattach_after_finish.py`.
+
+**The trap (two layers, 2026-06-10 full-suite deadlock).**
+1. `_run_turn` called `runner = runner_factory()` **outside** its try block. The factory executes `ChatService.chat_turn(...)` — code that can raise *synchronously* (the real method is an async-gen so it usually can't, but any wrapper/mock that isn't a generator function runs its body immediately). A sync raise killed the task with `entry.status` stuck at `RUNNING` and **no sentinel broadcast**: every SSE subscriber blocked on `queue.get()` forever, and the chat answered 409 `turn_already_active` until backend restart. In tests this looked like `TestClient` hanging in a portal future at 0% CPU — un-interruptible by pytest-timeout's signal mode (the portal `lock.acquire` never runs Python signal handlers; only thread mode + xdist worker isolation survives it).
+2. The trigger was a **mock signature drift**: commit `5829668` added `interface=` to the `svc.chat_turn(...)` call in `turns.py::_start_turn_for`, but the two integration-test fakes' `chat_turn` signatures weren't updated → `TypeError` inside the factory → layer 1 swallowed it silently.
+
+**Debugging lesson.** The obvious suspect (starlette/sse-starlette/httpx version drift from the 06-09 `uv.lock` refresh) was **disproven** by `uv run --with` overlay bisection — old versions deadlocked identically. What worked: gc-walk all `asyncio.Task`s *and async generators* in the hung process (`task.get_stack()` shows one frame; walk `cr_await`/`ag_frame` chains for the real suspension point). The dump showed `turn-xxx done=True` next to `gen()` parked at `await queue.get()` — i.e. "task finished but never signalled", which points straight at the wrapper's exception path.
+
+**Don't:**
+- move `runner_factory()` back out of the try in `_run_turn` ("it's just a constructor call" — it isn't, it runs service code);
+- add a kwarg to `ChatService.chat_turn` without grepping `tests/**` for fake `chat_turn` signatures (regression pin: `test_factory_exception_flips_error_and_sends_sentinel` keeps the wedge from coming back even if a fake drifts again);
+- trust pytest-timeout `signal` mode to break a TestClient-portal hang — full runs use `-n 8 --dist loadfile` so a hung worker dies alone.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

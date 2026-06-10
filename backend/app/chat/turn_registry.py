@@ -317,8 +317,16 @@ async def _run_turn(
     so the asyncio.Task name shows ``turn-<id>`` rather than the closure
     name in tracebacks.
     """
-    runner = runner_factory()
+    # ``runner_factory()`` MUST be inside the try: it executes user/service
+    # code (``ChatService.chat_turn(...)``) and can raise synchronously —
+    # e.g. a TypeError on signature mismatch. If it raised outside the try,
+    # the task would die with ``entry.status`` stuck at RUNNING and the
+    # sentinel never broadcast: every subscriber blocks on ``queue.get()``
+    # forever and the chat is wedged behind 409 ``turn_already_active``
+    # until restart. (Root cause of the 2026-06-10 turns-SSE test deadlock.)
+    runner: AsyncIterator[str] | None = None
     try:
+        runner = runner_factory()
         async for chunk in runner:
             entry.last_offset += 1
             # Snapshot subscribers before iterating; the set may be
@@ -341,7 +349,8 @@ async def _run_turn(
     finally:
         entry.finished_at = time.time()
         # Drain the underlying iterator's resources if it supports it
-        # (async generators expose ``aclose``).
+        # (async generators expose ``aclose``). ``runner`` is None when
+        # the factory itself raised.
         aclose = getattr(runner, "aclose", None)
         if aclose is not None:
             try:

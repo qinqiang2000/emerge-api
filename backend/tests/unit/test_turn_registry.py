@@ -254,6 +254,42 @@ async def test_runner_exception() -> None:
 
 
 @pytest.mark.asyncio
+async def test_factory_exception_flips_error_and_sends_sentinel() -> None:
+    """``runner_factory()`` itself raising synchronously (e.g. TypeError on
+    a ``chat_turn`` signature mismatch) must behave like a runner failure:
+    status → ``error``, envelope populated, sentinel delivered.
+
+    Regression for the 2026-06-10 turns-SSE deadlock: the factory call used
+    to sit OUTSIDE the wrapper's try block, so a sync raise left the entry
+    stuck at ``running`` with no sentinel — subscribers blocked on
+    ``queue.get()`` forever and the chat was wedged behind 409s.
+    """
+    reg = TurnRegistry()
+
+    def factory() -> AsyncIterator[str]:
+        raise TypeError("chat_turn() got an unexpected keyword argument")
+
+    entry = await reg.start(
+        chat_id="c1",
+        slug="p_demo",
+        runner_factory=factory,
+    )
+    _, q = await reg.subscribe(entry.turn_id)
+
+    received = await asyncio.wait_for(_drain(q), timeout=5)
+
+    assert received == []
+    assert entry.status == TurnStatus.ERROR
+    assert entry.error is not None
+    assert entry.error["error_code"] == "turn_failed"
+    assert "unexpected keyword argument" in entry.error["error_message_en"]
+    assert entry.task is not None
+    await entry.task  # exception was absorbed by the wrapper
+    # The chat must be free again — no eternal 409.
+    assert reg.get_active_for_chat("c1") is None
+
+
+@pytest.mark.asyncio
 async def test_active_lookups_track_running_then_clear() -> None:
     """`active_chat_ids` / `active_slugs` report only live turns, and drop a
     turn the instant it finishes. These power the FE "still working" dots on
