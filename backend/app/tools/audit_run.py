@@ -27,6 +27,12 @@ from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_audit_run_id
 from app.workspace.paths import audit_result_path, audits_dir, prediction_draft_path
 
+# Judge-trip page budget (multi-page audit, 2026-06-10). Generous enough for
+# the real groups seen so far (报价单1 + 推文物料18 + 收货单3 + 订单1 = 23);
+# the caps exist so one pathological 200-page PDF can't blow up the trip.
+_MAX_PAGES_PER_DOC = 20
+_MAX_TOTAL_PAGES = 40
+
 
 class AuditError(Exception):
     """Audit precondition failure, carrying a stable error_code for the envelope."""
@@ -83,15 +89,30 @@ async def run_audit(
     want = set(filenames) if filenames else None
     doc_images: dict[str, list[ImageBlock]] = {}
     doc_fields: dict[str, dict] = {}
+    total_pages = 0
     for d in docs:
         fn = d.get("filename")
         if not fn or (want is not None and fn not in want):
             continue
-        try:
-            out = await read_doc_image(workspace, slug, fn, page=1)
-        except Exception:
+        # ALL pages go to the judge — rules routinely reference content past
+        # page 1 (收货单 totals on p3, 推文物料 evidence on p10+). Images are
+        # the cost driver, so cap per doc and per trip; over budget a doc
+        # still contributes page 1 (silently dropping a whole doc from an
+        # audit would be worse than a shallow read of it).
+        page_count = int(d.get("page_count") or 1)
+        budget = min(page_count, _MAX_PAGES_PER_DOC,
+                     max(1, _MAX_TOTAL_PAGES - total_pages))
+        blocks: list[ImageBlock] = []
+        for page in range(1, budget + 1):
+            try:
+                out = await read_doc_image(workspace, slug, fn, page=page)
+            except Exception:
+                break  # past the last renderable page / unreadable doc
+            blocks.append(ImageBlock(media_type=out["mime"], data_b64=out["data"]))
+        if not blocks:
             continue  # skip docs that don't render to an image
-        doc_images[fn] = [ImageBlock(media_type=out["mime"], data_b64=out["data"])]
+        doc_images[fn] = blocks
+        total_pages += len(blocks)
         fields = _load_fields(workspace, slug, fn)
         if fields is not None:
             doc_fields[fn] = fields

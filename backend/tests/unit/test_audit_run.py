@@ -305,3 +305,77 @@ async def test_read_audit_report_without_runs_errors(workspace):
     with pytest.raises(AuditError) as ei:
         await read_audit_report(workspace, slug)
     assert ei.value.error_code == "audit_no_report"
+
+
+# --- multi-page judge trip (2026-06-10) --------------------------------------
+
+async def test_audit_sends_all_pages_within_budget(workspace, monkeypatch):
+    """A multi-page doc contributes every page (sidecar page_count drives the
+    loop) — rules routinely reference content past page 1."""
+    from app.tools import audit_run as ar
+
+    slug = await _audit_project(workspace, docs={"报价单.jpg": {}})
+    # one more doc claiming 3 pages
+    fn = "推文物料.pdf"
+    (docs_dir(workspace, slug) / fn).write_bytes(b"stub")
+    atomic_write_json(
+        docs_meta_dir(workspace, slug) / f"{fn}.json",
+        {"filename": fn, "sha256": "y", "page_count": 3, "ext": "pdf"},
+    )
+
+    async def fake_read(ws, s, filename, *, page=1):
+        return {"mime": "image/png", "data": f"{filename}-p{page}"}
+
+    monkeypatch.setattr(ar, "read_doc_image", fake_read)
+
+    captured: dict = {}
+
+    async def fake_group(*, doc_images, audit_rules, **kw):
+        captured.update(doc_images)
+        from app.schemas.match import RuleCheck
+        return [RuleCheck(rule=str(r), status="pass", level="critical",
+                          reason="ok") for r in audit_rules]
+
+    monkeypatch.setattr(ar, "audit_group", fake_group)
+    await run_audit(workspace, slug, provider=object(), model_id="m")
+
+    assert len(captured["推文物料.pdf"]) == 3
+    assert [b.data_b64 for b in captured["推文物料.pdf"]] == [
+        "推文物料.pdf-p1", "推文物料.pdf-p2", "推文物料.pdf-p3"]
+    assert len(captured["报价单.jpg"]) == 1
+
+
+async def test_audit_page_budget_caps_but_never_drops_a_doc(workspace, monkeypatch):
+    """Over the trip budget every doc still contributes at least page 1 —
+    silently omitting a whole doc from an audit is worse than reading it
+    shallowly."""
+    from app.tools import audit_run as ar
+
+    slug = await _audit_project(workspace, docs={})
+    for fn, pages in (("巨册.pdf", 50), ("收货单.pdf", 3)):
+        (docs_dir(workspace, slug) / fn).write_bytes(b"stub")
+        atomic_write_json(
+            docs_meta_dir(workspace, slug) / f"{fn}.json",
+            {"filename": fn, "sha256": "z", "page_count": pages, "ext": "pdf"},
+        )
+
+    async def fake_read(ws, s, filename, *, page=1):
+        return {"mime": "image/png", "data": f"{filename}-p{page}"}
+
+    monkeypatch.setattr(ar, "read_doc_image", fake_read)
+    monkeypatch.setattr(ar, "_MAX_PAGES_PER_DOC", 20)
+    monkeypatch.setattr(ar, "_MAX_TOTAL_PAGES", 20)
+
+    captured: dict = {}
+
+    async def fake_group(*, doc_images, audit_rules, **kw):
+        captured.update(doc_images)
+        from app.schemas.match import RuleCheck
+        return [RuleCheck(rule=str(r), status="pass", level="critical",
+                          reason="ok") for r in audit_rules]
+
+    monkeypatch.setattr(ar, "audit_group", fake_group)
+    await run_audit(workspace, slug, provider=object(), model_id="m")
+
+    assert len(captured["巨册.pdf"]) == 20      # per-doc/trip cap
+    assert len(captured["收货单.pdf"]) == 1     # budget gone → still page 1

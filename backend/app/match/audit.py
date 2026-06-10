@@ -103,8 +103,17 @@ async def audit_group(
     intro += "\n\nThe documents follow, each labelled by role:"
     blocks: list = [TextBlock(text=intro)]
     for role, imgs in doc_images.items():
-        blocks.append(TextBlock(text=f"--- Document: {role} ---"))
-        blocks.extend(imgs)
+        n = len(imgs)
+        if n == 1:
+            blocks.append(TextBlock(text=f"--- Document: {role} ---"))
+            blocks.extend(imgs)
+            continue
+        # Multi-page doc: label every page so the verdict reason can cite
+        # "page 3" and the judge never conflates page order across docs.
+        blocks.append(TextBlock(text=f"--- Document: {role} ({n} pages) ---"))
+        for i, img in enumerate(imgs, 1):
+            blocks.append(TextBlock(text=f"[{role} — page {i}/{n}]"))
+            blocks.append(img)
 
     try:
         result = await provider.extract(
