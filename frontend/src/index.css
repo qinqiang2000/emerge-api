@@ -170,7 +170,7 @@ html, body, #root {
    the newest line stays pinned at the bottom and older lines overflow up past a
    top fade mask. Vertical motion reads; the old left-scrolling single line did
    not. No JS scroll — the flex bottom-anchor + clip does it. */
-.thinking-stream{display:flex;flex-direction:column;justify-content:flex-end;max-height:3.45rem;overflow:hidden;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 1.35rem);mask-image:linear-gradient(to bottom,transparent 0,#000 1.35rem)}
+.thinking-stream{display:flex;flex-direction:column;justify-content:flex-end;max-height:2.3rem;overflow:hidden;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 .9rem);mask-image:linear-gradient(to bottom,transparent 0,#000 .9rem)}
 .tool .t-foot{padding:8px 12px;display:flex;gap:8px;background:var(--chat-bg);border-top:1px solid var(--rule-soft)}
 .tool .t-btn{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border:1px solid var(--rule);border-radius:4px;color:var(--ink-2);background:var(--chat-bg)}
 .tool .t-btn:hover{background:var(--paper-2)}
