@@ -623,6 +623,18 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## Audit rules must be group-invariant — the agent will bake instance values in
+
+**Where:** `app/skills/emerge_extractor.md` §audit `write_audit_rules` guidance; `app/tools/audit_run.py`.
+
+**The trap (2026-06-10 百胜audit1 dogfood).** User gave generic relational rules ("完工报告抬头与报价单抬头关键字一致"). The agent `read_doc_image`'d the docs to sharpen them — legitimate authoring assistance — but then wrote the CURRENT group's literals INTO the rules ("需包含 Y25、2月疯四、KFC…" + the exact 品项类别 list). Those rules pass today and wrongly fail next month's "3月" doc group: the rule was overfitted to one sample. Rules are the project's audit contract across ALL future groups; instance values (titles, amounts, dates) are runtime facts the judge reads off the images.
+
+**The discipline (now in the skill):** before writing a rule ask "does this hold for the NEXT doc group?" Write roles + relations; only user-stated global constants (fixed 甲方 name, red-seal requirement) may be literal. Reading docs to understand rule intent is fine — pinning what you saw into rule text is not.
+
+**Why this matters doubly:** rules are versioned prompt + the `score_audit` regression target. An instance-pinned rule poisons both: it scores 100% on the group it was written from (self-fulfilling) and regresses on every other group.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**
