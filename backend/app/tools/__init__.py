@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64 as _base64
 import json as _json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -579,9 +580,21 @@ def build_emerge_mcp(
             workspace, args["slug"], args["filename"],
             page=int(args.get("page") or 1),
         )
+        # SDK boundary: fit the image to the agent budget (1568px long edge,
+        # JPEG re-encode) so pulling several pages can't blow the SDK's
+        # control-protocol buffer. `read_doc_image` itself stays
+        # full-resolution — audit / translate / textlayer call it directly
+        # and must keep every pixel (hard rule: provider-direct = full res).
+        fitted, fitted_mime = docs_mod.fit_image_for_agent(
+            _base64.b64decode(out["data"]), out["mime"],
+        )
         return {
             "content": [
-                {"type": "image", "data": out["data"], "mimeType": out["mime"]},
+                {
+                    "type": "image",
+                    "data": _base64.standard_b64encode(fitted).decode("ascii"),
+                    "mimeType": fitted_mime,
+                },
                 {
                     "type": "text",
                     "text": _json.dumps({

@@ -69,3 +69,32 @@ async def test_image_block_skips_missing_file(workspace: Path) -> None:
         workspace, slug, CID, [{"filename": "ghost.png", "source": "chat"}],
     )
     assert blocks == []
+
+
+async def test_image_block_fits_oversized_attachment(workspace: Path) -> None:
+    """User-attached images pass through `fit_image_for_agent` before being
+    inlined — a 2400×3400 screenshot lands as a ≤1568px JPEG within the
+    400KB SDK-boundary budget (2026-06-10 buffer fix). Small images (the
+    other tests' tiny PNG stubs) are unaffected: fitting is conditional."""
+    import fitz
+
+    from app.tools.docs import _FIT_MAX_BYTES, _FIT_MAX_EDGE_PX
+
+    big = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 2400, 3400), False)
+    big.clear_with(220)
+    big_png = big.tobytes("png")
+
+    slug = (await create_project(workspace, name="x"))["slug"]
+    att_dir = chat_attachments_dir(workspace, slug, CID)
+    att_dir.mkdir(parents=True, exist_ok=True)
+    (att_dir / "huge.png").write_bytes(big_png)
+
+    blocks = _load_image_blocks(
+        workspace, slug, CID, [{"filename": "huge.png", "source": "chat"}],
+    )
+    assert len(blocks) == 1
+    assert blocks[0]["source"]["media_type"] == "image/jpeg"
+    fitted = base64.standard_b64decode(blocks[0]["source"]["data"])
+    assert len(fitted) <= _FIT_MAX_BYTES
+    out = fitz.Pixmap(fitted)
+    assert max(out.width, out.height) <= _FIT_MAX_EDGE_PX

@@ -407,11 +407,11 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    `score_audit` 看指标动没动——同改 description 后 `/score` 提取。无真值时不跑 judge，
    直接回零指标。
 
-**审核的图只在 `run_audit` 内部经 provider 直连流转——绝不要自己调 `read_doc_image`/
-`pdf_render_page` 把文档图拉进对话来"手动审核"。** 原图 base64 很大（一张可达 0.5MB+），
-拉几张进上下文会撑爆 agent 的消息缓冲（`JSON exceeded maximum buffer size`）。审核一律
-走 `run_audit`，它把图喂给 judge、只返回小报告。`run_audit` 失败也不要 fallback 去读图——
-报错给用户、修规则/文档后重试。
+**审核必须走 `run_audit`——绝不要自己调 `read_doc_image`/`pdf_render_page` 把文档图
+拉进对话来"手动审核"。** 审核的图在 `run_audit` 内部经 provider 直连流转，judge 看的是
+全分辨率原图；而你经工具拉进对话的图会在 SDK 边界被降采样（buffer 防护，对日常看图无损，
+但对审核判断是精度损失），且审核的产物应当是结构化报告，不是你的口头描述。`run_audit`
+失败也不要 fallback 去读图——报错给用户、修规则/文档后重试。
 
 **Rendering contract**（不 dump JSON）：
 - **browser**（`interface: browser`）：一句摘要即可（"审核完成：整体不过——3 条规则

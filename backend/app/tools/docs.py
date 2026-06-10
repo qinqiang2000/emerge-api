@@ -338,6 +338,69 @@ async def pdf_render_page(
 _IMAGE_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
 
 
+# --- SDK-boundary image budget ----------------------------------------------
+# Design trade-off (read before changing either number):
+#
+# * 1568px — Anthropic vision's optimal long edge. The API downsizes larger
+#   images server-side before the model sees them, so pixels above this never
+#   reach the agent's eyes anyway: resizing here costs ZERO vision quality.
+# * 400KB — derived from the claude_agent_sdk control-protocol buffer
+#   (1MB default) divided by the empirical number of images an agent pulls in
+#   a single turn (2-3 pages, plus base64's ×1.37 inflation). A 150dpi A4 PNG
+#   from `pdf_render_page` is 0.5-0.8MB raw; three of those blow the buffer
+#   (`agent_failure: JSON exceeded maximum buffer size`) and kill the whole
+#   turn. Fitted images land around 100-250KB, keeping multi-page pulls safe.
+#
+# These constants gate ONLY the SDK/agent boundary (`t_read_doc_image`
+# wrapper, chat `_load_image_blocks`). Provider-direct paths (extract / audit
+# judge / OCR / translate) call `read_doc_image` / `pdf_render_page` directly
+# and must keep full resolution — hard rule.
+_FIT_MAX_EDGE_PX = 1568
+_FIT_MAX_BYTES = 400 * 1024
+_FIT_JPEG_QUALITY = 80
+
+
+def fit_image_for_agent(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Downscale + re-encode an image to the agent (SDK) budget.
+
+    Pure function. Contract:
+      - long edge > 1568px → proportional resize to 1568, JPEG q80.
+      - dims already fine but bytes > 400KB → JPEG q80 re-encode at original
+        size.
+      - small AND light → returned unchanged (no decode round-trip cost paid
+        beyond a header probe).
+      - re-encode that comes out LARGER than the input → input wins.
+      - any failure (corrupt bytes, unknown format) → input returned
+        unchanged; can't-compress ≠ can't-see, downstream vision surfaces
+        its own error.
+
+    Alpha is flattened onto a white background (JPEG has no alpha channel);
+    rendering the single-page image document with ``alpha=False`` does that
+    natively in MuPDF.
+    """
+    try:
+        import fitz  # PyMuPDF
+
+        src = fitz.Pixmap(data)  # decode for pixel dims (also validates bytes)
+        long_px = max(src.width, src.height)
+        if long_px <= _FIT_MAX_EDGE_PX and len(data) <= _FIT_MAX_BYTES:
+            return data, mime  # already within budget
+        # Re-rasterize via a single-page image document. The page rect is in
+        # points (i.e. scaled by the image's dpi metadata, usually 96), so
+        # compute zoom in PIXEL terms: output px = rect_points × zoom.
+        with fitz.open(stream=data) as img_doc:
+            page = img_doc[0]
+            target_px = min(long_px, _FIT_MAX_EDGE_PX)  # never upscale
+            zoom = target_px / max(page.rect.width, page.rect.height)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        fitted = pix.tobytes("jpeg", jpg_quality=_FIT_JPEG_QUALITY)
+        if len(fitted) >= len(data):
+            return data, mime  # JPEG didn't help; keep the original
+        return fitted, "image/jpeg"
+    except Exception:
+        return data, mime
+
+
 async def read_doc_image(
     workspace: Path,
     project_id: str,

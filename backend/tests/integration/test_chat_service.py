@@ -39,3 +39,15 @@ def test_leading_space_or_slash_both_match_improve(workspace: Path, stub_provide
     assert "emerge-autoresearch" in _build_options_for(svc, "/improve")
     assert "emerge-autoresearch" in _build_options_for(svc, " /improve")
     assert "emerge-autoresearch" in _build_options_for(svc, "/improve please")
+
+
+def test_options_raise_sdk_buffer_ceiling(workspace: Path, stub_provider: AsyncMock) -> None:
+    """`max_buffer_size` is bumped to 8MB as the accumulation backstop for the
+    2026-06-10 SDK image-buffer fix. The primary defense is
+    `fit_image_for_agent` at the image boundaries; this only guards the
+    several-images-plus-text-in-one-turn pile-up."""
+    from app.chat.service import _UNBOUND_SLUG
+
+    svc = ChatService(workspace=workspace, provider=stub_provider, agent_model="claude-sonnet-4-6")
+    opts = svc._build_options("hi", slug=_UNBOUND_SLUG, chat_id="c_test123")
+    assert opts.max_buffer_size == 8 * 1024 * 1024

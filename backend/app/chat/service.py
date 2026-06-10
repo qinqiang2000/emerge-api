@@ -39,6 +39,7 @@ from app.jobs import get_runner
 from app.provider.base import Provider
 from app.skills import load_skill
 from app.tools import build_emerge_mcp
+from app.tools.docs import fit_image_for_agent
 from app.tools.projects import create_project as _create_project
 from app.workspace.paths import (
     chat_attachment_path,
@@ -115,6 +116,12 @@ def _load_image_blocks(
             data = path.read_bytes()
         except OSError:
             continue
+        # SDK boundary: user-attached images go through the same fit as
+        # `t_read_doc_image` — three high-res screenshots dropped into one
+        # message would otherwise blow the SDK control-protocol buffer just
+        # like multi-page tool pulls. Vision-lossless (see fit_image_for_agent
+        # design note in app/tools/docs.py).
+        data, media_type = fit_image_for_agent(data, media_type)
         b64 = base64.standard_b64encode(data).decode("ascii")
         blocks.append(
             {
@@ -801,6 +808,13 @@ class ChatService:
             # matching claude.ai's default. Cheap turns stay cheap; harder
             # reasoning (autoresearch planning, schema diffs) gets the budget.
             thinking={"type": "adaptive"},
+            # Control-protocol buffer ceiling (SDK default: 1MB). 8MB absorbs
+            # the accumulation case — several images + long tool results in a
+            # single turn. This is the BACKSTOP, not the fix: the primary
+            # defense is `fit_image_for_agent` at the SDK image boundaries
+            # (`t_read_doc_image` wrapper + `_load_image_blocks`). Don't read
+            # the headroom here as license to inline full-resolution renders.
+            max_buffer_size=8 * 1024 * 1024,
         )
 
     async def chat_turn(

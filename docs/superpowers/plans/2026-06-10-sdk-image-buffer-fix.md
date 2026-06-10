@@ -1,6 +1,6 @@
 # 2026-06-10 — SDK buffer 隐患根治（大图 base64 撑爆 1MB 控制协议缓冲）
 
-> **Status**: 📝 plan
+> **Status**: ✅ T1–T6 implemented (2026-06-10)。全量 1480 passed 零回归（+9 新测试）；实测报价单.pdf 150dpi render 467KB PNG → 149KB JPEG(1568px)。待 commit + prod 部署后跑下方"验证"。
 > **现象**: `read_doc_image`/`pdf_render_page`(150dpi PNG) 的 base64 进 agent 上下文,多张/大图累积超 claude_agent_sdk 控制协议 1MB buffer → `agent_failure: JSON exceeded maximum buffer size`(实测一张报价单 render b64 0.59MB,3 张累积 1.34MB 崩)。audit 已绕开(图走 provider 直连),但**任何** agent 看几张大文档图的场景(识别一下/对比两页/审 UI 截图)都会崩。
 > **方案**: 双保险——①SDK 边界统一降采样(主修);②`max_buffer_size` 提到 8MB(兜底)。**provider 直连路径(audit/translate/textlayer OCR)不动,保持全分辨率。**
 
