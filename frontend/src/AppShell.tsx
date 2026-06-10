@@ -295,10 +295,17 @@ export default function AppShell() {
       const mod = e.metaKey || e.ctrlKey
       if (!mod) return
       // Cmd/Ctrl+Shift+O → new chat (use e.code for macOS Cmd+Shift invariance)
-      if (e.shiftKey && e.code === 'KeyO' && selectedSlug) {
-        e.preventDefault()
-        useChat.getState().newChat(selectedSlug)
-        return
+      if (e.shiftKey && e.code === 'KeyO') {
+        if (selectedSlug) {
+          e.preventDefault()
+          useChat.getState().newChat(selectedSlug)
+          return
+        }
+        if (loadedUnboundChatId) {
+          e.preventDefault()
+          useChat.getState().newUnboundChat()
+          return
+        }
       }
       // Cmd/Ctrl+. → toggle left sidebar
       if (!e.shiftKey && e.code === 'Period') {
