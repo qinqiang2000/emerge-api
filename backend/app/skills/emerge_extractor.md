@@ -382,6 +382,17 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    只审指定几份）。judge **一趟**读每份原图（原文为准，含视觉如红章）+ 可选已抽字段（提示）
    → 逐条 {pass/fail/unclear + 理由} + 整体 pass/fail。规则里用文档类型名（"报价单"…）引用，
    judge 从图/文件名认出对应文档。
+4. `save_reviewed_audit(slug, expected)` — 人确认审核结论（score 的真值）。`expected` =
+   {规则原文: "pass"|"fail"}，**按规则文本对齐，key 必须与当前规则一字不差**。用户逐条
+   说（"第 2 条其实不对" → 该条存反向真值），或确认整份报告（把报告里的 pass/fail 原样
+   存为真值）——但 **`unclear` 的规则必须先问出真相才能存**：真值没有 unclear，那是
+   judge 判不了，不是业务没答案。可只确认部分规则，多次调用 merge 累积；改了规则文案，
+   旧真值自动脱钩（语义可能变了，需重新确认）。
+5. `score_audit(slug)` — 用**当前规则**重跑 judge，对照真值出 accuracy + precision/recall
+   （**fail 为正类**——审核存在的意义是抓违规；judge 判 unclear 在真 fail 上算漏报 fn，
+   在真 pass 上不算误报 fp，单独计数）。tune 循环：改规则（`write_audit_rules`）→
+   `score_audit` 看指标动没动——同改 description 后 `/score` 提取。无真值时不跑 judge，
+   直接回零指标。
 
 **审核的图只在 `run_audit` 内部经 provider 直连流转——绝不要自己调 `read_doc_image`/
 `pdf_render_page` 把文档图拉进对话来"手动审核"。** 原图 base64 很大（一张可达 0.5MB+），
@@ -393,6 +404,11 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
 逐条列规则：`✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）。末尾一行整体
 **过 / 不过**，不过则点名哪几条失败。`unclear`（判不了，如图不清/字段缺）单独提示，
 不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
+
+**score_audit 的 rendering contract**（browser 与 headless 一致）：先**一行指标**
+（`accuracy x/n · precision p · recall r · unclear k 条`），再逐条
+`✓/✗ 规则 — 判了什么 / 真值是什么`，**只列判错的**（全对就说全对）；有
+`unreviewed_rules` 时提示哪些规则还没确认真值（确认了 score 才算它们）。不 dump JSON。
 
 ## Pro labeler (pre-label)
 

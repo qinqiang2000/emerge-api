@@ -596,3 +596,10 @@ def audit_result_path(workspace: Path, slug: str, run_id: str) -> Path:
     """One audit run's report: `{slug}/audits/{run}/report.json` (derived
     cache — re-running rebuilds it)."""
     return audits_dir(workspace, slug) / run_id / "report.json"
+
+
+def reviewed_audit_path(workspace: Path, slug: str) -> Path:
+    """Human-confirmed audit verdicts (ground truth for `score_audit`):
+    `{slug}/reviewed_audit.json` — one project = one document group = one
+    truth file, keyed by rule text. User data — never rmtree'd."""
+    return project_dir(workspace, slug) / "reviewed_audit.json"

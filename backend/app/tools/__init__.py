@@ -128,6 +128,7 @@ _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint s
     "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
     "run_match", "score_match",  # L2 judge tie-breaker may call the LLM
     "run_audit",                 # audit judge reads fields + image via the LLM
+    "score_audit",               # re-runs the audit judge against ground truth
 })
 
 
@@ -1827,6 +1828,74 @@ def build_emerge_mcp(
                 ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
+    @tool(
+        "save_reviewed_audit",
+        "Confirm the TRUE verdict for a project's audit rules — the ground "
+        "truth `score_audit` evaluates against. `expected` maps a rule's EXACT "
+        "current text → 'pass' | 'fail' (a human review settles the answer; "
+        "'unclear' is a judge verdict, never a truth — ask the user for the "
+        "real verdict first). Partial confirmation is fine: verdicts merge "
+        "into the project's single reviewed-audit file, and re-confirming a "
+        "rule overwrites its truth. Editing a rule's wording detaches its old "
+        "truth (re-confirm after rewording). Returns {rules_confirmed, "
+        "total_rules, unreviewed_rules}.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "expected": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string", "enum": ["pass", "fail"],
+                    },
+                },
+                "reason": {"type": "string"},
+            },
+            "required": ["slug", "expected"],
+        },
+    )
+    async def t_save_reviewed_audit(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.audit_review import save_reviewed_audit
+        from app.tools.audit_run import AuditError
+        try:
+            out = await save_reviewed_audit(
+                workspace, args["slug"],
+                expected=dict(args.get("expected") or {}),
+                reason=args.get("reason", ""),
+            )
+        except AuditError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "score_audit",
+        "Score a project's audit rules against the human-confirmed ground "
+        "truth: re-runs the audit with the CURRENT rules, then compares each "
+        "reviewed rule's verdict to its truth. Reports accuracy + "
+        "precision/recall with 'fail' as the positive class (auditing exists "
+        "to catch violations); a judge 'unclear' on a true fail counts as a "
+        "miss, never as a false alarm. Rules without a confirmed truth are "
+        "skipped and listed in unreviewed_rules; with no truth at all the "
+        "judge is not called. The tune loop: edit rules via write_audit_rules, "
+        "then score_audit to see the metrics move. Returns {run_id, reviewed, "
+        "accuracy, precision, recall, tp, fp, fn, unclear, per_rule, "
+        "unreviewed_rules}.",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_score_audit(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.audit_review import score_audit
+        from app.tools.audit_run import AuditError
+        try:
+            out = await score_audit(workspace, args["slug"])
+        except AuditError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -1861,6 +1930,8 @@ def build_emerge_mcp(
             t_score_match,
             t_write_audit_rules,
             t_run_audit,
+            t_save_reviewed_audit,
+            t_score_audit,
             t_extract_one,
             t_save_reviewed,
             t_score,

@@ -15,7 +15,8 @@ from app.tools.match_project import (
     MatchProjectError,
     create_match_project,
 )
-from app.tools.audit_run import run_audit
+from app.tools.audit_review import save_reviewed_audit, score_audit
+from app.tools.audit_run import AuditError, run_audit
 from app.tools.match_prompt import write_audit_rules, write_match_prompt
 from app.tools.match_review import save_reviewed_match, score_match
 from app.tools.match_run import run_match
@@ -116,13 +117,41 @@ class _RunAuditBody(BaseModel):
     filenames: list[str] | None = None
 
 
+def _audit_envelope(e: "AuditError") -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={"error_code": e.error_code, "error_message_en": e.error_message_en},
+    )
+
+
 @router.post("/lab/projects/{slug}/audit")
 async def post_audit(slug: str, body: _RunAuditBody | None = None) -> dict:
-    from app.tools.audit_run import AuditError
     try:
         return await run_audit(current_ws(), slug, filenames=(body.filenames if body else None))
     except AuditError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error_code": e.error_code, "error_message_en": e.error_message_en},
+        raise _audit_envelope(e)
+
+
+# --- audit review + score (A2) ----------------------------------------------
+
+class _ReviewedAuditBody(BaseModel):
+    expected: dict[str, str]
+    reason: str = ""
+
+
+@router.put("/lab/projects/{slug}/audit-review")
+async def put_audit_review(slug: str, body: _ReviewedAuditBody) -> dict:
+    try:
+        return await save_reviewed_audit(
+            current_ws(), slug, expected=body.expected, reason=body.reason,
         )
+    except AuditError as e:
+        raise _audit_envelope(e)
+
+
+@router.post("/lab/projects/{slug}/audit-score")
+async def post_audit_score(slug: str) -> dict:
+    try:
+        return await score_audit(current_ws(), slug)
+    except AuditError as e:
+        raise _audit_envelope(e)
