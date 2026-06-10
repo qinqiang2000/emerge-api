@@ -378,10 +378,23 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    （"报价单甲方为环胜电子商务（上海）"、"报价单加盖合同专用章（红章）"、"报价单费用总计
    ==收货单折扣后含税金额"、"项目抬头与备注关键字一致"、"项目周期含订单完成日期"）。规则
    是版本化 prompt——改规则就是调审核（同改 description 教提取）。
+   每条也可以是对象 `{rule, level?, check?}`：
+   - `level`: 默认 `critical`（fail 即整体不过）；用户表达"这条只是提醒/不卡审核"
+     → `"warning"`（fail 只警告，不挂整体）。
+   - `check`: 可选的**确定性判定 spec**——规则明显是 固定值断言 / 跨文档数值相等 /
+     区间包含 时附上，引擎在字段已提取在手时直接判（不花 judge、理由可解释）：
+     `{type:"eq", left:{doc,field}|常量, right:{doc,field}|常量, tol?}` 或
+     `{type:"range", value, low, high}`（三处各可为 `{doc,field}` 或常量；`doc`
+     按文件名或唯一子串认）。字段缺/认不出 doc 时该条自动整条交 judge，无须处理。
+     **宁可全 judge，不可错 spec**——拿不准结构就写纯 NL 字符串；spec 写错会产生
+     确定性误判，比多花一次 judge 贵得多。
 3. `run_audit(slug)` — 审本项目 docs/ 里的**整组文档**（或 `run_audit(slug, filenames=[…])`
-   只审指定几份）。judge **一趟**读每份原图（原文为准，含视觉如红章）+ 可选已抽字段（提示）
-   → 逐条 {pass/fail/unclear + 理由} + 整体 pass/fail。规则里用文档类型名（"报价单"…）引用，
-   judge 从图/文件名认出对应文档。
+   只审指定几份）。带 `check` 且字段在手的规则先走确定性判定（报告里
+   `decided_by:"l1"`），**剩余规则** judge **一趟**读每份原图（原文为准，含视觉如红章）
+   + 可选已抽字段（提示）→ 逐条 {pass/fail/unclear + 理由} + 整体三态：任一 critical
+   fail → `fail`；仅 warning fail → `warn`；否则 `pass`（unclear 不降级）。规则里用
+   文档类型名（"报价单"…）引用，judge 从图/文件名认出对应文档。看最近一次报告用
+   `read_audit_report(slug)`（零成本，不重跑）。
 4. `save_reviewed_audit(slug, expected)` — 人确认审核结论（score 的真值）。`expected` =
    {规则原文: "pass"|"fail"}，**按规则文本对齐，key 必须与当前规则一字不差**。用户逐条
    说（"第 2 条其实不对" → 该条存反向真值），或确认整份报告（把报告里的 pass/fail 原样
@@ -400,15 +413,22 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
 走 `run_audit`，它把图喂给 judge、只返回小报告。`run_audit` 失败也不要 fallback 去读图——
 报错给用户、修规则/文档后重试。
 
-**Rendering contract**（browser 与 headless 一致，都出清单——不 dump JSON）：
-逐条列规则：`✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）。末尾一行整体
-**过 / 不过**，不过则点名哪几条失败。`unclear`（判不了，如图不清/字段缺）单独提示，
-不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
+**Rendering contract**（不 dump JSON）：
+- **browser**（`interface: browser`）：一句摘要即可（"审核完成：整体不过——3 条规则
+  1 条失败（盖章缺失）"）；run_audit 的结果卡片（AuditCard）会自动渲染逐条明细，
+  不要在正文重复整张清单。
+- **headless**：完整清单。逐条 `✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）；
+  `decided_by:"l1"` 的条目注明判定来源（如 `[规则判定]`，理由本身已是可解释比较）。
+  末尾一行整体三态：**过 / 过（有警告）/ 不过**——`warn` 写"过（有警告）"并点名
+  哪几条 warning 失败；`fail` 点名哪几条 critical 失败。`unclear`（判不了，如图不清/
+  字段缺）单独提示，不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
 
-**score_audit 的 rendering contract**（browser 与 headless 一致）：先**一行指标**
-（`accuracy x/n · precision p · recall r · unclear k 条`），再逐条
-`✓/✗ 规则 — 判了什么 / 真值是什么`，**只列判错的**（全对就说全对）；有
-`unreviewed_rules` 时提示哪些规则还没确认真值（确认了 score 才算它们）。不 dump JSON。
+**score_audit 的 rendering contract**（不 dump JSON）：
+- **browser**：一句摘要（"评分完成：accuracy 2/3，1 条判错"）——结果卡片自动展示
+  指标与判错明细，正文不重复。
+- **headless**：先**一行指标**（`accuracy x/n · precision p · recall r · unclear k 条`），
+  再逐条 `✓/✗ 规则 — 判了什么 / 真值是什么`，**只列判错的**（全对就说全对）；有
+  `unreviewed_rules` 时提示哪些规则还没确认真值（确认了 score 才算它们）。
 
 ## Pro labeler (pre-label)
 

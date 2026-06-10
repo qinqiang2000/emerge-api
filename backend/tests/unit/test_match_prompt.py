@@ -66,8 +66,56 @@ async def test_audit_rules_bump_and_preserve_mappings(workspace):
     await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜", "盖红章"])
     pv = await read_active_match_prompt(workspace, slug)
     assert pv.version == 2
-    assert pv.audit_rules == ["甲方为环胜", "盖红章"]
+    assert [r.rule for r in pv.audit_rules] == ["甲方为环胜", "盖红章"]
+    assert all(r.level == "critical" and r.check is None for r in pv.audit_rules)
     assert "payments" in pv.mappings and pv.rules == "r1"   # not clobbered
     # no-op rewrite keeps version
     await write_audit_rules(workspace, slug, audit_rules=["甲方为环胜", "盖红章"])
+    assert (await read_active_match_prompt(workspace, slug)).version == 2
+
+
+async def test_audit_rules_object_and_string_mix(workspace):
+    """A3 — `audit_rules` accepts str/object mixed input; objects carry level +
+    an optional L1 check spec; same content same hash regardless of spelling."""
+    from app.tools.match_prompt import write_audit_rules
+    slug = await _match_project(workspace)
+    await write_audit_rules(workspace, slug, audit_rules=[
+        "盖红章",
+        {"rule": "附物料清单", "level": "warning"},
+        {"rule": "金额一致",
+         "check": {"type": "eq",
+                   "left": {"doc": "报价单", "field": "total"},
+                   "right": {"doc": "收货单", "field": "amount"},
+                   "tol": 0.01}},
+    ])
+    pv = await read_active_match_prompt(workspace, slug)
+    assert pv.version == 1
+    assert [r.rule for r in pv.audit_rules] == ["盖红章", "附物料清单", "金额一致"]
+    assert [r.level for r in pv.audit_rules] == ["critical", "warning", "critical"]
+    assert pv.audit_rules[2].check is not None
+    assert pv.audit_rules[2].check.type == "eq"
+    assert pv.audit_rules[2].check.tol == 0.01
+
+    # bare string vs explicit {rule, level:"critical"} = same content → no bump
+    await write_audit_rules(workspace, slug, audit_rules=[
+        {"rule": "盖红章", "level": "critical"},
+        {"rule": "附物料清单", "level": "warning"},
+        {"rule": "金额一致",
+         "check": {"type": "eq",
+                   "left": {"doc": "报价单", "field": "total"},
+                   "right": {"doc": "收货单", "field": "amount"},
+                   "tol": 0.01}},
+    ])
+    assert (await read_active_match_prompt(workspace, slug)).version == 1
+
+    # changing only a level IS a content change → bump
+    await write_audit_rules(workspace, slug, audit_rules=[
+        {"rule": "盖红章", "level": "warning"},
+        {"rule": "附物料清单", "level": "warning"},
+        {"rule": "金额一致",
+         "check": {"type": "eq",
+                   "left": {"doc": "报价单", "field": "total"},
+                   "right": {"doc": "收货单", "field": "amount"},
+                   "tol": 0.01}},
+    ])
     assert (await read_active_match_prompt(workspace, slug)).version == 2

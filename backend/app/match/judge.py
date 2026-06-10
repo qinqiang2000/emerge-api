@@ -24,6 +24,13 @@ from app.provider.base import Provider, TextBlock
 from app.schemas.match import KeyMapping, PairVerdict, Tol
 from app.schemas.schema_field import SchemaField
 
+# Public aliases for the shared normalization primitives — the audit L1 engine
+# (`app/match/audit_l1.py`) reuses them; alias instead of re-implementing so
+# matching and auditing can never drift on number/date semantics.
+try_number = _try_number
+try_date = _try_date
+unicode_canonical = _unicode_canonical
+
 
 # L2 judge response shape — a single boolean verdict over the whole pair.
 _JUDGE_SCHEMA = {

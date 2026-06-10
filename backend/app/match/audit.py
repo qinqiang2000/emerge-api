@@ -19,10 +19,10 @@ must not guess `fail` when it can't decide.
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Optional, Sequence, Union
 
 from app.provider.base import ImageBlock, Provider, TextBlock
-from app.schemas.match import RuleCheck
+from app.schemas.match import AuditRule, RuleCheck
 
 _AUDIT_SCHEMA = {
     "type": "object",
@@ -67,7 +67,7 @@ _SYSTEM = (
 async def audit_group(
     *,
     doc_images: dict[str, list[ImageBlock]],
-    audit_rules: list[str],
+    audit_rules: Sequence[Union[AuditRule, str]],
     doc_fields: Optional[dict[str, dict]] = None,
     provider: Optional[Provider] = None,
     model_id: Optional[str] = None,
@@ -77,17 +77,23 @@ async def audit_group(
     `doc_images` = {role: [page images]} — the documents themselves, the source
     of truth (read fields, stamps, dates off them). `doc_fields` = {role: fields}
     is OPTIONAL pre-extracted data passed as a hint (better number precision);
-    audit does NOT require prior extraction. Returns one `RuleCheck` per rule, in
-    order. With no provider (or on failure) every rule comes back `unclear` —
-    audit is inherently LLM-judged.
+    audit does NOT require prior extraction. `audit_rules` may be the SUBSET the
+    L1 fast path left undecided — the judge numbers whatever it receives 0-based
+    and the caller maps verdicts back. Bare-string rules coerce to critical
+    AuditRules. Returns one `RuleCheck` per rule, in order, with the rule's
+    `level` carried through and `decided_by="judge"`. With no provider (or on
+    failure) every rule comes back `unclear` — audit is inherently LLM-judged.
     """
-    if not audit_rules:
+    rules: list[AuditRule] = [
+        r if isinstance(r, AuditRule) else AuditRule(rule=r) for r in audit_rules
+    ]
+    if not rules:
         return []
     if provider is None:
-        return [RuleCheck(rule=r, status="unclear",
-                          reason="no judge model available") for r in audit_rules]
+        return [RuleCheck(rule=r.rule, status="unclear", level=r.level,
+                          reason="no judge model available") for r in rules]
 
-    numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(audit_rules))
+    numbered = "\n".join(f"{i}. {r.rule}" for i, r in enumerate(rules))
     intro = "Compliance rules (numbered):\n" + numbered
     if doc_fields:
         intro += (
@@ -110,8 +116,8 @@ async def audit_group(
         )
         raw = result.raw_json
     except Exception:
-        return [RuleCheck(rule=r, status="unclear", reason="judge call failed")
-                for r in audit_rules]
+        return [RuleCheck(rule=r.rule, status="unclear", level=r.level,
+                          reason="judge call failed") for r in rules]
 
     # Index-align the verdicts back onto audit_rules; any rule the judge didn't
     # return (or returned out of range) stays `unclear` — never length-fail.
@@ -123,14 +129,15 @@ async def audit_group(
             continue
 
     out: list[RuleCheck] = []
-    for i, rule in enumerate(audit_rules):
+    for i, rule in enumerate(rules):
         c = by_index.get(i)
         if not c:
-            out.append(RuleCheck(rule=rule, status="unclear",
+            out.append(RuleCheck(rule=rule.rule, status="unclear", level=rule.level,
                                  reason="judge returned no verdict for this rule"))
             continue
         status = c.get("status")
         if status not in ("pass", "fail", "unclear"):
             status = "unclear"
-        out.append(RuleCheck(rule=rule, status=status, reason=str(c.get("reason", ""))))
+        out.append(RuleCheck(rule=rule.rule, status=status, level=rule.level,
+                             reason=str(c.get("reason", ""))))
     return out

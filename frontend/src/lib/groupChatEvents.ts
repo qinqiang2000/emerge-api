@@ -14,6 +14,10 @@ const HOISTED_TOOL_NAMES = new Set([
   // "升级到 description / global_notes / 忽略" chip row) renders inline
   // beneath the tool card after a review-mode feedback turn.
   'mcp__emerge_tools__save_reviewed',
+  // A3: audit results render as rich cards (AuditCard) — the per-rule
+  // checklist / score strip is the user's primary artifact.
+  'mcp__emerge_tools__run_audit',
+  'mcp__emerge_tools__score_audit',
 ])
 
 export function groupChatEvents(events: ChatEvent[]): RenderItem[] {

@@ -17,9 +17,9 @@ body, only field values flow through. The `MatchPromptVariant` mirrors
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Tol(BaseModel):
@@ -46,6 +46,83 @@ class KeyMapping(BaseModel):
     tol: Tol
 
 
+class L1FieldRef(BaseModel):
+    """A reference to one extracted field of one document in the audited group.
+
+    `doc` matches the document by exact filename or by UNIQUE substring
+    ("报价单" matches `报价单.pdf`); `field` is the extracted field name. A ref
+    that fails to resolve (0/many doc hits, field absent) silently sends the
+    whole rule to the judge — never an error, never a "extract first" demand.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    doc: str
+    field: str
+
+
+# A side of an L1 comparison: a field reference or a literal constant.
+L1Operand = Union[L1FieldRef, str, int, float]
+
+
+class L1Check(BaseModel):
+    """Optional deterministic spec attached to an audit rule (the L1 fast path).
+
+    Two shapes, discriminated by `type`:
+    - `eq`    — `left` == `right` (each a field ref or constant); numbers are
+      normalized (currency symbols / thousands separators stripped) and compared
+      within `tol`; dates compared by calendar day; otherwise unicode-canonical
+      string equality.
+    - `range` — `low` <= `value` <= `high` (each a field ref or constant);
+      holds for numbers and dates.
+
+    When the spec can't be evaluated (doc/field unresolvable, values unparsable
+    for `range`), the rule falls through to the LLM judge unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["eq", "range"]
+    # eq operands
+    left: Optional[L1Operand] = None
+    right: Optional[L1Operand] = None
+    tol: Optional[float] = None
+    # range operands
+    value: Optional[L1Operand] = None
+    low: Optional[L1Operand] = None
+    high: Optional[L1Operand] = None
+
+    @model_validator(mode="after")
+    def _required_operands(self) -> "L1Check":
+        if self.type == "eq":
+            if self.left is None or self.right is None:
+                raise ValueError("eq check requires `left` and `right`")
+        else:  # range
+            if self.value is None or self.low is None or self.high is None:
+                raise ValueError("range check requires `value`, `low` and `high`")
+        return self
+
+
+class AuditRule(BaseModel):
+    """One audit rule. The NL `rule` TEXT is the rule's identity (A2 ground
+    truth is keyed by it — changing `level`/`check` never detaches a truth;
+    rewording `rule` does). A bare string coerces to a critical rule with no
+    check, so legacy `audit_rules: list[str]` JSON loads unchanged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule: str
+    level: Literal["critical", "warning"] = "critical"
+    check: Optional[L1Check] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_str(cls, v):
+        if isinstance(v, str):
+            return {"rule": v}
+        return v
+
+
 class MatchPromptVariant(BaseModel):
     """Versioned match-rule carrier — the match twin of `PromptVariant`.
 
@@ -62,11 +139,11 @@ class MatchPromptVariant(BaseModel):
     label: str = ""
     mappings: dict[str, list[KeyMapping]] = {}
     rules: str = ""
-    # Audit layer (A0): compliance rules judged over a grouped set of docs.
-    # Each entry is one NL rule (the user lists them as a numbered list); the
-    # judge returns an index-aligned verdict per rule. Distinct from `rules`
-    # (which is the pairing tie-break context). Empty = pure matching, no audit.
-    audit_rules: list[str] = []
+    # Audit layer (A0/A3): compliance rules judged over a grouped set of docs.
+    # Each entry is one rule — NL text + optional level/L1 check (a bare string
+    # coerces via AuditRule). Distinct from `rules` (which is the pairing
+    # tie-break context). Empty = pure matching, no audit.
+    audit_rules: list[AuditRule] = []
     derived_from: Optional[str] = None
     created_at: str
     updated_at: str
@@ -124,21 +201,26 @@ class MatchResult(BaseModel):
 class RuleCheck(BaseModel):
     """One compliance rule's verdict over a grouped set of docs. `unclear` is a
     first-class status (the judge couldn't decide / the image was illegible) —
-    never silently coerced to fail."""
+    never silently coerced to fail. `level` mirrors the rule's severity;
+    `decided_by` records whether the deterministic L1 fast path or the LLM
+    judge produced the verdict."""
 
     model_config = ConfigDict(extra="forbid")
 
     rule: str
     status: Literal["pass", "fail", "unclear"]
     reason: str = ""
+    level: Literal["critical", "warning"] = "critical"
+    decided_by: Literal["l1", "judge"] = "judge"
 
 
 class AuditReport(BaseModel):
     """The output of one `run_audit` over a single grouped set of documents.
 
     `group` records which doc played each role (anchor slug / source slugs →
-    filename). `overall`: `fail` if any rule failed, else `pass` (A0 = all rules
-    must pass; `unclear` does not fail but is surfaced)."""
+    filename). `overall` (A3 tri-state): any critical rule failed → `fail`;
+    only warning rules failed → `warn`; else `pass` (`unclear` never
+    downgrades, it is surfaced separately)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -146,4 +228,4 @@ class AuditReport(BaseModel):
     created_at: str
     group: dict[str, str]                 # role(slug) → filename
     checks: list[RuleCheck] = []
-    overall: Literal["pass", "fail"]
+    overall: Literal["pass", "warn", "fail"]

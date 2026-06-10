@@ -208,6 +208,41 @@ async def test_score_no_truth_zero_envelope_and_no_judge_call(workspace):
     assert p.calls == 0  # zero truth → judge never invoked
 
 
+async def test_truth_keyed_by_text_with_object_rules(workspace):
+    """A3 regression — rules upgraded to objects (level/check) keep their truth
+    keyed by rule TEXT: saving/scoring works identically, and changing only a
+    rule's level never detaches its truth."""
+    slug = await _audit_project(workspace, rules=None)
+    await write_audit_rules(workspace, slug, audit_rules=[
+        _RULES[0],
+        {"rule": _RULES[1], "level": "warning"},
+        {"rule": _RULES[2],
+         "check": {"type": "eq",
+                   "left": {"doc": "报价单", "field": "total"},
+                   "right": {"doc": "收货单", "field": "amount"}}},
+    ])
+    out = await save_reviewed_audit(workspace, slug, expected={
+        _RULES[0]: "pass", _RULES[1]: "pass", _RULES[2]: "fail",
+    })
+    assert out["rules_confirmed"] == 3 and out["unreviewed_rules"] == []
+
+    # level flip on rule 1 — truth must survive (text unchanged)
+    await write_audit_rules(workspace, slug, audit_rules=[
+        _RULES[0],
+        {"rule": _RULES[1], "level": "critical"},
+        {"rule": _RULES[2],
+         "check": {"type": "eq",
+                   "left": {"doc": "报价单", "field": "total"},
+                   "right": {"doc": "收货单", "field": "amount"}}},
+    ])
+    # docs carry no extracted fields → the spec'd rule still reaches the judge
+    p = _MockProvider(_checks("pass", "pass", "fail"))
+    res = await score_audit(workspace, slug, provider=p, model_id="m")
+    assert res["reviewed"] == 3
+    assert res["accuracy"] == 1.0
+    assert res["unreviewed_rules"] == []
+
+
 async def test_score_without_rules_errors(workspace):
     slug = await _audit_project(workspace, rules=None)
     p = _MockProvider([])

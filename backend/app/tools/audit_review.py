@@ -55,7 +55,8 @@ async def _current_rules(workspace: Path, slug: str) -> tuple[list[str], int]:
 
     try:
         mpv = await read_active_match_prompt(workspace, slug)
-        rules = list(mpv.audit_rules)
+        # Rule TEXT is the truth key (A2) — level/check never detach a truth.
+        rules = [r.rule for r in mpv.audit_rules]
         version = mpv.version
     except MatchPromptNotFoundError:
         rules, version = [], 0

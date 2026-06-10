@@ -111,7 +111,7 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     "ws_list", "ws_read", "ws_grep",
     "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
-    "readiness_check",
+    "readiness_check", "read_audit_report",
 })
 _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should gate
     "delete_project", "freeze_version", "issue_api_key", "promote_experiment",
@@ -1769,18 +1769,42 @@ def build_emerge_mcp(
     @tool(
         "write_audit_rules",
         "Set a project's AUDIT rules — the compliance checks `run_audit` "
-        "evaluates over the documents in that project. `audit_rules` is a list of "
-        "natural-language rules, one per item (e.g. \"甲方为 环胜电子商务（上海）"
+        "evaluates over the documents in that project. Each item is a "
+        "natural-language rule string (e.g. \"甲方为 环胜电子商务（上海）"
         "有限公司\", \"乙方加盖合同专用章（红章）\", \"报价单费用总计与收货单折扣后含税"
-        "金额一致\"). Each rule may be single-doc (a field == constant, or a "
-        "visual mark like a seal), cross-doc (amounts/keywords/date-ranges across "
+        "金额一致\") OR an object {rule, level?, check?}: `level` is 'critical' "
+        "(default — a fail fails the audit) or 'warning' (a fail only warns); "
+        "`check` is an optional deterministic spec the engine decides WITHOUT "
+        "the judge when the referenced extracted fields are in hand — "
+        "{type:'eq', left:{doc,field}|const, right:{doc,field}|const, tol?} or "
+        "{type:'range', value, low, high} (each a {doc,field} ref or constant; "
+        "doc matched by filename or unique substring). Only attach `check` when "
+        "the rule is plainly a fixed-value / cross-doc equality / interval "
+        "test — when unsure, plain text (judge-decided) is always correct. "
+        "Each rule may be single-doc (a field == constant, or a visual mark "
+        "like a seal) or cross-doc (amounts/keywords/date-ranges across "
         "documents). Rules are a versioned prompt — refine them to tune auditing. "
         "Preserves any pairing mappings. Returns the match-prompt id.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
-                "audit_rules": {"type": "array", "items": {"type": "string"}},
+                "audit_rules": {
+                    "type": "array",
+                    "items": {"anyOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "rule": {"type": "string"},
+                                "level": {"type": "string",
+                                          "enum": ["critical", "warning"]},
+                                "check": {"type": "object"},
+                            },
+                            "required": ["rule"],
+                        },
+                    ]},
+                },
                 "label": {"type": "string"},
                 "reason": {"type": "string"},
             },
@@ -1788,12 +1812,20 @@ def build_emerge_mcp(
         },
     )
     async def t_write_audit_rules(args: dict[str, Any]) -> dict[str, Any]:
+        from pydantic import ValidationError
+
         from app.tools.match_prompt import write_audit_rules
-        mpr_id = await write_audit_rules(
-            workspace, args["slug"],
-            audit_rules=list(args.get("audit_rules") or []),
-            label=args.get("label", ""), reason=args.get("reason", ""),
-        )
+        try:
+            mpr_id = await write_audit_rules(
+                workspace, args["slug"],
+                audit_rules=list(args.get("audit_rules") or []),
+                label=args.get("label", ""), reason=args.get("reason", ""),
+            )
+        except ValidationError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": "audit_bad_rule",
+                 "error_message_en": f"invalid audit rule spec: {e.errors()[0].get('msg', 'validation failed')}"},
+                ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(
             {"match_prompt_id": mpr_id}, ensure_ascii=False)}]}
 
@@ -1804,9 +1836,13 @@ def build_emerge_mcp(
         "收货单 + 订单 + … — any types, upload them all into the SAME project, do "
         "NOT split into multiple projects). The judge reads every document as an "
         "image (the source of truth, incl. visual marks like 红章) plus the rules "
-        "and returns per-rule pass/fail/unclear + an overall verdict. Documents "
-        "need NOT be extracted. Optionally pass `filenames` to audit only those "
-        "docs (default: all in the project). Do NOT call read_doc_image yourself "
+        "and returns per-rule pass/fail/unclear + an overall verdict: 'fail' if "
+        "any critical rule failed, 'warn' if only warning-level rules failed, "
+        "else 'pass'. Rules carrying a deterministic `check` spec are decided "
+        "by the engine without the judge when the referenced extracted fields "
+        "are in hand (check.decided_by='l1' in the report). Documents need NOT "
+        "be extracted. Optionally pass `filenames` to audit only those docs "
+        "(default: all in the project). Do NOT call read_doc_image yourself "
         "to audit — run_audit reads the images internally; pulling them into the "
         "conversation overflows the message buffer. Returns {group, checks, overall}.",
         {
@@ -1822,6 +1858,28 @@ def build_emerge_mcp(
         from app.tools.audit_run import AuditError, run_audit
         try:
             out = await run_audit(workspace, args["slug"], filenames=args.get("filenames"))
+        except AuditError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "read_audit_report",
+        "Read a project's most recent audit report without re-running the "
+        "judge (zero cost). Returns the same {run_id, created_at, group, "
+        "checks, overall} shape run_audit produced — per-rule "
+        "pass/fail/unclear verdicts with reasons, each check's level "
+        "(critical/warning) and decided_by (l1/judge), and the tri-state "
+        "overall (pass/warn/fail). Errors with audit_no_report when the "
+        "project has never been audited.",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_read_audit_report(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.audit_run import AuditError, read_audit_report
+        try:
+            out = await read_audit_report(workspace, args["slug"])
         except AuditError as e:
             return {"content": [{"type": "text", "text": _json.dumps(
                 {"error_code": e.error_code, "error_message_en": e.error_message_en},
@@ -1930,6 +1988,7 @@ def build_emerge_mcp(
             t_score_match,
             t_write_audit_rules,
             t_run_audit,
+            t_read_audit_report,
             t_save_reviewed_audit,
             t_score_audit,
             t_extract_one,

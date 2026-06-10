@@ -19,12 +19,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.match.audit import audit_group
+from app.match.audit_l1 import try_l1
 from app.provider.base import ImageBlock, Provider
-from app.schemas.match import AuditReport
+from app.schemas.match import AuditReport, RuleCheck
 from app.tools.docs import list_docs, read_doc_image
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_audit_run_id
-from app.workspace.paths import audit_result_path, prediction_draft_path
+from app.workspace.paths import audit_result_path, audits_dir, prediction_draft_path
 
 
 class AuditError(Exception):
@@ -101,18 +102,42 @@ async def run_audit(
             "project has no readable documents — upload the group (报价单/收货单/…) first",
         )
 
-    if provider is None:
-        provider, resolved_model = await _resolve_judge_provider(workspace, slug)
-        model_id = model_id or resolved_model
+    # L1 fast path (A3): a rule with a structured `check` spec whose field refs
+    # resolve against the extracted fields in hand is decided deterministically
+    # — for free and explainably. Everything else (no spec, doc/field missing,
+    # unparsable) goes to the judge in ONE trip; all-L1 = zero judge calls.
+    decided: dict[int, RuleCheck] = {}
+    pending: list[tuple[int, Any]] = []
+    for i, rule in enumerate(audit_rules):
+        rc = try_l1(rule, doc_fields)
+        if rc is not None:
+            decided[i] = rc
+        else:
+            pending.append((i, rule))
 
-    checks = await audit_group(
-        doc_images=doc_images,
-        audit_rules=audit_rules,
-        doc_fields=doc_fields or None,
-        provider=provider,
-        model_id=model_id,
-    )
-    overall = "fail" if any(c.status == "fail" for c in checks) else "pass"
+    if pending:
+        if provider is None:
+            provider, resolved_model = await _resolve_judge_provider(workspace, slug)
+            model_id = model_id or resolved_model
+        judged = await audit_group(
+            doc_images=doc_images,
+            audit_rules=[r for _, r in pending],
+            doc_fields=doc_fields or None,
+            provider=provider,
+            model_id=model_id,
+        )
+        for (i, _), rc in zip(pending, judged):
+            decided[i] = rc
+
+    checks = [decided[i] for i in range(len(audit_rules))]
+    # Tri-state overall: any critical fail → fail; only warning fails → warn;
+    # otherwise pass (`unclear` never downgrades — surfaced separately).
+    if any(c.status == "fail" and c.level == "critical" for c in checks):
+        overall = "fail"
+    elif any(c.status == "fail" for c in checks):
+        overall = "warn"
+    else:
+        overall = "pass"
 
     run_id = new_audit_run_id()
     report = AuditReport(
@@ -126,6 +151,26 @@ async def run_audit(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(out_path, report.model_dump(mode="json"))
     return report.model_dump(mode="json")
+
+
+async def read_audit_report(workspace: Path, slug: str) -> dict[str, Any]:
+    """The project's most recent audit report (`audits/{run}/report.json`),
+    picked by report mtime with run_id as the tie-break. Raises
+    `audit_no_report` when the project has never been audited."""
+    reports = sorted(
+        audits_dir(workspace, slug).glob("*/report.json"),
+        key=lambda p: (p.stat().st_mtime, p.parent.name),
+    ) if audits_dir(workspace, slug).is_dir() else []
+    if not reports:
+        raise AuditError(
+            "audit_no_report", "project has no audit report yet — call run_audit first",
+        )
+    try:
+        return json.loads(reports[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise AuditError(
+            "audit_no_report", "latest audit report is unreadable — re-run run_audit",
+        )
 
 
 async def _resolve_judge_provider(

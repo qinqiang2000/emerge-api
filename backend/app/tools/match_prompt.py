@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.match import KeyMapping, MatchPromptVariant
+from app.schemas.match import AuditRule, KeyMapping, MatchPromptVariant
 from app.workspace.atomic import atomic_write_json
 from app.workspace.ids import new_match_prompt_id
 from app.workspace.lock import project_lock
@@ -39,17 +39,23 @@ def _now_iso() -> str:
 
 
 def _content_hash(
-    mappings: dict[str, list[KeyMapping]], rules: str, audit_rules: list[str],
+    mappings: dict[str, list[KeyMapping]], rules: str, audit_rules: list[AuditRule],
 ) -> str:
     """Stable fingerprint of a match prompt's content — mappings + rules +
-    audit_rules. Label is excluded (cosmetic). Mirrors `prompt._content_hash`."""
+    audit_rules. Label is excluded (cosmetic). Mirrors `prompt._content_hash`.
+    Audit rules hash over their canonical model dump so the same content always
+    yields the same hash regardless of input spelling (bare string vs object);
+    the one-time hash change vs the pure-str era just bumps the version on the
+    next real write — acceptable by design."""
     payload = {
         "mappings": {
             src: [m.model_dump(mode="json", exclude_none=True) for m in maps]
             for src, maps in sorted(mappings.items())
         },
         "rules": rules,
-        "audit_rules": list(audit_rules),
+        "audit_rules": [
+            r.model_dump(mode="json", exclude_none=True) for r in audit_rules
+        ],
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
@@ -75,13 +81,24 @@ def _coerce_mappings(
     return out
 
 
+def _coerce_audit_rules(
+    audit_rules: list[str | dict | AuditRule] | None,
+) -> list[AuditRule]:
+    """Mixed str/object/model input → list[AuditRule] (bare string = critical
+    rule, no check — AuditRule's own validator does the coercion)."""
+    return [
+        r if isinstance(r, AuditRule) else AuditRule.model_validate(r)
+        for r in (audit_rules or [])
+    ]
+
+
 async def write_match_prompt(
     workspace: Path,
     slug: str,
     *,
     mappings: dict[str, list[dict]] | dict[str, list[KeyMapping]] | None = None,
     rules: str | None = None,
-    audit_rules: list[str] | None = None,
+    audit_rules: list[str | dict | AuditRule] | None = None,
     label: str = "",
     reason: str = "",  # accepted for tool symmetry / audit; not persisted
 ) -> str:
@@ -106,7 +123,7 @@ async def write_match_prompt(
         if not active:
             coerced = _coerce_mappings(mappings or {})
             r = rules or ""
-            ar = list(audit_rules or [])
+            ar = _coerce_audit_rules(audit_rules)
             mpr_id = new_match_prompt_id()
             mpv = MatchPromptVariant(
                 prompt_id=mpr_id, label=label,
@@ -129,7 +146,11 @@ async def write_match_prompt(
         # Partial update: keep existing facet when its arg is None.
         coerced = _coerce_mappings(mappings) if mappings is not None else existing.mappings
         r = rules if rules is not None else existing.rules
-        ar = list(audit_rules) if audit_rules is not None else list(existing.audit_rules)
+        ar = (
+            _coerce_audit_rules(audit_rules)
+            if audit_rules is not None
+            else list(existing.audit_rules)
+        )
         existing_hash = existing.content_hash or _content_hash(
             existing.mappings, existing.rules, existing.audit_rules,
         )
@@ -159,12 +180,14 @@ async def write_audit_rules(
     workspace: Path,
     slug: str,
     *,
-    audit_rules: list[str],
+    audit_rules: list[str | dict | AuditRule],
     label: str = "",
     reason: str = "",
 ) -> str:
     """Set the project's audit rules (the compliance checks run by `run_audit`),
-    preserving the pairing mappings/rules. Thin facet-update over
+    preserving the pairing mappings/rules. Each rule is either a bare NL string
+    (= critical, judge-decided) or an object `{rule, level?, check?}` adding a
+    severity and/or a deterministic L1 spec. Thin facet-update over
     `write_match_prompt`."""
     return await write_match_prompt(
         workspace, slug, audit_rules=audit_rules, label=label, reason=reason,

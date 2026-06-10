@@ -16,7 +16,7 @@ from app.tools.match_project import (
     create_match_project,
 )
 from app.tools.audit_review import save_reviewed_audit, score_audit
-from app.tools.audit_run import AuditError, run_audit
+from app.tools.audit_run import AuditError, read_audit_report, run_audit
 from app.tools.match_prompt import write_audit_rules, write_match_prompt
 from app.tools.match_review import save_reviewed_match, score_match
 from app.tools.match_run import run_match
@@ -96,20 +96,31 @@ async def get_match_score(slug: str) -> dict:
         raise _envelope(e)
 
 
-# --- audit layer (A0) -------------------------------------------------------
+# --- audit layer (A0/A3) -----------------------------------------------------
 
 class _AuditRulesBody(BaseModel):
-    audit_rules: list[str]
+    # Each rule: bare NL string, or {rule, level?, check?} (AuditRule shape).
+    # Validation/coercion happens in write_audit_rules via the AuditRule model.
+    audit_rules: list[str | dict]
     label: str = ""
     reason: str = ""
 
 
 @router.put("/lab/projects/{slug}/audit-rules")
 async def put_audit_rules(slug: str, body: _AuditRulesBody) -> dict:
-    mpr_id = await write_audit_rules(
-        current_ws(), slug, audit_rules=body.audit_rules,
-        label=body.label, reason=body.reason,
-    )
+    from pydantic import ValidationError
+
+    try:
+        mpr_id = await write_audit_rules(
+            current_ws(), slug, audit_rules=body.audit_rules,
+            label=body.label, reason=body.reason,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail={
+            "error_code": "audit_bad_rule",
+            "error_message_en": "invalid audit rule spec: "
+            + str(e.errors()[0].get("msg", "validation failed")),
+        })
     return {"match_prompt_id": mpr_id}
 
 
@@ -128,6 +139,15 @@ def _audit_envelope(e: "AuditError") -> HTTPException:
 async def post_audit(slug: str, body: _RunAuditBody | None = None) -> dict:
     try:
         return await run_audit(current_ws(), slug, filenames=(body.filenames if body else None))
+    except AuditError as e:
+        raise _audit_envelope(e)
+
+
+@router.get("/lab/projects/{slug}/audit/latest")
+async def get_audit_latest(slug: str) -> dict:
+    """Most recent audit report — read-only, never re-runs the judge."""
+    try:
+        return await read_audit_report(current_ws(), slug)
     except AuditError as e:
         raise _audit_envelope(e)
 
