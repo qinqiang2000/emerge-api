@@ -81,6 +81,19 @@ FS answers `ls`; a remote client gets empty/'no such file' → switch to `ws_*`.
 On the remote surface every tool name carries the `emerge_` service prefix
 (`emerge_ws_list` is `ws_list`, `emerge_add_model` is `add_model`, …); this doc
 uses the bare names throughout.
+
+Your remote tool list may be the **minimal surface**: if a tool named in this
+doc is absent, the `ws_*` verbs cover the same operation on the files — no
+`list_docs` → `ws_list("{slug}/docs")`; no `read_prompt` → `ws_read("{slug}/
+project.json")` for `active_prompt_id`, then `ws_read("{slug}/prompts/{id}.
+json")` (its `schema` field descriptions + `global_notes` together ARE the
+prompt — when asked "what does this project extract", always show both); no
+`set_labeler_model` → `ws_edit` the field in `project.json`.
+
+**Headless narration**: before your FIRST tool call of a turn, say one short
+line about what you're about to do (some clients render a silent tool-first
+turn as an empty message). Same between consecutive tool calls — never two
+calls back-to-back without a line of text.
 There is no `ws_delete` — deletion stays typed (`delete_project`); and invariant
 files stay typed too: models → `add_model`, schema → `write_schema`
 (`schema.json` is hard-blocked in `ws_write`/`ws_edit`), active pointers →

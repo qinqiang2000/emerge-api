@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     )
 
     workspace_root: Path = Path("./workspace")
+    # Headless (stdio/remote) MCP tool surface. "minimal" (default) exposes the
+    # ws_* filesystem bus + invariant/LLM verbs (~28 tools); "full" exposes every
+    # headless tool (~58). Experiment (2026-06-10): a Cowork user runs 10+
+    # connectors, so context pressure is real — minimal bets that generic file
+    # verbs cover the long tail. Flip to "full" to revert, no redeploy of data.
+    mcp_surface: str = "minimal"
     # Bootstrap seed for `models/m_default.json` when `create_project` runs.
     # Read EXACTLY ONCE per project — the value gets baked into the freshly
     # minted `m_default` ModelConfig (`provider_model_id`) plus stamped on

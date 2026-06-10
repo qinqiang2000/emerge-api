@@ -145,6 +145,47 @@ async def test_discovery_tools_headless_only() -> None:
     assert not (bare & chat), f"chat server leaked discovery tools {bare & chat}"
 
 
+async def _remote_surface_names() -> set[str]:
+    """tools/list through build_mcp_server — the surface a remote client sees
+    (headless build + _HEADLESS_EXCLUDE + EMERGE_MCP_SURFACE filter)."""
+    from unittest.mock import AsyncMock
+
+    from mcp.types import ListToolsRequest
+
+    from app.mcp_server import build_mcp_server
+
+    server = build_mcp_server(
+        workspace=get_settings().workspace_root,
+        provider=AsyncMock(), job_runner=AsyncMock(),
+    )
+    handler = server.request_handlers[ListToolsRequest]
+    result = await handler(ListToolsRequest(method="tools/list"))
+    return {t.name for t in result.root.tools}
+
+
+async def test_minimal_surface_is_default(monkeypatch) -> None:
+    """The minimal-surface experiment: default exposes the ws_* bus + invariant
+    + LLM verbs only; pure read wrappers / setters / suites are unlisted."""
+    names = await _remote_surface_names()
+    assert {"emerge_ws_list", "emerge_ws_write", "emerge_ws_move",
+            "emerge_add_model", "emerge_write_schema", "emerge_extract_one",
+            "emerge_get_project_config"} <= names
+    assert not ({"emerge_list_projects", "emerge_read_prompt", "emerge_bench_view",
+                 "emerge_set_labeler_model", "emerge_run_audit"} & names)
+    assert len(names) < 35, f"minimal surface grew to {len(names)}"
+
+
+async def test_full_surface_via_env(monkeypatch) -> None:
+    from app.config import get_settings as real_get_settings
+
+    s = real_get_settings().model_copy(update={"mcp_surface": "full"})
+    import app.config as config_mod
+    monkeypatch.setattr(config_mod, "get_settings", lambda: s)
+    names = await _remote_surface_names()
+    assert {"emerge_list_projects", "emerge_read_prompt", "emerge_run_audit"} <= names
+    assert len(names) > 50
+
+
 async def test_headless_names_prefixed_chat_names_bare() -> None:
     """Every headless (remote/stdio) tool name carries the emerge_ service
     prefix (10+ connectors in one Cowork → bare names like create_project

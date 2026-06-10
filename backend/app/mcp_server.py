@@ -68,6 +68,32 @@ _HEADLESS_EXCLUDE: frozenset[str] = frozenset({
     "ask_user",
 })
 
+# The "minimal" surface experiment (EMERGE_MCP_SURFACE, default minimal): a
+# remote teammate's client runs 10+ connectors, so every tool definition is
+# context tax. The bet: the ws_* filesystem bus covers the read/write long
+# tail, so only three kinds of tools earn a slot — (a) the bus itself, (b)
+# invariant writes that hand-editing would break, (c) verbs that call an LLM
+# or job runner (not file ops). Everything cut here remains registered and
+# callable; it just isn't listed. Flip to "full" to revert. Bare names —
+# the filter strips SERVICE_PREFIX before comparing.
+_MINIMAL_SURFACE: frozenset[str] = frozenset({
+    # (a) filesystem bus
+    "ws_list", "ws_read", "ws_grep", "ws_write", "ws_edit", "ws_move",
+    # doc vision is pulled, never via ws_read (red line)
+    "read_doc_image", "pdf_render_page",
+    # (b) invariant writes
+    "create_project", "delete_project", "add_model", "write_schema",
+    "switch_active_prompt", "switch_active_model", "save_reviewed",
+    "freeze_version", "issue_api_key",
+    # (c) LLM / job verbs
+    "extract_one", "derive_schema",
+    "create_experiment", "extract_with_experiment", "run_experiment_eval",
+    "promote_experiment", "score",
+    "start_job", "get_job", "cancel_job",
+    # env-fallback resolution for all four LLM roles — invisible in the files
+    "get_project_config",
+})
+
 
 def build_mcp_server(
     *,
@@ -101,14 +127,17 @@ def build_mcp_server(
     _orig_list_tools = server.request_handlers[ListToolsRequest]
 
     async def _filtered_list_tools(req):  # type: ignore[override]
+        from app.config import get_settings
         from app.tools import SERVICE_PREFIX
 
         result = await _orig_list_tools(req)
-        # Headless tool names carry the service prefix; the exclude set stays
+        # Headless tool names carry the service prefix; the filter sets stay
         # bare (single source of truth), so strip before comparing.
+        minimal = get_settings().mcp_surface != "full"
         result.root.tools = [
             t for t in result.root.tools
-            if t.name.removeprefix(SERVICE_PREFIX) not in _HEADLESS_EXCLUDE
+            if (bare := t.name.removeprefix(SERVICE_PREFIX)) not in _HEADLESS_EXCLUDE
+            and (not minimal or bare in _MINIMAL_SURFACE)
         ]
         return result
 
