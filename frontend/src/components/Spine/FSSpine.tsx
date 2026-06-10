@@ -195,6 +195,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // When active project changes: load docs + schema + prompts + models
   useEffect(() => {
     if (!selectedSlug) return
+    // Re-list projects on every switch so the cross-project "working" dots
+    // (has_active_turn) reflect reality as of this navigation — a turn that
+    // finished while detached clears, one still running keeps its dot.
+    void useProjects.getState().refresh()
     void useDocs.getState().refresh(selectedSlug)
     void useSchema.getState().load(selectedSlug)
     void usePrompts.getState().load(selectedSlug)
@@ -644,6 +648,13 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                   : <ChevronRight size={13} className="proj-arrow" strokeWidth={2} />}
               </span>
               <span className="proj-name">{p.name}</span>
+              {/* "working" dot — a chat in this project has a live turn. Shown
+                  on ANY row (active or not) so a turn you navigated away from
+                  stays visible; the backend turn keeps running after the SSE
+                  detaches (M11 T5), so this is the cue to come back. */}
+              {p.has_active_turn && (
+                <span className="run-dot" title={t('spine.project.running')} />
+              )}
               {isActive && (
                 <span
                   className="status-dot"

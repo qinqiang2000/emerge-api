@@ -87,6 +87,7 @@ const zh: Dict = {
   // ── FSSpine ────────────────────────────────────────────────────────────
   'spine.projects.empty': '暂无项目',
   'spine.project.new': '新建项目…',
+  'spine.project.running': '运行中 — 该项目有会话正在处理',
   'spine.filter.placeholder': '过滤项目… (⌘K)',
   'spine.filter.empty': '无匹配',
   'spine.filter.clear': '清除过滤',
@@ -157,6 +158,7 @@ const zh: Dict = {
 
   // ── Chat history popover / ConvHeader ──────────────────────────────────
   'chathistory.aria': '会话历史',
+  'chathistory.running': '仍在处理 — 该会话有任务进行中',
   'chathistory.newChat': '新对话',
   'chathistory.recent': '最近的会话',
   'chathistory.inProject': '项目内',

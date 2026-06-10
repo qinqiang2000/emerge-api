@@ -306,6 +306,8 @@ export const useChat = create<State>((set, get) => ({
     }
     if (streamAbort) streamAbort.abort()
     set({ interrupted: true, busy: false, streamAbort: null, inflightTurnId: null, thinkingLine: '' })
+    // Cancel is terminal for the turn → clear the spine "working" dot.
+    if (get().loadedProjectId) void useProjects.getState().refresh()
   },
   _detachStream: () => {
     // Lifecycle methods call this when the user navigates away from a chat
@@ -835,6 +837,10 @@ export const useChat = create<State>((set, get) => ({
       // The chat now exists server-side — drop the local-only mark so future
       // reconciliations rely on the server list, not this hint.
       _unmarkLocalOnly(cid)
+      // Re-list projects so the spine's cross-project "working" dot lights up
+      // immediately — even if the user navigates to another project a beat
+      // later, the has_active_turn flag is already fresh in the store.
+      if (!isUnbound && projectId !== 'p_unset') void useProjects.getState().refresh()
     } catch (e) {
       // Couldn't even start the turn — surface as an error event and bail.
       // The optimistic user line stays so the user can retry / edit; matches
@@ -921,6 +927,8 @@ export const useChat = create<State>((set, get) => ({
         } else if (finalPid !== 'p_unset' && finalPid !== UNBOUND_SLUG) {
           void get().listChats(finalPid)
         }
+        // Turn finished → clear the spine "working" dot for this project.
+        void useProjects.getState().refresh()
       }
     }
   },
@@ -1263,6 +1271,8 @@ async function _maybeReattach(cid: string, projectId: string): Promise<void> {
         useChat.setState({ busy: false, streamAbort: null, inflightTurnId: null })
       }
       _clearTurnId(cid)
+      // Re-attached turn finished → clear the spine "working" dot.
+      void useProjects.getState().refresh()
     } else {
       const cur2 = useChat.getState()
       if (cur2.chatId === cid && cur2.streamAbort === ctrl) {

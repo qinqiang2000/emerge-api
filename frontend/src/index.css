@@ -47,6 +47,11 @@ html, body, #root {
 .hist-pop .h-row.active .kind{color:var(--ochre-2)}
 .hist-pop .h-row .lbl{font-family:var(--serif);font-size:13px;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.005em}
 .hist-pop .h-row .ts{font-family:var(--mono);font-size:10px;color:var(--ink-5);font-variant-numeric:tabular-nums;flex-shrink:0}
+/* "still working" dot — this chat has a live turn (the backend turn outlives
+   the SSE detach, M11 T5). Pulsing ochre, same language as the spine run-dot. */
+.hist-pop .h-row .run-dot{flex-shrink:0;align-self:center;width:6px;height:6px;border-radius:50%;background:var(--ochre);animation:run-dot-pulse 1.4s ease-in-out infinite}
+@keyframes run-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+@media (prefers-reduced-motion:reduce){.hist-pop .h-row .run-dot{animation:none;opacity:.85}}
 .hist-pop .h-empty{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-4);padding:14px;text-align:center}
 
 /* push conv-scroll top padding so it doesn't sit under the floating buttons */

@@ -21,6 +21,10 @@ export interface Project {
   active_version_id: string | null
   published_ids?: string[]
   status?: 'live' | 'draft' | 'empty'
+  /** True iff one of this project's chats has a live turn in the registry.
+   *  Drives the spine "working" dot so a turn you navigated away from stays
+   *  visible (the backend turn outlives the SSE detach — M11 T5). */
+  has_active_turn?: boolean
 }
 
 const API = '' // same origin via vite proxy
@@ -574,6 +578,10 @@ export interface ChatSummary {
   kind: string
   ts_iso: string
   n_events: number
+  /** True iff this chat has a live turn in the registry. The history popover
+   *  paints a "still working" dot so a chat you left mid-turn is recognisable
+   *  — the backend turn outlives the SSE detach (M11 T5). */
+  running?: boolean
 }
 
 // Chat list for the conv-header history popover. Permissive — any failure

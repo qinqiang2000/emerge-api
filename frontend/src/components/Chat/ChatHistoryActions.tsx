@@ -217,6 +217,8 @@ export default function ChatHistoryActions({
             >
               <span className="kind">{c.kind}</span>
               <span className="lbl">{c.label}</span>
+              {/* live turn → pulsing dot so a chat left mid-run is recognisable */}
+              {c.running && <span className="run-dot" title={t('chathistory.running')} />}
               <span className="ts">{formatChatTs(c.ts_iso, t, locale)}</span>
             </div>
           ))}

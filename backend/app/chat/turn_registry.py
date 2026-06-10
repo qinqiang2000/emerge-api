@@ -107,6 +107,12 @@ class TurnEntry:
     turn_id: str
     chat_id: str
     slug: str
+    # Opaque tenant discriminator (the team's workspace path string). The
+    # registry is process-global and ``slug`` collides across teams (two teams
+    # can both own a project named "invoices"), so the "active" lookups filter
+    # on this to keep one team's live turns from lighting up another team's UI.
+    # Empty string = the open-mode single workspace.
+    tenant_key: str = ""
     task: asyncio.Task[None] | None = None
     status: TurnStatus = TurnStatus.RUNNING
     started_at: float = field(default_factory=time.time)
@@ -145,6 +151,7 @@ class TurnRegistry:
         chat_id: str,
         slug: str,
         runner_factory: Callable[[], AsyncIterator[str]],
+        tenant_key: str = "",
     ) -> TurnEntry:
         """Spawn a fresh turn for ``chat_id``.
 
@@ -165,7 +172,9 @@ class TurnRegistry:
             turn_id = uuid.uuid4().hex[:12]
             # Build the entry up-front (sans task) so the wrapper can
             # close over the same instance the registry hands back.
-            entry = TurnEntry(turn_id=turn_id, chat_id=chat_id, slug=slug)
+            entry = TurnEntry(
+                turn_id=turn_id, chat_id=chat_id, slug=slug, tenant_key=tenant_key
+            )
             loop = asyncio.get_event_loop()
             entry.task = loop.create_task(
                 _run_turn(entry, runner_factory),
@@ -251,6 +260,48 @@ class TurnRegistry:
     def lookup_turn(self, turn_id: str) -> TurnEntry | None:
         """Return any entry by ``turn_id``, live or finished."""
         return self._by_turn.get(turn_id)
+
+    def active_chat_ids(self, tenant_key: str | None = None) -> set[str]:
+        """``chat_id`` set with a *live* turn right now.
+
+        Powers the "still running" markers the FE paints on chat-history
+        rows you've navigated away from — the turn keeps running after the
+        SSE detaches, so the UI needs an authoritative liveness probe that
+        isn't the (single-slice) FE ``busy`` flag. Finished entries linger
+        in ``_by_chat`` until the next start on the same chat replaces them,
+        but their status isn't RUNNING so they're filtered out here.
+
+        ``tenant_key`` (``None`` = no filter) scopes the result to one team's
+        workspace. ``chat_id`` is globally unique so cross-team leakage is
+        already impossible here, but filtering keeps the contract symmetric
+        with :meth:`active_slugs` (defence in depth).
+        """
+        return {
+            cid
+            for cid, e in self._by_chat.items()
+            if e.status == TurnStatus.RUNNING
+            and (tenant_key is None or e.tenant_key == tenant_key)
+        }
+
+    def active_slugs(self, tenant_key: str | None = None) -> set[str]:
+        """Project ``slug`` set with at least one live turn right now.
+
+        Cross-project peer of :meth:`active_chat_ids` — lets the spine paint
+        a "working" dot on a project row whose chat is mid-turn while the
+        user is looking at a *different* project. Unbound turns carry the
+        ``_chats`` sentinel slug, which matches no real project, so they're
+        naturally excluded.
+
+        ``tenant_key`` (``None`` = no filter) MUST be passed in tenant mode:
+        project ``slug`` collides across teams, so an unscoped lookup would
+        light up another team's project row.
+        """
+        return {
+            e.slug
+            for e in self._by_chat.values()
+            if e.status == TurnStatus.RUNNING
+            and (tenant_key is None or e.tenant_key == tenant_key)
+        }
 
 
 # ── internals ────────────────────────────────────────────────────────

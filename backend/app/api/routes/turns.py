@@ -256,6 +256,7 @@ async def _start_turn_for(
     cid: str,
     body: StartTurnBody,
     registry: TurnRegistry,
+    tenant_key: str = "",
 ) -> TurnEntry:
     """Build the chat_turn runner factory + call ``registry.start``.
 
@@ -290,6 +291,7 @@ async def _start_turn_for(
             chat_id=cid,
             slug=body.slug,
             runner_factory=factory,
+            tenant_key=tenant_key,
         )
     except TurnAlreadyActiveError as exc:
         raise HTTPException(
@@ -409,7 +411,11 @@ async def start_turn(
     inherited from the registry).
     """
     safe_chat_id(cid)
-    entry = await _start_turn_for(cid=cid, body=body, registry=registry)
+    # Tag the turn with the caller's team workspace so the "active" lookups
+    # (spine / popover dots) never cross-light another team's same-named slug.
+    entry = await _start_turn_for(
+        cid=cid, body=body, registry=registry, tenant_key=str(current_ws()),
+    )
     return {"turn_id": entry.turn_id, "status": entry.status.value}
 
 

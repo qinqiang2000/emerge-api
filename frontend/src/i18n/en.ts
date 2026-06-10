@@ -87,6 +87,7 @@ const en: Dict = {
   // ── FSSpine ────────────────────────────────────────────────────────────
   'spine.projects.empty': 'no projects yet',
   'spine.project.new': 'new project…',
+  'spine.project.running': 'working — a chat here has a turn in progress',
   'spine.filter.placeholder': 'filter projects… (⌘K)',
   'spine.filter.empty': 'no match',
   'spine.filter.clear': 'clear filter',
@@ -157,6 +158,7 @@ const en: Dict = {
 
   // ── Chat history popover / ConvHeader ──────────────────────────────────
   'chathistory.aria': 'Chat history',
+  'chathistory.running': 'still working — turn in progress',
   'chathistory.newChat': 'New chat',
   'chathistory.recent': 'Recent conversations',
   'chathistory.inProject': 'in project',

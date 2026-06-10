@@ -138,7 +138,9 @@ async def lab_unbound_chat_list() -> list[dict[str, Any]]:
     Phase-2 frontend can render the empty-hero "Recent conversations" strip
     + the scope-aware chat-history popover without N round-trips."""
     workspace_root = current_ws()
-    return list_unbound_chats(workspace_root)
+    chats = list_unbound_chats(workspace_root)
+    _annotate_running(chats)
+    return chats
 
 
 @router.get("/lab/chats/{chat_id}/events")
@@ -187,7 +189,27 @@ async def lab_unbound_chat_delete(chat_id: str) -> dict[str, Any]:
 async def lab_chat_list(slug: str) -> list[dict[str, Any]]:
     safe_slug(slug)
     workspace_root = current_ws()
-    return list_chats(workspace_root, slug)
+    chats = list_chats(workspace_root, slug)
+    _annotate_running(chats)
+    return chats
+
+
+def _annotate_running(chats: list[dict[str, Any]]) -> None:
+    """Stamp each chat summary with ``running`` (a live turn in the registry).
+
+    The history popover renders this as a "still working" dot so a chat you
+    left mid-turn is recognisable — the backend turn outlives the SSE detach
+    (M11 T5), and the FE ``busy`` flag only tracks the *active* chat slice, so
+    liveness for *other* chats has to come from the registry. Local import
+    because :mod:`app.api.routes.turns` imports this module at load time.
+    """
+    if not chats:
+        return
+    from app.api.routes.turns import get_registry
+
+    running = get_registry().active_chat_ids(str(current_ws()))
+    for c in chats:
+        c["running"] = c.get("chat_id") in running
 
 
 @router.get("/lab/chats/{slug}/{chat_id}")

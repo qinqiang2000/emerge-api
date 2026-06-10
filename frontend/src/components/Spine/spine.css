@@ -48,6 +48,11 @@
 .fs .proj.active .proj-disc .proj-arrow{opacity:1;color:var(--ochre)}
 .fs .proj .proj-name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 .fs .proj .status-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%}
+/* "working" dot — a chat in this project has a live turn. Pulsing ochre so it
+   reads as in-progress, distinct from the static live/draft/empty status-dot. */
+.fs .proj .run-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%;background:var(--ochre);animation:run-dot-pulse 1.4s ease-in-out infinite}
+@keyframes run-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+@media (prefers-reduced-motion:reduce){.fs .proj .run-dot{animation:none;opacity:.85}}
 /* new-project row: single FolderPlus icon, same left inset as the folder column */
 .fs .proj.new .proj-icon{flex-shrink:0;color:var(--ink-4)}
 .fs .proj.new:hover{color:var(--ink-2)}

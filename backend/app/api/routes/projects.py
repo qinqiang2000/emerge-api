@@ -41,7 +41,18 @@ _VERSIONS_HIDDEN_NAMES = frozenset({"_candidate"})
 @router.get("/lab/projects")
 async def get_projects() -> list[dict]:
     settings = get_settings()
-    return await list_projects(current_ws())
+    projects = await list_projects(current_ws())
+    # Annotate which projects have a live turn so the spine can paint a
+    # "working" dot on a project you've navigated away from (the backend turn
+    # keeps running after the SSE detaches — see TurnRegistry / M11 T5). Local
+    # import: `turns` imports this module's siblings, so a top-level import
+    # would risk a load-time cycle.
+    from app.api.routes.turns import get_registry
+
+    running = get_registry().active_slugs(str(current_ws()))
+    for p in projects:
+        p["has_active_turn"] = p.get("slug") in running
+    return projects
 
 
 class _CreateProjectBody(BaseModel):
