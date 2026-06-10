@@ -77,8 +77,9 @@ _HEADLESS_EXCLUDE: frozenset[str] = frozenset({
 # callable; it just isn't listed. Flip to "full" to revert. Bare names —
 # the filter strips SERVICE_PREFIX before comparing.
 _MINIMAL_SURFACE: frozenset[str] = frozenset({
-    # (a) filesystem bus
+    # (a) filesystem bus (+ its binary data plane)
     "ws_list", "ws_read", "ws_grep", "ws_write", "ws_edit", "ws_move",
+    "request_upload_url",
     # doc vision is pulled, never via ws_read (red line)
     "read_doc_image", "pdf_render_page",
     # (b) invariant writes

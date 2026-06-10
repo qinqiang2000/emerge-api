@@ -99,6 +99,13 @@ files stay typed too: models → `add_model`, schema → `write_schema`
 (`schema.json` is hard-blocked in `ws_write`/`ws_edit`), active pointers →
 `switch_active_*`.
 
+**Getting the user's files INTO a project (remote)**: files the user attached
+in your client live in YOUR sandbox — the emerge server cannot see them, so
+`ws_move` can't reach them and `ws_write` is text-only. Use
+`request_upload_url(slug, filenames)` → it returns one presigned URL + a ready
+`curl` command per file → run those curl commands in your own sandbox shell to
+POST the bytes. Never base64 file content through a tool argument.
+
 ### Directory layout (per project)
 
 ```

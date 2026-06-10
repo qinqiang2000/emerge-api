@@ -168,6 +168,7 @@ async def test_minimal_surface_is_default(monkeypatch) -> None:
     + LLM verbs only; pure read wrappers / setters / suites are unlisted."""
     names = await _remote_surface_names()
     assert {"emerge_ws_list", "emerge_ws_write", "emerge_ws_move",
+            "emerge_request_upload_url",
             "emerge_add_model", "emerge_write_schema", "emerge_extract_one",
             "emerge_get_project_config"} <= names
     assert not ({"emerge_list_projects", "emerge_read_prompt", "emerge_bench_view",

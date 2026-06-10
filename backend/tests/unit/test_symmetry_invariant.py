@@ -153,6 +153,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "ws_write":      ("POST", r"^/lab/ws/write$"),
     "ws_edit":       ("POST", r"^/lab/ws/edit$"),
     "ws_move":       ("POST", r"^/lab/ws/move$"),
+    # Binary data plane: the tool mints capability URLs; its twin is the authed
+    # mint route. The unauthed redemption endpoint (/lab/upload/{token}) is the
+    # data plane itself, not a tool twin.
+    "request_upload_url": ("POST", r"^/lab/upload-urls$"),
 }
 
 

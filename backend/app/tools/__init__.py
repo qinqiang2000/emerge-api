@@ -1722,6 +1722,29 @@ def build_emerge_mcp(
             workspace, a["source_path"], a["destination_path"],
             bool(a.get("copy", False))))(args)
 
+    @tool(
+        "request_upload_url",
+        "Get presigned upload URLs for putting BINARY docs (pdf/png/jpg) into "
+        "a project's docs/ from YOUR side of the connection. Use when the user "
+        "attached files in YOUR client (they live in your sandbox, not on the "
+        "emerge server — ws_move cannot reach them and ws_write is text-only). "
+        "Returns one short-lived URL per filename plus a ready `curl` command: "
+        "run it in your sandbox shell to POST the bytes (`curl -X POST "
+        "--data-binary @file <url>`). The server validates magic bytes, "
+        "dedupes the filename and writes the sidecar — same invariants as a "
+        "browser upload. Rendering: browser → one-line summary; headless → "
+        "after uploading, state each final filename and page count.",
+        {"type": "object", "properties": {
+            "slug": {"type": "string"},
+            "filenames": {"type": "array", "items": {"type": "string"}},
+        }, "required": ["slug", "filenames"]},
+    )
+    async def t_request_upload_url(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.upload_url import mint_upload_urls
+        out = mint_upload_urls(
+            workspace, args["slug"], [str(f) for f in args["filenames"]])
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     # ── document matching (reconciliation) ─────────────────────────────────
     # A match project references existing extract projects (anchor + sources)
     # and reconciles their extracted fields. Rules live in a versioned match
@@ -2099,7 +2122,8 @@ def build_emerge_mcp(
     if headless:
         _tools += [t_list_projects, t_list_docs, t_read_prompt,
                    t_ws_list, t_ws_read, t_ws_grep,
-                   t_ws_write, t_ws_edit, t_ws_move]
+                   t_ws_write, t_ws_edit, t_ws_move,
+                   t_request_upload_url]
     # Stamp behavioural hints from the central buckets so the remote tools/list
     # carries them (drives a client's auto-approve / destructive-gate policy).
     # On the headless (remote/stdio) surface only, also wrap each handler to log
