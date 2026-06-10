@@ -57,13 +57,16 @@ async def run_audit(
     workspace: Path,
     slug: str,
     *,
+    filenames: Optional[list[str]] = None,
     provider: Optional[Provider] = None,
     model_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Audit the project `slug`: read its audit rules + every document in its
-    `docs/`, judge all rules in one LLM trip (images = source of truth, any
-    extracted fields = hint), and persist the report. Returns the report dict.
-    Raises `AuditError` when rules or documents are missing."""
+    """Audit the project `slug`: read its audit rules + its documents, judge all
+    rules in one LLM trip (images = source of truth, any extracted fields =
+    hint), and persist the report. `filenames` restricts the audit to those docs
+    (default: every doc in `docs/`) — useful when a project also holds unrelated
+    files. Returns the report dict. Raises `AuditError` when rules or documents
+    are missing."""
     from app.tools.match_prompt import MatchPromptNotFoundError, read_active_match_prompt
     try:
         mpv = await read_active_match_prompt(workspace, slug)
@@ -76,11 +79,12 @@ async def run_audit(
         )
 
     docs = await list_docs(workspace, slug)
+    want = set(filenames) if filenames else None
     doc_images: dict[str, list[ImageBlock]] = {}
     doc_fields: dict[str, dict] = {}
     for d in docs:
         fn = d.get("filename")
-        if not fn:
+        if not fn or (want is not None and fn not in want):
             continue
         try:
             out = await read_doc_image(workspace, slug, fn, page=1)

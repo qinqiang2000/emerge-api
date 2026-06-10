@@ -1804,17 +1804,23 @@ def build_emerge_mcp(
         "NOT split into multiple projects). The judge reads every document as an "
         "image (the source of truth, incl. visual marks like 红章) plus the rules "
         "and returns per-rule pass/fail/unclear + an overall verdict. Documents "
-        "need NOT be extracted. Returns the audit report {group, checks, overall}.",
+        "need NOT be extracted. Optionally pass `filenames` to audit only those "
+        "docs (default: all in the project). Do NOT call read_doc_image yourself "
+        "to audit — run_audit reads the images internally; pulling them into the "
+        "conversation overflows the message buffer. Returns {group, checks, overall}.",
         {
             "type": "object",
-            "properties": {"slug": {"type": "string"}},
+            "properties": {
+                "slug": {"type": "string"},
+                "filenames": {"type": "array", "items": {"type": "string"}},
+            },
             "required": ["slug"],
         },
     )
     async def t_run_audit(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.audit_run import AuditError, run_audit
         try:
-            out = await run_audit(workspace, args["slug"])
+            out = await run_audit(workspace, args["slug"], filenames=args.get("filenames"))
         except AuditError as e:
             return {"content": [{"type": "text", "text": _json.dumps(
                 {"error_code": e.error_code, "error_message_en": e.error_message_en},

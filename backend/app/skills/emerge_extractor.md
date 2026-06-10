@@ -378,9 +378,16 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    （"报价单甲方为环胜电子商务（上海）"、"报价单加盖合同专用章（红章）"、"报价单费用总计
    ==收货单折扣后含税金额"、"项目抬头与备注关键字一致"、"项目周期含订单完成日期"）。规则
    是版本化 prompt——改规则就是调审核（同改 description 教提取）。
-3. `run_audit(slug)` — 审本项目 docs/ 里的**整组文档**。judge **一趟**读每份原图（原文
-   为准，含视觉如红章）+ 可选已抽字段（提示）→ 逐条 {pass/fail/unclear + 理由} + 整体
-   pass/fail。规则里用文档类型名（"报价单"…）引用，judge 从图/文件名认出对应文档。
+3. `run_audit(slug)` — 审本项目 docs/ 里的**整组文档**（或 `run_audit(slug, filenames=[…])`
+   只审指定几份）。judge **一趟**读每份原图（原文为准，含视觉如红章）+ 可选已抽字段（提示）
+   → 逐条 {pass/fail/unclear + 理由} + 整体 pass/fail。规则里用文档类型名（"报价单"…）引用，
+   judge 从图/文件名认出对应文档。
+
+**审核的图只在 `run_audit` 内部经 provider 直连流转——绝不要自己调 `read_doc_image`/
+`pdf_render_page` 把文档图拉进对话来"手动审核"。** 原图 base64 很大（一张可达 0.5MB+），
+拉几张进上下文会撑爆 agent 的消息缓冲（`JSON exceeded maximum buffer size`）。审核一律
+走 `run_audit`，它把图喂给 judge、只返回小报告。`run_audit` 失败也不要 fallback 去读图——
+报错给用户、修规则/文档后重试。
 
 **Rendering contract**（browser 与 headless 一致，都出清单——不 dump JSON）：
 逐条列规则：`✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）。末尾一行整体

@@ -112,11 +112,15 @@ async def put_audit_rules(slug: str, body: _AuditRulesBody) -> dict:
     return {"match_prompt_id": mpr_id}
 
 
+class _RunAuditBody(BaseModel):
+    filenames: list[str] | None = None
+
+
 @router.post("/lab/projects/{slug}/audit")
-async def post_audit(slug: str) -> dict:
+async def post_audit(slug: str, body: _RunAuditBody | None = None) -> dict:
     from app.tools.audit_run import AuditError
     try:
-        return await run_audit(current_ws(), slug)
+        return await run_audit(current_ws(), slug, filenames=(body.filenames if body else None))
     except AuditError as e:
         raise HTTPException(
             status_code=400,
