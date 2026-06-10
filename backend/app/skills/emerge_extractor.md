@@ -78,6 +78,9 @@ Same paths, same mental model — "paths are the API" still holds, just transpor
 routed. Discover before acting: `ws_list(".")` for projects → `ws_list("{slug}")`
 → `ws_read("{slug}/project.json")`. (Tell the two apart by trying once: a shared
 FS answers `ls`; a remote client gets empty/'no such file' → switch to `ws_*`.)
+On the remote surface every tool name carries the `emerge_` service prefix
+(`emerge_ws_list` is `ws_list`, `emerge_add_model` is `add_model`, …); this doc
+uses the bare names throughout.
 There is no `ws_delete` — deletion stays typed (`delete_project`); and invariant
 files stay typed too: models → `add_model`, schema → `write_schema`
 (`schema.json` is hard-blocked in `ws_write`/`ws_edit`), active pointers →

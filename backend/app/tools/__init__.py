@@ -107,6 +107,11 @@ def _extract_provider_error(exc: Exception) -> dict[str, Any]:
 # these central buckets (single source of truth, easier to audit than 40
 # scattered decorator args). Anything not listed is a normal, non-destructive,
 # non-idempotent local mutation (destructiveHint=False, the safe-but-honest case).
+# Service prefix stamped onto every headless (stdio/remote) tool name at build
+# time — `emerge_ws_list`, `emerge_add_model`, … Internal names, the browser
+# chat surface, HTTP routes, skill text and the usage log all stay bare.
+SERVICE_PREFIX = "emerge_"
+
 _READ_ONLY = frozenset({  # pure read / local compute — no durable state change
     "list_projects", "list_docs", "read_prompt",
     "ws_list", "ws_read", "ws_grep",
@@ -2100,11 +2105,16 @@ def build_emerge_mcp(
     # On the headless (remote/stdio) surface only, also wrap each handler to log
     # the call — emerge's own browser chat is the operator, not a teammate, so it
     # isn't counted. The usage log feeds P4 tool convergence (see tools/usage.py).
+    # Headless tools finally get the `emerge_` service prefix (MCP best practice:
+    # a Cowork user runs 10+ connectors and bare names like `create_project`
+    # collide). Prefixing happens LAST so the annotation buckets and the usage
+    # log keep operating on bare names (continuity with existing telemetry).
     for _t in _tools:
         _t.annotations = _annotate(_t.name)
         if headless:
             from app.tools.usage import wrap_handler
             _t.handler = wrap_handler(_t.handler, workspace, _t.name)
+            _t.name = f"{SERVICE_PREFIX}{_t.name}"
     return create_sdk_mcp_server(
         name="emerge_tools",
         version="0.0.1",

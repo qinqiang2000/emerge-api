@@ -135,12 +135,27 @@ async def _server_tool_names(headless: bool) -> set[str]:
 
 async def test_discovery_tools_headless_only() -> None:
     """list_projects/list_docs/read_prompt appear on the headless (stdio/remote)
-    server but NOT on the in-session chat server (which uses built-in Bash)."""
-    discovery = {"list_projects", "list_docs", "read_prompt"}
+    server but NOT on the in-session chat server (which uses built-in Bash).
+    Headless names carry the emerge_ service prefix."""
+    discovery = {"emerge_list_projects", "emerge_list_docs", "emerge_read_prompt"}
     headless = await _server_tool_names(headless=True)
     chat = await _server_tool_names(headless=False)
     assert discovery <= headless, f"headless missing {discovery - headless}"
-    assert not (discovery & chat), f"chat server leaked discovery tools {discovery & chat}"
+    bare = {n.removeprefix("emerge_") for n in discovery}
+    assert not (bare & chat), f"chat server leaked discovery tools {bare & chat}"
+
+
+async def test_headless_names_prefixed_chat_names_bare() -> None:
+    """Every headless (remote/stdio) tool name carries the emerge_ service
+    prefix (10+ connectors in one Cowork → bare names like create_project
+    collide); the in-session chat surface stays bare (frontend matches tool
+    names for cache invalidation)."""
+    headless = await _server_tool_names(headless=True)
+    chat = await _server_tool_names(headless=False)
+    assert headless and all(n.startswith("emerge_") for n in headless), (
+        sorted(n for n in headless if not n.startswith("emerge_")))
+    assert chat and not any(n.startswith("emerge_") for n in chat), (
+        sorted(n for n in chat if n.startswith("emerge_")))
 
 
 async def test_tool_annotations_drive_client_policy() -> None:
@@ -160,7 +175,8 @@ async def test_tool_annotations_drive_client_policy() -> None:
     )["instance"]
     handler = server.request_handlers[ListToolsRequest]
     tools = (await handler(ListToolsRequest(method="tools/list"))).root.tools
-    ann = {t.name: t.annotations for t in tools}
+    # annotations are stamped against bare names before the service prefix lands
+    ann = {t.name.removeprefix("emerge_"): t.annotations for t in tools}
 
     assert all(a is not None for a in ann.values()), "every tool must be annotated"
     # read-only getter → safe to auto-approve

@@ -101,9 +101,14 @@ def build_mcp_server(
     _orig_list_tools = server.request_handlers[ListToolsRequest]
 
     async def _filtered_list_tools(req):  # type: ignore[override]
+        from app.tools import SERVICE_PREFIX
+
         result = await _orig_list_tools(req)
+        # Headless tool names carry the service prefix; the exclude set stays
+        # bare (single source of truth), so strip before comparing.
         result.root.tools = [
-            t for t in result.root.tools if t.name not in _HEADLESS_EXCLUDE
+            t for t in result.root.tools
+            if t.name.removeprefix(SERVICE_PREFIX) not in _HEADLESS_EXCLUDE
         ]
         return result
 

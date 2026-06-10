@@ -61,7 +61,9 @@ def test_record_is_best_effort(monkeypatch, workspace: Path) -> None:
 async def test_headless_calls_are_logged(workspace: Path) -> None:
     ws = _team_ws(workspace)
     server = _build(ws, headless=True)
-    await _call(server, "ws_list", {"path": "."})
+    # dispatch uses the prefixed headless name; the log keeps the bare name
+    # (telemetry continuity across the prefix change)
+    await _call(server, "emerge_ws_list", {"path": "."})
     lines = usage_log_path(get_settings().workspace_root).read_text().splitlines()
     rec = json.loads(lines[-1])
     assert rec["team"] == "acme" and rec["tool"] == "ws_list"
