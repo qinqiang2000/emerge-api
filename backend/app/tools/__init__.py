@@ -1980,7 +1980,12 @@ def build_emerge_mcp(
         "be extracted. Optionally pass `filenames` to audit only those docs "
         "(default: all in the project). Do NOT call read_doc_image yourself "
         "to audit — run_audit reads the images internally; pulling them into the "
-        "conversation overflows the message buffer. Returns {group, checks, overall}.",
+        "conversation overflows the message buffer. Returns {group, checks, overall}. "
+        "Rendering: ALWAYS state the overall verdict in one sentence of your "
+        "reply (e.g. \"审核完成：整体通过（7/7)\" / name the failed rules) — never "
+        "end with a generic sign-off. Browser: that sentence only, the AuditCard "
+        "shows per-rule detail. Headless: full per-rule ✓/✗/? list — read_skill"
+        "(\"match_audit\") has the full contract.",
         {
             "type": "object",
             "properties": {

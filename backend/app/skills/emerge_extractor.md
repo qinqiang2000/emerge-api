@@ -41,7 +41,11 @@ the conversation; re-read only if you never loaded it this session):
 
 Skipping the read and improvising the workflow is how contracts get
 violated — the domain files carry the rendering contracts and risk gates
-for their tools.
+for their tools. "It's just one tool call" is NOT a reason to skip: the
+playbook governs how you present the result, not just which tools to call.
+Concretely: never call `run_audit`/`run_match`/`score_*`/
+`run_experiment_eval`/`label_docs` in a session where you haven't read
+their domain playbook yet.
 
 ## Unbound chat
 
