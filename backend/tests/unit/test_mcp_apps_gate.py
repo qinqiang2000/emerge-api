@@ -90,6 +90,14 @@ async def test_flag_on_declares_ui_and_serves_apps(monkeypatch) -> None:
     uris = {str(r.uri) for r in resources}
     assert uris == {_BOARD_APP_URI, _HELLO_APP_URI}
     assert all(r.mimeType == _APPS_MIME for r in resources)
+    # board resource declares the CSP allow-list — without it the Apps
+    # iframe (deny-all sandbox) blocks every data/page fetch.
+    monkeypatch.setenv("EMERGE_PUBLIC_BASE_URL", "https://x.example")
+    board = next(r for r in await _list_resources(server)
+                 if str(r.uri) == _BOARD_APP_URI)
+    csp = (board.meta or {})["ui"]["csp"]
+    assert csp["connectDomains"] == ["https://x.example"]
+    assert csp["resourceDomains"] == ["https://x.example"]
     for uri, marker in ((_BOARD_APP_URI, "board-view"), (_HELLO_APP_URI, "hello")):
         result = await _read_resource(server, uri)
         (content,) = result.root.contents

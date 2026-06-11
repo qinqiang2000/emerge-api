@@ -238,12 +238,19 @@ def build_mcp_server(
         if not _gs().mcp_apps:
             return []
         return [
-            Resource(
-                uri=_BOARD_APP_URI,
-                name="emerge audit board",
-                description="interactive audit board — circled evidence on doc pages",
-                mimeType=_APPS_MIME,
-            ),
+            # The Apps iframe is a deny-all CSP sandbox: the app fetches its
+            # data (connect-src) and page rasters (img-src) from the emerge
+            # host, which must be allow-listed via _meta.ui.csp or every
+            # fetch dies with "Failed to fetch" (Cowork dogfood 2026-06-11).
+            # model_validate with the "_meta" WIRE key — Resource(meta=...)
+            # silently drops the kwarg (alias without populate_by_name).
+            Resource.model_validate({
+                "uri": _BOARD_APP_URI,
+                "name": "emerge audit board",
+                "description": "interactive audit board — circled evidence on doc pages",
+                "mimeType": _APPS_MIME,
+                "_meta": _board_csp_meta(),
+            }),
             Resource(
                 uri=_HELLO_APP_URI,
                 name="emerge MCP Apps hello",
@@ -279,6 +286,20 @@ def _board_app_html() -> str:
     """The B5b board app — a self-contained HTML file beside the skills."""
     return (Path(__file__).parent / "skills" / "board_app.html").read_text(
         encoding="utf-8")
+
+
+def _board_csp_meta() -> dict[str, Any]:
+    """`_meta.ui` for the board resource: CSP allow-list for the emerge host
+    (ext-apps spec keys: connectDomains = fetch/XHR, resourceDomains =
+    img/static). Empty public_base_url → no allow-list (standalone mode still
+    works; only the in-chat iframe needs it)."""
+    base = get_settings().public_base_url.rstrip("/")
+    if not base:
+        return {"ui": {}}
+    return {"ui": {"csp": {
+        "connectDomains": [base],
+        "resourceDomains": [base],
+    }}}
 # Hand-rolled ui/initialize handshake (postMessage JSON-RPC) — no ext-apps JS
 # SDK needed for a gate this small. Renders a status line, flips it on a
 # successful initialize round-trip, and echoes any pushed ui/* notification
