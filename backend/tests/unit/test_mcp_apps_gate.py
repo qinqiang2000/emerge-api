@@ -105,6 +105,12 @@ async def test_flag_on_declares_ui_and_serves_apps(monkeypatch) -> None:
         assert "ui/initialize" in content.text
         assert "ui/notifications/initialized" in content.text
         assert marker in content.text
+    # contents-side CSP (resources/read) — hosts may honor either side; the
+    # wire shape must carry _meta.ui.csp on the board contents.
+    board_read = await _read_resource(server, _BOARD_APP_URI)
+    (bc,) = board_read.root.contents
+    wire_bc = bc.model_dump(by_alias=True, exclude_none=True)
+    assert wire_bc["_meta"]["ui"]["csp"]["connectDomains"] == ["https://x.example"]
 
 
 async def test_flag_on_other_tools_unmarked(monkeypatch) -> None:

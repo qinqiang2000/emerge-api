@@ -266,7 +266,13 @@ def build_mcp_server(
         from app.config import get_settings as _gs
 
         if _gs().mcp_apps and str(uri) == _BOARD_APP_URI:
-            return [ReadResourceContents(content=_board_app_html(), mime_type=_APPS_MIME)]
+            # CSP rides on BOTH the declaration (resources/list) and the
+            # contents (resources/read) — hosts may honor either; Cowork
+            # fetches via resources/read, so contents-side is load-bearing.
+            return [ReadResourceContents(
+                content=_board_app_html(), mime_type=_APPS_MIME,
+                meta=_board_csp_meta(),
+            )]
         if _gs().mcp_apps and str(uri) == _HELLO_APP_URI:
             return [ReadResourceContents(content=_HELLO_APP_HTML, mime_type=_APPS_MIME)]
         from mcp import McpError
