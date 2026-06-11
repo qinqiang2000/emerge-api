@@ -59,3 +59,4 @@ docs/design_docs/
 
 # Claude Code session state
 .claude/
+frontend/public/_boardspike/

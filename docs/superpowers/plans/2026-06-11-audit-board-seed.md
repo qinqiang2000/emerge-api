@@ -1,6 +1,6 @@
 # 2026-06-11 — Audit/Reconcile Board 种子（白板表达 + P0.5 + job 化）
 
-> **Status**: 🌱 seed — 新会话从这里起一份正式 plan（先读本文 + 引用的 plans/memory，再 spike，再写 plan）。
+> **Status**: ✅ 已转正式 plan — `2026-06-11-audit-board.md`（spike A/B 结论也在那里）。本文保留作 scope 合并依据。
 > **User idea (2026-06-11, verbatim 意涵)**: 审核/对账结果用白板（excalidraw 类）表达——类似 doc view，点击每条规则结果，圈出**两个文档**各自的对应位置；多文档需要放大/拖动，嵌入白板可能是好的表达容器；若是好表达，Cowork 类客户端怎么承接（探索更丰富的展示接口）。
 > **Scope 合并**: 原定 P0.5（对账核对卡前端 + N source 引擎遍历，见 `2026-06-10-matching-p0-impl.md` §Out + `2026-06-09-doc-matching-design.md` P0.5）+ 大组审计 job 化（`2026-06-09-filesystem-over-mcp.md` follow-up：judge 趟 ~70s 超 Cowork 客户端工具超时 ~60s）。白板想法**重塑** P0.5 的表达形态：核对"卡"→ 核对"板"。
 

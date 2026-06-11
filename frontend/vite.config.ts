@@ -14,6 +14,9 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [react()],
+  // excalidraw (board) reads process.env.IS_PREACT at runtime; Vite doesn't
+  // polyfill process — define it or the canvas crashes on mount.
+  define: { 'process.env.IS_PREACT': JSON.stringify('false') },
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   build: {

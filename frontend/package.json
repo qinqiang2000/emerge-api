@@ -14,6 +14,7 @@
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lint": "^6.9.6",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
