@@ -96,7 +96,10 @@ const PX_PER_PT = 150 / 72;
 
 function render(viewUrl, data) {
   const report = data.report || {}, checks = report.checks || [];
-  const docs = data.docs || [], locations = data.locations || {};
+  // few-paged docs first — same heuristic as the web board: anchor docs
+  // cluster left, a long appendix goes right, cross-doc fits stay tight
+  const docs = (data.docs || []).slice().sort((a, b) => (a.pages || 1) - (b.pages || 1));
+  const locations = data.locations || {};
   document.getElementById("msg").remove();
   const rail = document.getElementById("rail"); rail.hidden = false;
   document.getElementById("hud").hidden = false;
@@ -181,7 +184,8 @@ function render(viewUrl, data) {
       e.setAttribute("cx", cx); e.setAttribute("cy", cy);
       e.setAttribute("rx", (x1 - x0) / 2 + PAD); e.setAttribute("ry", (y1 - y0) / 2 + PAD);
       e.setAttribute("fill", "none"); e.setAttribute("stroke", "var(--mark)");
-      e.setAttribute("stroke-width", "3"); e.setAttribute("stroke-dasharray", "8 6");
+      e.setAttribute("stroke-width", "3.5"); e.setAttribute("stroke-dasharray", "8 6");
+      e.setAttribute("vector-effect", "non-scaling-stroke"); // visible at any zoom
       svg.appendChild(e);
       ellipses.push({ cx, cy, doc: pg.doc });
     });
@@ -192,8 +196,9 @@ function render(viewUrl, data) {
         const l = document.createElementNS(svg.namespaceURI, "line");
         l.setAttribute("x1", a.cx); l.setAttribute("y1", a.cy);
         l.setAttribute("x2", b.cx); l.setAttribute("y2", b.cy);
-        l.setAttribute("stroke", "var(--mark)"); l.setAttribute("stroke-width", "2.5");
+        l.setAttribute("stroke", "var(--mark)"); l.setAttribute("stroke-width", "3");
         l.setAttribute("stroke-dasharray", "8 6");
+        l.setAttribute("vector-effect", "non-scaling-stroke");
         svg.appendChild(l); i += 2;
       } else i += 1;
     }
