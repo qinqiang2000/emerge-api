@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.tools.board_view import (
@@ -24,6 +24,14 @@ from app.tools.board_view import (
 )
 
 redeem_router = APIRouter()
+
+# The MCP Apps iframe fetches cross-origin (its sandbox origin is a host
+# domain, not ours). CSP allow-listing (resource _meta.ui.csp) gets the
+# request OUT of the sandbox; CORS gets the response back IN — ext-apps
+# Patterns doc: "Public APIs that respond with Access-Control-Allow-Origin: *
+# ... work without CORS configuration." The capability token is the auth
+# (no cookies / credentials), so the wildcard is safe here.
+_CORS = {"Access-Control-Allow-Origin": "*"}
 
 
 def _claims_or_401(token: str) -> dict:
@@ -36,7 +44,7 @@ def _claims_or_401(token: str) -> dict:
 
 
 @redeem_router.get("/lab/board-view/{token}")
-async def get_board_view(token: str, request: Request):
+async def get_board_view(token: str, request: Request, response: Response):
     """Dual-format: a BROWSER navigating here (Accept: text/html) gets the
     board app itself (standalone mode — it re-fetches this same URL for
     JSON), so the capability URL is human-clickable; a fetch() gets the
@@ -44,10 +52,12 @@ async def get_board_view(token: str, request: Request):
     claims = _claims_or_401(token)
     if "text/html" in request.headers.get("accept", ""):
         from app.mcp_server import _board_app_html
-        return HTMLResponse(_board_app_html())
+        return HTMLResponse(_board_app_html(), headers=_CORS)
     from app.tools.audit_run import AuditError
     try:
-        return await build_board_view(Path(claims["ws"]), claims["slug"])
+        out = await build_board_view(Path(claims["ws"]), claims["slug"])
+        response.headers.update(_CORS)
+        return out
     except AuditError as e:
         raise HTTPException(status_code=404, detail={
             "error_code": e.error_code, "error_message_en": e.error_message_en,
@@ -82,10 +92,10 @@ async def get_board_view_page(token: str, filename: str, page: int) -> FileRespo
             if page != 1:
                 raise ValueError("page out of range")
             return FileResponse(doc_path(ws, slug, filename),
-                                media_type=_IMAGE_MEDIA[ext])
+                                media_type=_IMAGE_MEDIA[ext], headers=_CORS)
         rendered = await pdf_render_page(ws, slug, filename, page=page)
     except HTTPException:
         raise
     except Exception:
         raise not_found
-    return FileResponse(rendered, media_type="image/png")
+    return FileResponse(rendered, media_type="image/png", headers=_CORS)

@@ -107,6 +107,9 @@ def test_routes_redeem_and_reject(workspace, client, monkeypatch) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["slug"] == _SLUG and "locations" in body
+    # CORS: the Apps iframe fetches cross-origin; without ACAO:* the browser
+    # discards the response ("Failed to fetch" — Cowork dogfood 2026-06-11)
+    assert r.headers["access-control-allow-origin"] == "*"
 
     # browser navigation (Accept: text/html) → the board app itself
     rh = client.get(f"/lab/board-view/{token}", headers={"accept": "text/html"})
