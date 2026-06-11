@@ -265,7 +265,12 @@ def build_mcp_server(
 
         from app.config import get_settings as _gs
 
-        if _gs().mcp_apps and str(uri).split("?")[0] == _BOARD_APP_BASE:
+        _u = str(uri).split("?")[0]
+        import re as _re
+        if _gs().mcp_apps and (
+            _u == _BOARD_APP_BASE
+            or _re.fullmatch(r"ui://emerge/audit-board\.[0-9a-f]{8}\.html", _u)
+        ):
             # CSP rides on BOTH the declaration (resources/list) and the
             # contents (resources/read) — hosts may honor either; Cowork
             # fetches via resources/read, so contents-side is load-bearing.
@@ -297,11 +302,12 @@ def _board_app_html() -> str:
 def _board_app_uri() -> str:
     """Content-versioned URI: hosts cache ui:// resources BY URI (a changed
     app otherwise needs a connector reconnect — dogfood 2026-06-11 hit this
-    three times). The version is a hash of the HTML, so every app edit mints
-    a new URI and the host's cache misses naturally."""
+    three times). Version goes in the PATH, not a query param — a host may
+    normalize/strip queries when keying its cache, which would defeat the
+    bust (suspected in the same dogfood)."""
     import hashlib
     v = hashlib.sha1(_board_app_html().encode()).hexdigest()[:8]
-    return f"{_BOARD_APP_BASE}?v={v}"
+    return f"ui://emerge/audit-board.{v}.html"
 
 
 def _board_csp_meta() -> dict[str, Any]:

@@ -82,7 +82,8 @@ async def test_flag_on_declares_ui_and_serves_apps(monkeypatch) -> None:
     # (wire alias `_meta` — assert the serialized shape hosts parse).
     tool = _audit_report_tool(await _list_tools(server))
     assert tool.meta["ui"]["resourceUri"] == _board_app_uri()
-    assert tool.meta["ui"]["resourceUri"].startswith(_BOARD_APP_BASE + "?v=")
+    assert tool.meta["ui"]["resourceUri"].startswith("ui://emerge/audit-board.")
+    assert tool.meta["ui"]["resourceUri"].endswith(".html")
     wire = tool.model_dump(by_alias=True, exclude_none=True)
     assert wire["_meta"]["ui"]["resourceUri"] == _board_app_uri()
 
