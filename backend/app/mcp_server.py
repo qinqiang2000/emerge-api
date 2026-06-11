@@ -139,6 +139,29 @@ def build_mcp_server(
     server = config["instance"]
 
     # ── filter browser-only tools out of list_tools ───────────────────────
+    # ── diagnostics: log what each connecting client claims to support ────
+    # (MCP Apps triage 2026-06-11: hosts that render ui:// declare it in
+    # their initialize capabilities/clientInfo — one log line settles
+    # "server didn't offer" vs "client can't render".)
+    from mcp.types import InitializeRequest
+
+    _orig_init = server.request_handlers[InitializeRequest]
+
+    async def _logged_init(req):  # type: ignore[no-untyped-def]
+        import logging
+        try:
+            p = req.params
+            logging.getLogger("emerge.mcp").info(
+                "MCP initialize: client=%s capabilities=%s",
+                p.clientInfo.model_dump() if p.clientInfo else None,
+                p.capabilities.model_dump(exclude_none=True) if p.capabilities else None,
+            )
+        except Exception:  # diagnostics must never break the handshake
+            pass
+        return await _orig_init(req)
+
+    server.request_handlers[InitializeRequest] = _logged_init
+
     _orig_list_tools = server.request_handlers[ListToolsRequest]
 
     async def _filtered_list_tools(req):  # type: ignore[override]
