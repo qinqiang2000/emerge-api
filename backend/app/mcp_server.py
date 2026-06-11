@@ -139,34 +139,30 @@ def build_mcp_server(
     server = config["instance"]
 
     # ── filter browser-only tools out of list_tools ───────────────────────
-    # ── diagnostics: log what each connecting client claims to support ────
-    # (MCP Apps triage 2026-06-11: hosts that render ui:// declare it in
-    # their initialize capabilities/clientInfo — one log line settles
-    # "server didn't offer" vs "client can't render".)
-    from mcp.types import InitializeRequest
-
-    _orig_init = server.request_handlers[InitializeRequest]
-
-    async def _logged_init(req):  # type: ignore[no-untyped-def]
-        import logging
-        try:
-            p = req.params
-            logging.getLogger("emerge.mcp").info(
-                "MCP initialize: client=%s capabilities=%s",
-                p.clientInfo.model_dump() if p.clientInfo else None,
-                p.capabilities.model_dump(exclude_none=True) if p.capabilities else None,
-            )
-        except Exception:  # diagnostics must never break the handshake
-            pass
-        return await _orig_init(req)
-
-    server.request_handlers[InitializeRequest] = _logged_init
-
     _orig_list_tools = server.request_handlers[ListToolsRequest]
 
     async def _filtered_list_tools(req):  # type: ignore[override]
         from app.config import get_settings
         from app.tools import SERVICE_PREFIX
+
+        # diagnostics (MCP Apps triage 2026-06-11): log what the connected
+        # client declared at initialize — clientInfo + capabilities settle
+        # "server didn't offer ui" vs "client can't render". `initialize`
+        # itself is session-layer (not in request_handlers), so read the
+        # session's stored params here; never let diagnostics break listing.
+        try:
+            import logging
+
+            cp = server.request_context.session.client_params
+            if cp is not None:
+                logging.getLogger("emerge.mcp").info(
+                    "MCP client: %s capabilities=%s",
+                    cp.clientInfo.model_dump() if cp.clientInfo else None,
+                    cp.capabilities.model_dump(exclude_none=True)
+                    if cp.capabilities else None,
+                )
+        except Exception:
+            pass
 
         result = await _orig_list_tools(req)
         # Headless tool names carry the service prefix; the filter sets stay
