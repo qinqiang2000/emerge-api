@@ -2016,8 +2016,11 @@ def build_emerge_mcp(
         "checks, overall} shape run_audit produced — per-rule "
         "pass/fail/unclear verdicts with reasons, each check's level "
         "(critical/warning) and decided_by (l1/judge), and the tri-state "
-        "overall (pass/warn/fail). Errors with audit_no_report when the "
-        "project has never been audited.",
+        "overall (pass/warn/fail). When the user annotated the audit board, "
+        "also carries board_annotations — their circles/notes as pure text "
+        "{doc, page, kind, user_text?, region_text?}; treat these as direct "
+        "user feedback. Errors with audit_no_report when the project has "
+        "never been audited.",
         {"type": "object", "properties": {"slug": {"type": "string"}},
          "required": ["slug"]},
     )

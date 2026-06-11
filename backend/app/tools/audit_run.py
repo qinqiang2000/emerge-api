@@ -268,7 +268,16 @@ async def _execute_audit(
 async def read_audit_report(workspace: Path, slug: str) -> dict[str, Any]:
     """The project's most recent audit report (`audits/{run}/report.json`),
     picked by report mtime with run_id as the tie-break. Raises
-    `audit_no_report` when the project has never been audited."""
+    `audit_no_report` when the project has never been audited.
+
+    When the user left doodles on the board (D2, 2026-06-12 doodle plan), the
+    report additionally carries `board_annotations` — the PURE-TEXT digest of
+    `board_notes.json` (`{doc, page, kind, user_text?, region_text?}`, never a
+    rect). Additive: the key is absent when there are no annotations, so
+    existing consumers see the exact report.json shape. Living here (not in
+    the @tool wrapper) means the HTTP twin `/audit/latest` and the MCP server
+    inherit it for free — one function body, three surfaces.
+    """
     reports = sorted(
         audits_dir(workspace, slug).glob("*/report.json"),
         key=lambda p: (p.stat().st_mtime, p.parent.name),
@@ -278,11 +287,21 @@ async def read_audit_report(workspace: Path, slug: str) -> dict[str, Any]:
             "audit_no_report", "project has no audit report yet — call run_audit first",
         )
     try:
-        return json.loads(reports[-1].read_text(encoding="utf-8"))
+        report = json.loads(reports[-1].read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         raise AuditError(
             "audit_no_report", "latest audit report is unreadable — re-run run_audit",
         )
+    # Lazy import: audit_notes pulls in textlayer (fitz) — keep this module's
+    # import graph light, same stance as the routes layer.
+    from app.tools.audit_notes import digest_board_annotations
+
+    digest = await digest_board_annotations(
+        workspace, slug, str(report.get("run_id") or ""),
+    )
+    if digest:
+        report["board_annotations"] = digest
+    return report
 
 
 async def _resolve_judge_provider(

@@ -127,6 +127,19 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   哪几条 warning 失败；`fail` 点名哪几条 critical 失败。`unclear`（判不了，如图不清/
   字段缺）单独提示，不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
 
+**`board_annotations`（`read_audit_report` 可选段）— 板上圈注 = 用户留给你的反馈**：
+用户在审核白板上圈/手写后，`read_audit_report` 会多出 `board_annotations`（每条
+`{doc, page, kind, user_text?, region_text?}`，纯文本无坐标；doc 为 null = 画在板上
+空白处）。这是用户主动留下的 teaching signal——**出现必主动复述，绝不静默忽略**，
+并按内容提议下一步：指向规则问题 → 给出 `write_audit_rules` 修改草案让用户确认
+（绝不未经确认直接改）；指向某份文档的数据问题 → 建议复核该 doc 或重跑审核；
+纯备忘 → 简要确认收到即可。
+- **browser**：一句摘要（"板上有 N 条你的圈注，其中 ① 圈了报价单 p2 的费用总计…"）
+  + 行动提议；圈注本身在 board 可视（`→ board`），正文不重复罗列全文。
+- **headless**：逐条完整输出——`① 报价单.pdf p2 圈注：「{region_text}」`、
+  `② 板上批注：「{user_text}」`（doc 为 null 写"板上空白处"；一条兼有圈注与手写时
+  后接 `+ 手写 "{user_text}"`）；末尾给行动提议。
+
 **render_audit_board 的 rendering contract**：
 - **browser**：一句摘要 + 指点 board（`→ board`，UI 卡片/白板兜底），不内联大图。
 - **headless**：先图例清单（`N. ✓/✗/? 规则`），随图输出；每张合成图一句话说明
