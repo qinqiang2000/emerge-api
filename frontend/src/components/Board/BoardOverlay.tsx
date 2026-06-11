@@ -409,7 +409,9 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
     })
     const prefix = `ev-${idx}-`
     const els = api.getSceneElements().filter(
-      e => e.id.startsWith(prefix) || e.id === arrowId(idx),
+      // arrow-{idx} plus the -{k} suffixed pair arrows of a many-match check
+      e => e.id.startsWith(prefix) || e.id === arrowId(idx)
+        || e.id.startsWith(`${arrowId(idx)}-`),
     )
     if (!els.length) {
       // Unlocated check (e.g. quote missed alignment): a click must still

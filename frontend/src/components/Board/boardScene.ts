@@ -93,13 +93,17 @@ export function readBoardColors(): BoardColors {
   return {
     // Evidence marks are FIXED vivid inks, deliberately NOT the paper-muted
     // chrome tokens: annotations must stand out against arbitrary document
-    // pixels (black text / red brand pages / white paper), and the muted
-    // moss read as "不够醒目" in dogfood (2026-06-11). Vivid blue carries
-    // "located" for pass (most striking + never camouflaged by doc content);
-    // fail keeps alarm-red, unclear keeps amber. Chrome/canvas stay on tokens.
-    pass: '#2563eb',
-    fail: '#e11d48',
-    unclear: '#f59e0b',
+    // pixels, and the muted moss read as "不够醒目" in dogfood (2026-06-11).
+    // pass/fail share ONE marker hue — on the board the question is WHERE
+    // the evidence sits; the verdict lives on the rail's ✓/✗ and the
+    // single-pair arrow label. MAGENTA, because it virtually never occurs in
+    // business documents: red/orange camouflage on red brand pages (KFC
+    // posters), blue reads thin on white, amber collides with yellow
+    // highlights (all three tried in dogfood 2026-06-11). unclear stays
+    // amber — "couldn't read it" is a different signal than a mark.
+    pass: '#d6219c',
+    fail: '#d6219c',
+    unclear: '#d97706',
     chrome: cssVar('--ink-3', '#6b6258'),
     canvas: cssVar('--paper-2', '#faf8f4'),
   }
@@ -317,7 +321,7 @@ export function buildCheckOverlays(
       width: b.w,
       height: b.h,
       strokeColor: color,
-      strokeWidth: 2.5,
+      strokeWidth: 3.5,
       // Dashed outline, NO fill (user 2026-06-11: fill covered the text).
       // Spike trap #4 (clickable interior) no longer applies — overlays are
       // shown for the ACTIVE check only and the rail drives focus, so the
@@ -333,45 +337,63 @@ export function buildCheckOverlays(
     })
   }
 
-  // cross-doc arrows — only when a check's located evidence spans ≥2 docs.
+  // cross-doc arrows — one per CONSECUTIVE cross-doc evidence pair. The judge
+  // cites paired quotes adjacently (报价单行, 对应物料页, 下一行, …), so a
+  // many-match check (e.g. 9 单项↔页 deliverable pairs) fans out one arrow
+  // per pair; a 2-evidence check degenerates to the single arrow it always
+  // had. Greedy stride-2 pairing keeps an alternating A,B,A,B sequence from
+  // double-connecting (B,A of pair 1 with A of pair 2).
   // The shaft runs ELLIPSE EDGE to ellipse edge (+gap), computed here — the
   // skeleton `start`/`end` bindings don't retrim programmatic scenes, so a
   // center-to-center shaft ran straight through the circled text and parked
   // the arrowhead ON it (dogfood 2026-06-11).
   const ARROW_GAP = 8
   for (const [checkIdx, centers] of centersByCheck) {
-    const firstDoc = centers[0]?.doc
-    const other = centers.find((c) => c.doc !== firstDoc)
-    if (!other) continue
-    const a = centers[0]
-    const b = other
-    const dx = b.cx - a.cx
-    const dy = b.cy - a.cy
-    const norm = Math.hypot(dx, dy)
-    if (!norm) continue
-    // ray ∩ ellipse: t = 1/√((dx/rx)² + (dy/ry)²) along (dx,dy) from center
-    const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1))
-    const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1))
-    const sx = a.cx + dx * tA + (dx / norm) * ARROW_GAP
-    const sy = a.cy + dy * tA + (dy / norm) * ARROW_GAP
-    const ex = b.cx - dx * tB - (dx / norm) * ARROW_GAP
-    const ey = b.cy - dy * tB - (dy / norm) * ARROW_GAP
+    const pairs: [typeof centers[number], typeof centers[number]][] = []
+    let i = 0
+    while (i + 1 < centers.length) {
+      if (centers[i].doc !== centers[i + 1].doc) {
+        pairs.push([centers[i], centers[i + 1]])
+        i += 2
+      } else {
+        i += 1
+      }
+    }
     const color = statusColor(checks[checkIdx].status, colors)
-    skeletons.push({
-      type: 'arrow',
-      id: arrowId(checkIdx),
-      x: sx,
-      y: sy,
-      width: ex - sx,
-      height: ey - sy,
-      points: [
-        [0, 0],
-        [ex - sx, ey - sy],
-      ],
-      strokeColor: color,
-      strokeWidth: 2.5,
-      strokeStyle: 'dashed',
-      label: { text: STATUS_MARK[checks[checkIdx].status], fontSize: 16 },
+    pairs.forEach(([a, b], k) => {
+      const dx = b.cx - a.cx
+      const dy = b.cy - a.cy
+      const norm = Math.hypot(dx, dy)
+      if (!norm) return
+      // ray ∩ ellipse: t = 1/√((dx/rx)² + (dy/ry)²) along (dx,dy) from center
+      const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1))
+      const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1))
+      const sx = a.cx + dx * tA + (dx / norm) * ARROW_GAP
+      const sy = a.cy + dy * tA + (dy / norm) * ARROW_GAP
+      const ex = b.cx - dx * tB - (dx / norm) * ARROW_GAP
+      const ey = b.cy - dy * tB - (dy / norm) * ARROW_GAP
+      skeletons.push({
+        type: 'arrow',
+        // first pair keeps the bare arrow-{checkIdx} id (rail lookups, tests);
+        // extra pairs suffix -{k} — checkIdxOfElementId parses both.
+        id: k === 0 ? arrowId(checkIdx) : `${arrowId(checkIdx)}-${k}`,
+        x: sx,
+        y: sy,
+        width: ex - sx,
+        height: ey - sy,
+        points: [
+          [0, 0],
+          [ex - sx, ey - sy],
+        ],
+        strokeColor: color,
+        strokeWidth: 3,
+        strokeStyle: 'dashed',
+        // one pair → keep the ✓/✗ label; a 9-arrow fan with 9 labels is noise
+        // (the rail row + circle colors already carry the verdict)
+        ...(pairs.length === 1
+          ? { label: { text: STATUS_MARK[checks[checkIdx].status], fontSize: 16 } }
+          : {}),
+      })
     })
   }
 

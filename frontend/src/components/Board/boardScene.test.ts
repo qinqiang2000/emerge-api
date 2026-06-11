@@ -213,6 +213,22 @@ describe('buildCheckOverlays', () => {
     expect((arrow.label as { text: string }).text).toBe('✗')
   })
 
+  it('many-match check → one arrow per consecutive cross-doc pair, no labels', () => {
+    const laid = layoutPages(TWO_DOCS)
+    // alternating a,b,a,b with distinct rects = 2 pairs (stride-2: no double link)
+    const sk = buildCheckOverlays(checks, [
+      mkEvidence({ checkIdx: 0, evIdx: 0, doc: 'a.pdf', rects: [[10, 10, 60, 20]] }),
+      mkEvidence({ checkIdx: 0, evIdx: 1, doc: 'b.jpg', rects: [[10, 10, 60, 20]] }),
+      mkEvidence({ checkIdx: 0, evIdx: 2, doc: 'a.pdf', rects: [[10, 100, 60, 110]] }),
+      mkEvidence({ checkIdx: 0, evIdx: 3, doc: 'b.jpg', rects: [[10, 100, 60, 110]] }),
+    ], laid, COLORS)
+    const arrows = sk.filter(s2 => String(s2.id).startsWith('arrow-'))
+    expect(arrows.map(a => a.id)).toEqual([arrowId(0), `${arrowId(0)}-1`])
+    for (const a of arrows) expect(a.label).toBeUndefined()
+    // both ids still parse back to the check
+    expect(checkIdxOfElementId(`${arrowId(0)}-1`)).toBe(0)
+  })
+
   it('pass check arrow gets the ✓ label', () => {
     const laid = layoutPages(TWO_DOCS)
     const sk = buildCheckOverlays(checks, [
@@ -319,9 +335,11 @@ describe('readBoardColors', () => {
     document.documentElement.style.setProperty('--moss', '#5C6B3A')
     try {
       const c = readBoardColors()
-      expect(c.pass).toBe('#2563eb')
-      expect(c.fail).toBe('#e11d48')
-      expect(c.unclear).toBe('#f59e0b')
+      // one magenta marker for pass AND fail (verdict lives on the rail);
+      // amber = "couldn't read", a different signal
+      expect(c.pass).toBe('#d6219c')
+      expect(c.fail).toBe('#d6219c')
+      expect(c.unclear).toBe('#d97706')
     } finally {
       document.documentElement.style.removeProperty('--moss')
     }
