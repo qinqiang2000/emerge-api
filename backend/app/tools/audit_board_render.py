@@ -71,12 +71,28 @@ _PDF_RECT_SCALE = 150.0 / 72.0
 _MAX_BOARD_HEIGHT_PX = 4000
 _PAGE_GAP_PX = 12
 
-# Low-alpha fill + outline (spike trap: a bare 2px stroke is invisible/unhittable
-# once the page is zoomed out; the fill is what makes a hit readable).
-_FILL_ALPHA = 50
-_OUTLINE_W = 3
-_RECT_PAD = 4
+# Dashed unfilled ellipse — matches the web board's settled marker style
+# (user 2026-06-11: 不要底色,只要虚线框框). No fill so document text stays
+# readable; thick magenta stroke stands out on any page.
+_OUTLINE_W = 5
+_DASH_DEG = 12  # arc-segment + gap span (degrees) for the dashed outline
+_GAP_DEG = 9
+_RECT_PAD = 6
 _BADGE_R = 16
+
+
+def _dashed_ellipse(
+    draw: "ImageDraw.ImageDraw",
+    box: tuple[float, float, float, float],
+    color: tuple[int, int, int],
+    width: int,
+) -> None:
+    """Dashed unfilled ellipse via arc segments (PIL has no dashed ellipse).
+    Mirrors the web board's dashed `<ellipse>` so the two render paths agree."""
+    a = 0.0
+    while a < 360.0:
+        draw.arc(box, a, min(a + _DASH_DEG, 360.0), fill=color + (255,), width=width)
+        a += _DASH_DEG + _GAP_DEG
 
 
 def _rgb(hex_color: str) -> tuple[int, int, int]:
@@ -250,12 +266,8 @@ def _compose_doc_image(
             )
             if box[2] <= box[0] or box[3] <= box[1]:
                 continue  # degenerate rect — nothing to paint
-            # Low-alpha fill + outline: visible AND clickable-sized at any zoom.
-            draw.rounded_rectangle(
-                box, radius=6,
-                fill=color + (_FILL_ALPHA,),
-                outline=color + (255,), width=_OUTLINE_W,
-            )
+            # Dashed unfilled ellipse — same marker the web board draws.
+            _dashed_ellipse(draw, box, color, _OUTLINE_W)
             if badge_at is None:
                 badge_at = (box[0], box[1])
         if badge_at is not None:
