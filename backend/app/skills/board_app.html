@@ -298,6 +298,7 @@ function render(viewUrl, data) {
     document.querySelectorAll(".chk").forEach(el =>
       el.classList.toggle("on", Number(el.dataset.i) === i));
     reflowForCheck(i);
+    if (window.dbg) dbg("check#" + (i + 1));
     const ellipses = drawOverlay() || [];
     if (!ellipses.length) return;
     // fit viewport to the circles (+page context margin)
@@ -314,6 +315,13 @@ function render(viewUrl, data) {
   }
 
   apply();
+  // debug HUD: build + last event (a screenshot becomes a bug report)
+  const dbgEl = document.createElement("div");
+  dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
+    "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
+  dbgEl.textContent = "v4";
+  document.getElementById("stage").appendChild(dbgEl);
+  window.dbg = t => { dbgEl.textContent = "v4 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.
@@ -324,25 +332,29 @@ function render(viewUrl, data) {
     const fs = document.createElement("button");
     fs.textContent = "⛶";
     fs.title = "fullscreen";
-    fs.style.cssText = "position:absolute;top:8px;right:8px;z-index:10;" +
+    fs.textContent = "⛶ 放大";
+    fs.style.cssText = "position:absolute;bottom:10px;left:64px;z-index:10;" +
       "background:#fff;border:1px solid var(--rule);border-radius:4px;" +
-      "padding:2px 8px;cursor:pointer;font-size:14px;color:var(--ink3)";
+      "padding:2px 8px;cursor:pointer;font-size:12px;color:var(--ink3)";
     let fsOn = false;
     const sizeNote = h => window.parent.postMessage({ jsonrpc: "2.0",
       method: "ui/notifications/size-changed",
       params: { width: Math.max(document.body.clientWidth || 0, 900), height: h } }, "*");
     fs.onclick = async () => {
       fsOn = !fsOn;
-      fs.textContent = fsOn ? "🗗" : "⛶"; // immediate feedback either way
+      fs.textContent = fsOn ? "🗗 还原" : "⛶ 放大"; // immediate feedback either way
       const r = await rpc("ui/request-display-mode",
         { mode: fsOn ? "fullscreen" : "inline" }, 800);
       if (r && r.mode) {
         fsOn = r.mode === "fullscreen";
-        fs.textContent = fsOn ? "🗗" : "⛶";
+        fs.textContent = fsOn ? "🗗 还原" : "⛶ 放大";
+        dbg("display-mode→" + r.mode);
       } else {
         // host doesn't implement display-mode (dogfood: Cowork ignored it) —
         // fall back to growing the frame via size-changed, which it does honor
-        sizeNote(fsOn ? Math.max((window.screen && window.screen.availHeight || 1200) - 240, 900) : 720);
+        const h = fsOn ? Math.max((window.screen && window.screen.availHeight || 1200) - 240, 900) : 720;
+        sizeNote(h);
+        dbg("no display-mode; size→" + h);
       }
     };
     document.getElementById("stage").appendChild(fs);
