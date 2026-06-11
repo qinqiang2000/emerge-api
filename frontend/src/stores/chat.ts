@@ -18,6 +18,7 @@ import { attachStream, cancelTurn, fetchTurnState, startTurn, type StartTurnBody
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useBench } from './bench'
+import { useBoard } from './board'
 import { useDocs } from './docs'
 import { useEval } from './eval'
 import { useExperiments } from './experiments'
@@ -1458,6 +1459,12 @@ function handleToolResult(
     }
     if (t === 'mcp__emerge_tools__score') {
       void useEval.getState().refresh(projectId)
+    }
+    if (t === 'mcp__emerge_tools__run_audit') {
+      // The board is cache-first per slug — a fresh report (new run_id, new
+      // evidence) must evict the cached report+locations or `?board=1` keeps
+      // rendering the previous run.
+      useBoard.getState().invalidate(projectId)
     }
     if (
       t === 'mcp__emerge_tools__create_experiment' ||

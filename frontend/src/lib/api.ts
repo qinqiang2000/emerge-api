@@ -746,6 +746,79 @@ export async function getBench(slug: string): Promise<BenchResponse> {
   return r.json()
 }
 
+// ── Audit board (B3) ────────────────────────────────────────────────────────
+// Raw wire shapes for `audits/{run}/report.json` (B1) — the board needs the
+// `group` doc list + run_id, which the AuditCard adapter intentionally drops.
+
+export interface AuditEvidenceWire {
+  doc: string
+  page?: number | null
+  quote: string
+}
+
+export interface AuditCheckWire {
+  rule: string
+  status: 'pass' | 'fail' | 'unclear'
+  reason?: string
+  level?: 'critical' | 'warning'
+  decided_by?: string
+  evidence?: AuditEvidenceWire[]
+}
+
+export interface AuditLatestReport {
+  run_id: string
+  created_at?: string
+  /** group doc filenames keyed by themselves (`{fn: fn}`) */
+  group: Record<string, string>
+  checks: AuditCheckWire[]
+  overall: 'pass' | 'warn' | 'fail'
+}
+
+/** Most recent audit report. "Never audited" arrives as a 400 envelope with
+ *  `error_code: audit_no_report` — that's the board's empty state, not an
+ *  error, so it resolves to `null`. Anything else throws. */
+export async function getAuditLatest(slug: string): Promise<AuditLatestReport | null> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/audit/latest`)
+  if (!r.ok) {
+    try {
+      const j = await r.json() as { detail?: { error_code?: string } }
+      if (j?.detail?.error_code === 'audit_no_report') return null
+    } catch { /* fall through to throw */ }
+    throw new Error(`getAuditLatest ${r.status}`)
+  }
+  return r.json()
+}
+
+/** User-drawn board annotations, stored next to the report
+ *  (`audits/{run}/board_notes.json` — B4 contract). `elements` are serialized
+ *  excalidraw elements; the frontend treats them as opaque. */
+export interface BoardNotesPayload {
+  run_id: string
+  elements: unknown[]
+}
+
+/** Permissive read — notes are an enhancement. Any failure (404, route not
+ *  deployed yet, bad shape) degrades to `null` = "no notes". */
+export async function getBoardNotes(slug: string): Promise<BoardNotesPayload | null> {
+  try {
+    const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/audit/board-notes`)
+    if (!r.ok) return null
+    const j = await r.json() as BoardNotesPayload
+    return j && Array.isArray(j.elements) ? j : null
+  } catch {
+    return null
+  }
+}
+
+export async function putBoardNotes(slug: string, body: BoardNotesPayload): Promise<void> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/audit/board-notes`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`putBoardNotes ${r.status}`)
+}
+
 // ── Stage 2: project tree (for `@` mention) ────────────────────────────────
 export interface TreeEntry {
   name: string

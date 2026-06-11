@@ -207,3 +207,23 @@ export function readBenchOpenFromSearch(search: string): boolean {
 export function pathForBench(slug: string): string {
   return `/p/${encodeURIComponent(slug)}?bench=1`
 }
+
+
+// Audit board route — `/p/<slug>?board=1`. Mirrors `?bench=1` exactly: the
+// board is project-scoped, has no sub-state worth encoding, and presence of
+// the param carries the open/close signal. App.tsx owns the URL ↔ mount
+// mapping (same owner as bench/eval/review).
+
+/** Read `?board=1` from a URL search string. Returns true iff the param is
+ *  present AND has a non-empty value. */
+export function readBoardOpenFromSearch(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const v = params.get('board')
+  return v !== null && v.length > 0
+}
+
+
+/** Build the canonical path that opens the audit board for `slug`. */
+export function pathForBoard(slug: string): string {
+  return `/p/${encodeURIComponent(slug)}?board=1`
+}

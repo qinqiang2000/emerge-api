@@ -511,6 +511,17 @@ const en: Dict = {
   'bench.diff.close': 'close',
   'bench.diff.copy': 'copy diff as text',
   'bench.diff.promote': 'promote {label}',
+
+  // ── Audit board (`?board=1` overlay) ────────────────────────────────────
+  'audit.open_board': 'open board',
+  'board.checks.title': 'checks',
+  'board.close': 'close',
+  'board.close.aria': 'close board',
+  'board.loading': 'loading board…',
+  'board.error.title': 'board failed to load',
+  'board.error.retry': 'retry',
+  'board.empty': 'no report yet — run an audit in chat first',
+  'board.notes.stale': 'canvas notes are from a previous run',
 }
 
 export default en

@@ -511,6 +511,17 @@ const zh: Dict = {
   'bench.diff.close': '关闭',
   'bench.diff.copy': '复制对比为文本',
   'bench.diff.promote': '设为在用：{label}',
+
+  // ── Audit board (`?board=1` overlay) ────────────────────────────────────
+  'audit.open_board': '打开 board',
+  'board.checks.title': 'checks',
+  'board.close': '关闭',
+  'board.close.aria': '关闭 board',
+  'board.loading': 'board 加载中…',
+  'board.error.title': 'board 加载失败',
+  'board.error.retry': '重试',
+  'board.empty': '还没有报告——先在 chat 里跑一次 audit',
+  'board.notes.stale': '画布批注来自上一次 run',
 }
 
 export default zh

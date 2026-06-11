@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   pathForBench,
+  pathForBoard,
   pathForChatId,
   pathForSlug,
   readBenchOpenFromSearch,
+  readBoardOpenFromSearch,
   readChatIdFromPathname,
   readSlugFromPathname,
 } from './slugUrl'
@@ -151,5 +153,29 @@ describe('pathForBench', () => {
     const url = pathForBench('us-invoice')
     const qs = url.slice(url.indexOf('?'))
     expect(readBenchOpenFromSearch(qs)).toBe(true)
+  })
+})
+
+// Audit board route — `/p/<slug>?board=1`. Mirrors `?bench=1` exactly.
+describe('readBoardOpenFromSearch / pathForBoard', () => {
+  it('returns true when ?board=1 is present (with or without "?", alongside others)', () => {
+    expect(readBoardOpenFromSearch('?board=1')).toBe(true)
+    expect(readBoardOpenFromSearch('board=1')).toBe(true)
+    expect(readBoardOpenFromSearch('?eval=2026-05-25&board=1')).toBe(true)
+  })
+
+  it('returns false when absent or empty-valued', () => {
+    expect(readBoardOpenFromSearch('')).toBe(false)
+    expect(readBoardOpenFromSearch('?bench=1')).toBe(false)
+    expect(readBoardOpenFromSearch('?board=')).toBe(false)
+  })
+
+  it('pathForBoard builds /p/{slug}?board=1, percent-encoding CJK slugs, and round-trips', () => {
+    expect(pathForBoard('us-invoice')).toBe('/p/us-invoice?board=1')
+    expect(pathForBoard('默沙东_小票')).toBe(
+      '/p/%E9%BB%98%E6%B2%99%E4%B8%9C_%E5%B0%8F%E7%A5%A8?board=1',
+    )
+    const url = pathForBoard('us-invoice')
+    expect(readBoardOpenFromSearch(url.slice(url.indexOf('?')))).toBe(true)
   })
 })

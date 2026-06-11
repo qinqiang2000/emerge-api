@@ -118,6 +118,10 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
     "readiness_check", "read_audit_report",
+    # render_audit_board composes pixels in memory from the latest report +
+    # cached page rasters — no durable state change, no provider call (locate
+    # is LLM-free; deliberately NOT in _TOUCHES_PROVIDER, plan red line).
+    "render_audit_board",
 })
 _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should gate
     "delete_project", "freeze_version", "issue_api_key", "promote_experiment",
@@ -2095,6 +2099,57 @@ def build_emerge_mcp(
                 ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
+    @tool(
+        "render_audit_board",
+        "Render the project's LATEST audit report as annotated document images "
+        "— one composite image per audited doc, every rule's evidence circled "
+        "in place with the rule's 1-based number badge, coloured by verdict "
+        "(green=pass, red=fail, amber=unclear). Zero LLM cost: it reuses the "
+        "existing report + cached page renders. Use when the user asks to SEE "
+        "where the evidence sits (圈出来 / 在图上标出来 / show me on the page). "
+        "Returns a text legend (number ↔ rule ↔ ✓/✗/?) followed by the images; "
+        "evidence that could not be located is listed in a corner badge on its "
+        "doc. Errors with audit_no_report when the project has never been "
+        "audited (run_audit first). Rendering: browser — one-line summary and "
+        "point at the board (→ board); headless — print the legend list and "
+        "describe each annotated image in a sentence.",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_render_audit_board(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.audit_board_render import render_audit_board
+        from app.tools.audit_run import AuditError
+        try:
+            out = await render_audit_board(workspace, args["slug"])
+        except AuditError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        glyph = {"pass": "✓", "fail": "✗", "unclear": "?"}
+        lines = [
+            f"{e['n']}. {glyph.get(e['status'], '?')} {e['rule']}"
+            for e in out["legend"]
+        ]
+        if out["images"]:
+            lines.append(
+                "images (in order): " + ", ".join(i["doc"] for i in out["images"])
+            )
+        if out["truncated"]:
+            lines.append("note: some pages were omitted to fit the image budget")
+        # One legend text block, then one image block per doc — mirrors the
+        # t_read_doc_image content shape. Red line: pixels + rule text only;
+        # the locate rects never appear here.
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": "\n".join(lines)}
+        ]
+        for img in out["images"]:
+            content.append({
+                "type": "image",
+                "data": img["data_b64"],
+                "mimeType": img["media_type"],
+            })
+        return {"content": content}
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -2130,6 +2185,7 @@ def build_emerge_mcp(
             t_write_audit_rules,
             t_run_audit,
             t_read_audit_report,
+            t_render_audit_board,
             t_save_reviewed_audit,
             t_score_audit,
             t_extract_one,

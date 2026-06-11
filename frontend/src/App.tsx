@@ -9,8 +9,6 @@ import { useAuth } from './stores/auth'
 // unauthenticated visitor never downloads the app chunk.
 const AppShell = lazy(() => import('./AppShell'))
 const SettingsModal = lazy(() => import('./components/Settings/SettingsModal'))
-// SPIKE (dev-only, pre-auth, static assets only — see plans/2026-06-11-audit-board-seed.md)
-const BoardSpike = lazy(() => import('./spike/BoardSpike'))
 
 /**
  * Auth gate. Bootstraps `/auth/me` once:
@@ -24,10 +22,6 @@ export default function App() {
   const bootstrap = useAuth(s => s.bootstrap)
 
   useEffect(() => { bootstrap() }, [bootstrap])
-
-  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('boardspike')) {
-    return <Suspense fallback={null}><BoardSpike /></Suspense>
-  }
 
   if (!loaded) return null
   const authed = me?.open_mode || me?.authenticated

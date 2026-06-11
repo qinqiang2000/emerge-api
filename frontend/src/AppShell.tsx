@@ -16,6 +16,10 @@ import { useReview } from './stores/review'
 const EvalMatrixModal = lazy(() => import('./components/EvalMatrix/EvalMatrixModal'))
 const EvalCompare = lazy(() => import('./components/EvalMatrix/EvalCompare'))
 const BenchOverlay = lazy(() => import('./components/Bench/BenchOverlay'))
+// The audit board pulls the whole excalidraw canvas (+200 packages) — this
+// lazy boundary is the ONLY import path into components/Board/, so excalidraw
+// never enters the main bundle and only loads when `?board=1` appears.
+const BoardOverlay = lazy(() => import('./components/Board/BoardOverlay'))
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
 import {
@@ -23,6 +27,7 @@ import {
   pathForEvalMatrix,
   pathForSlug,
   readBenchOpenFromSearch,
+  readBoardOpenFromSearch,
   readChatIdFromPathname,
   readEvalRouteFromUrl,
   readEvalTsFromSearch,
@@ -32,16 +37,19 @@ import {
   searchWithoutParam,
 } from './lib/slugUrl'
 
-// `?review`, `?eval`, and `?bench` are scoped to a specific project. When the
-// URL transitions across project boundaries (root → /p/A, /p/A → /p/B),
-// carrying them over would land the new project's overlays on artifacts that
-// may not even exist there. Within a single project they are preserved so
-// the matrix → review → matrix back-button loop (and the bench → matrix
-// row-click drilldown) keep state.
+// `?review`, `?eval`, `?bench`, and `?board` are scoped to a specific project.
+// When the URL transitions across project boundaries (root → /p/A, /p/A →
+// /p/B), carrying them over would land the new project's overlays on
+// artifacts that may not even exist there. Within a single project they are
+// preserved so the matrix → review → matrix back-button loop (and the bench →
+// matrix row-click drilldown) keep state.
 function stripProjectScopedParams(search: string): string {
   return searchWithoutParam(
-    searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
-    'bench',
+    searchWithoutParam(
+      searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
+      'bench',
+    ),
+    'board',
   )
 }
 
@@ -112,6 +120,11 @@ export default function AppShell() {
   const [benchOpen, setBenchOpen] = useState<boolean>(() =>
     readBenchOpenFromSearch(window.location.search),
   )
+  // `?board=1` opens the project-level audit board — same URL contract as
+  // bench (presence = open, no sub-state).
+  const [boardOpen, setBoardOpen] = useState<boolean>(() =>
+    readBoardOpenFromSearch(window.location.search),
+  )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
@@ -120,6 +133,7 @@ export default function AppShell() {
       setEvalTs(readEvalTsFromSearch(window.location.search))
       setReviewFilename(readReviewFilenameFromSearch(window.location.search))
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
+      setBoardOpen(readBoardOpenFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -228,6 +242,7 @@ export default function AppShell() {
       setReviewFilename(readReviewFilenameFromSearch(window.location.search))
       setEvalTs(readEvalTsFromSearch(window.location.search))
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
+      setBoardOpen(readBoardOpenFromSearch(window.location.search))
     }
   }, [selectedSlug, loadedUnboundChatId])
 
@@ -445,6 +460,27 @@ export default function AppShell() {
             setEvalTs(row.summary_ts)
           }}
         />
+        </Suspense>
+      )}
+
+      {/* Audit board overlay — mounts on `?board=1` (same owner/URL contract
+          as bench). `hidden` cedes layout + keyboard while an eval matrix or
+          review layers on top of a manually-composed URL, mirroring how
+          bench stands down under `?eval=`. */}
+      {boardOpen && selectedSlug && (
+        <Suspense fallback={null}>
+          <BoardOverlay
+            slug={selectedSlug}
+            hidden={!!evalTs || !!reviewFilename}
+            onClose={() => {
+              const next = searchWithoutParam(window.location.search, 'board')
+              const target = pathForSlug(selectedSlug, next, window.location.hash)
+              if (target !== window.location.pathname + window.location.search + window.location.hash) {
+                window.history.pushState(null, '', target)
+              }
+              setBoardOpen(false)
+            }}
+          />
         </Suspense>
       )}
     </>

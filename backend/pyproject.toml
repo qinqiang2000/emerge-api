@@ -18,6 +18,7 @@ dependencies = [
     "dateparser>=1.2",
     "Babel>=2.14",
     "itsdangerous>=2.2.0",
+    "pillow>=12.2.0",
 ]
 
 [dependency-groups]

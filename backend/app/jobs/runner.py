@@ -58,6 +58,8 @@ class JobRunner:
     async def start(
         self, *, skill: str, project_id: str, params: dict[str, Any],
     ) -> str:
+        if skill == "audit":
+            return await self._start_audit(project_id=project_id, params=params)
         if skill != "autoresearch":
             raise UnknownSkillError(f"unknown skill: {skill!r}")
         from app.tools.schema import read_schema
@@ -138,6 +140,93 @@ class JobRunner:
         task = asyncio.create_task(_run(), name=f"job:{job_id}")
         handle = _JobHandle(info=info, task=task,
                             pause_event=pause_event, cancel_event=cancel_event)
+        async with self._lock:
+            self._jobs[job_id] = handle
+        return job_id
+
+    async def _start_audit(
+        self, *, project_id: str, params: dict[str, Any],
+    ) -> str:
+        """Audit job: one judge trip via `run_audit` (B0, 2026-06-11).
+
+        A large group's judge trip (~70s) outlives Cowork's client tool
+        timeout (~60s); job-ifying lets the client poll `get_job` instead of
+        holding a tool call open. The report body stays on disk
+        (`audits/{run}/report.json`) — clients fetch it via
+        `read_audit_report`; the final `ended` event carries only the verdict
+        headline `{overall, run_id, checks_n}`.
+
+        Provider resolution mirrors the `run_audit` tool path: pass
+        `provider=None` and let `_resolve_judge_provider` pick the project's
+        active model (provider-direct judge tier, never the agent SDK).
+        `params.model_id` is an optional per-job override, same passthrough
+        `run_audit` already accepts.
+
+        No pause/cancel semantics — the trip is a single awaited LLM call
+        (the handle's events exist but nothing observes them). JobInfo keeps
+        the autoresearch-specific fields (`best_macro_f1` etc.) at their
+        None defaults — no audit-specific schema."""
+        from app.tools.audit_run import AuditError, run_audit
+
+        raw_filenames = params.get("filenames")
+        filenames = (
+            [str(f) for f in raw_filenames if isinstance(f, str)]
+            if isinstance(raw_filenames, list) and raw_filenames
+            else None
+        )
+        model_id = params.get("model_id")
+        if model_id is not None and not isinstance(model_id, str):
+            model_id = None
+
+        job_id = new_job_id()
+        info = JobInfo(
+            job_id=job_id, project_id=project_id, skill="audit",
+            status=JobStatus.PENDING, params=params,
+            created_at=now_iso_filename_safe(),
+        )
+        log_path = job_log_path(self.workspace, project_id, job_id)
+
+        async def _run() -> JobInfo:
+            handle.info.status = JobStatus.RUNNING
+            await append_event_jsonl(
+                log_path,
+                JobEvent(type="started", ts=now_iso_filename_safe(),
+                         job_id=job_id, project_id=project_id),
+            )
+            try:
+                report = await run_audit(
+                    self.workspace, project_id,
+                    filenames=filenames, provider=None, model_id=model_id,
+                )
+                handle.info.status = JobStatus.DONE
+                await append_event_jsonl(
+                    log_path,
+                    JobEvent(type="ended", ts=now_iso_filename_safe(),
+                             reason="done",
+                             overall=report.get("overall"),
+                             run_id=report.get("run_id"),
+                             checks_n=len(report.get("checks") or [])),
+                )
+                return handle.info
+            except Exception as exc:
+                log.exception("audit job %s failed", job_id)
+                _err = f"{type(exc).__name__}: {exc}"
+                handle.info.status = JobStatus.ERROR
+                if isinstance(exc, AuditError):
+                    handle.info.error_code = exc.error_code
+                    handle.info.error_message_en = exc.error_message_en
+                else:
+                    handle.info.error_code = "audit_failure"
+                    handle.info.error_message_en = _err
+                await append_event_jsonl(
+                    log_path,
+                    JobEvent(type="ended", ts=now_iso_filename_safe(),
+                             reason="error", error=_err),
+                )
+                return handle.info
+
+        task = asyncio.create_task(_run(), name=f"job:{job_id}")
+        handle = _JobHandle(info=info, task=task)
         async with self._lock:
             self._jobs[job_id] = handle
         return job_id

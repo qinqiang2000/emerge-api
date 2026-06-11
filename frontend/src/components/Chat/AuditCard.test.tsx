@@ -1,13 +1,15 @@
 // AuditCard adapters (A3) — strict recognition: audit JSON in, rows out;
 // anything else (eval score results, error envelopes, garbage) → null so the
 // generic ToolCall rendering is never hijacked.
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import { useProjects } from '../../stores/projects'
 import {
   adaptAuditReport,
   adaptAuditScore,
   AuditReportCard,
+  AuditScoreCard,
   overallToneClasses,
 } from './AuditCard'
 
@@ -194,5 +196,39 @@ describe('AuditReportCard evidence rendering (B1)', () => {
     const data = adaptAuditReport(REPORT)!
     const { container } = render(<AuditReportCard data={data} />)
     expect(container.textContent).not.toContain('「')
+  })
+})
+
+describe('board entry (B3) — `open board ↗` on the report card header', () => {
+  const HOME = '/'
+
+  afterEach(() => {
+    act(() => { useProjects.setState({ selectedSlug: null }) })
+    window.history.pushState(null, '', HOME)
+  })
+
+  it('renders only when a report card renders AND a project is selected; click pushes ?board=1', () => {
+    useProjects.setState({ selectedSlug: 'proj 一' })
+    const data = adaptAuditReport(REPORT)!
+    const { getByTestId } = render(<AuditReportCard data={data} />)
+    const btn = getByTestId('audit-open-board')
+    fireEvent.click(btn)
+    // mirrors FSSpine's bench ↗: pushState + synthetic popstate
+    expect(window.location.pathname).toBe(`/p/${encodeURIComponent('proj 一')}`)
+    expect(window.location.search).toBe('?board=1')
+  })
+
+  it('is absent without a selected project (board is project-scoped)', () => {
+    useProjects.setState({ selectedSlug: null })
+    const data = adaptAuditReport(REPORT)!
+    const { queryByTestId } = render(<AuditReportCard data={data} />)
+    expect(queryByTestId('audit-open-board')).toBeNull()
+  })
+
+  it('never appears on the score card (entry is report-only)', () => {
+    useProjects.setState({ selectedSlug: 'proj-x' })
+    const data = adaptAuditScore(SCORE)!
+    const { queryByTestId } = render(<AuditScoreCard data={data} />)
+    expect(queryByTestId('audit-open-board')).toBeNull()
   })
 })

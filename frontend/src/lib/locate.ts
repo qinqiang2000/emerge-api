@@ -99,6 +99,52 @@ export function hasEvidenceSignal(
   return false
 }
 
+/**
+ * One verbatim quote's location, keyed by the input index of the quote
+ * (mirrors backend `QuoteLocation`). Same units / same red line as
+ * `FieldLocation`: rects are PDF points (raster px for jpg/png docs) and only
+ * ever live in the render layer — locate-quotes is a render-only HTTP route,
+ * never an @tool.
+ */
+export interface QuoteLocationResult {
+  index: number
+  rects: number[][]
+  page: number | null
+  status: 'exact' | 'fuzzy' | 'normalized' | 'quote' | 'none'
+  score: number
+}
+
+/**
+ * POST a batch of verbatim quotes (audit evidence) against one doc and resolve
+ * them to page rects. `page` per quote is an optional hint — searched first,
+ * a miss falls back to a whole-doc scan server-side. Best-effort like
+ * `fetchLocate`: any failure (doc_not_found, network, bad envelope) resolves
+ * to `[]` so the board degrades to badges instead of crashing.
+ */
+export async function fetchLocateQuotes(
+  projectId: string,
+  filename: string,
+  quotes: { page?: number | null; quote: string }[],
+): Promise<QuoteLocationResult[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/lab/projects/${encodeURIComponent(projectId)}/docs/by-name/${encodeURIComponent(
+        filename,
+      )}/locate-quotes`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quotes }),
+      },
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as QuoteLocationResult[]
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
 export async function fetchLocate(
   projectId: string,
   filename: string,

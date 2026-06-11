@@ -1,0 +1,439 @@
+// BoardOverlay — the audit board (`?board=1`), an excalidraw canvas with the
+// latest audit report's group docs laid out as columns and every located
+// evidence quote circled in place.
+//
+// Lifecycle mirrors `BenchOverlay` exactly:
+//   - App.tsx mounts this component when `?board=1` is in the URL search
+//     string AND a project is selected; presence of the param IS the open
+//     state. `onClose` lets App.tsx strip the param.
+//   - ESC, the close button, the backdrop click and a project switch all
+//     funnel into `onClose`.
+//   - The whole `components/Board/` dir is one React.lazy chunk — excalidraw
+//     (+200 packages) never enters the main bundle.
+//
+// Two-way linkage (proven in the spike):
+//   rail row click → `scrollToContent` on that check's elements + swap the
+//     single `ring-focus` element (focus WITHOUT selection — selecting would
+//     float excalidraw's property-panel island over the canvas, trap #2);
+//   canvas click on an `ev-*` / `arrow-*` element → activate the rail row via
+//     `onChange`'s selectedElementIds.
+//
+// User-drawn elements (any id outside our namespaces) are the user's notes —
+// persisted through `useBoard.saveNotes` (1s debounce) and restored on the
+// next open. Red line: rects live only here, in the render layer.
+
+import './boardAssets' // MUST stay the first import — sets EXCALIDRAW_ASSET_PATH
+import { Excalidraw, convertToExcalidrawElements } from '@excalidraw/excalidraw'
+import '@excalidraw/excalidraw/index.css'
+import type { BinaryFileData, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
+import { X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { useT } from '../../i18n'
+import { pdfPageUrl } from '../../lib/api'
+import { evKey, useBoard } from '../../stores/board'
+import { useDocs } from '../../stores/docs'
+import { useProjects } from '../../stores/projects'
+import { STATUS_GLYPH } from '../Chat/AuditCard'
+import {
+  OWN_ID_RE,
+  RING_ID,
+  arrowId,
+  buildCheckOverlays,
+  buildFocusRing,
+  buildPageSkeletons,
+  checkIdxOfElementId,
+  imgId,
+  layoutPages,
+  readBoardColors,
+  unionBounds,
+  type BoardDocInput,
+  type EvidenceOnBoard,
+} from './boardScene'
+
+type SceneElement = ReturnType<ExcalidrawImperativeAPI['getSceneElements']>[number]
+
+interface Props {
+  slug: string
+  onClose: () => void
+  /** Same contract as BenchOverlay#hidden: keep the React tree mounted (scene
+   *  + caches survive) but yank it out of layout/event flow and stand down
+   *  the Esc listener while a higher overlay owns the keyboard. */
+  hidden?: boolean
+}
+
+/** Fetch one page raster → dataURL + natural dims. Best-effort: a missing /
+ *  failed page resolves to null and the board simply lays out without it. */
+async function loadPageImage(
+  slug: string,
+  filename: string,
+  page: number,
+): Promise<{ dataURL: string; mimeType: string; w: number; h: number } | null> {
+  try {
+    const resp = await fetch(pdfPageUrl(slug, filename, page))
+    if (!resp.ok) return null
+    const blob = await resp.blob()
+    const dataURL = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(r.result as string)
+      r.onerror = () => reject(new Error('read failed'))
+      r.readAsDataURL(blob)
+    })
+    const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight })
+      img.onerror = () => reject(new Error('decode failed'))
+      img.src = dataURL
+    })
+    return { dataURL, mimeType: blob.type || 'image/png', ...dims }
+  } catch {
+    return null
+  }
+}
+
+export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
+  const entry = useBoard(s => s.byProject[slug])
+  const loading = useBoard(s => !!s.loading[slug])
+  const error = useBoard(s => s.errors[slug])
+  const notes = useBoard(s => s.notesByProject[slug])
+  const load = useBoard(s => s.load)
+  const loadNotes = useBoard(s => s.loadNotes)
+  const t = useT()
+
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null)
+  const [activeCheck, setActiveCheck] = useState<number | null>(null)
+  const [sceneReady, setSceneReady] = useState(false)
+  // "docs list refresh attempted" — the scene build needs page counts but must
+  // not stall forever if the docs fetch fails (fallback: max evidence page).
+  const [docsReady, setDocsReady] = useState<boolean>(() => !!useDocs.getState().byProject[slug])
+  const builtFor = useRef<string | null>(null)
+  const notesRestoredFor = useRef<string | null>(null)
+  const lastNoteSig = useRef('')
+  // Resolved once per mount — the board lives inside the themed DOM, so the
+  // semantic tokens (--moss/--rose/--ochre/...) are available by now.
+  const colors = useMemo(() => readBoardColors(), [])
+
+  // Cache-first loads. The store dedupes concurrent loads per slug.
+  useEffect(() => {
+    void load(slug)
+    void loadNotes(slug)
+    void useDocs.getState().refresh(slug).then(() => setDocsReady(true))
+  }, [slug, load, loadNotes])
+
+  // ESC closes — window-level listener, stood down while hidden (same
+  // conventions as BenchOverlay).
+  useEffect(() => {
+    if (hidden) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, hidden])
+
+  // Project switch → auto-close (mirrors BenchOverlay / PromptQuickLook).
+  useEffect(() => {
+    const unsub = useProjects.subscribe(s => {
+      if (s.selectedSlug !== null && s.selectedSlug !== slug) {
+        onClose()
+      }
+    })
+    return unsub
+  }, [slug, onClose])
+
+  // ── Scene build ──────────────────────────────────────────────────────────
+  // Once per (slug, run): measure every group doc's page rasters, register
+  // them as excalidraw files, lay out the columns and draw the evidence
+  // overlays. `regenerateIds: false` is load-bearing (trap #1) — the rail ↔
+  // canvas linkage keys on our deterministic ids.
+  useEffect(() => {
+    if (!api || !entry?.report || !docsReady) return
+    const report = entry.report
+    const buildKey = `${slug}:${report.run_id}`
+    if (builtFor.current === buildKey) return
+    let cancelled = false
+
+    async function build() {
+      const docSummaries = useDocs.getState().byProject[slug] ?? []
+      const docInputs: BoardDocInput[] = []
+      const files: BinaryFileData[] = []
+      for (const fn of Object.keys(report.group)) {
+        const summary = docSummaries.find(d => d.filename === fn)
+        // Page count: docs sidecar wins; fall back to the largest page number
+        // any evidence (hint or locate result) mentions for this doc.
+        let pageCount = summary?.page_count ?? 0
+        if (!pageCount) {
+          let maxPage = 1
+          report.checks.forEach((c, i) => {
+            (c.evidence ?? []).forEach((e, j) => {
+              if (e.doc !== fn) return
+              const loc = entry.locations[evKey(i, j)]
+              maxPage = Math.max(maxPage, loc?.page ?? 0, e.page ?? 0)
+            })
+          })
+          pageCount = maxPage
+        }
+        const ext = summary?.ext ?? (fn.includes('.') ? fn.split('.').pop()! : '')
+        const pages: BoardDocInput['pages'] = []
+        for (let p = 1; p <= pageCount; p++) {
+          const img = await loadPageImage(slug, fn, p)
+          if (cancelled) return
+          if (!img) continue
+          pages.push({ page: p, w: img.w, h: img.h })
+          files.push({
+            id: imgId(fn, p) as BinaryFileData['id'],
+            dataURL: img.dataURL as BinaryFileData['dataURL'],
+            mimeType: img.mimeType as BinaryFileData['mimeType'],
+            created: Date.now(),
+          })
+        }
+        if (pages.length) docInputs.push({ name: fn, ext, pages })
+      }
+      if (cancelled || !api) return
+
+      api.addFiles(files)
+      const laid = layoutPages(docInputs)
+      const evidences: EvidenceOnBoard[] = []
+      report.checks.forEach((c, i) => {
+        (c.evidence ?? []).forEach((e, j) => {
+          const loc = entry.locations[evKey(i, j)]
+          evidences.push({
+            checkIdx: i,
+            evIdx: j,
+            doc: e.doc,
+            page: loc?.page ?? e.page ?? null,
+            rects: loc?.rects ?? [],
+            status: loc?.status ?? 'none',
+          })
+        })
+      })
+      const skeletons = [
+        ...buildPageSkeletons([...laid.values()], colors),
+        ...buildCheckOverlays(report.checks, evidences, laid, colors),
+      ]
+      api.updateScene({
+        // trap #1 — regenerateIds defaults to true and would sever every
+        // rail↔element linkage.
+        elements: convertToExcalidrawElements(skeletons as never, { regenerateIds: false }),
+      })
+      builtFor.current = buildKey
+      // Let excalidraw commit the elements before fitting the viewport
+      // (same post-update tick the spike needed).
+      setTimeout(() => {
+        if (!cancelled) api?.scrollToContent(undefined, { fitToViewport: true })
+      }, 100)
+      setSceneReady(true)
+    }
+
+    void build()
+    return () => { cancelled = true }
+  }, [api, entry, docsReady, slug, colors])
+
+  // ── Notes restore ────────────────────────────────────────────────────────
+  // Saved elements are full excalidraw elements — append them once per run
+  // after the skeleton scene exists. Seeding `lastNoteSig` prevents the
+  // restore itself from echoing straight back into saveNotes.
+  useEffect(() => {
+    if (!api || !sceneReady || !entry?.report || notes === undefined) return
+    const key = `${slug}:${entry.report.run_id}`
+    if (notesRestoredFor.current === key) return
+    notesRestoredFor.current = key
+    const els = (notes?.elements ?? []) as SceneElement[]
+    if (!els.length) return
+    const current = api.getSceneElements()
+    const have = new Set(current.map(e => e.id))
+    const restored = els.filter(e => e && typeof e.id === 'string' && !have.has(e.id))
+    if (!restored.length) return
+    lastNoteSig.current = restored
+      .map(e => `${e.id}:${(e as { version?: number }).version ?? 0}`)
+      .join('|')
+    api.updateScene({ elements: [...current, ...restored] })
+  }, [api, sceneReady, entry, notes, slug])
+
+  // ── Rail → canvas ────────────────────────────────────────────────────────
+  const focusCheck = useCallback((idx: number) => {
+    setActiveCheck(idx)
+    if (!api) return
+    const prefix = `ev-${idx}-`
+    const els = api.getSceneElements().filter(
+      e => e.id.startsWith(prefix) || e.id === arrowId(idx),
+    )
+    if (!els.length) return
+    api.scrollToContent(els, { fitToViewport: true, animate: true, viewportZoomFactor: 0.6 })
+    // Focus WITHOUT selection (trap #2): swap the single ring element instead
+    // of touching appState.selectedElementIds.
+    const ellipses = els.filter(e => e.id.startsWith(prefix))
+    const target = unionBounds(
+      ellipses.map(e => ({ x: e.x, y: e.y, w: e.width, h: e.height })),
+    )
+    if (!target) return
+    const ring = convertToExcalidrawElements(
+      // ring accent = token --ochre (focus color across the chrome)
+      [buildFocusRing(target, colors.unclear)] as never,
+      { regenerateIds: false },
+    )
+    const rest = api.getSceneElements().filter(e => e.id !== RING_ID)
+    api.updateScene({ elements: [...rest, ...ring] })
+  }, [api, colors])
+
+  // ── Canvas → rail + notes capture ───────────────────────────────────────
+  const onChange = useCallback((
+    els: readonly SceneElement[],
+    appState: { selectedElementIds?: Record<string, boolean> },
+  ) => {
+    const sel = Object.keys(appState?.selectedElementIds ?? {})
+    const hit = sel.map(checkIdxOfElementId).find(v => v !== null)
+    if (hit != null) {
+      setActiveCheck(prev => (prev === hit ? prev : hit))
+    }
+    if (!sceneReady || !entry?.report) return
+    // User notes = live elements outside our id namespaces that also aren't
+    // text bound INTO one of ours (excalidraw mints a random-id label element
+    // for each `arrow-*`'s ✓/✗ label — containerId points back at the arrow).
+    const user = els.filter(e => {
+      if (e.isDeleted) return false
+      if (OWN_ID_RE.test(e.id)) return false
+      const containerId = (e as { containerId?: string | null }).containerId
+      return !(containerId && OWN_ID_RE.test(containerId))
+    })
+    const sig = user.map(e => `${e.id}:${e.version}`).join('|')
+    if (sig !== lastNoteSig.current) {
+      lastNoteSig.current = sig
+      useBoard.getState().saveNotes(
+        slug,
+        entry.report.run_id,
+        user.map(e => JSON.parse(JSON.stringify(e)) as unknown),
+      )
+    }
+  }, [sceneReady, entry, slug])
+
+  const retry = () => {
+    useBoard.getState().invalidate(slug)
+    void useBoard.getState().load(slug)
+  }
+
+  const staleNotes = !!(
+    notes && entry?.report && notes.run_id && notes.run_id !== entry.report.run_id
+  )
+
+  return (
+    <div
+      className="fixed inset-0 z-40 backdrop-blur-sm flex items-center justify-center p-6"
+      // Inline rgba derived from --ink (#1B1A16) at 35% — matches BenchOverlay
+      // / EvalMatrixModal so shell dimming is consistent. display:none when
+      // hidden keeps the scene mounted but cedes layout + keyboard.
+      style={{ background: 'rgba(27, 26, 22, 0.35)', display: hidden ? 'none' : undefined }}
+      onClick={hidden ? undefined : onClose}
+      role="dialog"
+      aria-label="board"
+      aria-modal="true"
+      aria-hidden={hidden}
+    >
+      <div
+        className="bg-paper text-ink rounded-lg shadow-xl border border-rule flex w-full max-w-[min(1480px,96vw)] h-[92vh] overflow-hidden relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="absolute top-2 right-2 z-10 p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+          aria-label={t('board.close.aria')}
+          title={t('board.close')}
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
+
+        {error ? (
+          <div data-testid="board-error" role="alert" className="m-auto font-mono text-sm text-ink-3 flex items-center gap-2">
+            <span>{t('board.error.title')}</span>
+            <span>·</span>
+            <button type="button" className="text-ochre-2 hover:underline" onClick={retry}>
+              {t('board.error.retry')}
+            </button>
+          </div>
+        ) : !entry ? (
+          <div data-testid="board-loading" aria-busy={loading} className="m-auto font-mono text-sm text-ink-3">
+            {t('board.loading')}
+          </div>
+        ) : !entry.report ? (
+          <div data-testid="board-empty" className="m-auto font-mono text-sm text-ink-3">
+            {t('board.empty')}
+          </div>
+        ) : (
+          <>
+            {/* Check rail — same row anatomy as AuditCard (glyph + rule +
+                quote sub-lines); the card stays text-only, the board adds the
+                spatial layer. */}
+            <div className="w-[320px] shrink-0 border-r border-rule-soft overflow-y-auto font-mono text-sm">
+              <div className="px-3 py-2 border-b border-rule-soft text-ink font-semibold">
+                {t('board.checks.title')}
+                <span className="ml-2 text-ink-4 text-xs font-normal">
+                  {entry.report.checks.filter(c => c.status === 'pass').length}/{entry.report.checks.length}
+                </span>
+              </div>
+              {entry.report.checks.map((c, i) => (
+                <div
+                  key={i}
+                  data-testid={`board-check-${i}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => focusCheck(i)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusCheck(i) } }}
+                  className={`px-3 py-1.5 border-b border-rule-soft cursor-pointer ${
+                    activeCheck === i
+                      ? 'bg-paper-3 border-l-2 border-l-ochre'
+                      : 'border-l-2 border-l-transparent hover:bg-paper-2'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className={`${STATUS_GLYPH[c.status].cls} shrink-0`}>
+                      {STATUS_GLYPH[c.status].glyph}
+                    </span>
+                    <span className="text-ink min-w-0 break-words">{c.rule}</span>
+                  </div>
+                  {(c.evidence ?? []).map((e, j) => (
+                    <div key={j} className="pl-5 text-xs text-ink-4 break-words">
+                      「{e.quote}」 — {e.doc}
+                      {e.page != null ? ` · p${e.page}` : ''}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {staleNotes && (
+                <div className="px-3 py-2 text-xs text-ink-4">{t('board.notes.stale')}</div>
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <Excalidraw
+                excalidrawAPI={setApi}
+                onChange={onChange}
+                initialData={{ appState: { viewBackgroundColor: colors.canvas } }}
+                UIOptions={{
+                  // Trim the chrome to what the board needs: pan/zoom + the
+                  // drawing tools stay (user notes are a feature); scene-level
+                  // file actions (load/save/export/clear/theme) are off — the
+                  // scene is derived from the report, notes persist via
+                  // board_notes.
+                  canvasActions: {
+                    changeViewBackgroundColor: false,
+                    clearCanvas: false,
+                    export: false,
+                    loadScene: false,
+                    saveToActiveFile: false,
+                    toggleTheme: false,
+                    saveAsImage: false,
+                  },
+                  tools: { image: false },
+                }}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

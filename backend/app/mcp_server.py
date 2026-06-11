@@ -99,6 +99,10 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     # capability doesn't exist remotely.
     "write_audit_rules", "run_audit", "read_audit_report",
     "save_reviewed_audit", "score_audit",
+    # render_audit_board ships PIXELS (annotated evidence images) — image
+    # bytes are never ws_*-replaceable (doc-vision-is-pulled red line), so it
+    # rides with the audit suite.
+    "render_audit_board",
     "create_match_project", "write_match_prompt", "run_match",
     "save_reviewed_match", "score_match",
     # env-fallback resolution for all four LLM roles — invisible in the files

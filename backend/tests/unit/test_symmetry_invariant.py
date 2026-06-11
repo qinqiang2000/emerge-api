@@ -121,6 +121,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "write_audit_rules":    ("PUT",  r"^/lab/projects/\{slug\}/audit-rules$"),
     "run_audit":            ("POST", r"^/lab/projects/\{slug\}/audit$"),
     "read_audit_report":    ("GET",  r"^/lab/projects/\{slug\}/audit/latest$"),
+    # B4 board render — annotated evidence images (pixels + rule text only;
+    # the board-notes GET/PUT siblings are render-layer persistence and stay
+    # route-without-tool, same as locate / locate-quotes).
+    "render_audit_board":   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
     "save_reviewed_audit":  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
     "score_audit":          ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
     # Publish + keys

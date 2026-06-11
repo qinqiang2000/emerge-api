@@ -86,8 +86,17 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    多页文档全页进 judge，理由可引用页码）
    + 可选已抽字段（提示）→ 逐条 {pass/fail/unclear + 理由} + 整体三态：任一 critical
    fail → `fail`；仅 warning fail → `warn`；否则 `pass`（unclear 不降级）。规则里用
-   文档类型名（"报价单"…）引用，judge 从图/文件名认出对应文档。看最近一次报告用
-   `read_audit_report(slug)`（零成本，不重跑）。
+   文档类型名（"报价单"…）引用，judge 从图/文件名认出对应文档。每条结论附 `evidence`
+   ——judge 依据的**逐字原文引文**（`{doc, page?, quote}`，纯文本，绝无坐标）。看最近
+   一次报告用 `read_audit_report(slug)`（零成本，不重跑）。
+   **大组走 job**：组内文档总页数 > 8、或上次 run_audit 趟时接近客户端超时（远程工具
+   ~60s）时，改用 `start_job(skill="audit", slug, params={filenames?})` 秒回 job_id →
+   `get_job(job_id)` 轮询（RUNNING → DONE/ERROR）→ DONE 后 `read_audit_report(slug)`
+   取完整报告。小组照旧直接 `run_audit`。
+3b. `render_audit_board(slug)` — 把最近一次报告**圈到文档图上**：每份文档一张合成图，
+   每条规则的 evidence 在原文位置画圈 + 规则编号徽标（绿=pass / 红=fail / 黄=unclear），
+   附 编号↔规则 图例。零 LLM 成本（复用报告 + 页渲染缓存）。用户说"圈出来 / 在图上
+   标出来 / 指给我看"时用它；没跑过审核会报 `audit_no_report`（先 `run_audit`）。
 4. `save_reviewed_audit(slug, expected)` — 人确认审核结论（score 的真值）。`expected` =
    {规则原文: "pass"|"fail"}，**按规则文本对齐，key 必须与当前规则一字不差**。用户逐条
    说（"第 2 条其实不对" → 该条存反向真值），或确认整份报告（把报告里的 pass/fail 原样
@@ -108,13 +117,20 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
 
 **Rendering contract**（不 dump JSON）：
 - **browser**（`interface: browser`）：一句摘要即可（"审核完成：整体不过——3 条规则
-  1 条失败（盖章缺失）"）；run_audit 的结果卡片（AuditCard）会自动渲染逐条明细，
-  不要在正文重复整张清单。
-- **headless**：完整清单。逐条 `✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?）；
+  1 条失败（盖章缺失）"）；run_audit 的结果卡片（AuditCard）会自动渲染逐条明细
+  （含引文），不要在正文重复整张清单。用户想看证据落在文档哪里 → 指点卡片头部的
+  `open board ↗`（审核白板：页图铺板 + 圈注 + 跨文档连线），即 `→ board`。
+- **headless**：完整清单。逐条 `✓/✗/? 规则 — 理由`（pass ✓ / fail ✗ / unclear ?），
+  有 evidence 的条目下一行附 `依据: 「引文」(doc · pN)`（引文原样，不改写）；
   `decided_by:"l1"` 的条目注明判定来源（如 `[规则判定]`，理由本身已是可解释比较）。
   末尾一行整体三态：**过 / 过（有警告）/ 不过**——`warn` 写"过（有警告）"并点名
   哪几条 warning 失败；`fail` 点名哪几条 critical 失败。`unclear`（判不了，如图不清/
   字段缺）单独提示，不算失败但要让用户知道去补。视觉规则（红章）说清看到/没看到。
+
+**render_audit_board 的 rendering contract**：
+- **browser**：一句摘要 + 指点 board（`→ board`，UI 卡片/白板兜底），不内联大图。
+- **headless**：先图例清单（`N. ✓/✗/? 规则`），随图输出；每张合成图一句话说明
+  （哪份文档、圈了哪些编号、有无未定位条目）。
 
 **score_audit 的 rendering contract**（不 dump JSON）：
 - **browser**：一句摘要（"评分完成：accuracy 2/3，1 条判错"）——结果卡片自动展示

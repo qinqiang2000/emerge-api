@@ -10,6 +10,9 @@ import type { ChatEvent } from '../../types/chat'
 import ToolCall from './ToolCall'
 import ToolRow from './ToolRow'
 import { toolShortHint } from '../../lib/toolHint'
+import { pathForBoard } from '../../lib/slugUrl'
+import { useProjects } from '../../stores/projects'
+import { useT } from '../../i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -165,7 +168,8 @@ export function adaptAuditScore(raw: unknown): AuditScoreData | null {
 
 // ── Cards ──────────────────────────────────────────────────────────────────
 
-const STATUS_GLYPH: Record<AuditCheckStatus, { glyph: string; cls: string }> = {
+// Exported for the board's check rail, which mirrors these rows 1:1.
+export const STATUS_GLYPH: Record<AuditCheckStatus, { glyph: string; cls: string }> = {
   pass: { glyph: '✓', cls: 'text-moss' },
   fail: { glyph: '✗', cls: 'text-rose' },
   unclear: { glyph: '?', cls: 'text-ink-4' },
@@ -173,6 +177,11 @@ const STATUS_GLYPH: Record<AuditCheckStatus, { glyph: string; cls: string }> = {
 
 export function AuditReportCard({ data }: { data: AuditReportData }) {
   const correct = data.checks.filter(c => c.status === 'pass').length
+  // Board entry — mirrors FSSpine's bench ↗ (pushState + synthetic popstate so
+  // App.tsx's URL→overlay sync mounts the board). Project-scoped, so it only
+  // renders when a project is selected.
+  const slug = useProjects(s => s.selectedSlug)
+  const t = useT()
   return (
     <div
       className="border border-rule-soft bg-paper rounded-sm font-mono text-sm"
@@ -186,6 +195,20 @@ export function AuditReportCard({ data }: { data: AuditReportData }) {
         >
           {OVERALL_LABEL[data.overall]}
         </span>
+        {slug && (
+          <button
+            type="button"
+            data-testid="audit-open-board"
+            className="text-xs text-ink-3 hover:text-ink"
+            title={t('audit.open_board')}
+            onClick={() => {
+              window.history.pushState(null, '', pathForBoard(slug))
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }}
+          >
+            {t('audit.open_board')} ↗
+          </button>
+        )}
         <span className="ml-auto text-ink-4 text-xs">
           {correct}/{data.checks.length}
           {data.createdAt ? ` · ${data.createdAt.slice(0, 19).replace('T', ' ')}` : ''}
