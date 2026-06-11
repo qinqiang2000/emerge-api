@@ -21,6 +21,7 @@
 import { create } from 'zustand'
 
 import {
+  fetchTextlayer,
   getAuditLatest,
   getBoardNotes,
   putBoardNotes,
@@ -28,6 +29,10 @@ import {
   type BoardNotesPayload,
 } from '../lib/api'
 import { fetchLocateQuotes } from '../lib/locate'
+
+/** Max (doc, page) textlayer warms per board load — the self-heal pass for
+ *  scanned pages whose OCR sidecar is cold (see `load`). */
+const WARM_CAP = 8
 
 /** Key for one evidence row's location: `${checkIdx}-${evIdx}`. */
 export const evKey = (checkIdx: number, evIdx: number) => `${checkIdx}-${evIdx}`
@@ -117,23 +122,57 @@ export const useBoard = create<State>((set, get) => ({
             bucket.keys.push(evKey(i, j))
           })
         })
-        await Promise.all(
-          [...byDoc.entries()].map(async ([doc, { quotes, keys }]) => {
-            // fetchLocateQuotes is best-effort ([] on any failure) — a doc
-            // that 404s degrades to badges, never breaks the board.
-            const results = await fetchLocateQuotes(slug, doc, quotes)
-            for (const r of results) {
-              const key = keys[r.index]
-              if (!key) continue
-              locations[key] = {
-                rects: Array.isArray(r.rects) ? r.rects : [],
-                page: r.page ?? null,
-                status: r.status ?? 'none',
-                score: r.score ?? 0,
+        const locateDocs = async (entries: [string, { quotes: { page?: number | null; quote: string }[]; keys: string[] }][]) => {
+          await Promise.all(
+            entries.map(async ([doc, { quotes, keys }]) => {
+              // fetchLocateQuotes is best-effort ([] on any failure) — a doc
+              // that 404s degrades to badges, never breaks the board.
+              const results = await fetchLocateQuotes(slug, doc, quotes)
+              for (const r of results) {
+                const key = keys[r.index]
+                if (!key) continue
+                locations[key] = {
+                  rects: Array.isArray(r.rects) ? r.rects : [],
+                  page: r.page ?? null,
+                  status: r.status ?? 'none',
+                  score: r.score ?? 0,
+                }
               }
-            }
-          }),
-        )
+            }),
+          )
+        }
+        await locateDocs([...byDoc.entries()])
+
+        // Self-heal pass (scanned docs): locate-quotes reads WARM sidecars
+        // only (LLM-free render path, skip_ocr) — a quote on a scanned page
+        // whose OCR sidecar is cold can never hit. GET /textlayer warms
+        // fitz+OCR server-side (the review viewer's own lazy-warm), so warm
+        // the cited pages of missed evidence once, then re-locate those docs
+        // (prod dogfood 2026-06-11: 报价单.pdf is a scan — every quote missed
+        // until the first /textlayer touch, then located fine).
+        const missed = new Map<string, { quotes: { page?: number | null; quote: string }[]; keys: string[] }>()
+        const warmPages = new Set<string>()
+        report.checks.forEach((c, i) => {
+          (c.evidence ?? []).forEach((e, j) => {
+            if (typeof e?.doc !== 'string' || !e.doc || typeof e.quote !== 'string' || !e.quote) return
+            const loc = locations[evKey(i, j)]
+            if (loc && loc.status !== 'none' && loc.rects.length) return
+            let bucket = missed.get(e.doc)
+            if (!bucket) { bucket = { quotes: [], keys: [] }; missed.set(e.doc, bucket) }
+            bucket.quotes.push({ page: e.page ?? null, quote: e.quote })
+            bucket.keys.push(evKey(i, j))
+            warmPages.add(`${e.doc}\u0000${e.page ?? 1}`)
+          })
+        })
+        if (missed.size) {
+          await Promise.all(
+            [...warmPages].slice(0, WARM_CAP).map((k) => {
+              const [doc, page] = k.split('\u0000')
+              return fetchTextlayer(slug, doc, Number(page)).catch(() => null)
+            }),
+          )
+          await locateDocs([...missed.entries()])
+        }
       }
       set((s) => ({ byProject: { ...s.byProject, [slug]: { report, locations } } }))
     } catch (e) {

@@ -299,11 +299,13 @@ export function buildCheckOverlays(
       width: b.w,
       height: b.h,
       strokeColor: color,
-      strokeWidth: 2,
-      // trap #4 — low-alpha fill: visible highlight zone + clickable interior
-      backgroundColor: color,
-      fillStyle: 'solid',
-      opacity: 40,
+      strokeWidth: 2.5,
+      // Dashed outline, NO fill (user 2026-06-11: fill covered the text).
+      // Spike trap #4 (clickable interior) no longer applies — overlays are
+      // shown for the ACTIVE check only and the rail drives focus, so the
+      // canvas shapes don't need to be click targets.
+      strokeStyle: 'dashed',
+      backgroundColor: 'transparent',
     })
     let centers = centersByCheck.get(ev.checkIdx)
     if (!centers) { centers = []; centersByCheck.set(ev.checkIdx, centers) }

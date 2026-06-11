@@ -148,7 +148,7 @@ describe('buildCheckOverlays', () => {
     { status: 'pass' }, { status: 'fail' }, { status: 'unclear' },
   ]
 
-  it('located evidence → low-alpha-filled ellipse (trap #4) with deterministic id', () => {
+  it('located evidence → dashed unfilled ellipse with deterministic id', () => {
     const laid = layoutPages(TWO_DOCS)
     const sk = buildCheckOverlays(checks, [mkEvidence({ checkIdx: 1, evIdx: 2 })], laid, COLORS)
     expect(sk).toHaveLength(1)
@@ -156,10 +156,11 @@ describe('buildCheckOverlays', () => {
     expect(el.id).toBe(evId(1, 2))
     expect(el.id).toBe('ev-1-2')
     expect(el.type).toBe('ellipse')
-    // trap #4: solid low-alpha fill, not a bare 2px outline
-    expect(el.fillStyle).toBe('solid')
-    expect(el.opacity).toBe(40)
-    expect(el.backgroundColor).toBe(COLORS.fail)
+    // dashed outline, NO fill — fill covered the text (dogfood 2026-06-11);
+    // overlays render for the active check only so the interior needn't be a
+    // click target (former trap #4 concern).
+    expect(el.strokeStyle).toBe('dashed')
+    expect(el.backgroundColor).toBe('transparent')
     expect(el.strokeColor).toBe(COLORS.fail)
   })
 

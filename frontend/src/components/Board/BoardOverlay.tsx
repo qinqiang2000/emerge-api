@@ -40,15 +40,15 @@ import {
   RING_ID,
   arrowId,
   buildCheckOverlays,
-  buildFocusRing,
   buildPageSkeletons,
   checkIdxOfElementId,
   imgId,
   layoutPages,
   readBoardColors,
-  unionBounds,
   type BoardDocInput,
+  type CheckStatus,
   type EvidenceOnBoard,
+  type LaidPage,
 } from './boardScene'
 
 type SceneElement = ReturnType<ExcalidrawImperativeAPI['getSceneElements']>[number]
@@ -131,6 +131,12 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   const builtFor = useRef<string | null>(null)
   const fittedFor = useRef<string | null>(null)
   const mountedRef = useRef(true)
+  /** Scene inputs kept for on-demand per-check overlay mounts (focusCheck). */
+  const sceneDataRef = useRef<{
+    checks: { status: CheckStatus }[]
+    evidences: EvidenceOnBoard[]
+    laid: Map<string, LaidPage>
+  } | null>(null)
   const notesRestoredFor = useRef<string | null>(null)
   const lastNoteSig = useRef('')
 
@@ -223,6 +229,12 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
       }
       if (cancelled || !api) return
 
+      // Few-paged docs first (anchor 报价单/订单/收货单-shaped docs cluster
+      // left, a 18-page appendix goes right) — cross-doc checks then zoom to
+      // ADJACENT pages instead of spanning the whole board (dogfood
+      // 2026-06-11). Content-agnostic: page count only, no doc-type smarts.
+      docInputs.sort((a, b) => a.pages.length - b.pages.length)
+
       api.addFiles(files)
       const laid = layoutPages(docInputs)
       const evidences: EvidenceOnBoard[] = []
@@ -239,10 +251,10 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
           })
         })
       })
-      const skeletons = [
-        ...buildPageSkeletons([...laid.values()], colors),
-        ...buildCheckOverlays(report.checks, evidences, laid, colors),
-      ]
+      sceneDataRef.current = { checks: report.checks, evidences, laid }
+      // Pages only — per-check circles/arrows mount on demand via
+      // applyCheck (user 2026-06-11: all checks at once = 一板的线, 乱).
+      const skeletons = buildPageSkeletons([...laid.values()], colors)
       api.updateScene({
         // trap #1 — regenerateIds defaults to true and would sever every
         // rail↔element linkage.
@@ -258,23 +270,15 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
       // The committed scene survives those re-runs; the fit must too.
       const fitApi = api
       // Initial view answers "定位": land on the FIRST check that has located
-      // evidence (zoomed to its circles) instead of fitting the whole board —
-      // a 20+-page group fits at ~10% zoom, which reads as unusable/empty.
-      // Fit-all stays the fallback when nothing located; Shift+1 gives the
-      // overview at any time.
+      // evidence (its circles mounted + zoomed) instead of fitting the whole
+      // board — a 20+-page group fits at ~10% zoom, which reads as unusable.
       const firstIdx = report.checks.findIndex((_, i) =>
         evidences.some(e => e.checkIdx === i && e.rects.length > 0))
       setTimeout(() => {
         if (!mountedRef.current || fittedFor.current === buildKey || !fitApi) return
         fittedFor.current = buildKey
-        const prefix = `ev-${firstIdx}-`
-        const els = firstIdx >= 0
-          ? fitApi.getSceneElements().filter(e => e.id.startsWith(prefix))
-          : []
-        if (els.length) {
-          setActiveCheck(firstIdx)
-          fitApi.scrollToContent([...els, ...pagesUnder(fitApi, els)],
-            { fitToViewport: true, viewportZoomFactor: 0.85 })
+        if (firstIdx >= 0) {
+          applyCheckRef.current?.(firstIdx)
         } else {
           fitApi.scrollToContent(undefined, { fitToViewport: true })
         }
@@ -308,34 +312,60 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   }, [api, sceneReady, entry, notes, slug])
 
   // ── Rail → canvas ────────────────────────────────────────────────────────
+  // Mount ONLY the active check's circles/arrow/badges, then zoom to them.
+  // All checks at once read as "一板的线，乱" (user 2026-06-11) — the rail is
+  // the index, the canvas shows one check's story at a time. The ochre focus
+  // ring became redundant with single-check display and was dropped.
   const focusCheck = useCallback((idx: number) => {
     setActiveCheck(idx)
-    if (!api) return
+    if (!api || !sceneDataRef.current) return
+    const { checks, evidences, laid } = sceneDataRef.current
+    const overlays = buildCheckOverlays(
+      checks,
+      evidences.filter(e => e.checkIdx === idx),
+      laid,
+      colors,
+    )
+    const keep = api.getSceneElements().filter(
+      e => !(e.id.startsWith('ev-') || e.id.startsWith('arrow-')
+        || e.id.startsWith('badge-') || e.id === RING_ID),
+    )
+    api.updateScene({
+      elements: [
+        ...keep,
+        // trap #1 — regenerateIds would sever the rail↔element linkage
+        ...convertToExcalidrawElements(overlays as never, { regenerateIds: false }),
+      ],
+    })
     const prefix = `ev-${idx}-`
     const els = api.getSceneElements().filter(
       e => e.id.startsWith(prefix) || e.id === arrowId(idx),
     )
-    if (!els.length) return
+    if (!els.length) {
+      // Unlocated check (e.g. quote missed alignment): a click must still
+      // answer — zoom to the cited docs' pages so the reviewer lands on the
+      // right document context instead of nothing happening (dogfood
+      // 2026-06-11: rules whose quotes all missed read as "click is dead").
+      const cited = (entry?.report?.checks[idx]?.evidence ?? [])
+        .filter(e => typeof e?.doc === 'string' && e.doc)
+        .map(e => imgId(e.doc, e.page ?? 1))
+      const pageEls = api.getSceneElements().filter(e => cited.includes(e.id))
+      if (pageEls.length) {
+        api.scrollToContent(pageEls, { fitToViewport: true, animate: true, viewportZoomFactor: 0.85 })
+      }
+      return
+    }
     // Zoom target = the circles PLUS the page images under them — fitting a
     // bare ellipse lands at 300%+ ("怼脸"), while the page keeps the evidence
     // readable in context (and shows both pages for a cross-doc check).
     const scope = [...els, ...pagesUnder(api, els.filter(e => e.id.startsWith(prefix)))]
     api.scrollToContent(scope, { fitToViewport: true, animate: true, viewportZoomFactor: 0.85 })
-    // Focus WITHOUT selection (trap #2): swap the single ring element instead
-    // of touching appState.selectedElementIds.
-    const ellipses = els.filter(e => e.id.startsWith(prefix))
-    const target = unionBounds(
-      ellipses.map(e => ({ x: e.x, y: e.y, w: e.width, h: e.height })),
-    )
-    if (!target) return
-    const ring = convertToExcalidrawElements(
-      // ring accent = token --ochre (focus color across the chrome)
-      [buildFocusRing(target, colors.unclear)] as never,
-      { regenerateIds: false },
-    )
-    const rest = api.getSceneElements().filter(e => e.id !== RING_ID)
-    api.updateScene({ elements: [...rest, ...ring] })
-  }, [api, colors])
+  }, [api, colors, entry])
+
+  // Latest focusCheck for the build effect's post-commit timeout (the effect
+  // must not depend on the callback identity — see the fit-survival note).
+  const applyCheckRef = useRef<typeof focusCheck | null>(null)
+  applyCheckRef.current = focusCheck
 
   // ── Canvas → rail + notes capture ───────────────────────────────────────
   const onChange = useCallback((
@@ -379,19 +409,18 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-40 backdrop-blur-sm flex items-center justify-center p-6"
-      // Inline rgba derived from --ink (#1B1A16) at 35% — matches BenchOverlay
-      // / EvalMatrixModal so shell dimming is consistent. display:none when
-      // hidden keeps the scene mounted but cedes layout + keyboard.
-      style={{ background: 'rgba(27, 26, 22, 0.35)', display: hidden ? 'none' : undefined }}
-      onClick={hidden ? undefined : onClose}
+      // Full-bleed (dogfood 2026-06-11): a 20+-page group needs every pixel —
+      // no scrim margin, the board IS the screen. ESC / ✕ close; display:none
+      // when hidden keeps the scene mounted but cedes layout + keyboard.
+      className="fixed inset-0 z-40"
+      style={{ display: hidden ? 'none' : undefined }}
       role="dialog"
       aria-label="board"
       aria-modal="true"
       aria-hidden={hidden}
     >
       <div
-        className="bg-paper text-ink rounded-lg shadow-xl border border-rule flex w-full max-w-[min(1480px,96vw)] h-[92vh] overflow-hidden relative"
+        className="bg-paper text-ink flex w-full h-full overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button
