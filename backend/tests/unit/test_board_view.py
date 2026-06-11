@@ -108,6 +108,12 @@ def test_routes_redeem_and_reject(workspace, client, monkeypatch) -> None:
     body = r.json()
     assert body["slug"] == _SLUG and "locations" in body
 
+    # browser navigation (Accept: text/html) → the board app itself
+    rh = client.get(f"/lab/board-view/{token}", headers={"accept": "text/html"})
+    assert rh.status_code == 200
+    assert rh.headers["content-type"].startswith("text/html")
+    assert "audit board" in rh.text and "/lab/board-view/" in rh.text
+
     # page raster through the token (jpg doc → page 1 original bytes)
     doc = _DOCS[0]
     r2 = client.get(f"/lab/board-view/{token}/pages/{doc}/1")

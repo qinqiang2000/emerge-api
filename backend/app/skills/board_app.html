@@ -65,14 +65,6 @@ window.addEventListener("message", ev => {
   const content = (p.result && p.result.content) || p.content;
   if (Array.isArray(content)) { toolResults.push(content); tryBoot(); }
 });
-rpc("ui/initialize", { appInfo: { name: "emerge-audit-board", version: "1.0.0" },
-                       capabilities: {} })
-  .then(() => {
-    window.parent.postMessage(
-      { jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
-    setMsg("waiting for audit report…");
-    tryBoot();
-  });
 
 /* ── boot: find the capability URL in the tool result text ────────────── */
 let booted = false;
@@ -257,6 +249,24 @@ function render(viewUrl, data) {
   const first = checks.findIndex((_, i) =>
     Object.keys(locations).some(k => Number(k.split("-")[0]) === i));
   if (first >= 0) setTimeout(() => focusCheck(first), 300);
+}
+
+/* entry dispatch — after all declarations (let `booted` is TDZ-bound) */
+/* Dual-mode: served standalone at /lab/board-view/{token} (browser nav →
+   the route returns this HTML; our fetch of the same URL returns JSON), or
+   inside an MCP Apps iframe (boot from the host-pushed tool result). */
+if (/\/lab\/board-view\//.test(window.location.pathname)) {
+  booted = true;
+  boot(window.location.href.split("#")[0].split("?")[0]);
+} else {
+  rpc("ui/initialize", { appInfo: { name: "emerge-audit-board", version: "1.0.0" },
+                         capabilities: {} })
+    .then(() => {
+      window.parent.postMessage(
+        { jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
+      setMsg("waiting for audit report…");
+      tryBoot();
+    });
 }
 </script>
 </body>

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.tools.board_view import (
     BoardViewTokenError,
@@ -36,9 +36,15 @@ def _claims_or_401(token: str) -> dict:
 
 
 @redeem_router.get("/lab/board-view/{token}")
-async def get_board_view(token: str) -> dict:
-    """Report + per-doc page counts + located rects, one payload."""
+async def get_board_view(token: str, request: Request):
+    """Dual-format: a BROWSER navigating here (Accept: text/html) gets the
+    board app itself (standalone mode — it re-fetches this same URL for
+    JSON), so the capability URL is human-clickable; a fetch() gets the
+    report + per-doc page counts + located rects payload."""
     claims = _claims_or_401(token)
+    if "text/html" in request.headers.get("accept", ""):
+        from app.mcp_server import _board_app_html
+        return HTMLResponse(_board_app_html())
     from app.tools.audit_run import AuditError
     try:
         return await build_board_view(Path(claims["ws"]), claims["slug"])
