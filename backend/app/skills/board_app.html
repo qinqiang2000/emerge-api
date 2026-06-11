@@ -33,7 +33,7 @@
   .pg img { display: block; width: 100%; height: 100% }
   .cap { position: absolute; font: 11px monospace; color: var(--ink3);
          transform: translateY(-16px) }
-  svg.ov { position: absolute; inset: 0; width: 100%; height: 100%;
+  svg.ov { position: absolute; left: 0; top: 0;
            pointer-events: none; overflow: visible }
   #hud { position: absolute; bottom: 10px; left: 10px; background: #fff;
          border: 1px solid var(--rule); border-radius: 4px; padding: 2px 8px;
@@ -150,15 +150,24 @@ function render(viewUrl, data) {
       const w = img.naturalWidth * SCALE / (pg.doc.toLowerCase().endsWith(".pdf") ? 1 : 1);
       const h = img.naturalHeight * (pg.w / img.naturalWidth);
       pg.h = h; host.style.height = h + "px"; pg.iw = img.naturalWidth;
-      drawOverlay(); };
+      sizeSvg(); drawOverlay(); };
     host.appendChild(img);
     world.appendChild(host);
   }
 
-  /* overlay svg */
+  /* overlay svg — explicit world-sized viewport (an unsized absolute svg
+     computes 0x0 inside #world and renders nothing) */
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "ov"); world.appendChild(svg);
+  svg.setAttribute("class", "ov");
+  function sizeSvg() {
+    let W = 100, H = 100;
+    for (const pg of laid.values()) { W = Math.max(W, pg.x + pg.w + 200); H = Math.max(H, pg.y + pg.h + 200); }
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+  }
+  sizeSvg();
+  world.appendChild(svg);
   let active = -1;
+  let tx = 20, ty = 20, zoom = 0.2;
   function drawOverlay() {
     svg.innerHTML = "";
     if (active < 0) return;
@@ -184,8 +193,10 @@ function render(viewUrl, data) {
       e.setAttribute("cx", cx); e.setAttribute("cy", cy);
       e.setAttribute("rx", (x1 - x0) / 2 + PAD); e.setAttribute("ry", (y1 - y0) / 2 + PAD);
       e.setAttribute("fill", "none"); e.setAttribute("stroke", "var(--mark)");
-      e.setAttribute("stroke-width", "3.5"); e.setAttribute("stroke-dasharray", "8 6");
-      e.setAttribute("vector-effect", "non-scaling-stroke"); // visible at any zoom
+      // screen-constant stroke: divide by zoom (vector-effect can't see the
+      // ancestor CSS transform, so compensate manually on every redraw)
+      e.setAttribute("stroke-width", String(3.5 / zoom));
+      e.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
       svg.appendChild(e);
       ellipses.push({ cx, cy, doc: pg.doc });
     });
@@ -196,9 +207,9 @@ function render(viewUrl, data) {
         const l = document.createElementNS(svg.namespaceURI, "line");
         l.setAttribute("x1", a.cx); l.setAttribute("y1", a.cy);
         l.setAttribute("x2", b.cx); l.setAttribute("y2", b.cy);
-        l.setAttribute("stroke", "var(--mark)"); l.setAttribute("stroke-width", "3");
-        l.setAttribute("stroke-dasharray", "8 6");
-        l.setAttribute("vector-effect", "non-scaling-stroke");
+        l.setAttribute("stroke", "var(--mark)");
+        l.setAttribute("stroke-width", String(3 / zoom));
+        l.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
         svg.appendChild(l); i += 2;
       } else i += 1;
     }
@@ -207,10 +218,13 @@ function render(viewUrl, data) {
 
   /* pan/zoom */
   const stage = document.getElementById("stage"), hud = document.getElementById("hud");
-  let tx = 20, ty = 20, zoom = 0.2;
+  let zoomRaf = 0;
   function apply() {
     world.style.transform = `translate(${tx}px,${ty}px) scale(${zoom})`;
     hud.textContent = Math.round(zoom * 100) + "%";
+    // keep stroke screen-constant across zoom changes (cheap: few elements)
+    cancelAnimationFrame(zoomRaf);
+    zoomRaf = requestAnimationFrame(() => drawOverlay());
   }
   stage.addEventListener("wheel", ev => {
     ev.preventDefault();
