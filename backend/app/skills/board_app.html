@@ -263,15 +263,26 @@ function render(viewUrl, data) {
       e.setAttribute("stroke-width", String(3.5 / zoom));
       e.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
       svg.appendChild(e);
-      ellipses.push({ cx, cy, doc: pg.doc });
+      ellipses.push({ cx, cy, rx: (x1 - x0) / 2 + PAD, ry: (y1 - y0) / 2 + PAD, doc: pg.doc });
     });
     // consecutive cross-doc pairs (same pairing rule as the web board)
     for (let i = 0; i + 1 < ellipses.length;) {
       if (ellipses[i].doc !== ellipses[i + 1].doc) {
         const a = ellipses[i], b = ellipses[i + 1];
+        // trim the shaft at both ellipse rims (+gap) — same math as the web
+        // board: t = 1/√((dx/rx)² + (dy/ry)²) along the center ray
+        const GAP = 8;
+        const dx = b.cx - a.cx, dy = b.cy - a.cy;
+        const norm = Math.hypot(dx, dy) || 1;
+        const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1));
+        const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1));
+        const sx = a.cx + dx * tA + (dx / norm) * GAP;
+        const sy = a.cy + dy * tA + (dy / norm) * GAP;
+        const ex = b.cx - dx * tB - (dx / norm) * GAP;
+        const ey = b.cy - dy * tB - (dy / norm) * GAP;
         const l = document.createElementNS(svg.namespaceURI, "line");
-        l.setAttribute("x1", a.cx); l.setAttribute("y1", a.cy);
-        l.setAttribute("x2", b.cx); l.setAttribute("y2", b.cy);
+        l.setAttribute("x1", sx); l.setAttribute("y1", sy);
+        l.setAttribute("x2", ex); l.setAttribute("y2", ey);
         l.setAttribute("stroke", "var(--mark)");
         l.setAttribute("stroke-width", String(3 / zoom));
         l.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
@@ -356,9 +367,9 @@ function render(viewUrl, data) {
   const dbgEl = document.createElement("div");
   dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
     "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
-  dbgEl.textContent = "v8";
+  dbgEl.textContent = "v9";
   document.getElementById("stage").appendChild(dbgEl);
-  window.dbg = t => { dbgEl.textContent = "v8 · " + t; };
+  window.dbg = t => { dbgEl.textContent = "v9 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.
