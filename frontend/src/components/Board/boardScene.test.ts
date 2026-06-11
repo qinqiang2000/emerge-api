@@ -24,6 +24,7 @@ import {
   imgId,
   layoutPages,
   pageKey,
+  pullPagesFront,
   pxPerPtFor,
   readBoardColors,
   unionBounds,
@@ -142,6 +143,20 @@ function mkEvidence(over: Partial<EvidenceOnBoard>): EvidenceOnBoard {
     ...over,
   }
 }
+
+describe('pullPagesFront', () => {
+  const doc = { name: 'm.pdf', ext: 'pdf', pages: [1, 2, 3, 4, 5].map(n => ({ page: n, w: 100, h: 100 })) }
+
+  it('cited pages bubble to the front, rest keep order', () => {
+    const out = pullPagesFront(doc, [4, 2])
+    expect(out.pages.map(p => p.page)).toEqual([2, 4, 1, 3, 5])
+  })
+
+  it('no cited / unknown pages -> unchanged', () => {
+    expect(pullPagesFront(doc, []).pages.map(p => p.page)).toEqual([1, 2, 3, 4, 5])
+    expect(pullPagesFront(doc, [99]).pages.map(p => p.page)).toEqual([1, 2, 3, 4, 5])
+  })
+})
 
 describe('buildCheckOverlays', () => {
   const checks: { status: CheckStatus }[] = [

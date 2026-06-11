@@ -44,6 +44,7 @@ import {
   checkIdxOfElementId,
   imgId,
   layoutPages,
+  pullPagesFront,
   readBoardColors,
   type BoardDocInput,
   type CheckStatus,
@@ -335,10 +336,23 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
     const moveDelta = new Map<string, { dx: number; dy: number }>() // element id → delta
     const oldPages = [...laid.values()]
     if (citedDocs.length >= 2) {
+      // Cited PAGES bubble to each doc's leading sub-column — doc adjacency
+      // alone leaves a circle deep in an 18-page grid a whole band away from
+      // its partner (dogfood 2026-06-11). Few-paged docs sit left, so the
+      // big doc's leading column lands right beside them.
+      const citedPages = new Map<string, number[]>()
+      for (const ev of evidences) {
+        if (ev.checkIdx !== idx || !ev.doc || ev.page == null) continue
+        const arr = citedPages.get(ev.doc) ?? []
+        if (!arr.includes(ev.page)) arr.push(ev.page)
+        citedPages.set(ev.doc, arr)
+      }
       const ordered = [
         ...citedDocs
           .map(d => docs.find(dd => dd.name === d))
-          .filter((d): d is BoardDocInput => !!d),
+          .filter((d): d is BoardDocInput => !!d)
+          .sort((a, b) => a.pages.length - b.pages.length)
+          .map(d => pullPagesFront(d, citedPages.get(d.name) ?? [])),
         ...docs.filter(d => !citedDocs.includes(d.name)),
       ]
       const newLaid = layoutPages(ordered)

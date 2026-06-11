@@ -144,6 +144,18 @@ export const pageKey = (doc: string, page: number) => `${doc}#p${page}`
  *  fit-to-viewport to ~10% zoom, prod dogfood 2026-06-11). */
 export const PAGES_PER_COL = 4
 
+/** Reorder a doc's pages so the cited ones come first (band's leading
+ *  sub-column). For a many-paged doc whose cited page sits deep in the grid,
+ *  doc-level adjacency isn't enough — the circle would still be a whole band
+ *  away from the other doc (dogfood 2026-06-11). Page captions carry the real
+ *  page numbers, so a non-sequential grid stays self-describing. */
+export function pullPagesFront(doc: BoardDocInput, cited: number[]): BoardDocInput {
+  if (!cited.length) return doc
+  const front = doc.pages.filter((p) => cited.includes(p.page))
+  if (!front.length) return doc
+  return { ...doc, pages: [...front, ...doc.pages.filter((p) => !cited.includes(p.page))] }
+}
+
 /** One column band per doc, pages stacked top-to-bottom and wrapping into
  *  sub-columns of PAGES_PER_COL (ROW_GAP apart). The doc-to-doc COL_GAP stays
  *  wider so docs still read as groups. */
