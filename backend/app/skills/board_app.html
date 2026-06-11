@@ -48,10 +48,13 @@
 "use strict";
 /* ── minimal MCP Apps host bridge ─────────────────────────────────────── */
 let seq = 0; const pending = {};
-function rpc(method, params) {
+function rpc(method, params, timeoutMs) {
   return new Promise(res => {
     const id = ++seq; pending[id] = res;
     window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+    if (timeoutMs) setTimeout(() => {
+      if (pending[id]) { delete pending[id]; res(undefined); } // host didn't answer
+    }, timeoutMs);
   });
 }
 const toolResults = [];
@@ -278,10 +281,22 @@ function render(viewUrl, data) {
       "background:#fff;border:1px solid var(--rule);border-radius:4px;" +
       "padding:2px 8px;cursor:pointer;font-size:14px;color:var(--ink3)";
     let fsOn = false;
-    fs.onclick = () => {
+    const sizeNote = h => window.parent.postMessage({ jsonrpc: "2.0",
+      method: "ui/notifications/size-changed",
+      params: { width: Math.max(document.body.clientWidth || 0, 900), height: h } }, "*");
+    fs.onclick = async () => {
       fsOn = !fsOn;
-      rpc("ui/request-display-mode", { mode: fsOn ? "fullscreen" : "inline" })
-        .then(r => { fsOn = (r && r.mode) === "fullscreen"; });
+      fs.textContent = fsOn ? "🗗" : "⛶"; // immediate feedback either way
+      const r = await rpc("ui/request-display-mode",
+        { mode: fsOn ? "fullscreen" : "inline" }, 800);
+      if (r && r.mode) {
+        fsOn = r.mode === "fullscreen";
+        fs.textContent = fsOn ? "🗗" : "⛶";
+      } else {
+        // host doesn't implement display-mode (dogfood: Cowork ignored it) —
+        // fall back to growing the frame via size-changed, which it does honor
+        sizeNote(fsOn ? Math.max((window.screen && window.screen.availHeight || 1200) - 240, 900) : 720);
+      }
     };
     document.getElementById("stage").appendChild(fs);
   }
