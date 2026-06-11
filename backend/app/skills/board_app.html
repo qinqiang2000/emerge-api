@@ -264,6 +264,27 @@ function render(viewUrl, data) {
   }
 
   apply();
+  if (window.__embedded) {
+    // default in-chat frame is short (~200px) — report a workable board
+    // height; ResizeObserver keeps it honest if the host resizes us.
+    window.parent.postMessage({ jsonrpc: "2.0",
+      method: "ui/notifications/size-changed",
+      params: { width: Math.max(document.body.clientWidth || 0, 900), height: 720 } }, "*");
+    // fullscreen affordance — the board is a workspace, not a thumbnail
+    const fs = document.createElement("button");
+    fs.textContent = "⛶";
+    fs.title = "fullscreen";
+    fs.style.cssText = "position:absolute;top:8px;right:8px;z-index:10;" +
+      "background:#fff;border:1px solid var(--rule);border-radius:4px;" +
+      "padding:2px 8px;cursor:pointer;font-size:14px;color:var(--ink3)";
+    let fsOn = false;
+    fs.onclick = () => {
+      fsOn = !fsOn;
+      rpc("ui/request-display-mode", { mode: fsOn ? "fullscreen" : "inline" })
+        .then(r => { fsOn = (r && r.mode) === "fullscreen"; });
+    };
+    document.getElementById("stage").appendChild(fs);
+  }
   // open on the first check that has located evidence
   const first = checks.findIndex((_, i) =>
     Object.keys(locations).some(k => Number(k.split("-")[0]) === i));
@@ -278,6 +299,7 @@ if (/\/lab\/board-view\//.test(window.location.pathname)) {
   booted = true;
   boot(window.location.href.split("#")[0].split("?")[0]);
 } else {
+  window.__embedded = true;
   rpc("ui/initialize", { appInfo: { name: "emerge-audit-board", version: "1.0.0" },
                          capabilities: {} })
     .then(() => {
