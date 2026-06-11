@@ -13,6 +13,7 @@ from the project's own active model (provider-direct; never the agent's SDK).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,10 @@ _MAX_TOTAL_PAGES = 40
 # the judge again. Any loop source becomes a free no-op; a genuine re-audit
 # (rules edited → version bump, docs added → group change) always re-runs.
 _IDEMPOTENT_WINDOW_S = 120
+
+# In-flight identical runs share one task (see run_audit body). Single-process
+# asyncio server → a module dict is the whole registry.
+_INFLIGHT: dict[tuple, "asyncio.Task[dict]"] = {}
 
 
 class AuditError(Exception):
@@ -138,6 +143,39 @@ async def run_audit(
         cached["cached"] = True
         return cached
 
+    # ── in-flight dedupe: the completed-report window above can't see a run
+    # that is still judging. A client tool-timeout + retry (Cowork ~60s <
+    # judge trip ~70s) lands here while #1 is mid-flight — without this, the
+    # retry burned a second full judge trip (dogfood 2026-06-11: race lost by
+    # 2 seconds). Identical key → await the SAME task; the task is shielded
+    # so the first caller's disconnect doesn't kill the run for the second.
+    key = (str(workspace.resolve()), slug, rules_version,
+           tuple(sorted(audited_shas.items())))
+    existing = _INFLIGHT.get(key)
+    if existing is not None:
+        report = dict(await asyncio.shield(existing))
+        report["cached"] = True
+        return report
+    task = asyncio.create_task(_execute_audit(
+        workspace, slug, audit_rules, rules_version, docs, want,
+        audited_shas, provider, model_id,
+    ))
+    _INFLIGHT[key] = task
+    task.add_done_callback(lambda _t: _INFLIGHT.pop(key, None))
+    return await asyncio.shield(task)
+
+
+async def _execute_audit(
+    workspace: Path,
+    slug: str,
+    audit_rules: list,
+    rules_version: Optional[int],
+    docs: list[dict[str, Any]],
+    want: Optional[set[str]],
+    audited_shas: dict[str, str],
+    provider: Optional[Provider],
+    model_id: Optional[str],
+) -> dict[str, Any]:
     doc_images: dict[str, list[ImageBlock]] = {}
     doc_fields: dict[str, dict] = {}
     total_pages = 0

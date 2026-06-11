@@ -11,6 +11,7 @@ from app.tools.match_prompt import read_active_match_prompt, write_audit_rules
 from app.tools.projects import create_project
 from app.workspace.atomic import atomic_write_json
 from app.workspace.paths import (
+    audits_dir,
     docs_dir,
     docs_meta_dir,
     match_prompt_path,
@@ -435,3 +436,32 @@ async def test_doc_set_change_bypasses_cache(workspace):
         workspace, slug, provider=p, model_id="m", filenames=["报价单.jpg"])
     assert p.calls == 2, "different doc set must re-run"
     assert "cached" not in second
+
+
+async def test_concurrent_identical_runs_share_one_judge_trip(workspace):
+    """Client tool-timeout + retry lands while run #1 is still judging — the
+    in-flight dedupe must share the task, not start a second judge trip
+    (dogfood 2026-06-11: the completed-report window lost this race by 2s)."""
+    import asyncio
+
+    slug = await _audit_project(workspace, docs=_DOCS)
+
+    class _SlowProvider(_MockProvider):
+        async def extract(self, **kw):
+            await asyncio.sleep(0.2)  # judge trip in flight
+            return await super().extract(**kw)
+
+    p = _SlowProvider([
+        {"index": 0, "status": "pass", "reason": "ok"},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    first, second = await asyncio.gather(
+        run_audit(workspace, slug, provider=p, model_id="m"),
+        run_audit(workspace, slug, provider=p, model_id="m"),
+    )
+    assert p.calls == 1, "concurrent identical runs must share one judge trip"
+    assert first["run_id"] == second["run_id"]
+    assert first.get("cached") or second.get("cached")
+    runs = list(audits_dir(workspace, slug).glob("*/report.json"))
+    assert len(runs) == 1, "exactly one report on disk"
