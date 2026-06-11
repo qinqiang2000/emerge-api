@@ -5,7 +5,10 @@
      read_audit_report tool result; we read the board-view capability URL
      from its text, redeem it for {report, docs, locations}, and draw the
      same magenta dashed-circle board the web UI settled on (2026-06-11).
-     Red line: locate rects live only inside this iframe. -->
+     Red line: locate rects live only inside this iframe.
+     Geometry comes from board_geometry.js, injected at serve time into the
+     placeholder script block below (mcp_server.py::_board_app_html) — this
+     file must NOT hand-write geometry formulas/constants again (plan §G2). -->
 <html lang="zh">
 <head>
 <meta charset="utf-8">
@@ -59,6 +62,11 @@
 <div id="rail" hidden><h3><span class="ttl">checks</span> <span id="tally"></span><button id="railTg" title="收起/展开">«</button></h3><div id="rows"></div></div>
 <div id="stage"><div id="world"></div><div id="hud" hidden></div><div id="msg">initializing…</div></div>
 <script>
+/* 几何单真相注入位：serve 时 mcp_server.py::_board_app_html 把下行占位替换为
+   board_geometry.js 全文（classic script → 之后 globalThis.BoardGeom 可用）。 */
+/*__BOARD_GEOMETRY_JS__*/
+</script>
+<script>
 "use strict";
 /* ── minimal MCP Apps host bridge ─────────────────────────────────────── */
 let seq = 0; const pending = {};
@@ -107,9 +115,8 @@ async function boot(viewUrl) {
   render(viewUrl, data);
 }
 
-/* ── layout constants (mirror web boardScene) ─────────────────────────── */
-const SCALE = 0.55, COL_GAP = 120, ROW_GAP = 24, PAGES_PER_COL = 4, PAD = 8;
-const PX_PER_PT = 150 / 72;
+/* ── geometry: injected board_geometry.js is the single source of truth ─ */
+const { GEOM } = BoardGeom;
 
 function render(viewUrl, data) {
   const report = data.report || {}, checks = report.checks || [];
@@ -139,22 +146,15 @@ function render(viewUrl, data) {
     rows.appendChild(d);
   });
 
-  /* pages: layout + lazy img + measure via naturalWidth */
+  /* pages: layout via shared BoardGeom.layoutPages + lazy img.
+     A4-ish placeholder dims; corrected when each img loads. laid value shape
+     {doc,page,x,y,w,h,k} 与共享版一致——k 此处 = pxPerPtFor(ext)×SCALE，
+     drawOverlay 在 img onload 后用 srcScale 重推 k（只影响 overlay，不动布局）。 */
   const world = document.getElementById("world");
-  const laid = new Map(); // "doc#p" -> {x,y,w,h,k}
-  let x = 0;
-  for (const doc of docs) {
-    const k = (doc.ext === "pdf" ? PX_PER_PT : 1) * SCALE;
-    let y = 0, colW = 0, colX = x, right = x, inCol = 0;
-    for (let p = 1; p <= (doc.pages || 1); p++) {
-      // A4-ish placeholder; corrected when the img loads.
-      const w = 1240 * SCALE, h = 1754 * SCALE;
-      if (inCol >= PAGES_PER_COL) { colX += colW + ROW_GAP; y = 0; colW = 0; inCol = 0; }
-      laid.set(doc.doc + "#" + p, { doc: doc.doc, page: p, x: colX, y, w, h, k });
-      y += h + ROW_GAP; colW = Math.max(colW, w); right = Math.max(right, colX + colW); inCol++;
-    }
-    if (doc.pages > 0) x = right + COL_GAP;
-  }
+  const laid = BoardGeom.layoutPages(docs.map(d => ({
+    name: d.doc, ext: d.ext,
+    pages: Array.from({ length: d.pages || 1 }, (_, j) => ({ page: j + 1, w: 1240, h: 1754 })),
+  })), GEOM.SCALE);
   for (const [key, pg] of laid) {
     const host = document.createElement("div");
     host.className = "pg"; host.dataset.key = key;
@@ -166,7 +166,6 @@ function render(viewUrl, data) {
     img.loading = "lazy";
     img.src = `${viewUrl}/pages/${encodeURIComponent(pg.doc)}/${pg.page}`;
     img.onload = () => { // correct aspect (x stays; board is column-flow so y drift is tolerable)
-      const w = img.naturalWidth * SCALE / (pg.doc.toLowerCase().endsWith(".pdf") ? 1 : 1);
       const h = img.naturalHeight * (pg.w / img.naturalWidth);
       pg.h = h; host.style.height = h + "px"; pg.iw = img.naturalWidth;
       sizeSvg(); drawOverlay(); };
@@ -179,20 +178,25 @@ function render(viewUrl, data) {
      bubble to each doc's leading sub-column — a cross-doc pair must sit
      side by side, not a band apart (dogfood 2026-06-11). */
   function reflow(order) { // order: [{doc, pages: [pageNo, ...]}]
-    let x = 0;
-    for (const o of order) {
-      let y = 0, colW = 0, colX = x, right = x, inCol = 0;
-      for (const pn of o.pages) {
-        const pg = laid.get(o.doc + "#" + pn);
-        if (!pg) continue;
-        if (inCol >= PAGES_PER_COL) { colX += colW + ROW_GAP; y = 0; colW = 0; inCol = 0; }
-        pg.x = colX; pg.y = y;
-        y += pg.h + ROW_GAP; colW = Math.max(colW, pg.w);
-        right = Math.max(right, colX + colW); inCol++;
-        const host = world.querySelector(`[data-key="${CSS.escape(o.doc + "#" + pn)}"]`);
-        if (host) { host.style.left = pg.x + "px"; host.style.top = pg.y + "px"; }
-      }
-      if (o.pages.length) x = right + COL_GAP;
+    // 复用共享 layoutPages 重摆（layoutPages 吃源尺寸：laid 存的是已×SCALE 的
+    // 板尺寸，反除 SCALE 还原；onload 校正过的 pg.h 由此自然带进重排），
+    // 再把返回的 x/y 写回 laid 与 DOM——w/h/k 不动。
+    const byName = Object.fromEntries(docs.map(d => [d.doc, d]));
+    const relaid = BoardGeom.layoutPages(order.map(o => ({
+      name: o.doc, ext: (byName[o.doc] || {}).ext,
+      pages: o.pages
+        .map(pn => {
+          const pg = laid.get(BoardGeom.pageKey(o.doc, pn));
+          return pg ? { page: pn, w: pg.w / GEOM.SCALE, h: pg.h / GEOM.SCALE } : null;
+        })
+        .filter(Boolean),
+    })), GEOM.SCALE);
+    for (const [key, npos] of relaid) {
+      const pg = laid.get(key);
+      if (!pg) continue;
+      pg.x = npos.x; pg.y = npos.y;
+      const host = world.querySelector(`[data-key="${CSS.escape(key)}"]`);
+      if (host) { host.style.left = pg.x + "px"; host.style.top = pg.y + "px"; }
     }
   }
   function reflowForCheck(i) {
@@ -240,54 +244,38 @@ function render(viewUrl, data) {
     Object.entries(locations).forEach(([key, loc]) => {
       const [ci] = key.split("-").map(Number);
       if (ci !== active || !loc.rects || !loc.rects.length) return;
-      const pg = laid.get(loc.doc + "#" + (loc.page || 1));
+      const pg = laid.get(BoardGeom.pageKey(loc.doc, loc.page || 1));
       if (!pg) return;
       // rect (pt or px) -> board px. img display width == pg.w; source width
-      // = naturalWidth; pdf rects are points: px = pt*150/72, then × pg.w/iw.
-      const srcScale = pg.iw ? pg.w / pg.iw : SCALE;
-      const k = (pg.doc.toLowerCase().endsWith(".pdf") ? PX_PER_PT : 1) * srcScale;
-      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-      for (const r of loc.rects) {
-        if (r.length < 4) continue;
-        x0 = Math.min(x0, r[0] * k); y0 = Math.min(y0, r[1] * k);
-        x1 = Math.max(x1, r[2] * k); y1 = Math.max(y1, r[3] * k);
-      }
-      if (x1 <= x0) return;
+      // = naturalWidth; pdf rects are points: px = pt×dpi/72, then × pg.w/iw.
+      // iframe 特有：k 用 srcScale 校正（非布局占位的 k）——喂给共享
+      // evidenceEllipse 的 pageLike 必须带这个 k。
+      const srcScale = pg.iw ? pg.w / pg.iw : GEOM.SCALE;
+      const k = BoardGeom.pxPerPtFor(pg.doc.toLowerCase().endsWith(".pdf") ? "pdf" : "img") * srcScale;
+      const el = BoardGeom.evidenceEllipse(loc.rects, { x: pg.x, y: pg.y, k });
+      if (!el) return;
       const e = document.createElementNS(svg.namespaceURI, "ellipse");
-      const cx = pg.x + (x0 + x1) / 2, cy = pg.y + (y0 + y1) / 2;
-      e.setAttribute("cx", cx); e.setAttribute("cy", cy);
-      e.setAttribute("rx", (x1 - x0) / 2 + PAD); e.setAttribute("ry", (y1 - y0) / 2 + PAD);
+      e.setAttribute("cx", el.cx); e.setAttribute("cy", el.cy);
+      e.setAttribute("rx", el.rx); e.setAttribute("ry", el.ry);
       e.setAttribute("fill", "none"); e.setAttribute("stroke", "var(--mark)");
       // screen-constant stroke: divide by zoom (vector-effect can't see the
       // ancestor CSS transform, so compensate manually on every redraw)
-      e.setAttribute("stroke-width", String(3.5 / zoom));
-      e.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
+      e.setAttribute("stroke-width", String(GEOM.STROKE_W / zoom));
+      e.setAttribute("stroke-dasharray", `${GEOM.DASH_ON / zoom} ${GEOM.DASH_OFF / zoom}`);
       svg.appendChild(e);
-      ellipses.push({ cx, cy, rx: (x1 - x0) / 2 + PAD, ry: (y1 - y0) / 2 + PAD, doc: pg.doc });
+      ellipses.push({ cx: el.cx, cy: el.cy, rx: el.rx, ry: el.ry, doc: pg.doc });
     });
-    // consecutive cross-doc pairs (same pairing rule as the web board)
-    for (let i = 0; i + 1 < ellipses.length;) {
-      if (ellipses[i].doc !== ellipses[i + 1].doc) {
-        const a = ellipses[i], b = ellipses[i + 1];
-        // trim the shaft at both ellipse rims (+gap) — same math as the web
-        // board: t = 1/√((dx/rx)² + (dy/ry)²) along the center ray
-        const GAP = 8;
-        const dx = b.cx - a.cx, dy = b.cy - a.cy;
-        const norm = Math.hypot(dx, dy) || 1;
-        const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1));
-        const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1));
-        const sx = a.cx + dx * tA + (dx / norm) * GAP;
-        const sy = a.cy + dy * tA + (dy / norm) * GAP;
-        const ex = b.cx - dx * tB - (dx / norm) * GAP;
-        const ey = b.cy - dy * tB - (dy / norm) * GAP;
-        const l = document.createElementNS(svg.namespaceURI, "line");
-        l.setAttribute("x1", sx); l.setAttribute("y1", sy);
-        l.setAttribute("x2", ex); l.setAttribute("y2", ey);
-        l.setAttribute("stroke", "var(--mark)");
-        l.setAttribute("stroke-width", String(3 / zoom));
-        l.setAttribute("stroke-dasharray", `${10 / zoom} ${7 / zoom}`);
-        svg.appendChild(l); i += 2;
-      } else i += 1;
+    // consecutive cross-doc pairs + rim-to-rim trim — shared BoardGeom math
+    for (const [a, b] of BoardGeom.crossDocPairs(ellipses)) {
+      const t = BoardGeom.rayEllipseTrim(a, b, GEOM.ARROW_GAP);
+      if (!t) continue; // coincident centers — nothing to draw
+      const l = document.createElementNS(svg.namespaceURI, "line");
+      l.setAttribute("x1", t.sx); l.setAttribute("y1", t.sy);
+      l.setAttribute("x2", t.ex); l.setAttribute("y2", t.ey);
+      l.setAttribute("stroke", "var(--mark)");
+      l.setAttribute("stroke-width", String(GEOM.STROKE_ARROW / zoom));
+      l.setAttribute("stroke-dasharray", `${GEOM.DASH_ON / zoom} ${GEOM.DASH_OFF / zoom}`);
+      svg.appendChild(l);
     }
     return ellipses;
   }
@@ -367,9 +355,9 @@ function render(viewUrl, data) {
   const dbgEl = document.createElement("div");
   dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
     "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
-  dbgEl.textContent = "v9";
+  dbgEl.textContent = "v10";
   document.getElementById("stage").appendChild(dbgEl);
-  window.dbg = t => { dbgEl.textContent = "v9 · " + t; };
+  window.dbg = t => { dbgEl.textContent = "v10 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.

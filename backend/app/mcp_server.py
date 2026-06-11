@@ -294,9 +294,22 @@ _BOARD_APP_BASE = "ui://emerge/audit-board.html"
 
 
 def _board_app_html() -> str:
-    """The B5b board app — a self-contained HTML file beside the skills."""
-    return (Path(__file__).parent / "skills" / "board_app.html").read_text(
-        encoding="utf-8")
+    """The B5b board app — a self-contained HTML file beside the skills.
+
+    Geometry single source (plan §G2): the /*__BOARD_GEOMETRY_JS__*/
+    placeholder is replaced with board_geometry.js verbatim at serve time
+    (classic script → globalThis.BoardGeom). A missing placeholder means
+    someone hand-copied geometry back into the HTML — fail loud."""
+    skills = Path(__file__).parent / "skills"
+    html = (skills / "board_app.html").read_text(encoding="utf-8")
+    placeholder = "/*__BOARD_GEOMETRY_JS__*/"
+    if placeholder not in html:
+        raise RuntimeError(
+            "board_app.html lost the /*__BOARD_GEOMETRY_JS__*/ placeholder; "
+            "geometry must be injected from board_geometry.js, never hand-written"
+        )
+    return html.replace(
+        placeholder, (skills / "board_geometry.js").read_text(encoding="utf-8"))
 
 
 def _board_app_uri() -> str:

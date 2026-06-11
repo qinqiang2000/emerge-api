@@ -38,6 +38,7 @@ import { STATUS_GLYPH } from '../Chat/AuditCard'
 import {
   OWN_ID_RE,
   RING_ID,
+  annotateUserElements,
   arrowId,
   buildCheckOverlays,
   buildPageSkeletons,
@@ -462,10 +463,16 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
     const sig = user.map(e => `${e.id}:${e.version}`).join('|')
     if (sig !== lastNoteSig.current) {
       lastNoteSig.current = sig
+      // D1: anchor each note back onto the page it sits over — same payload,
+      // same debounce, no extra UI. sceneDataRef.laid is the LATEST layout
+      // (focusCheck relayouts write back into the ref); before the scene
+      // exists onChange can't reach here (sceneReady guard above).
+      const laid = sceneDataRef.current?.laid ?? new Map<string, LaidPage>()
       useBoard.getState().saveNotes(
         slug,
         entry.report.run_id,
         user.map(e => JSON.parse(JSON.stringify(e)) as unknown),
+        annotateUserElements(user, laid),
       )
     }
   }, [sceneReady, entry, slug])

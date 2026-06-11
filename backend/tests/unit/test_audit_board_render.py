@@ -197,10 +197,11 @@ def test_board_notes_get_empty_then_put_then_get(workspace, client):
 
     resp = client.get("/lab/projects/审核板/audit/board-notes")
     assert resp.status_code == 200
-    assert resp.json() == {"run_id": run_id, "elements": []}
+    assert resp.json() == {"run_id": run_id, "elements": [], "annotations": []}
 
     elements = [{"id": "e1", "type": "freedraw", "points": [[0, 0], [5, 5]]},
                 {"id": "e2", "type": "text", "text": "缺章，周一补"}]
+    # legacy body (no annotations key) stays accepted — D1 is additive
     resp = client.put(
         "/lab/projects/审核板/audit/board-notes",
         json={"run_id": run_id, "elements": elements},
@@ -210,13 +211,62 @@ def test_board_notes_get_empty_then_put_then_get(workspace, client):
 
     resp = client.get("/lab/projects/审核板/audit/board-notes")
     assert resp.status_code == 200
-    assert resp.json() == {"run_id": run_id, "elements": elements}
+    assert resp.json() == {"run_id": run_id, "elements": elements, "annotations": []}
 
     # persisted next to (not inside) the derived report blob, atomic JSON
     on_disk = json.loads(
         (audits_dir(workspace, "审核板") / run_id / "board_notes.json")
         .read_text(encoding="utf-8"))
     assert on_disk["elements"] == elements
+
+
+def test_board_notes_annotations_roundtrip(workspace, client):
+    """D1 anchor sidecar: PUT persists `annotations` verbatim, GET passes it
+    through. Render-layer file — rects are legal HERE (and only here)."""
+    run_id = _write_report(workspace, "审核板", checks=_CHECKS, group_docs=_DOCS)
+    elements = [{"id": "e1", "type": "ellipse"},
+                {"id": "e2", "type": "text", "text": "缺章，周一补"},
+                {"id": "e3", "type": "freedraw"}]
+    annotations = [
+        {"id": "e1", "kind": "shape", "doc": "报价单.jpg", "page": 1,
+         "rect": [100.0, 200.0, 360.5, 280.25]},
+        {"id": "e2", "kind": "text", "doc": "报价单.jpg", "page": 1,
+         "rect": [80.0, 50.0, 240.0, 90.0], "text": "缺章，周一补"},
+        # doodle in empty board space — anchor is null but the note persists
+        {"id": "e3", "kind": "draw", "doc": None, "page": None, "rect": None},
+    ]
+    resp = client.put(
+        "/lab/projects/审核板/audit/board-notes",
+        json={"run_id": run_id, "elements": elements, "annotations": annotations},
+    )
+    assert resp.status_code == 200
+
+    resp = client.get("/lab/projects/审核板/audit/board-notes")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "run_id": run_id, "elements": elements, "annotations": annotations,
+    }
+
+    on_disk = json.loads(
+        (audits_dir(workspace, "审核板") / run_id / "board_notes.json")
+        .read_text(encoding="utf-8"))
+    assert on_disk == {
+        "run_id": run_id, "elements": elements, "annotations": annotations,
+    }
+
+
+def test_board_notes_pre_d1_file_reads_with_empty_annotations(workspace, client):
+    """Files written before D1 lack the annotations key — GET degrades to []."""
+    run_id = _write_report(workspace, "审核板", checks=_CHECKS, group_docs=_DOCS)
+    elements = [{"id": "e1", "type": "text", "text": "老笔记"}]
+    notes_path = audits_dir(workspace, "审核板") / run_id / "board_notes.json"
+    notes_path.write_text(
+        json.dumps({"run_id": run_id, "elements": elements}, ensure_ascii=False),
+        encoding="utf-8")
+
+    resp = client.get("/lab/projects/审核板/audit/board-notes")
+    assert resp.status_code == 200
+    assert resp.json() == {"run_id": run_id, "elements": elements, "annotations": []}
 
 
 def test_board_notes_get_without_report_404(workspace, client):
@@ -250,4 +300,13 @@ def test_board_notes_put_oversize_400(workspace, client):
     assert resp.status_code == 400
     assert resp.json()["detail"]["error_code"] == "board_notes_too_large"
     # the oversize write never landed
+    assert not (audits_dir(workspace, "审核板") / run_id / "board_notes.json").exists()
+    # the cap covers the WHOLE payload — oversize annotations refuse the same way
+    resp = client.put(
+        "/lab/projects/审核板/audit/board-notes",
+        json={"run_id": run_id, "elements": [],
+              "annotations": [{"id": "a", "text": "x" * 1_100_000}]},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "board_notes_too_large"
     assert not (audits_dir(workspace, "审核板") / run_id / "board_notes.json").exists()

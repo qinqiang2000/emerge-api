@@ -26,6 +26,7 @@ import {
   getBoardNotes,
   putBoardNotes,
   type AuditLatestReport,
+  type BoardAnnotation,
   type BoardNotesPayload,
 } from '../lib/api'
 import { fetchLocateQuotes } from '../lib/locate'
@@ -62,8 +63,10 @@ interface State {
   invalidate: (slug: string) => void
   loadNotes: (slug: string) => Promise<void>
   /** Debounced (1s) persist of the user-drawn elements for the current run.
-   *  The local cache updates immediately so close→reopen restores instantly. */
-  saveNotes: (slug: string, runId: string, elements: unknown[]) => void
+   *  The local cache updates immediately so close→reopen restores instantly.
+   *  `annotations` (D1) is the anchor sidecar computed from the same elements
+   *  — it rides the same payload/debounce, never a second pipeline. */
+  saveNotes: (slug: string, runId: string, elements: unknown[], annotations?: BoardAnnotation[]) => void
   reset: () => void
 }
 
@@ -193,8 +196,10 @@ export const useBoard = create<State>((set, get) => ({
     set((s) => ({ notesByProject: { ...s.notesByProject, [slug]: notes } }))
   },
 
-  saveNotes: (slug, runId, elements) => {
-    const payload: BoardNotesPayload = { run_id: runId, elements }
+  saveNotes: (slug, runId, elements, annotations) => {
+    const payload: BoardNotesPayload = annotations
+      ? { run_id: runId, elements, annotations }
+      : { run_id: runId, elements }
     set((s) => ({ notesByProject: { ...s.notesByProject, [slug]: payload } }))
     if (noteTimers[slug]) clearTimeout(noteTimers[slug])
     noteTimers[slug] = setTimeout(() => {

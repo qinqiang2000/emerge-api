@@ -198,6 +198,43 @@ describe('useBoard store', () => {
     })
   })
 
+  it('saveNotes carries the D1 annotations sidecar through the same payload + debounce', async () => {
+    vi.useFakeTimers()
+    const putSpy = vi.spyOn(api, 'putBoardNotes').mockResolvedValue()
+    const annotations: api.BoardAnnotation[] = [
+      { id: 'x', kind: 'shape', doc: 'a.pdf', page: 1, rect: [10, 20, 60, 40] },
+      { id: 'y', kind: 'text', doc: null, page: null, rect: null, text: '空白处批注' },
+    ]
+
+    useBoard.getState().saveNotes('proj-a', 'au_001', [{ id: 'x' }, { id: 'y' }], annotations)
+
+    // immediate local cache includes the annotations (close→reopen restore)
+    expect(useBoard.getState().notesByProject['proj-a']).toEqual({
+      run_id: 'au_001',
+      elements: [{ id: 'x' }, { id: 'y' }],
+      annotations,
+    })
+
+    vi.advanceTimersByTime(1100)
+    expect(putSpy).toHaveBeenCalledWith('proj-a', {
+      run_id: 'au_001',
+      elements: [{ id: 'x' }, { id: 'y' }],
+      annotations,
+    })
+  })
+
+  it('saveNotes without annotations keeps the legacy payload shape (no annotations key)', async () => {
+    vi.useFakeTimers()
+    const putSpy = vi.spyOn(api, 'putBoardNotes').mockResolvedValue()
+
+    useBoard.getState().saveNotes('proj-a', 'au_001', [{ id: 'x' }])
+    vi.advanceTimersByTime(1100)
+
+    expect(putSpy).toHaveBeenCalledTimes(1)
+    const payload = putSpy.mock.calls[0][1]
+    expect('annotations' in payload).toBe(false)
+  })
+
   it('notes roundtrip: a saved payload is what a remount restores from the cache', async () => {
     vi.useFakeTimers()
     vi.spyOn(api, 'putBoardNotes').mockResolvedValue()

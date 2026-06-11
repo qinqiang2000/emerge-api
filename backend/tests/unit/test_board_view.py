@@ -116,6 +116,10 @@ def test_routes_redeem_and_reject(workspace, client, monkeypatch) -> None:
     assert rh.status_code == 200
     assert rh.headers["content-type"].startswith("text/html")
     assert "audit board" in rh.text and "/lab/board-view/" in rh.text
+    # G2: the browser branch serves the geometry-injected HTML (same
+    # _board_app_html as the MCP resource) — never the raw placeholder
+    assert "globalThis.BoardGeom" in rh.text
+    assert "__BOARD_GEOMETRY_JS__" not in rh.text
 
     # page raster through the token (jpg doc → page 1 original bytes)
     doc = _DOCS[0]
@@ -135,3 +139,29 @@ def test_view_route_no_report_404(workspace, client) -> None:
     r = client.get(f"/lab/board-view/{token}")
     assert r.status_code == 404
     assert r.json()["detail"]["error_code"] == "audit_no_report"
+
+
+# ── G2: geometry injection (single source: board_geometry.js) ───────────────
+
+def test_board_app_html_injects_geometry() -> None:
+    from app.mcp_server import _board_app_html
+
+    html = _board_app_html()
+    assert "__BOARD_GEOMETRY_JS__" not in html  # placeholder fully consumed
+    assert "globalThis.BoardGeom" in html       # module body injected
+    assert "GEOM-JSON-BEGIN" in html            # constants block rode along
+
+
+def test_board_app_raw_has_no_hand_copied_geometry() -> None:
+    """漂移闸门：board_app.html 原文（注入前）不得再手写几何常量/trim 公式
+    （v9 commit 707e3b4 追的就是第三份手抄漏搬——手抄必须死透）。"""
+    import re
+    from pathlib import Path
+
+    import app.mcp_server as mcp_server
+
+    raw = (Path(mcp_server.__file__).parent / "skills" / "board_app.html"
+           ).read_text(encoding="utf-8")
+    assert "/*__BOARD_GEOMETRY_JS__*/" in raw  # injection point still present
+    assert not re.search(
+        r"const SCALE\s*=|const PX_PER_PT|1 / Math\.hypot\(dx /", raw)

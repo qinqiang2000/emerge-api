@@ -14,6 +14,7 @@ import {
   RING_ID,
   ROW_GAP,
   anchorForBounds,
+  annotateUserElements,
   arrowId,
   badgeId,
   buildCheckOverlays,
@@ -387,6 +388,66 @@ describe('anchorForBounds (board bounds → doc/page/source rect)', () => {
     expect(a.rect[1]).toBe(0)
     expect(a.rect[2]).toBeCloseTo(1000) // clamped to source width
     expect(a.rect[3]).toBeLessThanOrEqual(800)
+  })
+})
+
+describe('annotateUserElements (D1: user notes → anchor sidecar)', () => {
+  it('maps element types to kinds: text → text (with text), freedraw → draw, shapes → shape', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const a1 = laid.get(pageKey('a.pdf', 1))!
+    const on = (dx: number) => ({ x: a1.x + dx, y: a1.y + 100, width: 40, height: 20 })
+    const out = annotateUserElements([
+      { id: 't1', type: 'text', text: '缺章，周一补', ...on(10) },
+      { id: 'd1', type: 'freedraw', ...on(60) },
+      { id: 's1', type: 'ellipse', ...on(110) },
+      { id: 's2', type: 'arrow', ...on(160) },
+    ], laid)
+    expect(out.map(a => a.kind)).toEqual(['text', 'draw', 'shape', 'shape'])
+    expect(out[0].text).toBe('缺章，周一补')
+    // non-text kinds never carry a text field
+    expect('text' in out[1]).toBe(false)
+    expect('text' in out[2]).toBe(false)
+    expect(out.every(a => a.doc === 'a.pdf' && a.page === 1)).toBe(true)
+  })
+
+  it('converts a PDF-page doodle to SOURCE units (inverse of k = 150/72 × scale)', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const page = laid.get(pageKey('a.pdf', 2))!
+    const k = (150 / 72) * LAYOUT_SCALE
+    const [a] = annotateUserElements([{
+      id: 'e1', type: 'rectangle',
+      x: page.x + 72 * k, y: page.y + 36 * k, width: 72 * k, height: 36 * k,
+    }], laid)
+    expect(a).toMatchObject({ id: 'e1', kind: 'shape', doc: 'a.pdf', page: 2 })
+    expect(a.rect![0]).toBeCloseTo(72)
+    expect(a.rect![1]).toBeCloseTo(36)
+    expect(a.rect![2]).toBeCloseTo(144)
+    expect(a.rect![3]).toBeCloseTo(72)
+  })
+
+  it('a zero-size (point) element still anchors via its center', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const b1 = laid.get(pageKey('b.jpg', 1))!
+    const [a] = annotateUserElements([{
+      id: 'p1', type: 'freedraw',
+      x: b1.x + 100 * b1.k, y: b1.y + 50 * b1.k, width: 0, height: 0,
+    }], laid)
+    expect(a).toMatchObject({ kind: 'draw', doc: 'b.jpg', page: 1 })
+    expect(a.rect![0]).toBeCloseTo(100)
+    expect(a.rect![1]).toBeCloseTo(50)
+  })
+
+  it('a doodle in empty board space keeps a null anchor (the note still persists)', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const a1 = laid.get(pageKey('a.pdf', 1))!
+    const [a] = annotateUserElements([{
+      id: 'e1', type: 'text', text: '整体先放行', x: a1.x + 10, y: a1.y - 80, width: 10, height: 10,
+    }], laid)
+    expect(a).toEqual({ id: 'e1', kind: 'text', doc: null, page: null, rect: null, text: '整体先放行' })
+  })
+
+  it('empty input → empty output', () => {
+    expect(annotateUserElements([], layoutPages(TWO_DOCS))).toEqual([])
   })
 })
 

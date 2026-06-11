@@ -13,7 +13,9 @@
 //      (hand-maintained, keep in lockstep).
 //   2. MCP Apps iframe board — backend/app/skills/board_app.html gets this
 //      file injected VERBATIM into an inline <script> at serve time
-//      (mcp_server.py::_board_app_html replaces /*__BOARD_GEOMETRY_JS__*/).
+//      (mcp_server.py::_board_app_html splices it over the geometry
+//      placeholder comment; the literal marker is spelled only there —
+//      naming it here would survive injection and trip the no-residue test).
 //      That is why this must stay a CLASSIC script: no import/export, plain
 //      top-level declarations, exports only via the globalThis.BoardGeom bag
 //      at the bottom.

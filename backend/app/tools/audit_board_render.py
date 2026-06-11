@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app.schemas.locate import QuoteLocation
 from app.tools.audit_run import read_audit_report
+from app.tools.board_geom import load_geom
 from app.tools.docs import fit_image_for_agent, pdf_render_page
 from app.tools.locate import locate_quotes
 from app.tools.textlayer import extract_textlayer
@@ -60,10 +61,10 @@ _STATUS_COLOR: dict[str, str] = {
 _DEFAULT_COLOR = "#d97706"  # amber — unknown verdicts render as "unclear"
 _INK_COLOR = "#444444"      # corner-badge text — mirrors the ink token family
 
-# `pdf_render_page` rasterises at 150dpi while textlayer rects for PDFs are in
-# PDF point units (72/inch) → rect-to-pixel scale is 150/72. Image docs report
-# `page_w == image_w` (textlayer contract), so their rects are already pixels.
-_PDF_RECT_SCALE = 150.0 / 72.0
+# `pdf_render_page` rasterises at RENDER_DPI (150) while textlayer rects for
+# PDFs are in PDF point units (72/inch) → rect-to-pixel scale is dpi/72. Image
+# docs report `page_w == image_w` (textlayer contract): rects already pixels.
+_PDF_RECT_SCALE = load_geom()["RENDER_DPI"] / 72.0
 
 # Stacked-pages height cap per doc. Beyond it we keep the FIRST pages and flag
 # truncation — a partial board beats a payload that blows the agent budget
@@ -74,10 +75,20 @@ _PAGE_GAP_PX = 12
 # Dashed unfilled ellipse — matches the web board's settled marker style
 # (user 2026-06-11: 不要底色,只要虚线框框). No fill so document text stays
 # readable; thick magenta stroke stands out on any page.
-_OUTLINE_W = 5
-_DASH_DEG = 12  # arc-segment + gap span (degrees) for the dashed outline
-_GAP_DEG = 9
-_RECT_PAD = 6
+#
+# Geometry derives from board_geometry.js (single source, plan §G3 — the old
+# hand-written 6/5 had drifted 2.4× from the web board). The web board pads
+# and strokes in BOARD units where board = source-pixel × SCALE; this renderer
+# draws straight on the source raster, so source-pixel value = board / SCALE.
+_GEOM = load_geom()
+_OUTLINE_W = round(_GEOM["STROKE_W"] / _GEOM["SCALE"])      # 3.5/0.55 → 6 px
+_RECT_PAD = round(_GEOM["ELLIPSE_PAD"] / _GEOM["SCALE"])    # 8/0.55 → 15 px
+# PIL has no dashed ellipse, so the dash rhythm lives in arc DEGREES (dialect)
+# — but the on:off ratio must match the web board's DASH_ON:DASH_OFF (10:7).
+_DASH_DEG = 12  # arc-segment span (degrees) for the dashed outline
+_GAP_DEG = round(_DASH_DEG * _GEOM["DASH_OFF"] / _GEOM["DASH_ON"])  # 12×7/10 → 8
+# Not geometry: the check-number badge is a Pillow-composite-only affordance
+# (the web board numbers via legend text), so its radius stays local.
 _BADGE_R = 16
 
 

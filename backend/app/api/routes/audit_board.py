@@ -74,20 +74,31 @@ async def get_audit_board_notes(slug: str) -> dict:
     run_id = str(report.get("run_id") or "")
     notes_path = audits_dir(current_ws(), slug) / run_id / "board_notes.json"
     elements: list = []
+    annotations: list = []
     if notes_path.is_file():
         try:
             blob = json.loads(notes_path.read_text(encoding="utf-8"))
             raw = blob.get("elements") if isinstance(blob, dict) else blob
             if isinstance(raw, list):
                 elements = raw
+            # D1 anchor sidecar — pre-D1 files simply lack the key → []
+            raw_ann = blob.get("annotations") if isinstance(blob, dict) else None
+            if isinstance(raw_ann, list):
+                annotations = raw_ann
         except (OSError, json.JSONDecodeError):
             pass  # unreadable notes degrade to empty, never break board load
-    return {"run_id": run_id, "elements": elements}
+    return {"run_id": run_id, "elements": elements, "annotations": annotations}
 
 
 class _BoardNotesBody(BaseModel):
     run_id: str
     elements: list
+    # D1 (2026-06-12 doodle plan): per-element anchors {id, kind, doc, page,
+    # rect, text?} derived from `elements` at save time. Render-layer
+    # persistence only — rects are legal in this file and the digest (D2)
+    # turns them into pure text before any agent sees them; this list must
+    # never feed a @tool directly.
+    annotations: list | None = None
 
 
 @router.put("/lab/projects/{slug}/audit/board-notes")
@@ -110,8 +121,14 @@ async def put_audit_board_notes(slug: str, body: _BoardNotesBody) -> dict:
                 "error_message_en": f"no audit run {body.run_id!r} for this project",
             },
         )
-    payload = {"run_id": body.run_id, "elements": body.elements}
-    if len(json.dumps(body.elements, ensure_ascii=False).encode("utf-8")) > _MAX_NOTES_BYTES:
+    payload = {
+        "run_id": body.run_id,
+        "elements": body.elements,
+        "annotations": body.annotations or [],
+    }
+    # size cap covers the WHOLE payload (elements + annotations), not just
+    # the elements list — anything megabyte-sized is a client bug either way.
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > _MAX_NOTES_BYTES:
         raise HTTPException(
             status_code=400,
             detail={

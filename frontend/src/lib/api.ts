@@ -789,12 +789,29 @@ export async function getAuditLatest(slug: string): Promise<AuditLatestReport | 
   return r.json()
 }
 
+/** One user-drawn element anchored back onto the document it was drawn over
+ *  (D1, 2026-06-12 doodle→teaching-signal plan). `rect` is in SOURCE units
+ *  (PDF points / raster px) and lives ONLY in this render-layer file — the
+ *  backend digests it into pure text before anything reaches an agent.
+ *  A doodle in empty board space keeps doc/page/rect null (still a note). */
+export interface BoardAnnotation {
+  id: string
+  kind: 'text' | 'draw' | 'shape'
+  doc: string | null
+  page: number | null
+  rect: [number, number, number, number] | null
+  /** the literal string of a text element (kind 'text' only) */
+  text?: string
+}
+
 /** User-drawn board annotations, stored next to the report
  *  (`audits/{run}/board_notes.json` — B4 contract). `elements` are serialized
- *  excalidraw elements; the frontend treats them as opaque. */
+ *  excalidraw elements; the frontend treats them as opaque. `annotations` is
+ *  the D1 anchor sidecar derived from the same elements at save time. */
 export interface BoardNotesPayload {
   run_id: string
   elements: unknown[]
+  annotations?: BoardAnnotation[]
 }
 
 /** Permissive read — notes are an enhancement. Any failure (404, route not

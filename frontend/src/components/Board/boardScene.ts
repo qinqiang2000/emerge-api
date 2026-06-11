@@ -27,6 +27,10 @@
 import '@board-geometry'
 import type { BoardDocInput, Bounds, LaidPage } from '@board-geometry'
 
+// type-only (erased at compile) — the pure layer stays fetch-free; the wire
+// contract for board_notes annotations lives with its payload in lib/api.
+import type { BoardAnnotation } from '../../lib/api'
+
 const G = globalThis.BoardGeom
 
 /** One excalidraw element skeleton — kept structurally untyped so this module
@@ -330,6 +334,49 @@ export function buildCheckOverlays(
   }
 
   return skeletons
+}
+
+// ── User-note annotations (D1: doodle → teaching signal) ───────────────────
+
+export type { BoardAnnotation } from '../../lib/api'
+
+/** The structural slice of an excalidraw element that annotation needs —
+ *  every element type carries the bounds quad (point-like elements may have
+ *  width/height 0); only text elements carry `text`. */
+export interface UserElementLike {
+  id: string
+  type: string
+  x: number
+  y: number
+  width: number
+  height: number
+  text?: string
+}
+
+/** Anchor each user-drawn element back onto the document page it sits over
+ *  (center-point page hit via the shared anchorForBounds). A doodle in empty
+ *  board space still yields an annotation — doc/page/rect stay null and the
+ *  backend digest renders it as a blank-space note. Rects are SOURCE units
+ *  and never leave the render layer (red line: the backend digests them to
+ *  text before any agent sees them). */
+export function annotateUserElements(
+  elements: readonly UserElementLike[],
+  laidPages: Map<string, LaidPage>,
+): BoardAnnotation[] {
+  return elements.map((e) => {
+    const kind: BoardAnnotation['kind'] =
+      e.type === 'text' ? 'text' : e.type === 'freedraw' ? 'draw' : 'shape'
+    const a = anchorForBounds({ x: e.x, y: e.y, w: e.width, h: e.height }, laidPages)
+    const out: BoardAnnotation = {
+      id: e.id,
+      kind,
+      doc: a ? a.doc : null,
+      page: a ? a.page : null,
+      rect: a ? a.rect : null,
+    }
+    if (kind === 'text' && typeof e.text === 'string') out.text = e.text
+    return out
+  })
 }
 
 // ── Focus ring ──────────────────────────────────────────────────────────────
