@@ -196,10 +196,12 @@ export function AuditReportCard({ data }: { data: AuditReportData }) {
           {OVERALL_LABEL[data.overall]}
         </span>
         {slug && (
+          // The card's primary affordance — THE way from chat into the board
+          // (dogfood 2026-06-11: the muted text version went unnoticed).
           <button
             type="button"
             data-testid="audit-open-board"
-            className="text-xs text-ink-3 hover:text-ink"
+            className="text-xs px-2 py-0.5 rounded-sm border border-ochre-2 text-ochre-2 hover:bg-paper-2 font-semibold"
             title={t('audit.open_board')}
             onClick={() => {
               window.history.pushState(null, '', pathForBoard(slug))

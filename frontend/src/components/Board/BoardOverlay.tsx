@@ -495,15 +495,22 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
         className="bg-paper text-ink flex w-full h-full overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          type="button"
-          className="absolute top-2 right-2 z-10 p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
-          aria-label={t('board.close.aria')}
-          title={t('board.close')}
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
+        {/* Close lives in the RAIL header (our chrome) — the old floating
+            top-right ✕ sat under excalidraw's Library island in fullscreen
+            and the user couldn't find a way back (dogfood 2026-06-11).
+            Loading/error/empty states have no rail, so keep a floating ✕
+            for those only. */}
+        {(error || !entry?.report) && (
+          <button
+            type="button"
+            className="absolute top-2 right-2 z-10 p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+            aria-label={t('board.close.aria')}
+            title={t('board.close')}
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        )}
 
         {error ? (
           <div data-testid="board-error" role="alert" className="m-auto font-mono text-sm text-ink-3 flex items-center gap-2">
@@ -527,11 +534,20 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
                 quote sub-lines); the card stays text-only, the board adds the
                 spatial layer. */}
             <div className="w-[320px] shrink-0 border-r border-rule-soft overflow-y-auto font-mono text-sm">
-              <div className="px-3 py-2 border-b border-rule-soft text-ink font-semibold">
+              <div className="px-3 py-2 border-b border-rule-soft text-ink font-semibold flex items-center">
                 {t('board.checks.title')}
                 <span className="ml-2 text-ink-4 text-xs font-normal">
                   {entry.report.checks.filter(c => c.status === 'pass').length}/{entry.report.checks.length}
                 </span>
+                <button
+                  type="button"
+                  className="ml-auto p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+                  aria-label={t('board.close.aria')}
+                  title={t('board.close')}
+                  onClick={onClose}
+                >
+                  <X size={16} />
+                </button>
               </div>
               {entry.report.checks.map((c, i) => (
                 <div
