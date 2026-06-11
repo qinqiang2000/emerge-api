@@ -130,7 +130,10 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
 **render_audit_board 的 rendering contract**：
 - **browser**：一句摘要 + 指点 board（`→ board`，UI 卡片/白板兜底），不内联大图。
 - **headless**：先图例清单（`N. ✓/✗/? 规则`），随图输出；每张合成图一句话说明
-  （哪份文档、圈了哪些编号、有无未定位条目）。
+  （哪份文档、圈了哪些编号、有无未定位条目）。**工具返回里带一条 interactive
+  board 链接**——很多远程客户端（Cowork/Desktop）不在对话里内联渲染工具返回的图，
+  务必把这条链接转给用户，点开就是完整可交互白板（左栏规则 ↔ 画布圈注联动、
+  pan/zoom、被引文档自动聚拢），比静态合成图体验更好。
 
 **score_audit 的 rendering contract**（不 dump JSON）：
 - **browser**：一句摘要（"评分完成：accuracy 2/3，1 条判错"）——结果卡片自动展示

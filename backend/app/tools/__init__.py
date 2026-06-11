@@ -2136,6 +2136,17 @@ def build_emerge_mcp(
             )
         if out["truncated"]:
             lines.append("note: some pages were omitted to fit the image budget")
+        # Interactive board deep-link. Some hosts (Cowork/Desktop) don't render
+        # tool-result images inline — the agent forwards this URL so the user
+        # opens the full pan/zoom board (rail + linked circles), strictly
+        # better than the static composite (dogfood 2026-06-11).
+        from app.config import get_settings as _gs_board
+        _board_base = _gs_board().public_base_url.rstrip("/")
+        if _board_base:
+            lines.append(
+                f"interactive board (open in a browser): "
+                f"{_board_base}/p/{args['slug']}?board=1"
+            )
         # One legend text block, then one image block per doc — mirrors the
         # t_read_doc_image content shape. Red line: pixels + rule text only;
         # the locate rects never appear here.
