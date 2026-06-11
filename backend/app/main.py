@@ -66,6 +66,19 @@ app.add_middleware(
     allow_credentials=True,
 )
 
+# MCP Apps board-view data plane: the ui:// iframe fetches cross-origin from
+# a host sandbox origin. Every /lab/board-view/* response — INCLUDING 401/404
+# (an expired capability token must surface as a readable error, not an opaque
+# "Failed to fetch") — carries ACAO:*. Token-as-auth, no credentials, so the
+# wildcard is safe. The global CORSMiddleware above stays dev-localhost-scoped.
+@app.middleware("http")
+async def _board_view_cors(request, call_next):  # type: ignore[no-untyped-def]
+    response = await call_next(request)
+    if request.url.path.startswith("/lab/board-view/"):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
+
+
 # Persistent signed-cookie sessions (Users & Teams, 2026-06-03). Long-lived +
 # rolling so closing the browser never forces a re-login; only explicit logout
 # clears it. `request.session["uid"]` is the browser auth channel (the headless
