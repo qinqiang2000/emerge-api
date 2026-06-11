@@ -158,6 +158,52 @@ function render(viewUrl, data) {
     world.appendChild(host);
   }
 
+  /* cited-docs-adjacent reflow (same UX as the web board): on focus, the
+     check's cited docs move to the front (few-paged first) and cited pages
+     bubble to each doc's leading sub-column — a cross-doc pair must sit
+     side by side, not a band apart (dogfood 2026-06-11). */
+  function reflow(order) { // order: [{doc, pages: [pageNo, ...]}]
+    let x = 0;
+    for (const o of order) {
+      let y = 0, colW = 0, colX = x, right = x, inCol = 0;
+      for (const pn of o.pages) {
+        const pg = laid.get(o.doc + "#" + pn);
+        if (!pg) continue;
+        if (inCol >= PAGES_PER_COL) { colX += colW + ROW_GAP; y = 0; colW = 0; inCol = 0; }
+        pg.x = colX; pg.y = y;
+        y += pg.h + ROW_GAP; colW = Math.max(colW, pg.w);
+        right = Math.max(right, colX + colW); inCol++;
+        const host = world.querySelector(`[data-key="${CSS.escape(o.doc + "#" + pn)}"]`);
+        if (host) { host.style.left = pg.x + "px"; host.style.top = pg.y + "px"; }
+      }
+      if (o.pages.length) x = right + COL_GAP;
+    }
+  }
+  function reflowForCheck(i) {
+    const cited = [];
+    for (const e of (checks[i] && checks[i].evidence) || []) {
+      if (e && e.doc && !cited.includes(e.doc)) cited.push(e.doc);
+    }
+    if (cited.length < 2) return;
+    const citedPages = {};
+    Object.entries(locations).forEach(([key, loc]) => {
+      if (Number(key.split("-")[0]) !== i || !loc.page) return;
+      (citedPages[loc.doc] = citedPages[loc.doc] || []).push(loc.page);
+    });
+    const byName = Object.fromEntries(docs.map(d => [d.doc, d]));
+    const orderDocs = [
+      ...cited.filter(d => byName[d]).sort((a, b) => (byName[a].pages || 1) - (byName[b].pages || 1)),
+      ...docs.map(d => d.doc).filter(d => !cited.includes(d)),
+    ];
+    reflow(orderDocs.map(name => {
+      const total = (byName[name] && byName[name].pages) || 1;
+      const all = Array.from({ length: total }, (_, k) => k + 1);
+      const front = (citedPages[name] || []).filter(pn => all.includes(pn));
+      return { doc: name, pages: [...front, ...all.filter(pn => !front.includes(pn))] };
+    }));
+    sizeSvg();
+  }
+
   /* overlay svg — explicit world-sized viewport (an unsized absolute svg
      computes 0x0 inside #world and renders nothing) */
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -251,6 +297,7 @@ function render(viewUrl, data) {
     active = i;
     document.querySelectorAll(".chk").forEach(el =>
       el.classList.toggle("on", Number(el.dataset.i) === i));
+    reflowForCheck(i);
     const ellipses = drawOverlay() || [];
     if (!ellipses.length) return;
     // fit viewport to the circles (+page context margin)

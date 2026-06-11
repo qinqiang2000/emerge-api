@@ -184,7 +184,7 @@ def build_mcp_server(
         if get_settings().mcp_apps:
             for t in result.root.tools:
                 if t.name.removeprefix(SERVICE_PREFIX) == "read_audit_report":
-                    t.meta = {**(t.meta or {}), "ui": {"resourceUri": _BOARD_APP_URI}}
+                    t.meta = {**(t.meta or {}), "ui": {"resourceUri": _board_app_uri()}}
         return result
 
     server.request_handlers[ListToolsRequest] = _filtered_list_tools
@@ -245,7 +245,7 @@ def build_mcp_server(
             # model_validate with the "_meta" WIRE key — Resource(meta=...)
             # silently drops the kwarg (alias without populate_by_name).
             Resource.model_validate({
-                "uri": _BOARD_APP_URI,
+                "uri": _board_app_uri(),
                 "name": "emerge audit board",
                 "description": "interactive audit board — circled evidence on doc pages",
                 "mimeType": _APPS_MIME,
@@ -265,7 +265,7 @@ def build_mcp_server(
 
         from app.config import get_settings as _gs
 
-        if _gs().mcp_apps and str(uri) == _BOARD_APP_URI:
+        if _gs().mcp_apps and str(uri).split("?")[0] == _BOARD_APP_BASE:
             # CSP rides on BOTH the declaration (resources/list) and the
             # contents (resources/read) — hosts may honor either; Cowork
             # fetches via resources/read, so contents-side is load-bearing.
@@ -285,13 +285,23 @@ def build_mcp_server(
 # ── MCP Apps (B5a hello + B5b board) ────────────────────────────────────────
 _APPS_MIME = "text/html;profile=mcp-app"
 _HELLO_APP_URI = "ui://emerge/hello.html"
-_BOARD_APP_URI = "ui://emerge/audit-board.html"
+_BOARD_APP_BASE = "ui://emerge/audit-board.html"
 
 
 def _board_app_html() -> str:
     """The B5b board app — a self-contained HTML file beside the skills."""
     return (Path(__file__).parent / "skills" / "board_app.html").read_text(
         encoding="utf-8")
+
+
+def _board_app_uri() -> str:
+    """Content-versioned URI: hosts cache ui:// resources BY URI (a changed
+    app otherwise needs a connector reconnect — dogfood 2026-06-11 hit this
+    three times). The version is a hash of the HTML, so every app edit mints
+    a new URI and the host's cache misses naturally."""
+    import hashlib
+    v = hashlib.sha1(_board_app_html().encode()).hexdigest()[:8]
+    return f"{_BOARD_APP_BASE}?v={v}"
 
 
 def _board_csp_meta() -> dict[str, Any]:
