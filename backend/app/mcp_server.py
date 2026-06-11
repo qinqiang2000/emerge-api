@@ -154,14 +154,16 @@ def build_mcp_server(
             if (bare := t.name.removeprefix(SERVICE_PREFIX)) not in _HEADLESS_EXCLUDE
             and (not minimal or bare in _MINIMAL_SURFACE)
         ]
-        # ── MCP Apps (B5a hello gate): declare the UI on read_audit_report ──
+        # ── MCP Apps (B5b): declare the board UI on read_audit_report ──────
         # Apps-capable hosts (Claude / Claude Desktop) preload the ui://
         # resource named here and render it in a sandboxed iframe when the
-        # tool is called. Per-request flag check, same as `minimal` above.
+        # tool is called; the app reads the capability URL from the tool
+        # result text and fetches its data over HTTP (rects never enter the
+        # model context). Per-request flag check, same as `minimal` above.
         if get_settings().mcp_apps:
             for t in result.root.tools:
                 if t.name.removeprefix(SERVICE_PREFIX) == "read_audit_report":
-                    t.meta = {**(t.meta or {}), "ui": {"resourceUri": _HELLO_APP_URI}}
+                    t.meta = {**(t.meta or {}), "ui": {"resourceUri": _BOARD_APP_URI}}
         return result
 
     server.request_handlers[ListToolsRequest] = _filtered_list_tools
@@ -198,12 +200,14 @@ def build_mcp_server(
         from mcp.types import ErrorData
         raise McpError(ErrorData(code=-32602, message=f"Unknown prompt: {name!r}"))
 
-    # ── MCP Apps resources (B5a hello gate, EMERGE_MCP_APPS=1) ────────────
+    # ── MCP Apps resources (EMERGE_MCP_APPS=1) ────────────────────────────
     # ui:// HTML resources for Apps-capable hosts. mimeType MUST be
     # `text/html;profile=mcp-app` (ext-apps spec 2026-01-26). Gate-checked per
-    # request so the env flag flips without rebuild. The hello app exists only
-    # to verify real-machine rendering before B5b builds the board app —
-    # see plans/2026-06-11-audit-board.md §B5a.
+    # request so the env flag flips without rebuild. Two apps:
+    # - board (B5b): the interactive audit board, declared on
+    #   read_audit_report — fetches its data via the capability URL the tool
+    #   result carries (rects stay inside the iframe, red-line safe).
+    # - hello (B5a): the tiny render-support probe, kept for debugging hosts.
     @server.list_resources()
     async def _list_resources():  # type: ignore[no-untyped-def]
         from mcp.types import Resource
@@ -214,11 +218,17 @@ def build_mcp_server(
             return []
         return [
             Resource(
+                uri=_BOARD_APP_URI,
+                name="emerge audit board",
+                description="interactive audit board — circled evidence on doc pages",
+                mimeType=_APPS_MIME,
+            ),
+            Resource(
                 uri=_HELLO_APP_URI,
                 name="emerge MCP Apps hello",
                 description="hello-world UI used to gate MCP Apps support",
                 mimeType=_APPS_MIME,
-            )
+            ),
         ]
 
     @server.read_resource()
@@ -227,6 +237,8 @@ def build_mcp_server(
 
         from app.config import get_settings as _gs
 
+        if _gs().mcp_apps and str(uri) == _BOARD_APP_URI:
+            return [ReadResourceContents(content=_board_app_html(), mime_type=_APPS_MIME)]
         if _gs().mcp_apps and str(uri) == _HELLO_APP_URI:
             return [ReadResourceContents(content=_HELLO_APP_HTML, mime_type=_APPS_MIME)]
         from mcp import McpError
@@ -236,9 +248,16 @@ def build_mcp_server(
     return server
 
 
-# ── MCP Apps hello app (B5a) ────────────────────────────────────────────────
+# ── MCP Apps (B5a hello + B5b board) ────────────────────────────────────────
 _APPS_MIME = "text/html;profile=mcp-app"
 _HELLO_APP_URI = "ui://emerge/hello.html"
+_BOARD_APP_URI = "ui://emerge/audit-board.html"
+
+
+def _board_app_html() -> str:
+    """The B5b board app — a self-contained HTML file beside the skills."""
+    return (Path(__file__).parent / "skills" / "board_app.html").read_text(
+        encoding="utf-8")
 # Hand-rolled ui/initialize handshake (postMessage JSON-RPC) — no ext-apps JS
 # SDK needed for a gate this small. Renders a status line, flips it on a
 # successful initialize round-trip, and echoes any pushed ui/* notification

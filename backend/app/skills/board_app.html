@@ -1,0 +1,263 @@
+<!doctype html>
+<!-- emerge MCP Apps audit board (B5b) — rendered in a sandboxed iframe by
+     Claude / Claude Desktop. Self-contained: no deps, hand-rolled
+     ui/initialize postMessage handshake. The host pushes the
+     read_audit_report tool result; we read the board-view capability URL
+     from its text, redeem it for {report, docs, locations}, and draw the
+     same magenta dashed-circle board the web UI settled on (2026-06-11).
+     Red line: locate rects live only inside this iframe. -->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>audit board</title>
+<style>
+  :root { --ink: #1b1a16; --ink3: #6b6258; --paper: #faf8f4; --rule: #e5e0d8;
+          --mark: #d6219c; --amber: #d97706; --moss: #7c8c4d; --rose: #b54a48; }
+  * { box-sizing: border-box; margin: 0 }
+  body { font: 13px/1.5 system-ui, sans-serif; color: var(--ink);
+         background: var(--paper); height: 100vh; display: flex; overflow: hidden }
+  #rail { width: 280px; flex: none; border-right: 1px solid var(--rule);
+          overflow-y: auto; background: #fff }
+  #rail h3 { font-size: 13px; padding: 8px 10px; border-bottom: 1px solid var(--rule);
+             position: sticky; top: 0; background: #fff }
+  .chk { padding: 8px 10px; border-bottom: 1px solid var(--rule); cursor: pointer }
+  .chk:hover { background: var(--paper) }
+  .chk.on { background: #f5efe2; border-left: 3px solid var(--mark); padding-left: 7px }
+  .chk .g { margin-right: 5px; font-weight: 700 }
+  .g.p { color: var(--moss) } .g.f { color: var(--rose) } .g.u { color: var(--amber) }
+  .chk .q { color: var(--ink3); font-size: 11px; padding-left: 14px; word-break: break-all }
+  #stage { flex: 1; position: relative; overflow: hidden; cursor: grab }
+  #stage.drag { cursor: grabbing }
+  #world { position: absolute; transform-origin: 0 0 }
+  .pg { position: absolute; box-shadow: 0 1px 4px rgba(27,26,22,.18); background: #fff }
+  .pg img { display: block; width: 100%; height: 100% }
+  .cap { position: absolute; font: 11px monospace; color: var(--ink3);
+         transform: translateY(-16px) }
+  svg.ov { position: absolute; inset: 0; width: 100%; height: 100%;
+           pointer-events: none; overflow: visible }
+  #hud { position: absolute; bottom: 10px; left: 10px; background: #fff;
+         border: 1px solid var(--rule); border-radius: 4px; padding: 2px 8px;
+         font: 11px monospace; color: var(--ink3) }
+  #msg { margin: auto; color: var(--ink3); font-family: monospace }
+</style>
+</head>
+<body>
+<div id="rail" hidden><h3>checks <span id="tally"></span></h3><div id="rows"></div></div>
+<div id="stage"><div id="world"></div><div id="hud" hidden></div><div id="msg">initializing…</div></div>
+<script>
+"use strict";
+/* ── minimal MCP Apps host bridge ─────────────────────────────────────── */
+let seq = 0; const pending = {};
+function rpc(method, params) {
+  return new Promise(res => {
+    const id = ++seq; pending[id] = res;
+    window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+  });
+}
+const toolResults = [];
+window.addEventListener("message", ev => {
+  const m = ev.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.id && pending[m.id]) { pending[m.id](m.result); delete pending[m.id]; return; }
+  // tool results arrive as ui/* notifications; shapes vary by host version —
+  // sniff anything carrying content blocks.
+  const p = m.params || {};
+  const content = (p.result && p.result.content) || p.content;
+  if (Array.isArray(content)) { toolResults.push(content); tryBoot(); }
+});
+rpc("ui/initialize", { appInfo: { name: "emerge-audit-board", version: "1.0.0" },
+                       capabilities: {} })
+  .then(() => {
+    window.parent.postMessage(
+      { jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
+    setMsg("waiting for audit report…");
+    tryBoot();
+  });
+
+/* ── boot: find the capability URL in the tool result text ────────────── */
+let booted = false;
+function setMsg(t) { const el = document.getElementById("msg"); if (el) el.textContent = t; }
+function tryBoot() {
+  if (booted) return;
+  for (const content of toolResults) {
+    for (const block of content) {
+      if (block.type !== "text" || typeof block.text !== "string") continue;
+      const m = block.text.match(/https?:\/\/\S+\/lab\/board-view\/[\w\-.~]+/);
+      if (m) { booted = true; boot(m[0]); return; }
+    }
+  }
+}
+async function boot(viewUrl) {
+  setMsg("loading board…");
+  let data;
+  try {
+    const r = await fetch(viewUrl);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) { setMsg("board unavailable: " + e.message); booted = false; return; }
+  render(viewUrl, data);
+}
+
+/* ── layout constants (mirror web boardScene) ─────────────────────────── */
+const SCALE = 0.55, COL_GAP = 120, ROW_GAP = 24, PAGES_PER_COL = 4, PAD = 8;
+const PX_PER_PT = 150 / 72;
+
+function render(viewUrl, data) {
+  const report = data.report || {}, checks = report.checks || [];
+  const docs = data.docs || [], locations = data.locations || {};
+  document.getElementById("msg").remove();
+  const rail = document.getElementById("rail"); rail.hidden = false;
+  document.getElementById("hud").hidden = false;
+
+  /* rail */
+  const glyph = s => s === "pass" ? "✓" : s === "fail" ? "✗" : "?";
+  const gcls = s => s === "pass" ? "p" : s === "fail" ? "f" : "u";
+  document.getElementById("tally").textContent =
+    checks.filter(c => c.status === "pass").length + "/" + checks.length;
+  const rows = document.getElementById("rows");
+  checks.forEach((c, i) => {
+    const d = document.createElement("div");
+    d.className = "chk"; d.dataset.i = i;
+    const evs = (c.evidence || []).map(e =>
+      `<div class="q">「${(e.quote || "").slice(0, 60)}」— ${e.doc || ""}</div>`).join("");
+    d.innerHTML = `<span class="g ${gcls(c.status)}">${glyph(c.status)}</span>${c.rule || ""}${evs}`;
+    d.onclick = () => focusCheck(i);
+    rows.appendChild(d);
+  });
+
+  /* pages: layout + lazy img + measure via naturalWidth */
+  const world = document.getElementById("world");
+  const laid = new Map(); // "doc#p" -> {x,y,w,h,k}
+  let x = 0;
+  for (const doc of docs) {
+    const k = (doc.ext === "pdf" ? PX_PER_PT : 1) * SCALE;
+    let y = 0, colW = 0, colX = x, right = x, inCol = 0;
+    for (let p = 1; p <= (doc.pages || 1); p++) {
+      // A4-ish placeholder; corrected when the img loads.
+      const w = 1240 * SCALE, h = 1754 * SCALE;
+      if (inCol >= PAGES_PER_COL) { colX += colW + ROW_GAP; y = 0; colW = 0; inCol = 0; }
+      laid.set(doc.doc + "#" + p, { doc: doc.doc, page: p, x: colX, y, w, h, k });
+      y += h + ROW_GAP; colW = Math.max(colW, w); right = Math.max(right, colX + colW); inCol++;
+    }
+    if (doc.pages > 0) x = right + COL_GAP;
+  }
+  for (const [key, pg] of laid) {
+    const host = document.createElement("div");
+    host.className = "pg"; host.dataset.key = key;
+    host.style.cssText = `left:${pg.x}px;top:${pg.y}px;width:${pg.w}px;height:${pg.h}px`;
+    const cap = document.createElement("div");
+    cap.className = "cap"; cap.textContent = `${pg.doc} · p${pg.page}`;
+    host.appendChild(cap);
+    const img = new Image();
+    img.loading = "lazy";
+    img.src = `${viewUrl}/pages/${encodeURIComponent(pg.doc)}/${pg.page}`;
+    img.onload = () => { // correct aspect (x stays; board is column-flow so y drift is tolerable)
+      const w = img.naturalWidth * SCALE / (pg.doc.toLowerCase().endsWith(".pdf") ? 1 : 1);
+      const h = img.naturalHeight * (pg.w / img.naturalWidth);
+      pg.h = h; host.style.height = h + "px"; pg.iw = img.naturalWidth;
+      drawOverlay(); };
+    host.appendChild(img);
+    world.appendChild(host);
+  }
+
+  /* overlay svg */
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "ov"); world.appendChild(svg);
+  let active = -1;
+  function drawOverlay() {
+    svg.innerHTML = "";
+    if (active < 0) return;
+    const ellipses = [];
+    Object.entries(locations).forEach(([key, loc]) => {
+      const [ci] = key.split("-").map(Number);
+      if (ci !== active || !loc.rects || !loc.rects.length) return;
+      const pg = laid.get(loc.doc + "#" + (loc.page || 1));
+      if (!pg) return;
+      // rect (pt or px) -> board px. img display width == pg.w; source width
+      // = naturalWidth; pdf rects are points: px = pt*150/72, then × pg.w/iw.
+      const srcScale = pg.iw ? pg.w / pg.iw : SCALE;
+      const k = (pg.doc.toLowerCase().endsWith(".pdf") ? PX_PER_PT : 1) * srcScale;
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const r of loc.rects) {
+        if (r.length < 4) continue;
+        x0 = Math.min(x0, r[0] * k); y0 = Math.min(y0, r[1] * k);
+        x1 = Math.max(x1, r[2] * k); y1 = Math.max(y1, r[3] * k);
+      }
+      if (x1 <= x0) return;
+      const e = document.createElementNS(svg.namespaceURI, "ellipse");
+      const cx = pg.x + (x0 + x1) / 2, cy = pg.y + (y0 + y1) / 2;
+      e.setAttribute("cx", cx); e.setAttribute("cy", cy);
+      e.setAttribute("rx", (x1 - x0) / 2 + PAD); e.setAttribute("ry", (y1 - y0) / 2 + PAD);
+      e.setAttribute("fill", "none"); e.setAttribute("stroke", "var(--mark)");
+      e.setAttribute("stroke-width", "3"); e.setAttribute("stroke-dasharray", "8 6");
+      svg.appendChild(e);
+      ellipses.push({ cx, cy, doc: pg.doc });
+    });
+    // consecutive cross-doc pairs (same pairing rule as the web board)
+    for (let i = 0; i + 1 < ellipses.length;) {
+      if (ellipses[i].doc !== ellipses[i + 1].doc) {
+        const a = ellipses[i], b = ellipses[i + 1];
+        const l = document.createElementNS(svg.namespaceURI, "line");
+        l.setAttribute("x1", a.cx); l.setAttribute("y1", a.cy);
+        l.setAttribute("x2", b.cx); l.setAttribute("y2", b.cy);
+        l.setAttribute("stroke", "var(--mark)"); l.setAttribute("stroke-width", "2.5");
+        l.setAttribute("stroke-dasharray", "8 6");
+        svg.appendChild(l); i += 2;
+      } else i += 1;
+    }
+    return ellipses;
+  }
+
+  /* pan/zoom */
+  const stage = document.getElementById("stage"), hud = document.getElementById("hud");
+  let tx = 20, ty = 20, zoom = 0.2;
+  function apply() {
+    world.style.transform = `translate(${tx}px,${ty}px) scale(${zoom})`;
+    hud.textContent = Math.round(zoom * 100) + "%";
+  }
+  stage.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const f = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const r = stage.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    tx = mx - (mx - tx) * f; ty = my - (my - ty) * f; zoom *= f;
+    apply();
+  }, { passive: false });
+  let drag = null;
+  stage.addEventListener("pointerdown", ev => {
+    drag = { x: ev.clientX - tx, y: ev.clientY - ty };
+    stage.classList.add("drag"); stage.setPointerCapture(ev.pointerId);
+  });
+  stage.addEventListener("pointermove", ev => {
+    if (drag) { tx = ev.clientX - drag.x; ty = ev.clientY - drag.y; apply(); }
+  });
+  stage.addEventListener("pointerup", () => { drag = null; stage.classList.remove("drag"); });
+
+  function focusCheck(i) {
+    active = i;
+    document.querySelectorAll(".chk").forEach(el =>
+      el.classList.toggle("on", Number(el.dataset.i) === i));
+    const ellipses = drawOverlay() || [];
+    if (!ellipses.length) return;
+    // fit viewport to the circles (+page context margin)
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const e of ellipses) {
+      x0 = Math.min(x0, e.cx - 350); y0 = Math.min(y0, e.cy - 250);
+      x1 = Math.max(x1, e.cx + 350); y1 = Math.max(y1, e.cy + 250);
+    }
+    const r = stage.getBoundingClientRect();
+    zoom = Math.min(r.width / (x1 - x0), r.height / (y1 - y0), 1.4);
+    tx = (r.width - (x1 - x0) * zoom) / 2 - x0 * zoom;
+    ty = (r.height - (y1 - y0) * zoom) / 2 - y0 * zoom;
+    apply();
+  }
+
+  apply();
+  // open on the first check that has located evidence
+  const first = checks.findIndex((_, i) =>
+    Object.keys(locations).some(k => Number(k.split("-")[0]) === i));
+  if (first >= 0) setTimeout(() => focusCheck(first), 300);
+}
+</script>
+</body>
+</html>

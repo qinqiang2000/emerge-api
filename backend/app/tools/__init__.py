@@ -2029,7 +2029,18 @@ def build_emerge_mcp(
             return {"content": [{"type": "text", "text": _json.dumps(
                 {"error_code": e.error_code, "error_message_en": e.error_message_en},
                 ensure_ascii=False)}]}
-        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+        text = _json.dumps(out, ensure_ascii=False)
+        # MCP Apps data plane (B5b): when the apps gate is on, append the
+        # board-view capability URL — the ui:// board app sniffs it from this
+        # text and redeems it over HTTP. Plain URL text only; locate rects
+        # never appear here (red line).
+        from app.config import get_settings as _gs_apps
+        if _gs_apps().mcp_apps:
+            from app.tools.board_view import mint_board_view_url
+            view_url = mint_board_view_url(workspace, args["slug"])
+            if view_url:
+                text += f"\nboard-view: {view_url}"
+        return {"content": [{"type": "text", "text": text}]}
 
     @tool(
         "save_reviewed_audit",

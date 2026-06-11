@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config import get_settings
-from app.mcp_server import _APPS_MIME, _HELLO_APP_URI, build_mcp_server
+from app.mcp_server import _APPS_MIME, _BOARD_APP_URI, _HELLO_APP_URI, build_mcp_server
 
 pytestmark = pytest.mark.anyio
 
@@ -74,26 +74,29 @@ async def test_flag_off_no_meta_no_resources() -> None:
         await _read_resource(server, _HELLO_APP_URI)
 
 
-async def test_flag_on_declares_ui_and_serves_hello(monkeypatch) -> None:
+async def test_flag_on_declares_ui_and_serves_apps(monkeypatch) -> None:
     monkeypatch.setenv("EMERGE_MCP_APPS", "1")
     server = _build_server()
 
-    # tools/list: read_audit_report carries _meta.ui.resourceUri (wire alias
-    # `_meta` — assert the serialized shape, that's what hosts parse).
+    # tools/list: read_audit_report carries _meta.ui.resourceUri → BOARD app
+    # (wire alias `_meta` — assert the serialized shape hosts parse).
     tool = _audit_report_tool(await _list_tools(server))
-    assert tool.meta["ui"]["resourceUri"] == _HELLO_APP_URI
+    assert tool.meta["ui"]["resourceUri"] == _BOARD_APP_URI
     wire = tool.model_dump(by_alias=True, exclude_none=True)
-    assert wire["_meta"]["ui"]["resourceUri"] == _HELLO_APP_URI
+    assert wire["_meta"]["ui"]["resourceUri"] == _BOARD_APP_URI
 
-    # resources/list + resources/read: hello app with the spec mimeType.
-    (res,) = await _list_resources(server)
-    assert str(res.uri) == _HELLO_APP_URI
-    assert res.mimeType == _APPS_MIME
-    result = await _read_resource(server, _HELLO_APP_URI)
-    (content,) = result.root.contents
-    assert content.mimeType == _APPS_MIME
-    assert "ui/initialize" in content.text
-    assert "ui/notifications/initialized" in content.text
+    # resources/list + resources/read: board + hello, spec mimeType.
+    resources = await _list_resources(server)
+    uris = {str(r.uri) for r in resources}
+    assert uris == {_BOARD_APP_URI, _HELLO_APP_URI}
+    assert all(r.mimeType == _APPS_MIME for r in resources)
+    for uri, marker in ((_BOARD_APP_URI, "board-view"), (_HELLO_APP_URI, "hello")):
+        result = await _read_resource(server, uri)
+        (content,) = result.root.contents
+        assert content.mimeType == _APPS_MIME
+        assert "ui/initialize" in content.text
+        assert "ui/notifications/initialized" in content.text
+        assert marker in content.text
 
 
 async def test_flag_on_other_tools_unmarked(monkeypatch) -> None:

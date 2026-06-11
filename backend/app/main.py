@@ -118,6 +118,9 @@ app.include_router(upload_token_route.router)
 # Data-plane redemption: deliberately UNAUTHED — the HMAC token is the auth
 # (see app/tools/upload_url.py). Keep it out of any bind_workspace router.
 app.include_router(upload_token_route.redeem_router)
+# MCP Apps board-view data plane — same capability-token posture (B5b).
+from app.api.routes import board_view as board_view_route  # noqa: E402
+app.include_router(board_view_route.redeem_router)
 app.include_router(skills_route.router)
 app.include_router(projects_route.router)
 app.include_router(ws_route.router)
