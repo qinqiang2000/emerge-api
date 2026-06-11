@@ -328,16 +328,16 @@ function render(viewUrl, data) {
 
   apply();
   // short iframe → numbers-only rail (auto, reversible on resize)
-  const compact = () => document.body.classList.toggle("compact", window.innerHeight < 560);
+  const compact = () => document.body.classList.toggle("compact", window.innerHeight < 560 || window.innerWidth < 1150);
   compact();
   window.addEventListener("resize", compact);
   // debug HUD: build + last event (a screenshot becomes a bug report)
   const dbgEl = document.createElement("div");
   dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
     "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
-  dbgEl.textContent = "v5";
+  dbgEl.textContent = "v6";
   document.getElementById("stage").appendChild(dbgEl);
-  window.dbg = t => { dbgEl.textContent = "v5 · " + t; };
+  window.dbg = t => { dbgEl.textContent = "v6 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.
@@ -358,6 +358,7 @@ function render(viewUrl, data) {
       params: { width: Math.max(document.body.clientWidth || 0, 900), height: h } }, "*");
     fs.onclick = async () => {
       fsOn = !fsOn;
+      dbg("fs-click " + (fsOn ? "grow" : "restore"));
       fs.textContent = fsOn ? "🗗 还原" : "⛶ 放大"; // immediate feedback either way
       const r = await rpc("ui/request-display-mode",
         { mode: fsOn ? "fullscreen" : "inline" }, 800);
