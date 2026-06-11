@@ -39,16 +39,20 @@ from app.tools.docs import fit_image_for_agent, pdf_render_page
 from app.tools.locate import locate_quotes
 from app.workspace.paths import doc_meta_path, doc_path
 
-# Verdict → draw colour. The hex values mirror the frontend semantic tokens
-# (frontend/tailwind.config.js CSS-var token system): pass = moss,
-# fail = rose, unclear = ochre. Duplicated as literals because the backend
-# has no access to the CSS vars — keep in lockstep with the token file.
+# Verdict → draw colour. Mirrors the board's settled marker palette
+# (frontend boardScene.readBoardColors — keep in lockstep): one MAGENTA
+# marker for pass AND fail, because annotations must stand out against
+# arbitrary document pixels and magenta virtually never occurs in business
+# documents (red camouflages on red brand pages, blue reads thin on paper,
+# amber collides with highlights — all tried in dogfood 2026-06-11). The
+# verdict lives in the legend, not the circle hue. unclear stays amber —
+# "couldn't read it" is a different signal than a mark.
 _STATUS_COLOR: dict[str, str] = {
-    "pass": "#7c8c4d",     # moss
-    "fail": "#b54a48",     # rose
-    "unclear": "#b8860b",  # ochre
+    "pass": "#d6219c",
+    "fail": "#d6219c",
+    "unclear": "#d97706",
 }
-_DEFAULT_COLOR = "#b8860b"  # ochre — unknown verdicts render as "unclear"
+_DEFAULT_COLOR = "#d97706"  # amber — unknown verdicts render as "unclear"
 _INK_COLOR = "#444444"      # corner-badge text — mirrors the ink token family
 
 # `pdf_render_page` rasterises at 150dpi while textlayer rects for PDFs are in
