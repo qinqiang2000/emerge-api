@@ -131,11 +131,13 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   const builtFor = useRef<string | null>(null)
   const fittedFor = useRef<string | null>(null)
   const mountedRef = useRef(true)
-  /** Scene inputs kept for on-demand per-check overlay mounts (focusCheck). */
+  /** Scene inputs kept for on-demand per-check overlay mounts + the
+   *  cited-docs-adjacent relayout (focusCheck). */
   const sceneDataRef = useRef<{
     checks: { status: CheckStatus }[]
     evidences: EvidenceOnBoard[]
     laid: Map<string, LaidPage>
+    docs: BoardDocInput[]
   } | null>(null)
   const notesRestoredFor = useRef<string | null>(null)
   const lastNoteSig = useRef('')
@@ -251,7 +253,7 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
           })
         })
       })
-      sceneDataRef.current = { checks: report.checks, evidences, laid }
+      sceneDataRef.current = { checks: report.checks, evidences, laid, docs: docInputs }
       // Pages only — per-check circles/arrows mount on demand via
       // applyCheck (user 2026-06-11: all checks at once = 一板的线, 乱).
       const skeletons = buildPageSkeletons([...laid.values()], colors)
@@ -319,17 +321,71 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   const focusCheck = useCallback((idx: number) => {
     setActiveCheck(idx)
     if (!api || !sceneDataRef.current) return
-    const { checks, evidences, laid } = sceneDataRef.current
+    const { checks, evidences, docs } = sceneDataRef.current
+    let { laid } = sceneDataRef.current
+
+    // Cited docs snap ADJACENT (user 2026-06-11: 报价单↔收货单 with 订单 in
+    // between read as odd). Reorder = cited docs first (evidence order),
+    // the rest keep their relative order; pages + captions + any user note
+    // sitting on a moved page translate by that page's delta.
+    const citedDocs: string[] = []
+    for (const e of entry?.report?.checks[idx]?.evidence ?? []) {
+      if (typeof e?.doc === 'string' && e.doc && !citedDocs.includes(e.doc)) citedDocs.push(e.doc)
+    }
+    const moveDelta = new Map<string, { dx: number; dy: number }>() // element id → delta
+    const oldPages = [...laid.values()]
+    if (citedDocs.length >= 2) {
+      const ordered = [
+        ...citedDocs
+          .map(d => docs.find(dd => dd.name === d))
+          .filter((d): d is BoardDocInput => !!d),
+        ...docs.filter(d => !citedDocs.includes(d.name)),
+      ]
+      const newLaid = layoutPages(ordered)
+      for (const [k, np] of newLaid) {
+        const op = laid.get(k)
+        if (!op) continue
+        const dx = np.x - op.x
+        const dy = np.y - op.y
+        if (dx || dy) {
+          moveDelta.set(imgId(np.doc, np.page), { dx, dy })
+          moveDelta.set(`lbl-${np.doc}-p${np.page}`, { dx, dy })
+        }
+      }
+      laid = newLaid
+      sceneDataRef.current = { ...sceneDataRef.current, laid }
+    }
+    const deltaFor = (e: SceneElement): { dx: number; dy: number } | undefined => {
+      const direct = moveDelta.get(e.id)
+      if (direct) return direct
+      if (OWN_ID_RE.test(e.id)) return undefined
+      // user note: carried by whichever (pre-move) page contains its center
+      const cx = e.x + e.width / 2
+      const cy = e.y + e.height / 2
+      const host = oldPages.find(p =>
+        cx >= p.x && cx <= p.x + p.w && cy >= p.y && cy <= p.y + p.h)
+      return host ? moveDelta.get(imgId(host.doc, host.page)) : undefined
+    }
+
     const overlays = buildCheckOverlays(
       checks,
       evidences.filter(e => e.checkIdx === idx),
       laid,
       colors,
     )
-    const keep = api.getSceneElements().filter(
-      e => !(e.id.startsWith('ev-') || e.id.startsWith('arrow-')
-        || e.id.startsWith('badge-') || e.id === RING_ID),
-    )
+    const keep = api.getSceneElements()
+      .filter(e => {
+        if (e.id.startsWith('ev-') || e.id.startsWith('arrow-')
+          || e.id.startsWith('badge-') || e.id === RING_ID) return false
+        // excalidraw mints a random-id TEXT element for each arrow label and
+        // binds it via containerId — drop it with its arrow or it orphans
+        const containerId = (e as { containerId?: string | null }).containerId
+        return !(containerId && String(containerId).startsWith('arrow-'))
+      })
+      .map(e => {
+        const d = moveDelta.size ? deltaFor(e) : undefined
+        return d ? { ...e, x: e.x + d.dx, y: e.y + d.dy, version: e.version + 1 } : e
+      })
     api.updateScene({
       elements: [
         ...keep,
