@@ -37,7 +37,12 @@ from app.schemas.locate import QuoteLocation
 from app.tools.audit_run import read_audit_report
 from app.tools.docs import fit_image_for_agent, pdf_render_page
 from app.tools.locate import locate_quotes
+from app.tools.textlayer import extract_textlayer
 from app.workspace.paths import doc_meta_path, doc_path
+
+# Cited pages warmed (fitz+OCR) per render before re-locating misses — bounds
+# the OCR cost on a scanned group (see `_locate_with_warm`).
+_WARM_CAP = 8
 
 # Verdict → draw colour. Mirrors the board's settled marker palette
 # (frontend boardScene.readBoardColors — keep in lockstep): one MAGENTA
@@ -267,6 +272,46 @@ def _compose_doc_image(
     return buf.getvalue(), truncated
 
 
+async def _locate_with_warm(
+    workspace: Path, slug: str, fn: str, items: list[dict[str, Any]]
+) -> list[QuoteLocation]:
+    """Locate every item's quote, self-healing cold scanned pages.
+
+    `locate_quotes` reads WARM text-layer sidecars only (LLM-free render path,
+    `skip_ocr`) — a quote on a scanned page whose OCR sidecar is cold can never
+    hit. The frontend board warms via GET /textlayer; this tool has no
+    frontend, so it warms server-side itself (fitz+OCR via `extract_textlayer`,
+    capped) for the pages of MISSED evidence, then re-locates. Without it a
+    scanned anchor (报价单.pdf) circles nothing over MCP (dogfood 2026-06-11)."""
+    quotes = [{"page": it["page"], "quote": it["quote"]} for it in items]
+    locs = await locate_quotes(workspace, slug, fn, quotes=quotes)
+    miss = [
+        i for i, lc in enumerate(locs)
+        if lc.status == "none" or not lc.rects
+    ]
+    if not miss:
+        return locs
+    warm_pages: list[int] = []
+    for i in miss:
+        p = items[i].get("page")
+        page = int(p) if isinstance(p, int) and p > 0 else 1
+        if page not in warm_pages:
+            warm_pages.append(page)
+    for page in warm_pages[:_WARM_CAP]:
+        try:
+            await extract_textlayer(workspace, slug, fn, page=page)
+        except Exception:
+            pass  # best-effort warm — a failed OCR just leaves that page cold
+    relocated = await locate_quotes(workspace, slug, fn, quotes=quotes)
+    # keep the better of the two passes per item (warm pass should dominate,
+    # but never regress an item the cold pass had already located)
+    return [
+        relocated[i] if (relocated[i].status != "none" and relocated[i].rects)
+        else locs[i]
+        for i in range(len(locs))
+    ]
+
+
 async def render_audit_board(workspace: Path, slug: str) -> dict[str, Any]:
     """Compose the latest audit report into annotated per-doc images.
 
@@ -325,13 +370,7 @@ async def render_audit_board(workspace: Path, slug: str) -> dict[str, Any]:
         items = per_doc[fn]
         # In-process locate (red line: rects never travel over HTTP / into any
         # tool result — they are consumed by the PIL draw below and discarded).
-        locs = (
-            await locate_quotes(
-                workspace, slug, fn,
-                quotes=[{"page": it["page"], "quote": it["quote"]} for it in items],
-            )
-            if items else []
-        )
+        locs = await _locate_with_warm(workspace, slug, fn, items) if items else []
         pages = await _load_pages(workspace, slug, fn)
         composed = _compose_doc_image(pages, items, locs)
         if composed is None:
