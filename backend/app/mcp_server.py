@@ -154,6 +154,14 @@ def build_mcp_server(
             if (bare := t.name.removeprefix(SERVICE_PREFIX)) not in _HEADLESS_EXCLUDE
             and (not minimal or bare in _MINIMAL_SURFACE)
         ]
+        # ── MCP Apps (B5a hello gate): declare the UI on read_audit_report ──
+        # Apps-capable hosts (Claude / Claude Desktop) preload the ui://
+        # resource named here and render it in a sandboxed iframe when the
+        # tool is called. Per-request flag check, same as `minimal` above.
+        if get_settings().mcp_apps:
+            for t in result.root.tools:
+                if t.name.removeprefix(SERVICE_PREFIX) == "read_audit_report":
+                    t.meta = {**(t.meta or {}), "ui": {"resourceUri": _HELLO_APP_URI}}
         return result
 
     server.request_handlers[ListToolsRequest] = _filtered_list_tools
@@ -190,7 +198,83 @@ def build_mcp_server(
         from mcp.types import ErrorData
         raise McpError(ErrorData(code=-32602, message=f"Unknown prompt: {name!r}"))
 
+    # ── MCP Apps resources (B5a hello gate, EMERGE_MCP_APPS=1) ────────────
+    # ui:// HTML resources for Apps-capable hosts. mimeType MUST be
+    # `text/html;profile=mcp-app` (ext-apps spec 2026-01-26). Gate-checked per
+    # request so the env flag flips without rebuild. The hello app exists only
+    # to verify real-machine rendering before B5b builds the board app —
+    # see plans/2026-06-11-audit-board.md §B5a.
+    @server.list_resources()
+    async def _list_resources():  # type: ignore[no-untyped-def]
+        from mcp.types import Resource
+
+        from app.config import get_settings as _gs
+
+        if not _gs().mcp_apps:
+            return []
+        return [
+            Resource(
+                uri=_HELLO_APP_URI,
+                name="emerge MCP Apps hello",
+                description="hello-world UI used to gate MCP Apps support",
+                mimeType=_APPS_MIME,
+            )
+        ]
+
+    @server.read_resource()
+    async def _read_resource(uri):  # type: ignore[no-untyped-def]
+        from mcp.server.lowlevel.helper_types import ReadResourceContents
+
+        from app.config import get_settings as _gs
+
+        if _gs().mcp_apps and str(uri) == _HELLO_APP_URI:
+            return [ReadResourceContents(content=_HELLO_APP_HTML, mime_type=_APPS_MIME)]
+        from mcp import McpError
+        from mcp.types import ErrorData
+        raise McpError(ErrorData(code=-32002, message=f"Unknown resource: {uri}"))
+
     return server
+
+
+# ── MCP Apps hello app (B5a) ────────────────────────────────────────────────
+_APPS_MIME = "text/html;profile=mcp-app"
+_HELLO_APP_URI = "ui://emerge/hello.html"
+# Hand-rolled ui/initialize handshake (postMessage JSON-RPC) — no ext-apps JS
+# SDK needed for a gate this small. Renders a status line, flips it on a
+# successful initialize round-trip, and echoes any pushed ui/* notification
+# (e.g. the tool result) so the dogfooder can see data flow.
+_HELLO_APP_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>emerge hello</title></head>
+<body style="font-family: system-ui; padding: 16px">
+<h3 id="s">emerge MCP Apps — initializing…</h3>
+<pre id="log" style="font-size: 11px; color: #666"></pre>
+<script>
+let seq = 0; const pending = {};
+function rpc(method, params) {
+  return new Promise((resolve) => {
+    const id = ++seq; pending[id] = resolve;
+    window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+  });
+}
+window.addEventListener("message", (ev) => {
+  const m = ev.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.id && pending[m.id]) { pending[m.id](m.result); delete pending[m.id]; return; }
+  if (m.method) {
+    document.getElementById("log").textContent +=
+      m.method + " " + JSON.stringify(m.params || {}).slice(0, 400) + "\\n";
+  }
+});
+rpc("ui/initialize", {
+  appInfo: { name: "emerge-hello", version: "0.1.0" },
+  capabilities: {},
+}).then((res) => {
+  window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
+  document.getElementById("s").textContent =
+    "emerge MCP Apps hello \\u2713 " + JSON.stringify((res && res.hostInfo) || {});
+});
+</script></body></html>
+"""
 
 
 async def _main() -> None:

@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # connectors, so context pressure is real — minimal bets that generic file
     # verbs cover the long tail. Flip to "full" to revert, no redeploy of data.
     mcp_surface: str = "minimal"
+    # MCP Apps (ui:// HTML in chat) — B5a hello-world gate, default OFF. When
+    # on, read_audit_report's tools/list entry carries _meta.ui.resourceUri and
+    # the hello app resource is served. Flip ON only to dogfood Claude Desktop
+    # rendering (plans/2026-06-11-audit-board.md §B5a); B5b board app waits on
+    # that gate.
+    mcp_apps: bool = False
     # Bootstrap seed for `models/m_default.json` when `create_project` runs.
     # Read EXACTLY ONCE per project — the value gets baked into the freshly
     # minted `m_default` ModelConfig (`provider_model_id`) plus stamped on

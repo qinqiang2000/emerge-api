@@ -1,0 +1,106 @@
+"""B5a — MCP Apps hello-world gate (plans/2026-06-11-audit-board.md §B5a).
+
+Verifies the server-side half of the gate: with EMERGE_MCP_APPS on,
+`read_audit_report`'s tools/list entry carries `_meta.ui.resourceUri` and the
+`ui://emerge/hello.html` resource is listed/readable with the spec mimeType
+`text/html;profile=mcp-app`. Default-off leaves the surface untouched.
+Real-machine rendering (Claude Desktop) is the human-dogfood half.
+"""
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.config import get_settings
+from app.mcp_server import _APPS_MIME, _HELLO_APP_URI, build_mcp_server
+
+pytestmark = pytest.mark.anyio
+
+
+def _build_server():
+    return build_mcp_server(
+        workspace=get_settings().workspace_root,
+        provider=AsyncMock(),
+        job_runner=AsyncMock(),
+    )
+
+
+async def _list_tools(server):
+    from mcp.types import ListToolsRequest
+
+    handler = server.request_handlers[ListToolsRequest]
+    result = await handler(ListToolsRequest(method="tools/list"))
+    return result.root.tools
+
+
+async def _list_resources(server):
+    from mcp.types import ListResourcesRequest
+
+    handler = server.request_handlers[ListResourcesRequest]
+    result = await handler(ListResourcesRequest(method="resources/list"))
+    return result.root.resources
+
+
+async def _read_resource(server, uri: str):
+    from mcp.types import ReadResourceRequest, ReadResourceRequestParams
+
+    handler = server.request_handlers[ReadResourceRequest]
+    return await handler(
+        ReadResourceRequest(
+            method="resources/read", params=ReadResourceRequestParams(uri=uri)
+        )
+    )
+
+
+def _audit_report_tool(tools):
+    from app.tools import SERVICE_PREFIX
+
+    matches = [
+        t for t in tools if t.name.removeprefix(SERVICE_PREFIX) == "read_audit_report"
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+async def test_flag_off_no_meta_no_resources() -> None:
+    server = _build_server()
+    tool = _audit_report_tool(await _list_tools(server))
+    assert not (tool.meta or {}).get("ui")
+    assert await _list_resources(server) == []
+    from mcp import McpError
+
+    with pytest.raises(McpError):
+        await _read_resource(server, _HELLO_APP_URI)
+
+
+async def test_flag_on_declares_ui_and_serves_hello(monkeypatch) -> None:
+    monkeypatch.setenv("EMERGE_MCP_APPS", "1")
+    server = _build_server()
+
+    # tools/list: read_audit_report carries _meta.ui.resourceUri (wire alias
+    # `_meta` — assert the serialized shape, that's what hosts parse).
+    tool = _audit_report_tool(await _list_tools(server))
+    assert tool.meta["ui"]["resourceUri"] == _HELLO_APP_URI
+    wire = tool.model_dump(by_alias=True, exclude_none=True)
+    assert wire["_meta"]["ui"]["resourceUri"] == _HELLO_APP_URI
+
+    # resources/list + resources/read: hello app with the spec mimeType.
+    (res,) = await _list_resources(server)
+    assert str(res.uri) == _HELLO_APP_URI
+    assert res.mimeType == _APPS_MIME
+    result = await _read_resource(server, _HELLO_APP_URI)
+    (content,) = result.root.contents
+    assert content.mimeType == _APPS_MIME
+    assert "ui/initialize" in content.text
+    assert "ui/notifications/initialized" in content.text
+
+
+async def test_flag_on_other_tools_unmarked(monkeypatch) -> None:
+    monkeypatch.setenv("EMERGE_MCP_APPS", "1")
+    server = _build_server()
+    from app.tools import SERVICE_PREFIX
+
+    for t in await _list_tools(server):
+        if t.name.removeprefix(SERVICE_PREFIX) != "read_audit_report":
+            assert not (t.meta or {}).get("ui"), t.name

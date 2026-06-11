@@ -1,6 +1,6 @@
 # 2026-06-11 — Audit Board（审核白板 + evidence 引文 + job 化 + Cowork 阶梯）
 
-> **Status**: 📋 planned → implementing
+> **Status**: ✅ B0-B5a code landed 2026-06-11（backend 1560 passed；前端 +43，14 失败为既有 scrollIntoView）。**Pending live dogfood（human）**：① B3 board `?board=1` 真实数据（百胜audit1）；② B4 Cowork 圈图（让 agent `render_audit_board`）；③ B5a Claude Desktop hello 渲染（prod 设 `EMERGE_MCP_APPS=1` 后调 `read_audit_report`）。B5b 等 ③ gate。
 > **Seed**: `2026-06-11-audit-board-seed.md`（白板表达用户原话 + scope 合并依据）。
 > **Design 基础**: `2026-06-10-audit-design.md`（A0/A2/A3 全 shipped）+ `2026-05-29-field-source-grounding.md`（locate 三档 + render-only 红线）+ `2026-06-09-filesystem-over-mcp.md`（job 化 follow-up + capability URL 模式）。
 > **Scope**: ① `run_audit` job 化；② `RuleCheck.evidence` 引文（additive optional）；③ locate-quotes render 路由；④ lab 前端 audit board（excalidraw）；⑤ Cowork 阶梯（服务端合成标注图兜底 + MCP Apps hello-world gate）。
