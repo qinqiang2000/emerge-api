@@ -184,8 +184,17 @@ describe('buildCheckOverlays', () => {
     expect(arrow).toBeDefined()
     expect(arrow.type).toBe('arrow')
     expect(arrow.strokeStyle).toBe('dashed')
-    expect(arrow.start).toEqual({ id: 'ev-1-0' })
-    expect(arrow.end).toEqual({ id: 'ev-1-1' })
+    // edge-to-edge shaft (no skeleton bindings — they don't retrim
+    // programmatic scenes; geometry is computed in buildCheckOverlays)
+    expect(arrow.start).toBeUndefined()
+    expect(arrow.end).toBeUndefined()
+    const pts = arrow.points as number[][]
+    const dx = (pts[1]?.[0] ?? 0) - pts[0][0]
+    // shaft is strictly shorter than center-to-center: trimmed at both rims
+    const aPage = laid.get(pageKey('a.pdf', 1))!
+    const bPage = laid.get(pageKey('b.jpg', 1))!
+    expect(Math.abs(dx)).toBeLessThan(Math.abs(bPage.x - aPage.x) + Math.max(bPage.w, aPage.w))
+    expect(Math.abs(dx)).toBeGreaterThan(0)
     expect((arrow.label as { text: string }).text).toBe('✗')
   })
 
@@ -288,21 +297,16 @@ describe('unionBounds', () => {
 })
 
 describe('readBoardColors', () => {
-  it('falls back to the spike palette when the token vars are absent (jsdom)', () => {
-    const c = readBoardColors()
-    // jsdom has no themed stylesheet — every channel resolves to its fallback
-    // unless an inline custom property is set on <html>.
-    expect(c.pass).toBe('#7c8c4d')   // token --moss
-    expect(c.fail).toBe('#b54a48')   // token --rose
-    expect(c.unclear).toBe('#b8860b') // token --ochre
-  })
-
-  it('prefers the CSS var value when the token is defined', () => {
+  it('evidence marks are fixed vivid inks, independent of theme tokens', () => {
+    // Canvas annotations must stand out against arbitrary document pixels —
+    // muted chrome tokens read as 不够醒目 in dogfood (2026-06-11). Status
+    // colors are therefore constants; only chrome/canvas stay token-driven.
     document.documentElement.style.setProperty('--moss', '#5C6B3A')
     try {
       const c = readBoardColors()
-      // jsdom's getComputedStyle reflects inline custom properties
-      expect(c.pass).toBe('#5C6B3A')
+      expect(c.pass).toBe('#2563eb')
+      expect(c.fail).toBe('#e11d48')
+      expect(c.unclear).toBe('#f59e0b')
     } finally {
       document.documentElement.style.removeProperty('--moss')
     }

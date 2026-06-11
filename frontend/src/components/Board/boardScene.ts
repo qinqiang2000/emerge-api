@@ -91,9 +91,15 @@ function cssVar(name: string, fallback: string): string {
  *  only fire outside a themed DOM (tests, SSR-ish edge). */
 export function readBoardColors(): BoardColors {
   return {
-    pass: cssVar('--moss', '#7c8c4d'),
-    fail: cssVar('--rose', '#b54a48'),
-    unclear: cssVar('--ochre', '#b8860b'),
+    // Evidence marks are FIXED vivid inks, deliberately NOT the paper-muted
+    // chrome tokens: annotations must stand out against arbitrary document
+    // pixels (black text / red brand pages / white paper), and the muted
+    // moss read as "不够醒目" in dogfood (2026-06-11). Vivid blue carries
+    // "located" for pass (most striking + never camouflaged by doc content);
+    // fail keeps alarm-red, unclear keeps amber. Chrome/canvas stay on tokens.
+    pass: '#2563eb',
+    fail: '#e11d48',
+    unclear: '#f59e0b',
     chrome: cssVar('--ink-3', '#6b6258'),
     canvas: cssVar('--paper-2', '#faf8f4'),
   }
@@ -271,7 +277,7 @@ export function buildCheckOverlays(
   const skeletons: Skeleton[] = []
   const unlocatedByDoc = new Map<string, Set<number>>()
   // per check: located ellipse centers in board space, with their doc
-  const centersByCheck = new Map<number, { doc: string; cx: number; cy: number; id: string }[]>()
+  const centersByCheck = new Map<number, { doc: string; cx: number; cy: number; rx: number; ry: number; id: string }[]>()
 
   for (const ev of evidences) {
     const check = checks[ev.checkIdx]
@@ -309,31 +315,49 @@ export function buildCheckOverlays(
     })
     let centers = centersByCheck.get(ev.checkIdx)
     if (!centers) { centers = []; centersByCheck.set(ev.checkIdx, centers) }
-    centers.push({ doc: ev.doc, cx: b.x + b.w / 2, cy: b.y + b.h / 2, id })
+    centers.push({
+      doc: ev.doc, cx: b.x + b.w / 2, cy: b.y + b.h / 2,
+      rx: b.w / 2, ry: b.h / 2, id,
+    })
   }
 
-  // cross-doc arrows — only when a check's located evidence spans ≥2 docs
+  // cross-doc arrows — only when a check's located evidence spans ≥2 docs.
+  // The shaft runs ELLIPSE EDGE to ellipse edge (+gap), computed here — the
+  // skeleton `start`/`end` bindings don't retrim programmatic scenes, so a
+  // center-to-center shaft ran straight through the circled text and parked
+  // the arrowhead ON it (dogfood 2026-06-11).
+  const ARROW_GAP = 8
   for (const [checkIdx, centers] of centersByCheck) {
     const firstDoc = centers[0]?.doc
     const other = centers.find((c) => c.doc !== firstDoc)
     if (!other) continue
     const a = centers[0]
     const b = other
+    const dx = b.cx - a.cx
+    const dy = b.cy - a.cy
+    const norm = Math.hypot(dx, dy)
+    if (!norm) continue
+    // ray ∩ ellipse: t = 1/√((dx/rx)² + (dy/ry)²) along (dx,dy) from center
+    const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1))
+    const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1))
+    const sx = a.cx + dx * tA + (dx / norm) * ARROW_GAP
+    const sy = a.cy + dy * tA + (dy / norm) * ARROW_GAP
+    const ex = b.cx - dx * tB - (dx / norm) * ARROW_GAP
+    const ey = b.cy - dy * tB - (dy / norm) * ARROW_GAP
     const color = statusColor(checks[checkIdx].status, colors)
     skeletons.push({
       type: 'arrow',
       id: arrowId(checkIdx),
-      x: a.cx,
-      y: a.cy,
-      width: b.cx - a.cx,
-      height: b.cy - a.cy,
+      x: sx,
+      y: sy,
+      width: ex - sx,
+      height: ey - sy,
       points: [
         [0, 0],
-        [b.cx - a.cx, b.cy - a.cy],
+        [ex - sx, ey - sy],
       ],
-      start: { id: a.id },
-      end: { id: b.id },
       strokeColor: color,
+      strokeWidth: 2.5,
       strokeStyle: 'dashed',
       label: { text: STATUS_MARK[checks[checkIdx].status], fontSize: 16 },
     })
