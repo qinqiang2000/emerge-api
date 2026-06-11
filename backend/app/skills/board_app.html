@@ -26,6 +26,16 @@
   .chk .g { margin-right: 5px; font-weight: 700 }
   .g.p { color: var(--moss) } .g.f { color: var(--rose) } .g.u { color: var(--amber) }
   .chk .q { color: var(--ink3); font-size: 11px; padding-left: 14px; word-break: break-all }
+  .chk .num { display: none }
+  /* compact rail (short iframe): numbers-only strip, still clickable —
+     every pixel goes to the canvas */
+  body.compact #rail { width: 46px }
+  body.compact #rail h3 span { display: none }
+  body.compact #rail h3 { padding: 8px 6px; text-align: center }
+  body.compact .chk { padding: 6px 4px; text-align: center }
+  body.compact .chk .t, body.compact .chk .q { display: none }
+  body.compact .chk .num { display: inline; font-weight: 600 }
+  body.compact .chk .g { margin-right: 2px }
   #stage { flex: 1; position: relative; overflow: hidden; cursor: grab }
   #stage.drag { cursor: grabbing }
   #world { position: absolute; transform-origin: 0 0 }
@@ -118,7 +128,9 @@ function render(viewUrl, data) {
     d.className = "chk"; d.dataset.i = i;
     const evs = (c.evidence || []).map(e =>
       `<div class="q">「${(e.quote || "").slice(0, 60)}」— ${e.doc || ""}</div>`).join("");
-    d.innerHTML = `<span class="g ${gcls(c.status)}">${glyph(c.status)}</span>${c.rule || ""}${evs}`;
+    d.title = (c.rule || "");
+    d.innerHTML = `<span class="g ${gcls(c.status)}">${glyph(c.status)}</span>` +
+      `<span class="num">${i + 1}</span><span class="t">${c.rule || ""}</span>${evs}`;
     d.onclick = () => focusCheck(i);
     rows.appendChild(d);
   });
@@ -315,13 +327,17 @@ function render(viewUrl, data) {
   }
 
   apply();
+  // short iframe → numbers-only rail (auto, reversible on resize)
+  const compact = () => document.body.classList.toggle("compact", window.innerHeight < 560);
+  compact();
+  window.addEventListener("resize", compact);
   // debug HUD: build + last event (a screenshot becomes a bug report)
   const dbgEl = document.createElement("div");
   dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
     "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
-  dbgEl.textContent = "v4";
+  dbgEl.textContent = "v5";
   document.getElementById("stage").appendChild(dbgEl);
-  window.dbg = t => { dbgEl.textContent = "v4 · " + t; };
+  window.dbg = t => { dbgEl.textContent = "v5 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.
