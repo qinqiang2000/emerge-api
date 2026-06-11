@@ -1,4 +1,12 @@
-// boardScene — pure scene-building math for the audit board.
+// boardScene — the excalidraw DIALECT layer for the audit board.
+//
+// Geometry (layout, unit conversion, evidence mapping, arrow trimming) lives
+// in the shared single source `backend/app/skills/board_geometry.js` —
+// side-effect-imported below via the `@board-geometry` vite alias and read
+// off `globalThis.BoardGeom` (the same file is injected verbatim into the
+// MCP Apps iframe board and parsed by the Pillow renderer; see its header).
+// This module keeps what is excalidraw-specific: skeleton assembly, the id
+// contract, colors — plus thin re-exports so consumers/tests keep one import.
 //
 // Everything here is a plain function over plain data: no excalidraw import,
 // no fetch, no DOM beyond `readBoardColors` (getComputedStyle, with hex
@@ -16,35 +24,48 @@
 //   badge-{doc}             "unlocated evidence" corner badge
 //   ring-focus              the (single) focus ring
 
+import '@board-geometry'
+import type { BoardDocInput, Bounds, LaidPage } from '@board-geometry'
+
+const G = globalThis.BoardGeom
+
 /** One excalidraw element skeleton — kept structurally untyped so this module
  *  never imports from `@excalidraw/excalidraw` (the pure layer must not pull
  *  the 1.5MB canvas dep into test or main bundles). */
 export type Skeleton = Record<string, unknown>
 
-// ── Layout constants (ported from the spike) ───────────────────────────────
+// ── Shared geometry re-exports (single source: board_geometry.js) ───────────
 
-export const LAYOUT_SCALE = 0.55
-export const COL_GAP = 120
-export const ROW_GAP = 24
+export type { BoardAnchor, BoardDocInput, Bounds, LaidPage } from '@board-geometry'
+
+export const LAYOUT_SCALE = G.GEOM.SCALE
+export const COL_GAP = G.GEOM.COL_GAP
+export const ROW_GAP = G.GEOM.ROW_GAP
 
 /** Padding (board units) around an evidence rect so the ellipse doesn't hug
  *  the glyphs. Same value the spike used. */
-export const ELLIPSE_PAD = 8
+export const ELLIPSE_PAD = G.GEOM.ELLIPSE_PAD
 
-// ── Unit conversion ─────────────────────────────────────────────────────────
-//
-// locate-quotes rects are PDF points; the page raster the board displays is
-// rendered at 150dpi (`backend/app/tools/textlayer.py::_RENDER_DPI = 150`,
-// `_pixmap_dims` computes pixmap dims as ceil(point_dim * dpi / 72.0), kept in
-// lockstep with `pdf_render_page`). So for PDFs: raster pixel = point × 150/72.
-export const PX_PER_PT = 150 / 72
+/** PDF point → raster pixel factor (page rasters render at GEOM.RENDER_DPI,
+ *  see board_geometry.js for the textlayer.py lockstep note). */
+export const PX_PER_PT = G.GEOM.RENDER_DPI / 72
 
-/** Raster docs (jpg/png) have no point space — textlayer.py's non-PDF branch
- *  sets `page_w = float(image_w)` (pixel units), so quote rects already arrive
- *  in raster pixels and the factor is 1. */
-export function pxPerPtFor(ext: string): number {
-  return ext.toLowerCase().replace(/^\./, '') === 'pdf' ? PX_PER_PT : 1
-}
+export const pxPerPtFor = G.pxPerPtFor
+export const pageKey = G.pageKey
+
+/** Pages per sub-column before a doc wraps sideways — keeps a many-paged doc
+ *  from stretching the board into a strip (an 18-page doc degraded
+ *  fit-to-viewport to ~10% zoom, prod dogfood 2026-06-11). */
+export const PAGES_PER_COL = G.GEOM.PAGES_PER_COL
+
+/** One column band per doc, pages stacked top-to-bottom and wrapping into
+ *  sub-columns of PAGES_PER_COL (ROW_GAP apart). The doc-to-doc COL_GAP stays
+ *  wider so docs still read as groups. */
+export const layoutPages = G.layoutPages
+
+/** Board bounds → (doc, page, source-unit rect) reverse mapping — anchors a
+ *  user doodle back onto the document it was drawn over (plan §D). */
+export const anchorForBounds = G.anchorForBounds
 
 // ── Deterministic ids ───────────────────────────────────────────────────────
 
@@ -117,36 +138,7 @@ export function statusColor(status: CheckStatus, colors: BoardColors): string {
 
 const STATUS_MARK: Record<CheckStatus, string> = { pass: '✓', fail: '✗', unclear: '?' }
 
-// ── Column layout ───────────────────────────────────────────────────────────
-
-export interface BoardDocInput {
-  /** doc filename (group key) */
-  name: string
-  /** file extension — picks the point→pixel factor (pdf vs raster) */
-  ext: string
-  /** measured raster dims per page, 1-based page numbers, in source order */
-  pages: { page: number; w: number; h: number }[]
-}
-
-export interface LaidPage {
-  doc: string
-  page: number
-  /** board-space position/size (raster px × scale) */
-  x: number
-  y: number
-  w: number
-  h: number
-  /** multiply a locate rect coordinate (PDF points for pdf, raster px for
-   *  jpg/png) by `k` to get board units: k = pxPerPt(ext) × scale */
-  k: number
-}
-
-export const pageKey = (doc: string, page: number) => `${doc}#p${page}`
-
-/** Pages per sub-column before a doc wraps sideways — keeps a many-paged doc
- *  from stretching the board into a strip (an 18-page doc degraded
- *  fit-to-viewport to ~10% zoom, prod dogfood 2026-06-11). */
-export const PAGES_PER_COL = 4
+// ── Page ordering (board policy, not geometry) ──────────────────────────────
 
 /** Reorder a doc's pages so the cited ones come first (band's leading
  *  sub-column). For a many-paged doc whose cited page sits deep in the grid,
@@ -158,42 +150,6 @@ export function pullPagesFront(doc: BoardDocInput, cited: number[]): BoardDocInp
   const front = doc.pages.filter((p) => cited.includes(p.page))
   if (!front.length) return doc
   return { ...doc, pages: [...front, ...doc.pages.filter((p) => !cited.includes(p.page))] }
-}
-
-/** One column band per doc, pages stacked top-to-bottom and wrapping into
- *  sub-columns of PAGES_PER_COL (ROW_GAP apart). The doc-to-doc COL_GAP stays
- *  wider so docs still read as groups. */
-export function layoutPages(
-  docs: BoardDocInput[],
-  scale: number = LAYOUT_SCALE,
-): Map<string, LaidPage> {
-  const out = new Map<string, LaidPage>()
-  let x = 0
-  for (const doc of docs) {
-    const k = pxPerPtFor(doc.ext) * scale
-    let y = 0
-    let colW = 0
-    let colX = x
-    let docRight = x
-    let inCol = 0
-    for (const p of doc.pages) {
-      const w = p.w * scale
-      const h = p.h * scale
-      if (inCol >= PAGES_PER_COL) {
-        colX += colW + ROW_GAP
-        y = 0
-        colW = 0
-        inCol = 0
-      }
-      out.set(pageKey(doc.name, p.page), { doc: doc.name, page: p.page, x: colX, y, w, h, k })
-      y += h + ROW_GAP
-      colW = Math.max(colW, w)
-      docRight = Math.max(docRight, colX + colW)
-      inCol++
-    }
-    if (doc.pages.length > 0) x = docRight + COL_GAP
-  }
-  return out
 }
 
 // ── Page skeletons ──────────────────────────────────────────────────────────
@@ -242,38 +198,20 @@ export interface EvidenceOnBoard {
   status: string
 }
 
-export interface Bounds { x: number; y: number; w: number; h: number }
-
+/** Union {x,y,w,h} boxes — historical boardScene shape; delegates to the
+ *  shared unionRect (which speaks [x0,y0,x1,y1] lists). */
 export function unionBounds(boxes: Bounds[]): Bounds | null {
-  if (!boxes.length) return null
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const b of boxes) {
-    x0 = Math.min(x0, b.x)
-    y0 = Math.min(y0, b.y)
-    x1 = Math.max(x1, b.x + b.w)
-    y1 = Math.max(y1, b.y + b.h)
-  }
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+  return G.unionRect(boxes.map((b) => [b.x, b.y, b.x + b.w, b.y + b.h]))
 }
 
 /** Board-space bounds of one located evidence: union the (possibly multi-line)
  *  rects, convert source units → board units via the page's `k`, offset by the
- *  page position, pad. Same `(imgX + x0·k)` mapping as the spike / BBoxRect. */
+ *  page position, pad. Same `(imgX + x0·k)` mapping as the spike / BBoxRect.
+ *  Thin wrapper over the shared evidenceEllipse, narrowed to the Bounds shape
+ *  excalidraw skeletons consume. */
 export function evidenceBounds(rects: number[][], page: LaidPage): Bounds | null {
-  const boxes: Bounds[] = []
-  for (const r of rects) {
-    if (!Array.isArray(r) || r.length < 4) continue
-    const [x0, y0, x1, y1] = r
-    boxes.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
-  }
-  const u = unionBounds(boxes)
-  if (!u) return null
-  return {
-    x: page.x + u.x * page.k - ELLIPSE_PAD,
-    y: page.y + u.y * page.k - ELLIPSE_PAD,
-    w: u.w * page.k + ELLIPSE_PAD * 2,
-    h: u.h * page.k + ELLIPSE_PAD * 2,
-  }
+  const e = G.evidenceEllipse(rects, page)
+  return e && { x: e.x, y: e.y, w: e.w, h: e.h }
 }
 
 /** Build the per-check overlays:
@@ -309,7 +247,7 @@ export function buildCheckOverlays(
       }
       continue
     }
-    const b = evidenceBounds(ev.rects, page)
+    const b = G.evidenceEllipse(ev.rects, page)
     if (!b) continue
     const color = statusColor(check.status, colors)
     const id = evId(ev.checkIdx, ev.evIdx)
@@ -321,7 +259,7 @@ export function buildCheckOverlays(
       width: b.w,
       height: b.h,
       strokeColor: color,
-      strokeWidth: 3.5,
+      strokeWidth: G.GEOM.STROKE_W,
       // Dashed outline, NO fill (user 2026-06-11: fill covered the text).
       // Spike trap #4 (clickable interior) no longer applies — overlays are
       // shown for the ACTIVE check only and the rail drives focus, so the
@@ -331,47 +269,22 @@ export function buildCheckOverlays(
     })
     let centers = centersByCheck.get(ev.checkIdx)
     if (!centers) { centers = []; centersByCheck.set(ev.checkIdx, centers) }
-    centers.push({
-      doc: ev.doc, cx: b.x + b.w / 2, cy: b.y + b.h / 2,
-      rx: b.w / 2, ry: b.h / 2, id,
-    })
+    centers.push({ doc: ev.doc, cx: b.cx, cy: b.cy, rx: b.rx, ry: b.ry, id })
   }
 
-  // cross-doc arrows — one per CONSECUTIVE cross-doc evidence pair. The judge
-  // cites paired quotes adjacently (报价单行, 对应物料页, 下一行, …), so a
-  // many-match check (e.g. 9 单项↔页 deliverable pairs) fans out one arrow
-  // per pair; a 2-evidence check degenerates to the single arrow it always
-  // had. Greedy stride-2 pairing keeps an alternating A,B,A,B sequence from
-  // double-connecting (B,A of pair 1 with A of pair 2).
-  // The shaft runs ELLIPSE EDGE to ellipse edge (+gap), computed here — the
+  // cross-doc arrows — one per CONSECUTIVE cross-doc evidence pair (greedy
+  // stride-2 pairing, see crossDocPairs in board_geometry.js). The shaft runs
+  // ELLIPSE EDGE to ellipse edge (+gap), via the shared rayEllipseTrim — the
   // skeleton `start`/`end` bindings don't retrim programmatic scenes, so a
   // center-to-center shaft ran straight through the circled text and parked
   // the arrowhead ON it (dogfood 2026-06-11).
-  const ARROW_GAP = 8
   for (const [checkIdx, centers] of centersByCheck) {
-    const pairs: [typeof centers[number], typeof centers[number]][] = []
-    let i = 0
-    while (i + 1 < centers.length) {
-      if (centers[i].doc !== centers[i + 1].doc) {
-        pairs.push([centers[i], centers[i + 1]])
-        i += 2
-      } else {
-        i += 1
-      }
-    }
+    const pairs = G.crossDocPairs(centers)
     const color = statusColor(checks[checkIdx].status, colors)
     pairs.forEach(([a, b], k) => {
-      const dx = b.cx - a.cx
-      const dy = b.cy - a.cy
-      const norm = Math.hypot(dx, dy)
-      if (!norm) return
-      // ray ∩ ellipse: t = 1/√((dx/rx)² + (dy/ry)²) along (dx,dy) from center
-      const tA = 1 / Math.hypot(dx / Math.max(a.rx, 1), dy / Math.max(a.ry, 1))
-      const tB = 1 / Math.hypot(dx / Math.max(b.rx, 1), dy / Math.max(b.ry, 1))
-      const sx = a.cx + dx * tA + (dx / norm) * ARROW_GAP
-      const sy = a.cy + dy * tA + (dy / norm) * ARROW_GAP
-      const ex = b.cx - dx * tB - (dx / norm) * ARROW_GAP
-      const ey = b.cy - dy * tB - (dy / norm) * ARROW_GAP
+      const seg = G.rayEllipseTrim(a, b, G.GEOM.ARROW_GAP)
+      if (!seg) return
+      const { sx, sy, ex, ey } = seg
       skeletons.push({
         type: 'arrow',
         // first pair keeps the bare arrow-{checkIdx} id (rail lookups, tests);
@@ -386,7 +299,7 @@ export function buildCheckOverlays(
           [ex - sx, ey - sy],
         ],
         strokeColor: color,
-        strokeWidth: 3,
+        strokeWidth: G.GEOM.STROKE_ARROW,
         strokeStyle: 'dashed',
         // one pair → keep the ✓/✗ label; a 9-arrow fan with 9 labels is noise
         // (the rail row + circle colors already carry the verdict)

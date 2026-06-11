@@ -1,4 +1,6 @@
 // frontend/vite.config.ts
+import { fileURLToPath } from 'node:url'
+
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
@@ -17,6 +19,18 @@ export default defineConfig({
   // excalidraw (board) reads process.env.IS_PREACT at runtime; Vite doesn't
   // polyfill process — define it or the canvas crashes on mount.
   define: { 'process.env.IS_PREACT': JSON.stringify('false') },
+  resolve: {
+    alias: {
+      // Audit-board geometry single source — lives with the backend skills
+      // because board_app.html injects the same file verbatim at serve time.
+      // Classic script, side-effect import only (assigns globalThis.BoardGeom);
+      // types in src/components/Board/board-geometry.d.ts. Vitest shares this
+      // config (`defineConfig` from vitest/config above), so no second alias.
+      '@board-geometry': fileURLToPath(
+        new URL('../backend/app/skills/board_geometry.js', import.meta.url),
+      ),
+    },
+  },
   server: { proxy: apiProxy },
   preview: { proxy: apiProxy },
   build: {

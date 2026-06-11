@@ -13,6 +13,7 @@ import {
   PX_PER_PT,
   RING_ID,
   ROW_GAP,
+  anchorForBounds,
   arrowId,
   badgeId,
   buildCheckOverlays,
@@ -324,6 +325,68 @@ describe('unionBounds', () => {
       { x: 0, y: 0, w: 10, h: 10 },
       { x: 5, y: 20, w: 10, h: 5 },
     ])).toEqual({ x: 0, y: 0, w: 15, h: 25 })
+  })
+})
+
+describe('anchorForBounds (board bounds → doc/page/source rect)', () => {
+  it('inverts evidenceBounds on a PDF page (k = 150/72 × scale)', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const page = laid.get(pageKey('a.pdf', 1))!
+    const k = (150 / 72) * LAYOUT_SCALE
+    // board bounds drawn exactly over source rect [72, 36, 144, 72] (points)
+    const bounds = { x: page.x + 72 * k, y: page.y + 36 * k, w: 72 * k, h: 36 * k }
+    const a = anchorForBounds(bounds, laid)!
+    expect(a.doc).toBe('a.pdf')
+    expect(a.page).toBe(1)
+    expect(a.rect[0]).toBeCloseTo(72)
+    expect(a.rect[1]).toBeCloseTo(36)
+    expect(a.rect[2]).toBeCloseTo(144)
+    expect(a.rect[3]).toBeCloseTo(72)
+  })
+
+  it('multi-page / multi-doc: the page containing the CENTER wins', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const a2 = laid.get(pageKey('a.pdf', 2))!
+    const b1 = laid.get(pageKey('b.jpg', 1))!
+    // doodle centered on a.pdf p2
+    const onA2 = anchorForBounds({ x: a2.x + 10, y: a2.y + 10, w: 40, h: 20 }, laid)!
+    expect(onA2.doc).toBe('a.pdf')
+    expect(onA2.page).toBe(2)
+    // doodle centered on the raster doc — k = 1 × scale, source units = px
+    const onB1 = anchorForBounds({ x: b1.x + 100 * b1.k, y: b1.y + 50 * b1.k, w: 20 * b1.k, h: 10 * b1.k }, laid)!
+    expect(onB1.doc).toBe('b.jpg')
+    expect(onB1.page).toBe(1)
+    expect(onB1.rect[0]).toBeCloseTo(100)
+    expect(onB1.rect[1]).toBeCloseTo(50)
+    expect(onB1.rect[2]).toBeCloseTo(120)
+    expect(onB1.rect[3]).toBeCloseTo(60)
+  })
+
+  it('center in empty board space (the COL_GAP / above the pages) → null', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const a1 = laid.get(pageKey('a.pdf', 1))!
+    const b1 = laid.get(pageKey('b.jpg', 1))!
+    // squarely inside the doc-to-doc gap
+    const gapX = a1.x + a1.w + (b1.x - (a1.x + a1.w)) / 2
+    expect(anchorForBounds({ x: gapX - 5, y: 100, w: 10, h: 10 }, laid)).toBeNull()
+    // above the board
+    expect(anchorForBounds({ x: a1.x + 10, y: a1.y - 60, w: 10, h: 10 }, laid)).toBeNull()
+  })
+
+  it('bounds spilling past the page edge are clamped to the page frame', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const b1 = laid.get(pageKey('b.jpg', 1))! // 1000×800 px source
+    // starts left of / above the page, ends past its right edge, but the
+    // center still falls on the page
+    const a = anchorForBounds(
+      { x: b1.x - 20, y: b1.y - 20, w: b1.w + 60, h: b1.h / 2 },
+      laid,
+    )!
+    expect(a.doc).toBe('b.jpg')
+    expect(a.rect[0]).toBe(0)
+    expect(a.rect[1]).toBe(0)
+    expect(a.rect[2]).toBeCloseTo(1000) // clamped to source width
+    expect(a.rect[3]).toBeLessThanOrEqual(800)
   })
 })
 
