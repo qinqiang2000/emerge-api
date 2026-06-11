@@ -155,8 +155,10 @@ def build_mcp_server(
 
             cp = server.request_context.session.client_params
             if cp is not None:
-                logging.getLogger("emerge.mcp").info(
-                    "MCP client: %s capabilities=%s",
+                # uvicorn.error has a live handler at INFO; the root logger
+                # defaults to WARNING and swallowed the first attempt.
+                logging.getLogger("uvicorn.error").info(
+                    "emerge.mcp client: %s capabilities=%s",
                     cp.clientInfo.model_dump() if cp.clientInfo else None,
                     cp.capabilities.model_dump(exclude_none=True)
                     if cp.capabilities else None,
