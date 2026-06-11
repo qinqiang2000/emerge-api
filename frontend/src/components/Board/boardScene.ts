@@ -133,9 +133,14 @@ export interface LaidPage {
 
 export const pageKey = (doc: string, page: number) => `${doc}#p${page}`
 
-/** One column per doc, pages stacked top-to-bottom — the spike's layout math
- *  verbatim: x advances by the column's widest page + COL_GAP, y by page
- *  height + ROW_GAP. */
+/** Pages per sub-column before a doc wraps sideways — keeps a many-paged doc
+ *  from stretching the board into a strip (an 18-page doc degraded
+ *  fit-to-viewport to ~10% zoom, prod dogfood 2026-06-11). */
+export const PAGES_PER_COL = 4
+
+/** One column band per doc, pages stacked top-to-bottom and wrapping into
+ *  sub-columns of PAGES_PER_COL (ROW_GAP apart). The doc-to-doc COL_GAP stays
+ *  wider so docs still read as groups. */
 export function layoutPages(
   docs: BoardDocInput[],
   scale: number = LAYOUT_SCALE,
@@ -146,14 +151,25 @@ export function layoutPages(
     const k = pxPerPtFor(doc.ext) * scale
     let y = 0
     let colW = 0
+    let colX = x
+    let docRight = x
+    let inCol = 0
     for (const p of doc.pages) {
       const w = p.w * scale
       const h = p.h * scale
-      out.set(pageKey(doc.name, p.page), { doc: doc.name, page: p.page, x, y, w, h, k })
+      if (inCol >= PAGES_PER_COL) {
+        colX += colW + ROW_GAP
+        y = 0
+        colW = 0
+        inCol = 0
+      }
+      out.set(pageKey(doc.name, p.page), { doc: doc.name, page: p.page, x: colX, y, w, h, k })
       y += h + ROW_GAP
       colW = Math.max(colW, w)
+      docRight = Math.max(docRight, colX + colW)
+      inCol++
     }
-    if (doc.pages.length > 0) x += colW + COL_GAP
+    if (doc.pages.length > 0) x = docRight + COL_GAP
   }
   return out
 }

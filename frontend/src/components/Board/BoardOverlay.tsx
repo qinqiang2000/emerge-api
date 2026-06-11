@@ -53,6 +53,22 @@ import {
 
 type SceneElement = ReturnType<ExcalidrawImperativeAPI['getSceneElements']>[number]
 
+/** Page-image elements geometrically under the given overlay elements (an
+ *  ellipse sits inside its page) — used to widen a zoom target from bare
+ *  circles to readable page context. */
+function pagesUnder(api: ExcalidrawImperativeAPI, overlays: SceneElement[]): SceneElement[] {
+  const images = api.getSceneElements().filter(e => e.id.startsWith('img-'))
+  const out: SceneElement[] = []
+  for (const o of overlays) {
+    const cx = o.x + o.width / 2
+    const cy = o.y + o.height / 2
+    const host = images.find(im =>
+      cx >= im.x && cx <= im.x + im.width && cy >= im.y && cy <= im.y + im.height)
+    if (host && !out.includes(host)) out.push(host)
+  }
+  return out
+}
+
 interface Props {
   slug: string
   onClose: () => void
@@ -101,14 +117,27 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   const t = useT()
 
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null)
+  // Ops-first: the board's imperative surface is addressable from the console
+  // / agent drivers, mirroring how kbd + tools share one op layer.
+  useEffect(() => {
+    ;(window as unknown as Record<string, unknown>).__emergeBoardApi = api ?? undefined
+    return () => { (window as unknown as Record<string, unknown>).__emergeBoardApi = undefined }
+  }, [api])
   const [activeCheck, setActiveCheck] = useState<number | null>(null)
   const [sceneReady, setSceneReady] = useState(false)
   // "docs list refresh attempted" — the scene build needs page counts but must
   // not stall forever if the docs fetch fails (fallback: max evidence page).
   const [docsReady, setDocsReady] = useState<boolean>(() => !!useDocs.getState().byProject[slug])
   const builtFor = useRef<string | null>(null)
+  const fittedFor = useRef<string | null>(null)
+  const mountedRef = useRef(true)
   const notesRestoredFor = useRef<string | null>(null)
   const lastNoteSig = useRef('')
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   // Resolved once per mount — the board lives inside the themed DOM, so the
   // semantic tokens (--moss/--rose/--ochre/...) are available by now.
   const colors = useMemo(() => readBoardColors(), [])
@@ -220,10 +249,35 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
         elements: convertToExcalidrawElements(skeletons as never, { regenerateIds: false }),
       })
       builtFor.current = buildKey
-      // Let excalidraw commit the elements before fitting the viewport
-      // (same post-update tick the spike needed).
+      // Fit the viewport one tick after excalidraw commits the elements (the
+      // post-update tick the spike needed) — but do NOT ride this effect's
+      // `cancelled` flag: `entry`'s store ref churns right after the build
+      // (notes/loading updates), the re-run cleanup cancelled the pending fit
+      // and the builtFor guard skipped re-fitting → viewport stranded at 100%
+      // on empty (0,0), reading as a blank board (prod dogfood 2026-06-11).
+      // The committed scene survives those re-runs; the fit must too.
+      const fitApi = api
+      // Initial view answers "定位": land on the FIRST check that has located
+      // evidence (zoomed to its circles) instead of fitting the whole board —
+      // a 20+-page group fits at ~10% zoom, which reads as unusable/empty.
+      // Fit-all stays the fallback when nothing located; Shift+1 gives the
+      // overview at any time.
+      const firstIdx = report.checks.findIndex((_, i) =>
+        evidences.some(e => e.checkIdx === i && e.rects.length > 0))
       setTimeout(() => {
-        if (!cancelled) api?.scrollToContent(undefined, { fitToViewport: true })
+        if (!mountedRef.current || fittedFor.current === buildKey || !fitApi) return
+        fittedFor.current = buildKey
+        const prefix = `ev-${firstIdx}-`
+        const els = firstIdx >= 0
+          ? fitApi.getSceneElements().filter(e => e.id.startsWith(prefix))
+          : []
+        if (els.length) {
+          setActiveCheck(firstIdx)
+          fitApi.scrollToContent([...els, ...pagesUnder(fitApi, els)],
+            { fitToViewport: true, viewportZoomFactor: 0.85 })
+        } else {
+          fitApi.scrollToContent(undefined, { fitToViewport: true })
+        }
       }, 100)
       setSceneReady(true)
     }
@@ -262,7 +316,11 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
       e => e.id.startsWith(prefix) || e.id === arrowId(idx),
     )
     if (!els.length) return
-    api.scrollToContent(els, { fitToViewport: true, animate: true, viewportZoomFactor: 0.6 })
+    // Zoom target = the circles PLUS the page images under them — fitting a
+    // bare ellipse lands at 300%+ ("怼脸"), while the page keeps the evidence
+    // readable in context (and shows both pages for a cross-doc check).
+    const scope = [...els, ...pagesUnder(api, els.filter(e => e.id.startsWith(prefix)))]
+    api.scrollToContent(scope, { fitToViewport: true, animate: true, viewportZoomFactor: 0.85 })
     // Focus WITHOUT selection (trap #2): swap the single ring element instead
     // of touching appState.selectedElementIds.
     const ellipses = els.filter(e => e.id.startsWith(prefix))
