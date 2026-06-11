@@ -100,6 +100,56 @@ async def test_fields_hint_included_when_provided():
     assert "370815.56" in texts and "reference only" in texts   # hint, not source of truth
 
 
+# --- B1: evidence citations -----------------------------------------------------
+
+
+async def test_evidence_backfilled_and_missing_defaults_empty():
+    p = _MockProvider(checks=[
+        {"index": 0, "status": "pass", "reason": "甲方=环胜",
+         "evidence": [{"doc": "quote", "page": 1, "quote": "甲方：环胜电子商务"}]},
+        {"index": 1, "status": "fail", "reason": "无红章"},   # no evidence key → []
+        {"index": 2, "status": "pass", "reason": "金额一致",
+         "evidence": [{"doc": "quote", "quote": "¥370,815.56"},
+                      {"doc": "receipt", "page": 3, "quote": "370815.56"}]},
+    ])
+    out = await audit_group(doc_images=_DOCS, audit_rules=_RULES, provider=p)
+    assert [len(c.evidence) for c in out] == [1, 0, 2]
+    ev = out[0].evidence[0]
+    assert (ev.doc, ev.page, ev.quote) == ("quote", 1, "甲方：环胜电子商务")
+    assert out[2].evidence[0].page is None      # page optional
+    assert out[2].evidence[1].doc == "receipt" and out[2].evidence[1].page == 3
+
+
+async def test_malformed_evidence_entries_dropped_never_fail():
+    p = _MockProvider(checks=[
+        {"index": 0, "status": "pass", "reason": "ok",
+         "evidence": [
+             {"doc": "quote"},                        # missing quote → dropped
+             {"page": 2, "quote": "无doc"},            # missing doc → dropped
+             "not-a-dict",                             # → dropped
+             {"doc": "receipt", "quote": "金额 100"},   # valid → kept
+         ]},
+        {"index": 1, "status": "pass", "reason": "ok", "evidence": "garbage"},  # non-list → []
+        {"index": 2, "status": "pass", "reason": "ok", "evidence": None},       # null → []
+    ])
+    out = await audit_group(doc_images=_DOCS, audit_rules=_RULES, provider=p)
+    assert [(e.doc, e.quote) for e in out[0].evidence] == [("receipt", "金额 100")]
+    assert out[1].evidence == [] and out[2].evidence == []
+    # the malformed evidence never poisoned the verdicts themselves
+    assert [c.status for c in out] == ["pass", "pass", "pass"]
+
+
+async def test_overlong_quote_truncated_defensively():
+    p = _MockProvider(checks=[
+        {"index": 0, "status": "pass", "reason": "ok",
+         "evidence": [{"doc": "quote", "quote": "甲" * 300}]},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    out = await audit_group(doc_images=_DOCS, audit_rules=_RULES, provider=p)
+    assert out[0].evidence[0].quote == "甲" * 200   # cap at 200, entry kept
+
+
 async def test_fields_optional():
     # audit works with images and NO extracted fields (extraction not required)
     cap: dict = {}

@@ -39,7 +39,7 @@ from typing import Any, Callable, Optional
 
 from app.eval.normalize import _try_number, normalize_equivalent
 from app.schemas.extraction import evidence_page, evidence_source
-from app.schemas.locate import FieldLocation
+from app.schemas.locate import FieldLocation, QuoteLocation
 from app.schemas.schema_field import SchemaField
 from app.tools.extract import _collect_leaves
 from app.tools.textlayer import extract_textlayer
@@ -1218,3 +1218,161 @@ async def locate_fields(
                 results[i] = loc.model_copy(update={"rects": deduped})
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# locate_quotes — standalone "verbatim quote → page rects" resolver
+# ---------------------------------------------------------------------------
+# A quote here is exactly what the field path calls a tier-2 *source quote*
+# (audit `RuleCheck.evidence` quotes, board annotations, …), decoupled from any
+# (entity, field-path) pair. It reuses the SAME span-matching tiers — NFKC
+# normalisation, exact / boundary-substring / rapidfuzz fuzzy string strength
+# (`_value_strength`), and the despaced quote-line clustering with its coverage
+# floor (`_cluster_quote_lines` + `_QUOTE_MIN_COVERAGE`) — without touching
+# `locate_fields` or its precision tuning.
+#
+# One deliberate divergence: `locate_fields` treats the evidence page hint as
+# authoritative (the Extract LLM's testimony of where it READ the value), but
+# an audit judge's / annotator's page hint is weaker testimony — so here the
+# hint page is searched FIRST and a miss falls back to a whole-doc scan.
+#
+# Same render-only hard rule: rects flow only through the locate-quotes HTTP
+# route (app/api/routes/locate.py), never into any prompt / tool result.
+
+# Pseudo string field handed to `_value_strength` so a quote rides the string
+# strength ladder (exact / substring / normalized / date-heuristic / fuzzy).
+_QUOTE_FIELD = SchemaField(
+    name="quote", type="string", description="verbatim quote (locate_quotes pseudo-field)"
+)
+
+
+async def _locate_one_quote(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    *,
+    index: int,
+    quote: Any,
+    page_hint: Optional[int],
+    span_cache: dict[int, list[dict]],
+    total_pages: int,
+) -> QuoteLocation:
+    """Resolve one verbatim quote's rects: hint page first, then whole doc.
+
+    Per page, the cascade mirrors `_locate_one_field` steps 2–4 (the quote IS
+    both the "value" and the "source quote" here, so the step-1 corroboration
+    gate is moot):
+      1. literal full-span identity (score 1.0 — incl. distinctive-repeat
+         union) → exact / normalized;
+      2. quote-line cluster clearing the coverage floor → quote (label+value
+         split across columns reassembles into one multi-rect line);
+      3. weaker string strength (substring / normalized / fuzzy) → its status.
+    A page where every tier abstains (no hit, or ambiguous tie → none) does not
+    stop the scan; a fully-missed quote degrades to status "none" — never an
+    exception.
+    """
+
+    def _result(
+        status: str, score: float, rects: list[list[float]], page: Optional[int]
+    ) -> QuoteLocation:
+        return QuoteLocation(index=index, rects=rects, page=page, status=status, score=score)
+
+    quote_n = _nfkc(quote) if isinstance(quote, str) else ""
+    if not quote_n:
+        return _result("none", 0.0, [], page_hint)
+
+    quote_dec = _try_number(quote_n)
+    # Same distinctiveness rule as a string-typed field: a long non-amount
+    # string repeated full-span-equal is the same entity → union; a decimal
+    # amount repeats ambiguously → tie stays none.
+    distinctive = (
+        not _is_decimal_amount(quote_n, quote_dec)
+        and len(quote_n) >= _DISTINCTIVE_LEN
+    )
+
+    def _qfn(txt: str) -> tuple[float, str]:
+        return _value_strength(quote_n, quote_dec, _QUOTE_FIELD, txt)
+
+    pages: list[int] = []
+    if page_hint is not None:
+        pages.append(page_hint)
+    pages.extend(p for p in range(1, (total_pages or 0) + 1) if p != page_hint)
+
+    for pg in pages:
+        spans = await _spans_for_page(workspace, project_id, filename, pg, span_cache)
+        if not spans:
+            continue
+        sel_v = _select_cluster(_cluster_hits(spans, _qfn), distinctive=distinctive)
+        # literal full-span identity is the most trustworthy anchor
+        if sel_v is not None and sel_v["score"] >= 1.0 - _DOMINANCE_EPS:
+            return _result(sel_v["status"], sel_v["score"] * 100.0, sel_v["rects"], pg)
+        # quote-line reassembly (cross-column label+value fragments union into
+        # one line); the coverage floor keeps incidental fragments out.
+        qclusters = [
+            c
+            for c in _cluster_quote_lines(spans, quote_n)
+            if c["score"] >= _QUOTE_MIN_COVERAGE
+        ]
+        sel_q = _select_cluster(qclusters)
+        if sel_q is not None:
+            return _result("quote", sel_q["score"] * 100.0, sel_q["rects"], pg)
+        # non-literal string fallback (substring / normalized / fuzzy)
+        if sel_v is not None:
+            return _result(sel_v["status"], sel_v["score"] * 100.0, sel_v["rects"], pg)
+
+    return _result("none", 0.0, [], page_hint)
+
+
+async def locate_quotes(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    *,
+    quotes: list[dict],
+) -> list[QuoteLocation]:
+    """Locate verbatim quotes in the source document (render-only).
+
+    ``quotes`` items are ``{page?: int|None, quote: str}`` — the page is an
+    optional hint searched first; a miss falls back to a whole-doc scan.
+    Returns one :class:`QuoteLocation` per input, in input order (``index``
+    echoes the input position). Missing / empty / unmatched quotes degrade to
+    ``status="none"`` with empty rects — never an exception.
+
+    Reads warm textlayer sidecars only (``skip_ocr=True`` via
+    `_spans_for_page`): pure CPU + file IO, safe to run on a worker thread off
+    the event loop (see the route's ``to_thread`` offload).
+    """
+    total_pages = await _page_count(workspace, project_id, filename)
+    # Document-global span cache, shared across all quotes (same rationale as
+    # locate_fields: page spans don't depend on the quote).
+    span_cache: dict[int, list[dict]] = {}
+
+    out: list[QuoteLocation] = []
+    for idx, item in enumerate(quotes):
+        raw_page = item.get("page") if isinstance(item, dict) else None
+        page_hint = (
+            raw_page
+            if isinstance(raw_page, int) and not isinstance(raw_page, bool) and raw_page >= 1
+            else None
+        )
+        loc = await _locate_one_quote(
+            workspace,
+            project_id,
+            filename,
+            index=idx,
+            quote=item.get("quote") if isinstance(item, dict) else None,
+            page_hint=page_hint,
+            span_cache=span_cache,
+            total_pages=total_pages,
+        )
+        out.append(loc)
+
+    # Same render-quality sweep as locate_fields: collapse fitz-line + OCR-word
+    # rect overlap into tight word rects.
+    for i, loc in enumerate(out):
+        if len(loc.rects) > 1:
+            deduped = _dedupe_aggregate_rects(loc.rects)
+            if len(deduped) != len(loc.rects):
+                out[i] = loc.model_copy(update={"rects": deduped})
+
+    return out

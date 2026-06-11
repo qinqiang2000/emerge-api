@@ -198,12 +198,27 @@ class MatchResult(BaseModel):
 
 # --- audit layer (A0) -------------------------------------------------------
 
+class AuditEvidence(BaseModel):
+    """One verbatim source citation backing a rule verdict: a TEXT quote
+    (≤120 chars, original language, never rewritten) read off document `doc`,
+    with `page` when the doc was presented with page labels (None otherwise).
+    Evidence is TEXT ONLY — NEVER coordinates (bbox red line: coordinates live
+    only in the review/board render layer, never in prompts or tool results)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    doc: str
+    page: Optional[int] = None
+    quote: str
+
+
 class RuleCheck(BaseModel):
     """One compliance rule's verdict over a grouped set of docs. `unclear` is a
     first-class status (the judge couldn't decide / the image was illegible) —
     never silently coerced to fail. `level` mirrors the rule's severity;
     `decided_by` records whether the deterministic L1 fast path or the LLM
-    judge produced the verdict."""
+    judge produced the verdict. `evidence` is additive-optional (pre-2026-06-11
+    report JSON has no key → defaults to [])."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -212,6 +227,7 @@ class RuleCheck(BaseModel):
     reason: str = ""
     level: Literal["critical", "warning"] = "critical"
     decided_by: Literal["l1", "judge"] = "judge"
+    evidence: list[AuditEvidence] = []
 
 
 class AuditReport(BaseModel):

@@ -277,6 +277,53 @@ async def test_legacy_list_str_prompt_json_loads(workspace):
     assert report["overall"] == "fail"
 
 
+# --- B1: evidence persisted / legacy reports load --------------------------------
+
+
+async def test_report_on_disk_carries_evidence(workspace):
+    slug = await _audit_project(workspace, docs=_DOCS)
+    p = _MockProvider([
+        {"index": 0, "status": "pass", "reason": "甲方=环胜",
+         "evidence": [{"doc": "报价单.jpg", "page": 1, "quote": "甲方：环胜"}]},
+        {"index": 1, "status": "pass", "reason": "ok"},
+        {"index": 2, "status": "pass", "reason": "ok"},
+    ])
+    report = await run_audit(workspace, slug, provider=p, model_id="m")
+    assert report["checks"][0]["evidence"] == [
+        {"doc": "报价单.jpg", "page": 1, "quote": "甲方：环胜"}]
+    assert report["checks"][1]["evidence"] == []
+    # …and the persisted report.json carries it verbatim
+    blobs = list(audits_dir(workspace, slug).glob("*/report.json"))
+    assert len(blobs) == 1
+    on_disk = json.loads(blobs[0].read_text(encoding="utf-8"))
+    assert on_disk["checks"][0]["evidence"][0]["quote"] == "甲方：环胜"
+    assert on_disk["checks"][1]["evidence"] == []
+
+
+async def test_legacy_report_without_evidence_loads(workspace):
+    """Pre-B1 report.json (no evidence keys) must read back unchanged via
+    read_audit_report AND still validate as an AuditReport (evidence → [])."""
+    from app.schemas.match import AuditReport
+
+    slug = (await create_project(workspace, name="旧报告"))["slug"]
+    run_dir = audits_dir(workspace, slug) / "au_legacy"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    legacy = {
+        "run_id": "au_legacy",
+        "created_at": "2026-06-10T00:00:00+00:00",
+        "group": {"报价单.jpg": "报价单.jpg"},
+        "checks": [{"rule": "甲方为环胜", "status": "pass", "reason": "ok",
+                    "level": "critical", "decided_by": "judge"}],
+        "overall": "pass",
+    }
+    atomic_write_json(run_dir / "report.json", legacy)
+
+    latest = await read_audit_report(workspace, slug)
+    assert latest["run_id"] == "au_legacy"
+    rep = AuditReport.model_validate(latest)
+    assert rep.checks[0].evidence == []
+
+
 # --- A3: read_audit_report ------------------------------------------------------
 
 

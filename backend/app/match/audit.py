@@ -21,8 +21,10 @@ from __future__ import annotations
 import json
 from typing import Optional, Sequence, Union
 
+from pydantic import ValidationError
+
 from app.provider.base import ImageBlock, Provider, TextBlock
-from app.schemas.match import AuditRule, RuleCheck
+from app.schemas.match import AuditEvidence, AuditRule, RuleCheck
 
 _AUDIT_SCHEMA = {
     "type": "object",
@@ -35,6 +37,19 @@ _AUDIT_SCHEMA = {
                     "index": {"type": "integer"},
                     "status": {"type": "string", "enum": ["pass", "fail", "unclear"]},
                     "reason": {"type": "string"},
+                    # Verbatim TEXT citations only — never coordinates.
+                    "evidence": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "doc": {"type": "string"},
+                                "page": {"type": "integer"},
+                                "quote": {"type": "string"},
+                            },
+                            "required": ["doc", "quote"],
+                        },
+                    },
                 },
                 "required": ["index", "status", "reason"],
             },
@@ -60,7 +75,14 @@ _SYSTEM = (
     "compare. Allow sensible tolerances (amounts equal within rounding; a date "
     "inside a stated period; the same company written differently; keyword "
     "overlap for fuzzy title/remark matches).\n"
-    "- `reason`: one short sentence citing the concrete values/marks you saw."
+    "- `reason`: one short sentence citing the concrete values/marks you saw.\n"
+    "- `evidence`: for each verdict, cite the verbatim source snippets you relied "
+    "on — copy each snippet EXACTLY as it appears on the document (original "
+    "language, no rewriting, no translation), ≤120 characters each. `doc` is the "
+    "document label/role exactly as given above; include `page` only when the "
+    "document was presented with page labels. An 'unclear' verdict may have empty "
+    "evidence. NEVER output coordinates, bounding boxes or pixel positions — "
+    "evidence is text quotes only."
 )
 
 
@@ -148,5 +170,30 @@ async def audit_group(
         if status not in ("pass", "fail", "unclear"):
             status = "unclear"
         out.append(RuleCheck(rule=rule.rule, status=status, level=rule.level,
-                             reason=str(c.get("reason", ""))))
+                             reason=str(c.get("reason", "")),
+                             evidence=_parse_evidence(c.get("evidence"))))
+    return out
+
+
+def _parse_evidence(raw_ev) -> list[AuditEvidence]:
+    """Tolerant per-check evidence parse (same discipline as the index
+    alignment above — never length-fail, never raise): a non-list → [];
+    entries that don't validate as `AuditEvidence` (missing quote/doc, wrong
+    types) are dropped; over-long quotes are defensively truncated at 200
+    chars (the prompt asks ≤120). Only {doc, page, quote} survive — anything
+    else the judge emitted (notably any coordinate-shaped key) is discarded."""
+    if not isinstance(raw_ev, list):
+        return []
+    out: list[AuditEvidence] = []
+    for e in raw_ev:
+        if not isinstance(e, dict):
+            continue
+        quote = e.get("quote")
+        if isinstance(quote, str) and len(quote) > 200:
+            quote = quote[:200]
+        try:
+            out.append(AuditEvidence(doc=e.get("doc"), page=e.get("page"),
+                                     quote=quote))
+        except ValidationError:
+            continue
     return out

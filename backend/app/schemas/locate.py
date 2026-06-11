@@ -37,3 +37,20 @@ class FieldLocation(BaseModel):
     page: Optional[int] = None
     status: LocateStatus = "none"
     score: float = 0.0
+
+
+class QuoteLocation(BaseModel):
+    """One verbatim quote's location in the source document.
+
+    Mirrors :class:`FieldLocation` but is keyed by the *input index* of the
+    quote (audit evidence quotes, board annotations, …) instead of an
+    (entity, field-path) pair. Same units / same render-only hard rule:
+    ``rects`` flow only through the locate-quotes HTTP render route, never
+    into any LLM prompt or agent tool result.
+    """
+
+    index: int
+    rects: list[list[float]] = Field(default_factory=list)
+    page: Optional[int] = None
+    status: LocateStatus = "none"
+    score: float = 0.0

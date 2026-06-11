@@ -16,12 +16,19 @@ import { toolShortHint } from '../../lib/toolHint'
 export type AuditOverall = 'pass' | 'warn' | 'fail'
 export type AuditCheckStatus = 'pass' | 'fail' | 'unclear'
 
+export interface AuditEvidenceRow {
+  doc: string
+  page: number | null
+  quote: string
+}
+
 export interface AuditCheckRow {
   rule: string
   status: AuditCheckStatus
   reason: string
   level: 'critical' | 'warning'
   decidedBy: 'l1' | 'judge'
+  evidence: AuditEvidenceRow[]
 }
 
 export interface AuditReportData {
@@ -72,6 +79,24 @@ function asObject(raw: unknown): Record<string, unknown> | null {
 
 const CHECK_STATUSES = new Set(['pass', 'fail', 'unclear'])
 
+/** Tolerant evidence pass-through: missing/non-array → []; entries without a
+ * string doc+quote are dropped (mirrors the backend's drop-don't-fail parse). */
+function adaptEvidence(raw: unknown): AuditEvidenceRow[] {
+  if (!Array.isArray(raw)) return []
+  const out: AuditEvidenceRow[] = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const ev = e as Record<string, unknown>
+    if (typeof ev.doc !== 'string' || typeof ev.quote !== 'string') continue
+    out.push({
+      doc: ev.doc,
+      page: typeof ev.page === 'number' ? ev.page : null,
+      quote: ev.quote,
+    })
+  }
+  return out
+}
+
 /** run_audit report → card data; null when the JSON isn't an audit report. */
 export function adaptAuditReport(raw: unknown): AuditReportData | null {
   const o = asObject(raw)
@@ -92,6 +117,7 @@ export function adaptAuditReport(raw: unknown): AuditReportData | null {
       reason: typeof r.reason === 'string' ? r.reason : '',
       level: r.level === 'warning' ? 'warning' : 'critical',
       decidedBy: r.decided_by === 'l1' ? 'l1' : 'judge',
+      evidence: adaptEvidence(r.evidence),
     })
   }
   return {
@@ -190,6 +216,14 @@ export function AuditReportCard({ data }: { data: AuditReportData }) {
             {c.reason && (
               <div className="pl-5 text-xs text-ink-3 break-words">{c.reason}</div>
             )}
+            {/* Evidence: verbatim text quotes only — the card never draws
+                boxes/coordinates (spatial expression belongs to the board). */}
+            {c.evidence.map((e, j) => (
+              <div key={j} className="pl-5 text-xs text-ink-4 break-words">
+                「{e.quote}」 — {e.doc}
+                {e.page != null ? ` · p${e.page}` : ''}
+              </div>
+            ))}
           </div>
         ))}
       </div>

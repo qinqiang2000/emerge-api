@@ -1,11 +1,13 @@
 // AuditCard adapters (A3) — strict recognition: audit JSON in, rows out;
 // anything else (eval score results, error envelopes, garbage) → null so the
 // generic ToolCall rendering is never hijacked.
+import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import {
   adaptAuditReport,
   adaptAuditScore,
+  AuditReportCard,
   overallToneClasses,
 } from './AuditCard'
 
@@ -54,7 +56,7 @@ describe('adaptAuditReport', () => {
     expect(d!.checks).toHaveLength(4)
     expect(d!.checks[0]).toEqual({
       rule: '甲方为环胜', status: 'pass', reason: 'L1: 环胜 == 环胜',
-      level: 'critical', decidedBy: 'l1',
+      level: 'critical', decidedBy: 'l1', evidence: [],
     })
     expect(d!.checks[2].level).toBe('warning')
     expect(d!.checks[3].status).toBe('unclear')
@@ -80,6 +82,33 @@ describe('adaptAuditReport', () => {
   it('supports the warn overall', () => {
     const d = adaptAuditReport({ ...REPORT, overall: 'warn' })
     expect(d?.overall).toBe('warn')
+  })
+
+  it('passes evidence through, dropping malformed entries (B1)', () => {
+    const withEv = {
+      ...REPORT,
+      overall: 'pass',
+      checks: [
+        {
+          rule: '甲方为环胜', status: 'pass', reason: 'ok',
+          level: 'critical', decided_by: 'judge',
+          evidence: [
+            { doc: '报价单.jpg', page: 2, quote: '甲方：环胜' },
+            { doc: '收货单.jpg', quote: '370815.56' },   // page absent → null
+            { doc: 3, quote: 'bad doc type' },           // malformed → dropped
+            { doc: 'x.pdf' },                            // missing quote → dropped
+          ],
+        },
+        { rule: '盖红章', status: 'fail', reason: '未见', level: 'critical', decided_by: 'judge' },
+      ],
+    }
+    const d = adaptAuditReport(withEv)
+    expect(d!.checks[0].evidence).toEqual([
+      { doc: '报价单.jpg', page: 2, quote: '甲方：环胜' },
+      { doc: '收货单.jpg', page: null, quote: '370815.56' },
+    ])
+    // checks without an evidence key (every legacy report) default to []
+    expect(d!.checks[1].evidence).toEqual([])
   })
 
   it('returns null for eval score results (no hijack)', () => {
@@ -131,5 +160,39 @@ describe('overallToneClasses', () => {
     expect(overallToneClasses('pass')).toBe('text-moss bg-moss-soft')
     expect(overallToneClasses('warn')).toBe('text-ochre-2 bg-ochre-soft')
     expect(overallToneClasses('fail')).toBe('text-rose bg-rose-soft')
+  })
+})
+
+describe('AuditReportCard evidence rendering (B1)', () => {
+  it('renders quote sub-lines 「quote」 — doc · pN as muted text', () => {
+    const data = adaptAuditReport({
+      ...REPORT,
+      overall: 'pass',
+      checks: [
+        {
+          rule: '甲方为环胜', status: 'pass', reason: 'ok',
+          level: 'critical', decided_by: 'judge',
+          evidence: [
+            { doc: '报价单.jpg', page: 2, quote: '甲方：环胜' },
+            { doc: '收货单.jpg', quote: '370815.56' },
+          ],
+        },
+      ],
+    })!
+    const { container } = render(<AuditReportCard data={data} />)
+    const text = container.textContent ?? ''
+    expect(text).toContain('「甲方：环胜」 — 报价单.jpg · p2')
+    expect(text).toContain('「370815.56」 — 收货单.jpg')
+    expect(text).not.toContain('370815.56」 — 收货单.jpg · p')  // no page → no suffix
+    // muted sub-line uses the file's semantic ink-4 convention
+    const sub = Array.from(container.querySelectorAll('div')).find(el =>
+      el.textContent?.startsWith('「甲方：环胜」'))
+    expect(sub?.className).toContain('text-ink-4')
+  })
+
+  it('renders no evidence sub-line when a check has none (legacy reports)', () => {
+    const data = adaptAuditReport(REPORT)!
+    const { container } = render(<AuditReportCard data={data} />)
+    expect(container.textContent).not.toContain('「')
   })
 })

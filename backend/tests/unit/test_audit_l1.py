@@ -206,6 +206,57 @@ def test_warning_level_carried_through():
     assert rc is not None and rc.status == "fail" and rc.level == "warning"
 
 
+# --- B1: synthesized evidence ----------------------------------------------------
+
+
+def test_l1_eq_synthesizes_evidence_from_both_field_refs():
+    rule = _rule({
+        "type": "eq",
+        "left": _REF("报价单", "total"),
+        "right": _REF("收货单", "amount"),
+        "tol": 0.01,
+    })
+    fields = {
+        "报价单.pdf": {"total": "¥370,815.56"},
+        "收货单.jpg": {"amount": "370815.56"},
+    }
+    rc = try_l1(rule, fields)
+    assert rc is not None
+    # doc = RESOLVED filename (substring "报价单" → "报价单.pdf"), quote = the
+    # raw field value verbatim; page unknown → None.
+    assert [(e.doc, e.quote) for e in rc.evidence] == [
+        ("报价单.pdf", "¥370,815.56"), ("收货单.jpg", "370815.56"),
+    ]
+    assert all(e.page is None for e in rc.evidence)
+
+
+def test_l1_constants_produce_no_evidence():
+    rule = _rule({"type": "eq", "left": _REF("报价单", "total"), "right": 1200})
+    fields = {"报价单.pdf": {"total": "1,200.00"}}
+    rc = try_l1(rule, fields)
+    assert rc is not None
+    # only the field-ref side cites — the constant 1200 is not document text
+    assert [(e.doc, e.quote) for e in rc.evidence] == [("报价单.pdf", "1,200.00")]
+
+
+def test_l1_range_evidence_field_refs_only():
+    rule = _rule({
+        "type": "range",
+        "value": _REF("订单", "complete_date"),
+        "low": "2025-01-15",
+        "high": _REF("报价单", "period_end"),
+    })
+    fields = {
+        "订单.pdf": {"complete_date": "2025-02-28"},
+        "报价单.pdf": {"period_end": "2025-02-28"},
+    }
+    rc = try_l1(rule, fields)
+    assert rc is not None and rc.status == "pass"
+    assert [(e.doc, e.quote) for e in rc.evidence] == [
+        ("订单.pdf", "2025-02-28"), ("报价单.pdf", "2025-02-28"),
+    ]
+
+
 def test_field_ref_parses_from_dict_operands():
     # L1Check coerces dict operands into L1FieldRef
     check = L1Check(
