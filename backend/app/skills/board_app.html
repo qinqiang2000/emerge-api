@@ -115,8 +115,12 @@ async function boot(viewUrl) {
   render(viewUrl, data);
 }
 
-/* ── geometry: injected board_geometry.js is the single source of truth ─ */
-const { GEOM } = BoardGeom;
+/* ── geometry: injected board_geometry.js is the single source of truth ─
+   `GEOM` (and the Geom functions) resolve to the injected script's own
+   top-level bindings — classic sibling scripts share the global lexical
+   scope. Do NOT redeclare them here (`const { GEOM } = BoardGeom` was a
+   redeclaration SyntaxError that silently killed this whole script block;
+   the page froze at "initializing…" with nothing on the console, 2026-06-12). */
 
 function render(viewUrl, data) {
   const report = data.report || {}, checks = report.checks || [];

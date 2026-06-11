@@ -635,6 +635,18 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## Sibling inline classic scripts share the global LEXICAL scope — a redeclaration silently kills the whole block
+
+**Where:** `app/skills/board_app.html` (main script) + serve-time-injected `board_geometry.js` (`mcp_server.py::_board_app_html`); guard test `test_board_view.py::test_board_app_no_global_lexical_collision_with_geometry`.
+
+**The trap (2026-06-12 几何统一 dogfood).** The injected geometry script declares `const GEOM = …` at top level. The main script then did `const { GEOM } = BoardGeom;` — looks like a harmless namespaced import, but classic `<script>` blocks share one global lexical environment, so it's a **redeclaration SyntaxError at parse time**: the ENTIRE main block never runs (no hoisting, no error UI — the page just freezes at "initializing…"; the SyntaxError only shows on the devtools console).
+
+**Why every smoke test missed it:** `node --check` parses one file in isolation; `new Function(src)` and strict-mode `eval(src)` each get their own scope — all three execute the identical text fine. The bug exists only in the cross-script global environment a real HTML page builds. The bisect signature is also misleading: any syntactically-truncated prefix of the geometry script "fixes" the page (broken block → its bindings never instantiate → no collision).
+
+**The discipline:** the main script must not top-level-declare (`const`/`let`/`function`/`class`) any name the geometry module declares — reference `GEOM` / `layoutPages` etc. directly (the shared scope IS the import mechanism), or alias under a new name. The static collision test enforces this; keep it in sync if geometry exports grow.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

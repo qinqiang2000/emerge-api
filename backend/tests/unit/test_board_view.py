@@ -165,3 +165,35 @@ def test_board_app_raw_has_no_hand_copied_geometry() -> None:
     assert "/*__BOARD_GEOMETRY_JS__*/" in raw  # injection point still present
     assert not re.search(
         r"const SCALE\s*=|const PX_PER_PT|1 / Math\.hypot\(dx /", raw)
+
+
+def test_board_app_no_global_lexical_collision_with_geometry() -> None:
+    """两个 inline classic script 共享全局词法作用域：board_app.html 主块若
+    重声明 board_geometry.js 的任何顶层名字（const/let/function/class），
+    整个主块在 parse 期就死（SyntaxError 只上 console，页面静默卡
+    "initializing…"——2026-06-12 dogfood 实锤，`const { GEOM } = BoardGeom`
+    就是这么阵亡的）。eval/node --check/new Function 各有独立作用域，全都
+    测不出来，只能靠这条静态断言守住。"""
+    import re
+    from pathlib import Path
+
+    import app.mcp_server as mcp_server
+
+    skills = Path(mcp_server.__file__).parent / "skills"
+    geo = (skills / "board_geometry.js").read_text(encoding="utf-8")
+    app_html = (skills / "board_app.html").read_text(encoding="utf-8")
+
+    # column-0 declarations = top level (both files are flat classic scripts);
+    # destructuring (`const { X } = …`) binds the inner name, so capture it too
+    decl = re.compile(
+        r"^(?:const|let|function|class)\s+\{?\s*([A-Za-z_$][\w$]*)", re.M)
+    geo_names = set(decl.findall(geo))
+    assert geo_names  # the geometry module moved? update this test's source
+
+    main = re.search(r"<script>\s*\n\"use strict\";(.*?)</script>",
+                     app_html, re.S)
+    assert main is not None
+    collisions = geo_names & set(decl.findall(main.group(1)))
+    assert not collisions, (
+        f"board_app.html 主块重声明了几何模块的顶层名字 {collisions} — "
+        "classic script 全局词法作用域冲突会让主块整块不执行")

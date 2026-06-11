@@ -1,6 +1,8 @@
 # 2026-06-12 — Board 几何统一 + 涂鸦→teaching signal
 
-> **Status**: 🚧 in progress
+> **Status**: ✅ shipped 2026-06-12（G1 `94993c1` / G2+G3+D1 `21d002f` / D2+D3 `97974e5` + 收尾 commit）。backend 1357 全绿；前端 638 过（14 失败均既有 FSSpine/ReviewBar）；tsc 干净。
+> **Live dogfood（web :5173 + standalone board-view，本会话亲测）**：① chat 重跑审核 → 新 run 带 8 条 evidence，excalidraw 板圈/线/布局像素级如前；② 板上画圈 + 写「金额已核对，注意下月涨价」→ `board_notes.json` 落 anchor（源单位 rect）→ `GET /audit/latest` 返回 `board_annotations`，圈住的「43460.00 费用总计」反查成纯文本，**响应零坐标**；③ chat 问「看一下最新审核报告」→ agent 主动复述板上圈注 + 手写批注（D3 契约生效）；④ standalone `/lab/board-view/{token}` v10 自然加载完整渲染。截图 `docs/screenshots/2026-06-12-doodle-signal-board.png` / `2026-06-12-board-view-v10.png`。
+> **过程 trap（已进 INSIGHTS + 静态测试）**：G2 初版 `const { GEOM } = BoardGeom` 与注入几何块的顶层 `const GEOM` 全局词法冲突 → 主块整块 SyntaxError 静默不执行（页面卡 initializing…）；node --check/new Function/eval 全测不出（各自独立作用域），headless Chrome 二分定位。修复 = 直接引用共享作用域绑定；防回归 = `test_board_app_no_global_lexical_collision_with_geometry`。
 > **承接**: `2026-06-11-audit-board.md` 两个 follow-up：①几何三份手工同步（v9 commit `707e3b4` "手写 SVG 版漏搬 web 的 ray∩ellipse trim" 即第三次同形 patch——missing noun 信号）；②「板上涂鸦 → review note teaching signal」（plan §B3 显式留的回路）。
 > **顺序依据**: 涂鸦 anchor 需要「板坐标 → (doc, page, 源矩形)」反向映射，几何统一是它的地基——先 G 后 D。
 
