@@ -297,6 +297,10 @@ function render(viewUrl, data) {
   }, { passive: false });
   let drag = null;
   stage.addEventListener("pointerdown", ev => {
+    // buttons/HUD live inside #stage: capturing their pointerdown redirects
+    // the click to the stage and the button NEVER fires (dogfood: ⛶ looked
+    // dead for three rounds — HUD showed no fs-click)
+    if (ev.target.closest("button")) return;
     drag = { x: ev.clientX - tx, y: ev.clientY - ty };
     stage.classList.add("drag"); stage.setPointerCapture(ev.pointerId);
   });
@@ -335,9 +339,9 @@ function render(viewUrl, data) {
   const dbgEl = document.createElement("div");
   dbgEl.style.cssText = "position:absolute;bottom:10px;right:10px;font:10px monospace;" +
     "color:var(--ink3);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px";
-  dbgEl.textContent = "v6";
+  dbgEl.textContent = "v7";
   document.getElementById("stage").appendChild(dbgEl);
-  window.dbg = t => { dbgEl.textContent = "v6 · " + t; };
+  window.dbg = t => { dbgEl.textContent = "v7 · " + t; };
   if (window.__embedded) {
     // default in-chat frame is short (~200px) — report a workable board
     // height; ResizeObserver keeps it honest if the host resizes us.
