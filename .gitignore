@@ -55,6 +55,9 @@ frontend/tests/dogfood-out/
 # Ad-hoc scratch (screenshots, debug dumps)
 .tmp/
 docs/design_docs/
+# vision-board excalidraw working files churn (+ copy N backups); the .md
+# talks under docs/talks/ stay tracked.
+docs/talks/*.excalidraw
 
 
 # Claude Code session state
