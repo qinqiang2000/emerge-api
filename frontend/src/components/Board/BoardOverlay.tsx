@@ -26,7 +26,7 @@ import './boardAssets' // MUST stay the first import — sets EXCALIDRAW_ASSET_P
 import { Excalidraw, convertToExcalidrawElements } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import type { BinaryFileData, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
-import { X } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useT } from '../../i18n'
@@ -54,6 +54,33 @@ import {
 } from './boardScene'
 
 type SceneElement = ReturnType<ExcalidrawImperativeAPI['getSceneElements']>[number]
+
+// Check rail sizing — same drag/collapse/persist vocabulary as Shell.tsx, but
+// the board owns its own flex layout (fixed inset-0), so we can't reuse Shell.
+// Expanded: drag the right edge to resize (clamped, persisted). Collapsed: a
+// narrow numbered rail (1-based, status-colored) that still focuses checks —
+// the numbers match the canvas's unlocated-evidence badges.
+const RAIL_W_KEY = 'emerge.boardRailW'
+const RAIL_COLLAPSED_KEY = 'emerge.boardRailCollapsed'
+const RAIL_DEFAULT = 320
+const RAIL_MIN = 240
+const RAIL_MAX = 560
+const RAIL_MINI_W = 48
+
+function readStoredRailW(): number {
+  try {
+    const v = localStorage.getItem(RAIL_W_KEY)
+    if (v !== null) {
+      const n = parseInt(v, 10)
+      if (!isNaN(n)) return Math.max(RAIL_MIN, Math.min(RAIL_MAX, n))
+    }
+  } catch { /* ignore */ }
+  return RAIL_DEFAULT
+}
+
+function readStoredRailCollapsed(): boolean {
+  try { return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1' } catch { return false }
+}
 
 /** Page-image elements geometrically under the given overlay elements (an
  *  ellipse sits inside its page) — used to widen a zoom target from bare
@@ -126,6 +153,66 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
     return () => { (window as unknown as Record<string, unknown>).__emergeBoardApi = undefined }
   }, [api])
   const [activeCheck, setActiveCheck] = useState<number | null>(null)
+  // Annotate mode — the board opens read-first: `viewModeEnabled` hides
+  // excalidraw's whole tool palette (the chrome that's in the way when you're
+  // only reading), while pan/zoom and previously-drawn notes still render. The
+  // reviewer flips this on to mark up; entering auto-picks the pen so the shape
+  // palette never has to be touched (a board note = a freedraw circle, the B5
+  // teaching signal). Transient by design — every open starts clean, unlike
+  // rail collapse which persists.
+  const [annotating, setAnnotating] = useState(false)
+  const toggleAnnotate = useCallback(() => setAnnotating(v => !v), [])
+  useEffect(() => {
+    if (annotating) api?.setActiveTool({ type: 'freedraw' })
+  }, [annotating, api])
+  // Rail sizing — drag the right edge to resize, collapse to a numbered mini
+  // rail. Both persist (mirrors Shell.tsx). The drag listener mounts only
+  // while dragging.
+  const [railW, setRailWState] = useState<number>(() => readStoredRailW())
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(() => readStoredRailCollapsed())
+  const [railDrag, setRailDrag] = useState<boolean>(false)
+  const railDragStartX = useRef<number>(0)
+  const railDragStartW = useRef<number>(0)
+
+  const setRailW = useCallback((w: number) => {
+    const clamped = Math.max(RAIL_MIN, Math.min(RAIL_MAX, w))
+    setRailWState(clamped)
+    try { localStorage.setItem(RAIL_W_KEY, String(clamped)) } catch { /* ignore */ }
+  }, [])
+
+  const toggleRail = useCallback(() => {
+    setRailCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem(RAIL_COLLAPSED_KEY, next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!railDrag) return
+    function onMove(clientX: number) {
+      setRailW(railDragStartW.current + (clientX - railDragStartX.current))
+    }
+    function handleMouseMove(e: MouseEvent) { onMove(e.clientX) }
+    function handleTouchMove(e: TouchEvent) { if (e.touches.length > 0) onMove(e.touches[0].clientX) }
+    function handleEnd() { setRailDrag(false) }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleEnd)
+    window.addEventListener('touchmove', handleTouchMove)
+    window.addEventListener('touchend', handleEnd)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleEnd)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', handleEnd)
+    }
+  }, [railDrag, setRailW])
+
+  const startRailDrag = useCallback((clientX: number) => {
+    railDragStartX.current = clientX
+    railDragStartW.current = railW
+    setRailDrag(true)
+  }, [railW])
   const [sceneReady, setSceneReady] = useState(false)
   // "docs list refresh attempted" — the scene build needs page counts but must
   // not stall forever if the docs fetch fails (fallback: max evidence page).
@@ -197,8 +284,13 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
 
     async function build() {
       const docSummaries = useDocs.getState().byProject[slug] ?? []
-      const docInputs: BoardDocInput[] = []
-      const files: BinaryFileData[] = []
+      // Plan every (doc, page) up front, then fetch them ALL concurrently.
+      // Was: nested serial `await loadPageImage` — a 20+-page group meant 20+
+      // sequential round-trips and the board sat blank for seconds (the real
+      // cause of "白板慢", not the layout). Pages of one doc keep their order
+      // via Promise.all over the per-doc page list.
+      type PagePlan = { fn: string; ext: string; page: number }
+      const docPlans: { fn: string; ext: string; pages: number[] }[] = []
       for (const fn of Object.keys(report.group)) {
         const summary = docSummaries.find(d => d.filename === fn)
         // Page count: docs sidecar wins; fall back to the largest page number
@@ -216,17 +308,30 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
           pageCount = maxPage
         }
         const ext = summary?.ext ?? (fn.includes('.') ? fn.split('.').pop()! : '')
+        const pages: number[] = []
+        for (let p = 1; p <= pageCount; p++) pages.push(p)
+        docPlans.push({ fn, ext, pages })
+      }
+
+      const plans: PagePlan[] = docPlans.flatMap(d => d.pages.map(page => ({ fn: d.fn, ext: d.ext, page })))
+      const loaded = await Promise.all(
+        plans.map(async pl => ({ pl, img: await loadPageImage(slug, pl.fn, pl.page) })),
+      )
+      if (cancelled || !api) return
+
+      const created = Date.now()
+      const files: BinaryFileData[] = []
+      const docInputs: BoardDocInput[] = []
+      for (const { fn, ext } of docPlans) {
         const pages: BoardDocInput['pages'] = []
-        for (let p = 1; p <= pageCount; p++) {
-          const img = await loadPageImage(slug, fn, p)
-          if (cancelled) return
-          if (!img) continue
-          pages.push({ page: p, w: img.w, h: img.h })
+        for (const { pl, img } of loaded) {
+          if (pl.fn !== fn || !img) continue
+          pages.push({ page: pl.page, w: img.w, h: img.h })
           files.push({
-            id: imgId(fn, p) as BinaryFileData['id'],
+            id: imgId(fn, pl.page) as BinaryFileData['id'],
             dataURL: img.dataURL as BinaryFileData['dataURL'],
             mimeType: img.mimeType as BinaryFileData['mimeType'],
-            created: Date.now(),
+            created,
           })
         }
         if (pages.length) docInputs.push({ name: fn, ext, pages })
@@ -539,59 +644,155 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
           <>
             {/* Check rail — same row anatomy as AuditCard (glyph + rule +
                 quote sub-lines); the card stays text-only, the board adds the
-                spatial layer. */}
-            <div className="w-[320px] shrink-0 border-r border-rule-soft overflow-y-auto font-mono text-sm">
-              <div className="px-3 py-2 border-b border-rule-soft text-ink font-semibold flex items-center">
-                {t('board.checks.title')}
-                <span className="ml-2 text-ink-4 text-xs font-normal">
-                  {entry.report.checks.filter(c => c.status === 'pass').length}/{entry.report.checks.length}
-                </span>
+                spatial layer. Collapses to a numbered mini rail (the numbers
+                match the canvas's unlocated-evidence badges) and the right
+                edge drags to resize — same vocabulary as Shell.tsx, but the
+                board owns its own flex layout so it can't reuse Shell. */}
+            {railCollapsed ? (
+              <div
+                className="shrink-0 border-r border-rule-soft overflow-y-auto font-mono text-sm flex flex-col items-center py-2 gap-1"
+                style={{ width: RAIL_MINI_W }}
+              >
                 <button
                   type="button"
-                  className="ml-auto p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
-                  aria-label={t('board.close.aria')}
-                  title={t('board.close')}
-                  onClick={onClose}
+                  className="p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+                  aria-label={t('board.rail.expand.aria')}
+                  title={t('board.rail.expand')}
+                  onClick={toggleRail}
                 >
-                  <X size={16} />
+                  <PanelLeftOpen size={16} />
                 </button>
-              </div>
-              {entry.report.checks.map((c, i) => (
-                <div
-                  key={i}
-                  data-testid={`board-check-${i}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => focusCheck(i)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusCheck(i) } }}
-                  className={`px-3 py-1.5 border-b border-rule-soft cursor-pointer ${
-                    activeCheck === i
-                      ? 'bg-paper-3 border-l-2 border-l-ochre'
-                      : 'border-l-2 border-l-transparent hover:bg-paper-2'
-                  }`}
+                <button
+                  type="button"
+                  data-testid="board-annotate-mini"
+                  aria-pressed={annotating}
+                  className={`p-1 rounded-sm ${annotating ? 'text-ochre bg-paper-3' : 'text-ink-3 hover:text-ink hover:bg-paper-2'}`}
+                  aria-label={t('board.annotate.aria')}
+                  title={annotating ? t('board.annotate.done') : t('board.annotate')}
+                  onClick={toggleAnnotate}
                 >
-                  <div className="flex items-start gap-2">
-                    <span className={`${STATUS_GLYPH[c.status].cls} shrink-0`}>
-                      {STATUS_GLYPH[c.status].glyph}
-                    </span>
-                    <span className="text-ink min-w-0 break-words">{c.rule}</span>
-                  </div>
-                  {(c.evidence ?? []).map((e, j) => (
-                    <div key={j} className="pl-5 text-xs text-ink-4 break-words">
-                      「{e.quote}」 — {e.doc}
-                      {e.page != null ? ` · p${e.page}` : ''}
-                    </div>
-                  ))}
+                  <Pencil size={16} />
+                </button>
+                {entry.report.checks.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    data-testid={`board-check-mini-${i}`}
+                    aria-label={c.rule}
+                    aria-current={activeCheck === i}
+                    title={c.rule}
+                    onClick={() => focusCheck(i)}
+                    className={`relative w-7 h-7 shrink-0 rounded-sm flex items-center justify-center text-xs ${STATUS_GLYPH[c.status].cls} ${
+                      activeCheck === i
+                        ? 'bg-paper-3 ring-1 ring-ochre'
+                        : 'hover:bg-paper-2'
+                    }`}
+                  >
+                    {i + 1}
+                    {c.status === 'fail' && (
+                      // Collapsed rail hides the rule text, so a failing check
+                      // would read as just another number — a corner dot keeps
+                      // "something's wrong here" scannable at 48px.
+                      <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-rose" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div
+                className="shrink-0 border-r border-rule-soft overflow-y-auto font-mono text-sm"
+                style={{ width: railW }}
+              >
+                <div className="px-3 py-2 border-b border-rule-soft text-ink font-semibold flex items-center">
+                  {t('board.checks.title')}
+                  <span className="ml-2 text-ink-4 text-xs font-normal">
+                    {entry.report.checks.filter(c => c.status === 'pass').length}/{entry.report.checks.length}
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="board-annotate"
+                    aria-pressed={annotating}
+                    className={`ml-auto p-1 rounded-sm ${annotating ? 'text-ochre bg-paper-3' : 'text-ink-3 hover:text-ink hover:bg-paper-2'}`}
+                    aria-label={t('board.annotate.aria')}
+                    title={annotating ? t('board.annotate.done') : t('board.annotate')}
+                    onClick={toggleAnnotate}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-1 p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+                    aria-label={t('board.rail.collapse.aria')}
+                    title={t('board.rail.collapse')}
+                    onClick={toggleRail}
+                  >
+                    <PanelLeftClose size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-1 p-1 rounded-sm text-ink-3 hover:text-ink hover:bg-paper-2"
+                    aria-label={t('board.close.aria')}
+                    title={t('board.close')}
+                    onClick={onClose}
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-              ))}
-              {staleNotes && (
-                <div className="px-3 py-2 text-xs text-ink-4">{t('board.notes.stale')}</div>
-              )}
-            </div>
+                {entry.report.checks.map((c, i) => (
+                  <div
+                    key={i}
+                    data-testid={`board-check-${i}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => focusCheck(i)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusCheck(i) } }}
+                    className={`px-3 py-1.5 border-b border-rule-soft cursor-pointer ${
+                      activeCheck === i
+                        ? 'bg-paper-3 border-l-2 border-l-ochre'
+                        : 'border-l-2 border-l-transparent hover:bg-paper-2'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className={`shrink-0 tabular-nums text-ink-4`}>{i + 1}</span>
+                      <span className={`${STATUS_GLYPH[c.status].cls} shrink-0`}>
+                        {STATUS_GLYPH[c.status].glyph}
+                      </span>
+                      <span className="text-ink min-w-0 break-words">{c.rule}</span>
+                    </div>
+                    {(c.evidence ?? []).map((e, j) => (
+                      <div key={j} className="pl-9 text-xs text-ink-4 break-words">
+                        「{e.quote}」 — {e.doc}
+                        {e.page != null ? ` · p${e.page}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {staleNotes && (
+                  <div className="px-3 py-2 text-xs text-ink-4">{t('board.notes.stale')}</div>
+                )}
+              </div>
+            )}
+
+            {/* Resize handle — only while expanded. Sits on the rail's right
+                edge; ochre on hover/active, same as Shell's .resizer. */}
+            {!railCollapsed && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t('board.rail.resize')}
+                title={t('board.rail.resize')}
+                className={`relative shrink-0 w-2 -ml-1 z-10 cursor-col-resize self-stretch flex items-center justify-center group ${railDrag ? 'select-none' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); startRailDrag(e.clientX) }}
+                onTouchStart={(e) => { if (e.touches.length > 0) startRailDrag(e.touches[0].clientX) }}
+              >
+                <span className={`w-[3px] h-8 rounded-sm transition-colors ${railDrag ? 'bg-ochre' : 'bg-transparent group-hover:bg-ochre'}`} />
+              </div>
+            )}
 
             <div className="flex-1 min-w-0">
               <Excalidraw
                 excalidrawAPI={setApi}
+                viewModeEnabled={!annotating}
                 onChange={onChange}
                 initialData={{ appState: { viewBackgroundColor: colors.canvas } }}
                 UIOptions={{
