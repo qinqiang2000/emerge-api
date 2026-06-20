@@ -665,6 +665,21 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## Board serves JPEG, review serves PNG — don't unify them
+
+**Where:** `api/routes/docs.py::get_page` (`?fmt=jpeg`), `tools/docs.py::pdf_render_page(fmt=)` + `image_doc_as_jpeg`, `lib/api.ts::pdfPageUrl(fmt)`, `BoardOverlay.tsx::loadPageImage`.
+
+**The split (2026-06-20).** The board overview requests `?fmt=jpeg` (same 150 dpi, q85); review (`PdfViewer`) and chat thumbnails stay PNG. Both variants cache side-by-side in the sha-addressed render dir (`p{n}.png` / `p{n}.jpg`). Measured win on a scan/poster group (百胜audit1, 23 pages): 29MB PNG → 6.6MB JPEG (photo pages ~10×, whole group ~4.4×), clarity visually unchanged.
+
+**Why NOT "just use JPEG everywhere":**
+- Review is the verdict surface — lossless avoids any "3 vs 8" risk on the one screen whose job is字段核对 correctness.
+- JPEG only wins on scans/photos. For **native vector-text PDFs** (e-invoices), PNG is BOTH lossless AND smaller, and JPEG adds ringing on crisp text edges.
+- Review's PNG weight isn't a problem: it loads one page on-demand, not a bulk download (the board's 23-at-once load was the actual pain).
+
+**The discipline:** keep the board on JPEG and review on PNG. If you ever want uniformity, raising review to JPEG q92 is defensible for a scan-only workload — but it regresses crisp vector documents, so don't make it the default.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**
