@@ -647,6 +647,24 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## The audit board's first scene commit races excalidraw's initialData init — and convert silently drops fileless image skeletons
+
+**Where:** `components/Board/BoardOverlay.tsx` (`build()` first `updateScene`, `excaliReadyRef` gate, the per-page rect→image swap, memoized `initialData`); `boardScene.ts::buildPagePlaceholders`.
+
+**The trap (2026-06-20 progressive-render dogfood).** Three coupled excalidraw gotchas, found in order while making the board paint structure-first and stream rasters in (instead of `await Promise.all(all 23 pages)` then one commit):
+
+1. **`convertToExcalidrawElements` DROPS an `image` skeleton whose `fileId` isn't registered yet — and loses the rest of that convert batch with it.** Committing image skeletons up front (before `addFiles`) left the canvas blank (0 elements committed, not "pending placeholders"). A *raw* image element survives in `getSceneElements()` but won't RENDER (missing the fields convert fills). Fix: place page boxes as **rectangle** placeholders (need no file), `addFiles` each raster, then `convert` that one image (file now present — the proven path) and swap it in by id. Same `img-{doc}-p{n}` id for rect and image, so `pagesUnder`/`focusCheck` treat either as the page.
+
+2. **The first `updateScene` races excalidraw's own (empty) `initialData` initialization and loses.** `build()` committed 46 elements; a tick later the SAME api had 0 — with **no `updateScene` of ours** in between (proven by monkeypatching `api.updateScene`: only build's 46 + focusCheck's 2 ever fired). excalidraw applies `initialData` *asynchronously, after* the `excalidrawAPI` callback hands you the api, so a synchronous first commit gets wiped. The OLD code only worked by accident — its `await Promise.all(pageRasters)` delayed the first commit past init. Fix: gate the first commit on excalidraw's **first `onChange`** (fires once it has initialised), with a timeout fallback so a quiet init can't hang.
+
+3. **`initialData` must be a stable reference** (memoized) — an inline `initialData={{…}}` re-created on a re-render is a second way to trigger an init/reset. Cheap hygiene, separate from #2.
+
+**Why smoke tests / typecheck miss all three:** they're runtime excalidraw-lifecycle behaviors. Only a live board with a real multi-page group (百胜audit1: 18+3+1+1) surfaces them — and the symptom ("rail shows, canvas blank") looks identical to the unrelated waterfall-latency issue. Debug via `window.__emergeBoardApi.getSceneElements()` + a temporary `api.updateScene` monkeypatch, not screenshots.
+
+**The discipline:** don't "simplify" by committing image skeletons directly, dropping the `excaliReadyRef` gate, inlining `initialData`, or collapsing the rect→image swap back into a single up-front image commit — each re-introduces the blank board. Per-page swap reuses the CURRENT element bounds (focusCheck may have relaid the page since build).
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

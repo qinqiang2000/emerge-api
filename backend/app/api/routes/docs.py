@@ -15,6 +15,12 @@ router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 _IMAGE_MEDIA = {"png": "image/png", "jpg": "image/jpeg"}
 
+# Page rasters are immutable: a doc never changes bytes once uploaded
+# (filename is a unique slot, the PDF render cache is content-addressed by
+# sha). So the browser can cache a page forever and skip the per-page
+# conditional revalidation round-trip on every board reopen / page flip.
+_PAGE_CACHE = "public, max-age=31536000, immutable"
+
 
 @router.get("/lab/projects/{slug}/docs/by-name/{filename:path}/pages/{page}")
 async def get_page(slug: str, filename: str, page: int) -> FileResponse:
@@ -44,12 +50,13 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
         return FileResponse(
             doc_path(current_ws(), slug, filename),
             media_type=_IMAGE_MEDIA[ext],
+            headers={"Cache-Control": _PAGE_CACHE},
         )
     try:
         path = await pdf_render_page(current_ws(), slug, filename, page=page)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": _PAGE_CACHE})
 
 
 @router.delete("/lab/projects/{slug}/docs/by-name/{filename:path}")

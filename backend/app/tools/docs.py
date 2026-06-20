@@ -27,6 +27,12 @@ from app.workspace.paths import (
 
 _ALLOWED_EXT = {"pdf": "pdf", "png": "png", "jpg": "jpg", "jpeg": "jpg"}
 
+# Single DPI truth for the on-demand page raster + the page-size sidecar. The
+# board lays out exact page boxes from `page_sizes` BEFORE fetching any raster
+# (perf: no blank canvas while N pages download), so the sizes must be in the
+# SAME pixel units `pdf_render_page` emits — keep these in lockstep.
+DEFAULT_RENDER_DPI = 150
+
 # Magic-byte signatures for the formats we accept. Sniffing the bytes lets us
 # reject filename-spoofed uploads (e.g. HTML body with `.png` extension, or a
 # clipboard paste that landed as `image.png` but is actually webp/heic). One
@@ -118,6 +124,7 @@ async def upload_doc(
         )
     ext = sniff
     page_count = _count_pages(data, ext)
+    page_sizes = _page_sizes(data, ext)
     sha = hashlib.sha256(data).hexdigest()
 
     async with project_lock(workspace, project_id):
@@ -133,6 +140,7 @@ async def upload_doc(
             "ext": ext,
             "sha256": sha,
             "page_count": page_count,
+            "page_sizes": page_sizes,
             "uploaded_at": _now_iso(),
         }
         atomic_write_bytes(doc_path(workspace, project_id, final_name), data)
@@ -150,6 +158,37 @@ def _count_pages(data: bytes, ext: str) -> int:
             return doc.page_count
     except Exception:
         return 1
+
+
+def _page_sizes(data: bytes, ext: str, *, dpi: int = DEFAULT_RENDER_DPI) -> list[list[int]]:
+    """Per-page ``[w, h]`` in the SAME pixel units `pdf_render_page` / the
+    `get_page` route emit (PDF rendered at ``dpi``), so the board can lay out
+    exact page boxes before any raster is fetched.
+
+    - PDF → one entry per page, ``round(rect × dpi/72)``.
+    - PNG/JPG → one entry at the image's native pixel dims (the route serves
+      the original bytes, so the raster IS the source).
+
+    Best-effort: returns ``[]`` on any failure (board falls back to an A4
+    estimate). Cheap — reads page rects only, never rasterizes."""
+    try:
+        import fitz  # PyMuPDF
+
+        if ext == "pdf":
+            # Match `get_pixmap(dpi=)` EXACTLY: it rasterizes the scaled page
+            # rect's integer bounding box (irect rounds the far edge outward),
+            # not a plain round(). Geometry only — never rasterizes.
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
+            sizes: list[list[int]] = []
+            with fitz.open(stream=data, filetype="pdf") as doc:
+                for page in doc:
+                    ir = (page.rect * mat).irect
+                    sizes.append([ir.width, ir.height])
+            return sizes
+        pix = fitz.Pixmap(data)  # decode for pixel dims (also validates bytes)
+        return [[pix.width, pix.height]]
+    except Exception:
+        return []
 
 
 async def _repair_doc_sidecar(
@@ -177,6 +216,7 @@ async def _repair_doc_sidecar(
         "ext": sniff,
         "sha256": hashlib.sha256(data).hexdigest(),
         "page_count": _count_pages(data, sniff),
+        "page_sizes": _page_sizes(data, sniff),
         "uploaded_at": _now_iso(),
         "rebuilt": True,
     }
@@ -228,6 +268,18 @@ async def list_docs(workspace: Path, project_id: str) -> list[dict[str, Any]]:
         # Defensive: ensure the sidecar reports the actual on-disk name (older
         # forks may carry the source name). The real filename is `child.name`.
         blob["filename"] = child.name
+        # One-time backfill: sidecars written before `page_sizes` existed get
+        # it computed from the doc bytes once and persisted, so the board can
+        # lay out exact page boxes without fetching rasters (perf). Atomic +
+        # idempotent → no lock needed; read cost is paid once per doc ever.
+        if "page_sizes" not in blob:
+            try:
+                blob["page_sizes"] = _page_sizes(
+                    child.read_bytes(), str(blob.get("ext", ""))
+                )
+                atomic_write_json(meta_p, blob)
+            except OSError:
+                pass
         out.append(blob)
     return out
 
@@ -304,7 +356,7 @@ async def pdf_render_page(
     filename: str,
     *,
     page: int,
-    dpi: int = 150,
+    dpi: int = DEFAULT_RENDER_DPI,
 ) -> Path:
     """Render a PDF page as PNG, cached at `.cache/_render/{sha}/p{n}.png`.
 

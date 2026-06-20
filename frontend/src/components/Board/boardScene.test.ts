@@ -19,6 +19,7 @@ import {
   badgeId,
   buildCheckOverlays,
   buildFocusRing,
+  buildPagePlaceholders,
   buildPageSkeletons,
   checkIdxOfElementId,
   evId,
@@ -41,6 +42,7 @@ const COLORS: BoardColors = {
   unclear: '#b8860b',
   chrome: '#6b6258',
   canvas: '#faf8f4',
+  page: '#fffdf9',
 }
 
 const TWO_DOCS = [
@@ -135,6 +137,22 @@ describe('buildPageSkeletons', () => {
     const lbl = sk.find(s => s.id === 'lbl-a.pdf-p2')!
     expect(lbl.type).toBe('text')
     expect(lbl.strokeColor).toBe(COLORS.chrome)
+  })
+})
+
+describe('buildPagePlaceholders', () => {
+  it('blank-page rectangles share the image id + bounds, plus captions', () => {
+    const laid = layoutPages(TWO_DOCS)
+    const sk = buildPagePlaceholders([...laid.values()], COLORS)
+    const rect = sk.find(s => s.id === imgId('a.pdf', 2))!
+    // rectangle (NOT image) so convertToExcalidrawElements can't drop it for a
+    // missing file — the id matches the image that swaps in, so focusCheck /
+    // pagesUnder treat it as the page either way (trap #2, 2026-06-20).
+    expect(rect.type).toBe('rectangle')
+    expect(rect.backgroundColor).toBe(COLORS.page)
+    expect(rect.locked).toBe(true)
+    const lbl = sk.find(s => s.id === 'lbl-a.pdf-p2')!
+    expect(lbl.type).toBe('text')
   })
 })
 

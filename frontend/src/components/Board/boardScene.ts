@@ -100,6 +100,8 @@ export interface BoardColors {
   /** token --ochre */ unclear: string
   /** token --ink-3 */ chrome: string
   /** token --paper-2 */ canvas: string
+  /** token --paper — the page-placeholder fill (a blank page reads as paper
+   *  sitting on the paper-2 canvas while its raster streams in) */ page: string
 }
 
 function cssVar(name: string, fallback: string): string {
@@ -131,6 +133,7 @@ export function readBoardColors(): BoardColors {
     unclear: '#d97706',
     chrome: cssVar('--ink-3', '#6b6258'),
     canvas: cssVar('--paper-2', '#faf8f4'),
+    page: cssVar('--paper', '#fffdf9'),
   }
 }
 
@@ -172,6 +175,47 @@ export function buildPageSkeletons(pages: LaidPage[], colors: BoardColors): Skel
       y: p.y,
       width: p.w,
       height: p.h,
+      locked: true,
+    })
+    skeletons.push({
+      type: 'text',
+      id: lblId(p.doc, p.page),
+      x: p.x,
+      y: p.y - 40,
+      text: `${p.doc} · p${p.page}`,
+      fontSize: 20,
+      strokeColor: colors.chrome, // token --ink-3
+      locked: true,
+    })
+  }
+  return skeletons
+}
+
+/** Page PLACEHOLDERS: a blank-page rectangle (same id + bounds the image will
+ *  take) + caption per page. Drawn instantly so the board has structure before
+ *  any raster downloads; BoardOverlay swaps each rectangle for its image (same
+ *  id) as the raster streams in.
+ *
+ *  Why a rectangle and not the image skeleton up front: `convertToExcalidrawElements`
+ *  DROPS an image skeleton whose file isn't registered yet — and loses the rest
+ *  of the batch with it (prod dogfood 2026-06-20: committing image skeletons
+ *  before `addFiles` left the whole canvas blank). Rectangles need no file, so
+ *  the structure always survives; the image is converted per-page only AFTER
+ *  its `addFiles`, which is the proven render path. */
+export function buildPagePlaceholders(pages: LaidPage[], colors: BoardColors): Skeleton[] {
+  const skeletons: Skeleton[] = []
+  for (const p of pages) {
+    skeletons.push({
+      type: 'rectangle',
+      id: imgId(p.doc, p.page),
+      x: p.x,
+      y: p.y,
+      width: p.w,
+      height: p.h,
+      strokeColor: colors.chrome, // token --ink-3 (thin page edge)
+      backgroundColor: colors.page, // token --paper (blank page fill)
+      fillStyle: 'solid',
+      strokeWidth: 1,
       locked: true,
     })
     skeletons.push({

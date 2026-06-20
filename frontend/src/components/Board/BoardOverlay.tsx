@@ -41,7 +41,7 @@ import {
   annotateUserElements,
   arrowId,
   buildCheckOverlays,
-  buildPageSkeletons,
+  buildPagePlaceholders,
   checkIdxOfElementId,
   imgId,
   layoutPages,
@@ -107,13 +107,16 @@ interface Props {
   hidden?: boolean
 }
 
-/** Fetch one page raster → dataURL + natural dims. Best-effort: a missing /
- *  failed page resolves to null and the board simply lays out without it. */
+/** Fetch one page raster → dataURL. Dims come from `page_sizes` now, so this
+ *  no longer decodes for natural size — it just downloads + base64s, and each
+ *  page streams into the canvas the instant it lands (no whole-group barrier).
+ *  Best-effort: a missing / failed page resolves to null and that page keeps
+ *  its placeholder box. */
 async function loadPageImage(
   slug: string,
   filename: string,
   page: number,
-): Promise<{ dataURL: string; mimeType: string; w: number; h: number } | null> {
+): Promise<{ dataURL: string; mimeType: string } | null> {
   try {
     const resp = await fetch(pdfPageUrl(slug, filename, page))
     if (!resp.ok) return null
@@ -124,17 +127,16 @@ async function loadPageImage(
       r.onerror = () => reject(new Error('read failed'))
       r.readAsDataURL(blob)
     })
-    const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight })
-      img.onerror = () => reject(new Error('decode failed'))
-      img.src = dataURL
-    })
-    return { dataURL, mimeType: blob.type || 'image/png', ...dims }
+    return { dataURL, mimeType: blob.type || 'image/png' }
   } catch {
     return null
   }
 }
+
+// A4 portrait @150dpi (8.27×11.69in) — the placeholder page box for a doc
+// whose sidecar predates `page_sizes` (compute failure; existing docs are
+// backfilled by list_docs). The raster scales into this box on arrival.
+const A4_FALLBACK = { w: 1240, h: 1754 }
 
 export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   const entry = useBoard(s => s.byProject[slug])
@@ -230,6 +232,20 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   } | null>(null)
   const notesRestoredFor = useRef<string | null>(null)
   const lastNoteSig = useRef('')
+  // Excalidraw applies its (empty) initialData scene asynchronously, AFTER the
+  // excalidrawAPI callback hands us the api — so a synchronous first
+  // updateScene from the build effect gets wiped by that init (prod dogfood
+  // 2026-06-20: build committed 46 elements, excalidraw reset to 0 a tick
+  // later with no updateScene of our own). The OLD code dodged this only by
+  // accident — its `await Promise.all(pageRasters)` delayed the first commit
+  // past init. Gate the first commit on excalidraw's first onChange (fires
+  // once it has initialised), with a timeout fallback so a quiet init can't
+  // hang the board.
+  const excaliReadyRef = useRef<Promise<void> | null>(null)
+  const excaliReadyResolve = useRef<(() => void) | null>(null)
+  if (!excaliReadyRef.current) {
+    excaliReadyRef.current = new Promise<void>((res) => { excaliReadyResolve.current = res })
+  }
 
   useEffect(() => {
     mountedRef.current = true
@@ -238,6 +254,13 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
   // Resolved once per mount — the board lives inside the themed DOM, so the
   // semantic tokens (--moss/--rose/--ochre/...) are available by now.
   const colors = useMemo(() => readBoardColors(), [])
+  // Stable identity — cheap hygiene so a re-render can't hand excalidraw a new
+  // initialData object (the real first-commit wipe is the mount race handled by
+  // excaliReadyRef above, not this).
+  const initialData = useMemo(
+    () => ({ appState: { viewBackgroundColor: colors.canvas } }),
+    [colors.canvas],
+  )
 
   // Cache-first loads. The store dedupes concurrent loads per slug.
   useEffect(() => {
@@ -284,57 +307,36 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
 
     async function build() {
       const docSummaries = useDocs.getState().byProject[slug] ?? []
-      // Plan every (doc, page) up front, then fetch them ALL concurrently.
-      // Was: nested serial `await loadPageImage` — a 20+-page group meant 20+
-      // sequential round-trips and the board sat blank for seconds (the real
-      // cause of "白板慢", not the layout). Pages of one doc keep their order
-      // via Promise.all over the per-doc page list.
-      type PagePlan = { fn: string; ext: string; page: number }
-      const docPlans: { fn: string; ext: string; pages: number[] }[] = []
+      // Build the layout inputs from `page_sizes` — exact page boxes WITHOUT
+      // fetching a single raster. Was: `await Promise.all(loadPageImage…)` over
+      // every page, so the canvas stayed blank until the LAST byte of a
+      // 20+-page group landed (the real "白板慢", not the layout). Now structure
+      // + rail + circles paint immediately and the rasters stream in below.
+      const docInputs: BoardDocInput[] = []
       for (const fn of Object.keys(report.group)) {
         const summary = docSummaries.find(d => d.filename === fn)
-        // Page count: docs sidecar wins; fall back to the largest page number
-        // any evidence (hint or locate result) mentions for this doc.
-        let pageCount = summary?.page_count ?? 0
-        if (!pageCount) {
-          let maxPage = 1
-          report.checks.forEach((c, i) => {
-            (c.evidence ?? []).forEach((e, j) => {
-              if (e.doc !== fn) return
-              const loc = entry.locations[evKey(i, j)]
-              maxPage = Math.max(maxPage, loc?.page ?? 0, e.page ?? 0)
-            })
-          })
-          pageCount = maxPage
-        }
         const ext = summary?.ext ?? (fn.includes('.') ? fn.split('.').pop()! : '')
-        const pages: number[] = []
-        for (let p = 1; p <= pageCount; p++) pages.push(p)
-        docPlans.push({ fn, ext, pages })
-      }
-
-      const plans: PagePlan[] = docPlans.flatMap(d => d.pages.map(page => ({ fn: d.fn, ext: d.ext, page })))
-      const loaded = await Promise.all(
-        plans.map(async pl => ({ pl, img: await loadPageImage(slug, pl.fn, pl.page) })),
-      )
-      if (cancelled || !api) return
-
-      const created = Date.now()
-      const files: BinaryFileData[] = []
-      const docInputs: BoardDocInput[] = []
-      for (const { fn, ext } of docPlans) {
-        const pages: BoardDocInput['pages'] = []
-        for (const { pl, img } of loaded) {
-          if (pl.fn !== fn || !img) continue
-          pages.push({ page: pl.page, w: img.w, h: img.h })
-          files.push({
-            id: imgId(fn, pl.page) as BinaryFileData['id'],
-            dataURL: img.dataURL as BinaryFileData['dataURL'],
-            mimeType: img.mimeType as BinaryFileData['mimeType'],
-            created,
-          })
+        let sizes = summary?.page_sizes
+        if (!sizes || !sizes.length) {
+          // No sidecar dims (un-backfilled / compute failure): page count from
+          // the sidecar, else the largest page any evidence mentions; box each
+          // at A4 — the raster scales into it on arrival.
+          let pageCount = summary?.page_count ?? 0
+          if (!pageCount) {
+            let maxPage = 1
+            report.checks.forEach((c, i) => {
+              (c.evidence ?? []).forEach((e, j) => {
+                if (e.doc !== fn) return
+                const loc = entry.locations[evKey(i, j)]
+                maxPage = Math.max(maxPage, loc?.page ?? 0, e.page ?? 0)
+              })
+            })
+            pageCount = maxPage
+          }
+          sizes = Array.from({ length: pageCount }, () => [A4_FALLBACK.w, A4_FALLBACK.h])
         }
-        if (pages.length) docInputs.push({ name: fn, ext, pages })
+        const pages = sizes.map(([w, h], i) => ({ page: i + 1, w, h }))
+        docInputs.push({ name: fn, ext, pages })
       }
       if (cancelled || !api) return
 
@@ -344,7 +346,6 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
       // 2026-06-11). Content-agnostic: page count only, no doc-type smarts.
       docInputs.sort((a, b) => a.pages.length - b.pages.length)
 
-      api.addFiles(files)
       const laid = layoutPages(docInputs)
       const evidences: EvidenceOnBoard[] = []
       report.checks.forEach((c, i) => {
@@ -361,9 +362,23 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
         })
       })
       sceneDataRef.current = { checks: report.checks, evidences, laid, docs: docInputs }
-      // Pages only — per-check circles/arrows mount on demand via
-      // applyCheck (user 2026-06-11: all checks at once = 一板的线, 乱).
-      const skeletons = buildPageSkeletons([...laid.values()], colors)
+      // Blank-page placeholders (rectangles) + captions — drawn instantly so the
+      // board has structure before any raster. Per-check circles/arrows mount on
+      // demand via applyCheck (user 2026-06-11: all checks at once = 一板的线, 乱).
+      // Each rectangle is swapped for its image (same id) once the raster lands
+      // (the stream loop below). Trap #2 (prod dogfood 2026-06-20): committing
+      // image skeletons up front instead of rectangles left the canvas blank —
+      // convertToExcalidrawElements drops an image skeleton whose file isn't
+      // registered yet, and the whole batch with it.
+      const skeletons = buildPagePlaceholders([...laid.values()], colors)
+      // Wait for excalidraw to finish initialising before the first commit, or
+      // it resets our scene to the empty initialData a tick later (mount race,
+      // see excaliReadyRef). Fallback timeout so a quiet init can't hang.
+      await Promise.race([
+        excaliReadyRef.current,
+        new Promise<void>((r) => setTimeout(r, 1000)),
+      ])
+      if (cancelled || !api) return
       api.updateScene({
         // trap #1 — regenerateIds defaults to true and would sever every
         // rail↔element linkage.
@@ -393,6 +408,52 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
         }
       }, 100)
       setSceneReady(true)
+
+      // ── Stream the page rasters in, visible pages first ──────────────────
+      // No barrier: each page registers its file then swaps its placeholder
+      // rectangle for the image (same id) the instant it lands, so the
+      // initial-view pages (the first located check's cited docs) fill before
+      // the long-tail appendix pages. HTTP/2 multiplexes the requests; this
+      // order is just a priority hint. Guarded so a close / run-switch
+      // mid-stream is a no-op.
+      const created = Date.now()
+      const prio = new Set<string>()
+      if (firstIdx >= 0) {
+        for (const e of report.checks[firstIdx]?.evidence ?? []) {
+          if (typeof e?.doc === 'string' && e.doc) prio.add(e.doc)
+        }
+      }
+      const plans = docInputs.flatMap(d => d.pages.map(p => ({ fn: d.name, page: p.page })))
+      plans.sort((a, b) => (prio.has(b.fn) ? 1 : 0) - (prio.has(a.fn) ? 1 : 0))
+      for (const pl of plans) {
+        void loadPageImage(slug, pl.fn, pl.page).then(img => {
+          if (cancelled || !mountedRef.current || !api || !img) return
+          const id = imgId(pl.fn, pl.page)
+          // File FIRST — convertToExcalidrawElements drops an image skeleton
+          // whose file isn't registered (trap #2); registering before convert
+          // is the proven render path.
+          api.addFiles([{
+            id: id as BinaryFileData['id'],
+            dataURL: img.dataURL as BinaryFileData['dataURL'],
+            mimeType: img.mimeType as BinaryFileData['mimeType'],
+            created,
+          }])
+          // Swap the placeholder rectangle for the image, reusing the CURRENT
+          // element's bounds (focusCheck may have relaid the page since build).
+          const cur = api.getSceneElements()
+          const ph = cur.find(e => e.id === id)
+          if (!ph || ph.type === 'image') return // gone (run switch) or already swapped
+          const [imgEl] = convertToExcalidrawElements(
+            [{
+              type: 'image', id, fileId: id,
+              x: ph.x, y: ph.y, width: ph.width, height: ph.height, locked: true,
+            }] as never,
+            { regenerateIds: false },
+          )
+          if (!imgEl) return // convert dropped it (shouldn't happen — file is registered)
+          api.updateScene({ elements: cur.map(e => (e.id === id ? imgEl : e)) })
+        })
+      }
     }
 
     void build()
@@ -550,6 +611,12 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
     els: readonly SceneElement[],
     appState: { selectedElementIds?: Record<string, boolean> },
   ) => {
+    // First onChange = excalidraw has initialised its scene; release the build
+    // effect to commit (the mount-race gate, see excaliReadyRef).
+    if (excaliReadyResolve.current) {
+      excaliReadyResolve.current()
+      excaliReadyResolve.current = null
+    }
     const sel = Object.keys(appState?.selectedElementIds ?? {})
     const hit = sel.map(checkIdxOfElementId).find(v => v !== null)
     if (hit != null) {
@@ -794,7 +861,7 @@ export default function BoardOverlay({ slug, onClose, hidden = false }: Props) {
                 excalidrawAPI={setApi}
                 viewModeEnabled={!annotating}
                 onChange={onChange}
-                initialData={{ appState: { viewBackgroundColor: colors.canvas } }}
+                initialData={initialData}
                 UIOptions={{
                   // Trim the chrome to what the board needs: pan/zoom + the
                   // drawing tools stay (user notes are a feature); scene-level

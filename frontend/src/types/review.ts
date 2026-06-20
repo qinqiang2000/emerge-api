@@ -26,6 +26,10 @@ export interface DocSummary {
   filename: string
   ext: string
   page_count: number
+  /** Per-page `[w, h]` in the SAME pixels the `/pages/{n}` raster emits (PDF
+   *  @150dpi; image = native). Lets the board lay out exact page boxes before
+   *  any raster downloads. Optional: absent on sidecars not yet backfilled. */
+  page_sizes?: number[][]
   sha256: string
   uploaded_at: string
   /** Pre-dedup name the user uploaded. Display-only; never used for routing. */

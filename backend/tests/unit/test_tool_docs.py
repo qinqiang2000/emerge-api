@@ -169,3 +169,76 @@ async def test_read_doc_image_missing_file_raises_oserror(workspace: Path) -> No
     pid = (await create_project(workspace, name="x"))["slug"]
     with pytest.raises(OSError):
         await read_doc_image(workspace, pid, "does-not-exist.png")
+
+
+# ── page_sizes (board lays out exact page boxes before fetching rasters) ──────
+
+async def test_upload_records_page_sizes(workspace: Path) -> None:
+    """`page_sizes` is written at upload — one [w, h] per page, in the SAME
+    pixels the page raster emits, so the board can box every page before a
+    single raster downloads."""
+    import fitz
+
+    from app.tools.docs import pdf_render_page
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
+    sizes = meta["page_sizes"]
+    assert isinstance(sizes, list) and sizes
+    assert len(sizes) == meta["page_count"]
+    assert all(len(s) == 2 and s[0] > 0 and s[1] > 0 for s in sizes)
+    # Lockstep: page 1's recorded size == the rendered raster's pixel dims.
+    png = await pdf_render_page(workspace, pid, meta["filename"], page=1)
+    pix = fitz.Pixmap(str(png))
+    assert sizes[0] == [pix.width, pix.height]
+
+
+async def test_image_doc_page_sizes_native_pixels(workspace: Path) -> None:
+    """PNG/JPG → one entry at native pixel dims (the route serves the original
+    bytes, so the raster IS the source)."""
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page(width=120, height=80)  # points
+    pix = doc[0].get_pixmap()
+    png_bytes = pix.tobytes("png")
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, png_bytes, "scan.png")
+    assert meta["page_count"] == 1
+    assert meta["page_sizes"] == [[pix.width, pix.height]]
+
+
+async def test_list_docs_backfills_page_sizes(workspace: Path) -> None:
+    """Sidecars written before `page_sizes` existed get it computed + persisted
+    on the next `list_docs` — one-time, idempotent backfill."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
+    # Simulate a legacy sidecar: strip page_sizes back off disk.
+    meta_p = doc_meta_path(workspace, pid, meta["filename"])
+    blob = json.loads(meta_p.read_text())
+    del blob["page_sizes"]
+    meta_p.write_text(json.dumps(blob))
+
+    items = await list_docs(workspace, pid)
+    got = next(it for it in items if it["filename"] == meta["filename"])
+    assert got["page_sizes"], "list_docs should backfill page_sizes in the response"
+    assert "page_sizes" in json.loads(meta_p.read_text()), "and persist it to disk"
+
+
+# ── page route immutable caching (reopen / page-flip = no revalidation RT) ────
+
+async def test_page_route_sets_immutable_cache_header(workspace: Path) -> None:
+    """The `/pages/{n}` raster is immutable (doc bytes never change once
+    uploaded), so the route advertises a long immutable cache — the browser
+    skips the per-page conditional round-trip on every board reopen."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
+    client = TestClient(app)
+    r = client.get(f"/lab/projects/{pid}/docs/by-name/{meta['filename']}/pages/1")
+    assert r.status_code == 200
+    assert "immutable" in r.headers.get("cache-control", "")
