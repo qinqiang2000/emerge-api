@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
-from app.tools.docs import delete_doc, pdf_render_page
+from app.tools.docs import delete_doc, image_doc_as_jpeg, pdf_render_page
 from app.workspace.paths import doc_meta_path, doc_path
 
 
@@ -23,7 +23,7 @@ _PAGE_CACHE = "public, max-age=31536000, immutable"
 
 
 @router.get("/lab/projects/{slug}/docs/by-name/{filename:path}/pages/{page}")
-async def get_page(slug: str, filename: str, page: int) -> FileResponse:
+async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> FileResponse:
     """Serve a viewable page bitmap for a doc.
 
     Filename is the only doc handle (post-d_xxx removal). The `:path` converter
@@ -31,14 +31,19 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
     defensively validate the result via `safe_filename` to reject path
     separators and traversal segments.
 
+    `fmt=jpeg` serves a JPEG at the SAME resolution (board overview — smaller on
+    photo-heavy pages, clarity preserved); `fmt=png` (default) is pixel-exact
+    for review.
+
     PDF: renders the requested page on demand (cached under
-    `docs/.meta/_render/{filename}/p{n}.png`).
-    PNG/JPG: page=1 returns the original bytes; any other page is 404. The
-    chat thumbnails use this single URL pattern for both image and PDF
-    attachments."""
+    `.cache/_render/{sha}/p{n}.{png|jpg}`).
+    PNG/JPG: page=1 returns the original bytes (or a JPEG transcode of a PNG
+    when `fmt=jpeg`); any other page is 404. The chat thumbnails use this
+    single URL pattern for both image and PDF attachments."""
     safe_slug(slug)
     safe_filename(filename)
     settings = get_settings()
+    jpeg = fmt.lower() in ("jpeg", "jpg")
     meta_p = doc_meta_path(current_ws(), slug, filename)
     if not meta_p.exists():
         raise HTTPException(status_code=404, detail="doc_not_found")
@@ -47,16 +52,22 @@ async def get_page(slug: str, filename: str, page: int) -> FileResponse:
     if ext in _IMAGE_MEDIA:
         if page != 1:
             raise HTTPException(status_code=404, detail="page out of range")
+        # PNG doc requested as JPEG → transcode (screenshots/photos shrink a
+        # lot); a JPG doc is already JPEG, so serve the original either way.
+        if jpeg and ext == "png":
+            path = await image_doc_as_jpeg(current_ws(), slug, filename)
+            return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": _PAGE_CACHE})
         return FileResponse(
             doc_path(current_ws(), slug, filename),
             media_type=_IMAGE_MEDIA[ext],
             headers={"Cache-Control": _PAGE_CACHE},
         )
     try:
-        path = await pdf_render_page(current_ws(), slug, filename, page=page)
+        path = await pdf_render_page(current_ws(), slug, filename, page=page, fmt="jpeg" if jpeg else "png")
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return FileResponse(path, media_type="image/png", headers={"Cache-Control": _PAGE_CACHE})
+    media = "image/jpeg" if jpeg else "image/png"
+    return FileResponse(path, media_type=media, headers={"Cache-Control": _PAGE_CACHE})
 
 
 @router.delete("/lab/projects/{slug}/docs/by-name/{filename:path}")

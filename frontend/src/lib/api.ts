@@ -181,8 +181,16 @@ export async function saveReviewed(
   if (!r.ok) throw new Error(`saveReviewed ${r.status}`)
 }
 
-export function pdfPageUrl(slug: string, filename: string, page: number): string {
-  return `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}`
+export function pdfPageUrl(
+  slug: string,
+  filename: string,
+  page: number,
+  fmt?: 'jpeg',
+): string {
+  // `fmt=jpeg` → same-resolution JPEG (board overview: smaller on photo-heavy
+  // pages, clarity unchanged). Omit for the pixel-exact PNG review/chat use.
+  const q = fmt ? `?fmt=${fmt}` : ''
+  return `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/pages/${page}${q}`
 }
 
 // ── Text layer (rubberband-select + copy on the rendered PDF page) ────────

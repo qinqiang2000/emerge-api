@@ -242,3 +242,51 @@ async def test_page_route_sets_immutable_cache_header(workspace: Path) -> None:
     r = client.get(f"/lab/projects/{pid}/docs/by-name/{meta['filename']}/pages/1")
     assert r.status_code == 200
     assert "immutable" in r.headers.get("cache-control", "")
+
+
+# ── board JPEG overview (?fmt=jpeg): same dpi, smaller on photos, PNG for review ──
+
+async def test_pdf_render_jpeg_variant(workspace: Path) -> None:
+    """`fmt='jpeg'` renders the page as JPEG cached at p{n}.jpg (board overview),
+    independent of the pixel-exact p{n}.png review render."""
+    from app.tools.docs import pdf_render_page
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
+    png = await pdf_render_page(workspace, pid, meta["filename"], page=1)
+    jpg = await pdf_render_page(workspace, pid, meta["filename"], page=1, fmt="jpeg")
+    assert png.suffix == ".png" and jpg.suffix == ".jpg"
+    assert jpg.exists() and jpg.read_bytes()[:3] == b"\xff\xd8\xff"  # JPEG magic
+    assert png.exists()  # both variants coexist in the render cache
+
+
+async def test_image_doc_as_jpeg_transcodes_png(workspace: Path) -> None:
+    """A PNG image doc transcodes to JPEG q85 (cached p1.jpg) for the board."""
+    import fitz
+
+    from app.tools.docs import image_doc_as_jpeg
+
+    doc = fitz.open()
+    doc.new_page(width=200, height=120)
+    png_bytes = doc[0].get_pixmap().tobytes("png")
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, png_bytes, "scan.png")
+    jpg = await image_doc_as_jpeg(workspace, pid, meta["filename"])
+    assert jpg.suffix == ".jpg" and jpg.read_bytes()[:3] == b"\xff\xd8\xff"
+
+
+async def test_page_route_fmt_jpeg_content_type(workspace: Path) -> None:
+    """`/pages/{n}?fmt=jpeg` serves JPEG (board); the default stays PNG."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, _PDF_FIXTURE.read_bytes(), "invoice.pdf")
+    client = TestClient(app)
+    base = f"/lab/projects/{pid}/docs/by-name/{meta['filename']}/pages/1"
+    rj = client.get(base + "?fmt=jpeg")
+    assert rj.status_code == 200 and rj.headers["content-type"] == "image/jpeg"
+    rp = client.get(base)
+    assert rp.status_code == 200 and rp.headers["content-type"] == "image/png"

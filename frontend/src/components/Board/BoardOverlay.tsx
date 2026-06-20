@@ -118,7 +118,9 @@ async function loadPageImage(
   page: number,
 ): Promise<{ dataURL: string; mimeType: string } | null> {
   try {
-    const resp = await fetch(pdfPageUrl(slug, filename, page))
+    // JPEG at the same dpi — the board overview doesn't need PNG's pixel-exact
+    // bytes; photo-heavy pages (社媒海报) shrink 3-5×, clarity unchanged.
+    const resp = await fetch(pdfPageUrl(slug, filename, page, 'jpeg'))
     if (!resp.ok) return null
     const blob = await resp.blob()
     const dataURL = await new Promise<string>((resolve, reject) => {

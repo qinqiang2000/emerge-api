@@ -33,6 +33,12 @@ _ALLOWED_EXT = {"pdf": "pdf", "png": "png", "jpg": "jpg", "jpeg": "jpg"}
 # SAME pixel units `pdf_render_page` emits — keep these in lockstep.
 DEFAULT_RENDER_DPI = 150
 
+# Board overview serves JPEG instead of PNG at the SAME dpi (`?fmt=jpeg`): the
+# resolution is unchanged (review clarity preserved) but photo-heavy pages
+# (e.g. 社媒海报) shrink 3-5× — PNG stores photos terribly. Review mode keeps
+# PNG for pixel-exact fine reading. q85 keeps document text crisp.
+BOARD_JPEG_QUALITY = 85
+
 # Magic-byte signatures for the formats we accept. Sniffing the bytes lets us
 # reject filename-spoofed uploads (e.g. HTML body with `.png` extension, or a
 # clipboard paste that landed as `image.png` but is actually webp/heic). One
@@ -357,14 +363,18 @@ async def pdf_render_page(
     *,
     page: int,
     dpi: int = DEFAULT_RENDER_DPI,
+    fmt: str = "png",
 ) -> Path:
-    """Render a PDF page as PNG, cached at `.cache/_render/{sha}/p{n}.png`.
+    """Render a PDF page, cached at `.cache/_render/{sha}/p{n}.{png|jpg}`.
 
-    Re-renders only on a cache miss; the path is content-addressed (keyed by
-    the doc's sha256, not project/filename) so the same bytes across UI
-    sessions — or copied into another project — hit one shared render."""
+    `fmt='jpeg'` renders at the SAME dpi but encodes JPEG q85 (board overview —
+    smaller, resolution unchanged); `fmt='png'` (default) stays pixel-exact for
+    review. Re-renders only on a cache miss; the path is content-addressed
+    (keyed by the doc's sha256, not project/filename) so the same bytes across
+    UI sessions — or copied into another project — hit one shared render."""
     import fitz  # PyMuPDF
 
+    jpeg = fmt.lower() in ("jpeg", "jpg")
     meta = json.loads(doc_meta_path(workspace, project_id, filename).read_text())
     if meta["ext"] != "pdf":
         raise ValueError(f"doc {filename!r} is not a pdf")
@@ -372,7 +382,7 @@ async def pdf_render_page(
 
     cache_dir = doc_render_dir(workspace, project_id, filename)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    out = cache_dir / f"p{page}.png"
+    out = cache_dir / f"p{page}.{'jpg' if jpeg else 'png'}"
     if out.exists():
         return out
 
@@ -380,7 +390,34 @@ async def pdf_render_page(
         if page < 1 or page > pdf.page_count:
             raise ValueError(f"page {page} out of range (1..{pdf.page_count})")
         pix = pdf[page - 1].get_pixmap(dpi=dpi)
-        atomic_write_bytes(out, pix.tobytes("png"))
+        if jpeg:
+            if pix.alpha:  # JPEG has no alpha channel
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
+        else:
+            atomic_write_bytes(out, pix.tobytes("png"))
+    return out
+
+
+async def image_doc_as_jpeg(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+) -> Path:
+    """Transcode a PNG image doc to JPEG q85 for the board overview, cached at
+    `.cache/_render/{sha}/p1.jpg`. (JPG docs are already JPEG — the route serves
+    them as-is; this is the PNG path, where photos/screenshots shrink a lot.)"""
+    import fitz  # PyMuPDF
+
+    cache_dir = doc_render_dir(workspace, project_id, filename)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out = cache_dir / "p1.jpg"
+    if out.exists():
+        return out
+    pix = fitz.Pixmap(str(doc_path(workspace, project_id, filename)))
+    if pix.alpha:  # JPEG has no alpha channel
+        pix = fitz.Pixmap(fitz.csRGB, pix)
+    atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
     return out
 
 
