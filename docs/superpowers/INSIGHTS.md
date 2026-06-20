@@ -678,6 +678,8 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 **The discipline:** keep the board on JPEG and review on PNG. If you ever want uniformity, raising review to JPEG q92 is defensible for a scan-only workload — but it regresses crisp vector documents, so don't make it the default.
 
+**Alpha sub-trap (prod 2026-06-20):** JPEG has no alpha channel — `pix.tobytes("jpeg")` on an RGBA pixmap raises `'cannot have alpha'` (订单.png is RGBA → blank board box, route 500 → `loadPageImage` null → placeholder stays). `fitz.Pixmap(fitz.csRGB, rgba_pix)` does NOT drop alpha (a same-colorspace copy keeps it). Flatten by rendering through a single-page image document with `get_pixmap(alpha=False)` (composites onto WHITE, same pattern as `fit_image_for_agent`), not by a colorspace-copy. PDF pages dodge this (get_pixmap defaults to no alpha). `test_image_doc_as_jpeg_transcodes_rgba_png` uses a real RGBA fixture so it actually exercises the path.
+
 ---
 
 ## When to add an entry here

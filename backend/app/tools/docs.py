@@ -389,10 +389,11 @@ async def pdf_render_page(
     with fitz.open(src) as pdf:
         if page < 1 or page > pdf.page_count:
             raise ValueError(f"page {page} out of range (1..{pdf.page_count})")
+        # get_pixmap defaults to alpha=False, so the JPEG branch never sees an
+        # alpha channel (PDF pages don't carry one anyway). PNG stays byte-for-
+        # byte as before for the review render cache.
         pix = pdf[page - 1].get_pixmap(dpi=dpi)
         if jpeg:
-            if pix.alpha:  # JPEG has no alpha channel
-                pix = fitz.Pixmap(fitz.csRGB, pix)
             atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
         else:
             atomic_write_bytes(out, pix.tobytes("png"))
@@ -406,7 +407,14 @@ async def image_doc_as_jpeg(
 ) -> Path:
     """Transcode a PNG image doc to JPEG q85 for the board overview, cached at
     `.cache/_render/{sha}/p1.jpg`. (JPG docs are already JPEG — the route serves
-    them as-is; this is the PNG path, where photos/screenshots shrink a lot.)"""
+    them as-is; this is the PNG path, where photos/screenshots shrink a lot.)
+
+    Renders via a single-page image document with ``alpha=False`` (same pattern
+    as `fit_image_for_agent`): JPEG has no alpha channel, and rendering this way
+    flattens transparency onto WHITE natively — `Pixmap(csRGB, rgba_pix)` does
+    NOT drop alpha (same-colorspace copy keeps it) and `tobytes('jpeg')` then
+    raises "cannot have alpha" (prod 2026-06-20: 订单.png is RGBA → blank box).
+    Native pixel size is preserved so the board's `page_sizes` box still fits."""
     import fitz  # PyMuPDF
 
     cache_dir = doc_render_dir(workspace, project_id, filename)
@@ -414,9 +422,13 @@ async def image_doc_as_jpeg(
     out = cache_dir / "p1.jpg"
     if out.exists():
         return out
-    pix = fitz.Pixmap(str(doc_path(workspace, project_id, filename)))
-    if pix.alpha:  # JPEG has no alpha channel
-        pix = fitz.Pixmap(fitz.csRGB, pix)
+    data = doc_path(workspace, project_id, filename).read_bytes()
+    src = fitz.Pixmap(data)  # native pixel dims (also validates the bytes)
+    long_px = max(src.width, src.height)
+    with fitz.open(stream=data) as img_doc:
+        page = img_doc[0]
+        zoom = long_px / max(page.rect.width, page.rect.height)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
     atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
     return out
 

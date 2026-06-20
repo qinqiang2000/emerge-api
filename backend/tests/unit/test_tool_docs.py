@@ -260,15 +260,19 @@ async def test_pdf_render_jpeg_variant(workspace: Path) -> None:
     assert png.exists()  # both variants coexist in the render cache
 
 
-async def test_image_doc_as_jpeg_transcodes_png(workspace: Path) -> None:
-    """A PNG image doc transcodes to JPEG q85 (cached p1.jpg) for the board."""
+async def test_image_doc_as_jpeg_transcodes_rgba_png(workspace: Path) -> None:
+    """An RGBA PNG image doc transcodes to JPEG q85 (cached p1.jpg) — alpha must
+    be flattened, not passed through (prod 2026-06-20: 订单.png is RGBA →
+    `tobytes('jpeg')` raised 'cannot have alpha' → blank board box). The fixture
+    carries a real alpha channel so this path is actually exercised."""
     import fitz
 
     from app.tools.docs import image_doc_as_jpeg
 
     doc = fitz.open()
     doc.new_page(width=200, height=120)
-    png_bytes = doc[0].get_pixmap().tobytes("png")
+    png_bytes = doc[0].get_pixmap(alpha=True).tobytes("png")  # RGBA
+    assert fitz.Pixmap(png_bytes).alpha == 1  # fixture really carries alpha
 
     pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, png_bytes, "scan.png")
