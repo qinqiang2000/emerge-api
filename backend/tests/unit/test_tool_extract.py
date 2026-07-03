@@ -126,6 +126,36 @@ async def test_extract_one_text_doc_feeds_textblock(
     assert any(b.text == body for b in text_blocks), "doc body must reach provider as TextBlock"
 
 
+async def test_extract_one_threads_model_params_to_provider(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """The active model's `params` (max_tokens / temperature / …) must reach
+    `provider.extract`. This path historically dropped them, so a user-set
+    max_tokens silently ran on the provider default — unlike the experiment /
+    prod paths which already thread params through."""
+    from app.tools.model import write_model
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+    # Set params on the active model (m_default written by create_project).
+    await write_model(
+        workspace, pid,
+        model_id="m_default", label="Default",
+        provider="google", provider_model_id="gemini-2.5-flash",
+        params={"max_tokens": 1234, "temperature": 0.7},
+    )
+    stub_provider.extract.side_effect = [
+        make_provider_result({"entities": [{"invoice_no": "X", "total_amount": 1.0}]}),
+        make_provider_result({"groundings": []}),
+    ]
+
+    await extract_one(workspace, pid, did, provider=stub_provider)
+
+    extract_call = stub_provider.extract.await_args_list[0]
+    assert extract_call.kwargs["params"] == {"max_tokens": 1234, "temperature": 0.7}
+
+
 async def test_extract_one_model_override_resolves_project_model_id(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:

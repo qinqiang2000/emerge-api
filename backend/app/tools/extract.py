@@ -184,6 +184,13 @@ async def extract_one(
         system_prompt=_EXTRACT_SYSTEM,
         user_content=user_blocks,
         response_schema=response_schema,
+        # Honor the model config's params (max_tokens / temperature / …). This
+        # path historically dropped them, so a user-set max_tokens silently had
+        # no effect and every extract ran on the provider's built-in defaults —
+        # unlike the experiment (extract_one_with_schema) and prod
+        # (extract_bytes_with_schema) paths, which already thread params through.
+        # `mc` is the active/override model config resolved above.
+        params=mc.params or None,
     )
 
     output = ExtractionOutput(**result.raw_json)
