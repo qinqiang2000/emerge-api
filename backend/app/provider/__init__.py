@@ -18,10 +18,21 @@ def get_provider_for_model(
     *,
     provider: ModelProvider | None = None,
     api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key_env: Optional[str] = None,
 ) -> Provider:
     """Returns an extractor Provider for the given model_id.
 
     Reads API keys and proxy URLs from environment unless explicitly passed.
+
+    ``base_url`` / ``api_key_env`` carry a model's per-model endpoint (an
+    anthropic-compatible third-party gateway such as deepseek). They are the
+    ModelConfig fields of the same name; passing them as plain kwargs keeps
+    schemas↔provider from forming a circular import. When absent the anthropic
+    branches fall back to the global ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
+    env, so existing claude models see zero change. The factory only *reads* env
+    — it never writes ``os.environ`` — so enabling a deepseek model never mutates
+    the agent-brain's ``ANTHROPIC_BASE_URL`` (Agent brain ↔ Extract LLM red line).
     """
     def _google() -> Provider:
         from app.provider.google import GoogleProvider
@@ -69,23 +80,33 @@ def get_provider_for_model(
     if provider == "anthropic":
         from app.provider.anthropic import AnthropicProvider
 
+        key = os.getenv(api_key_env) if api_key_env else (api_key or os.getenv("ANTHROPIC_API_KEY", ""))
+        url = base_url or os.getenv("ANTHROPIC_BASE_URL") or None
         return AnthropicProvider(
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
+            api_key=key,
             proxy=os.getenv("ANTHROPIC_PROXY") or None,
             # Hard rule: never hit api.anthropic.com directly — route through the
             # configured gateway. See MEMORY:feedback_anthropic_no_direct_api.
-            base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
+            base_url=url,
+            # A per-model base_url means a third-party anthropic-compatible
+            # gateway (e.g. deepseek), which may default to a thinking mode that
+            # 400s on forced tool_choice; disable it so structured extract works.
+            # The global ANTHROPIC_BASE_URL (claude) is NOT treated as custom.
+            disable_thinking=bool(base_url),
         )
     if model_id.startswith("gemini"):
         return _google()
     if model_id.startswith("claude") or model_id.startswith("anthropic"):
         from app.provider.anthropic import AnthropicProvider
 
+        key = os.getenv(api_key_env) if api_key_env else (api_key or os.getenv("ANTHROPIC_API_KEY", ""))
+        url = base_url or os.getenv("ANTHROPIC_BASE_URL") or None
         return AnthropicProvider(
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
+            api_key=key,
             proxy=os.getenv("ANTHROPIC_PROXY") or None,
             # Hard rule: never hit api.anthropic.com directly — route through the
             # configured gateway. See MEMORY:feedback_anthropic_no_direct_api.
-            base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
+            base_url=url,
+            disable_thinking=bool(base_url),
         )
     raise ValueError(f"no provider for model_id={model_id!r}")

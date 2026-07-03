@@ -373,7 +373,10 @@ async def post_derive_schema(slug: str, body: _DeriveSchemaBody) -> dict:
 
     mc = await model_mod.read_active_model(current_ws(), slug)
     mid = mc.provider_model_id
-    prj_provider = get_provider_for_model(mid, provider=mc.provider)
+    prj_provider = get_provider_for_model(
+        mid, provider=mc.provider,
+        base_url=mc.base_url, api_key_env=mc.api_key_env,
+    )
     fields = await derive_schema(
         current_ws(),
         slug,

@@ -287,7 +287,10 @@ async def ground_prediction(
     if provider is None:
         from app.provider import get_provider_for_model
 
-        provider = get_provider_for_model(mid, provider=mc.provider)
+        provider = get_provider_for_model(
+            mid, provider=mc.provider,
+            base_url=mc.base_url, api_key_env=mc.api_key_env,
+        )
 
     evidence = await ground_entities(
         workspace, project_id, filename, entities, provider=provider, model_id=mid

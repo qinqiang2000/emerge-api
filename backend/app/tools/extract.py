@@ -169,7 +169,10 @@ async def extract_one(
     if provider is None:
         from app.provider import get_provider_for_model
 
-        provider = get_provider_for_model(mid, provider=mc.provider)
+        provider = get_provider_for_model(
+            mid, provider=mc.provider,
+            base_url=mc.base_url, api_key_env=mc.api_key_env,
+        )
 
     doc_block = await _doc_to_block(workspace, project_id, filename)
     user_blocks: list[ContentBlock] = (

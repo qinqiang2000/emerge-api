@@ -25,7 +25,15 @@ from app.workspace.paths import (
 )
 
 
-_ALLOWED_EXT = {"pdf": "pdf", "png": "png", "jpg": "jpg", "jpeg": "jpg"}
+# Binary doc extensions go through the magic-byte gate; text-shaped extensions
+# (no stable magic bytes) go through a UTF-8 decodability gate instead. Keep
+# `_TEXT_EXTS` in lockstep with `app.tools.schema._TEXT_EXTS` — both describe
+# "which extensions are fed to the extract LLM as a plain TextBlock".
+_TEXT_EXTS = {"txt", "md", "json", "csv", "yml", "yaml"}
+_ALLOWED_EXT = {
+    "pdf": "pdf", "png": "png", "jpg": "jpg", "jpeg": "jpg",
+    **{e: e for e in _TEXT_EXTS},
+}
 
 # Single DPI truth for the on-demand page raster + the page-size sidecar. The
 # board lays out exact page boxes from `page_sizes` BEFORE fetching any raster
@@ -119,16 +127,29 @@ async def upload_doc(
     on-disk name under `filename`. There is no `doc_id`: filename IS the
     handle for every downstream lookup (predictions, reviewed, page render).
     """
-    _ext_from_filename(filename)  # validates the extension before we touch disk
-    # Magic-byte sniffing wins over the filename when they disagree (browser
-    # clipboard often hands us `image.png` with non-PNG bytes underneath). For
-    # legit uploads the two agree; for spoofed uploads sniffing rejects them.
-    sniff = _sniff_ext(data)
-    if sniff is None:
-        raise ValueError(
-            f"unsupported content: {filename!r} bytes don't match pdf/png/jpg"
-        )
-    ext = sniff
+    expected = _ext_from_filename(filename)  # validates the extension before we touch disk
+    if expected in _TEXT_EXTS:
+        # Text-shaped payloads have no stable magic bytes — gate on UTF-8
+        # decodability instead. `ext` is the filename's normalized extension
+        # (sniffing doesn't apply). Non-text bytes with a text extension are
+        # rejected here so a spoofed `.txt` can't smuggle binary in.
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(
+                f"unsupported content: {filename!r} is not valid utf-8 text"
+            )
+        ext = expected
+    else:
+        # Magic-byte sniffing wins over the filename when they disagree (browser
+        # clipboard often hands us `image.png` with non-PNG bytes underneath). For
+        # legit uploads the two agree; for spoofed uploads sniffing rejects them.
+        sniff = _sniff_ext(data)
+        if sniff is None:
+            raise ValueError(
+                f"unsupported content: {filename!r} bytes don't match pdf/png/jpg"
+            )
+        ext = sniff
     page_count = _count_pages(data, ext)
     page_sizes = _page_sizes(data, ext)
     sha = hashlib.sha256(data).hexdigest()
@@ -177,6 +198,11 @@ def _page_sizes(data: bytes, ext: str, *, dpi: int = DEFAULT_RENDER_DPI) -> list
 
     Best-effort: returns ``[]`` on any failure (board falls back to an A4
     estimate). Cheap — reads page rects only, never rasterizes."""
+    if ext in _TEXT_EXTS:
+        # Text docs have no raster geometry; the board / review text panel don't
+        # consult page_sizes for them. Return early so fitz never sees non-image
+        # bytes (which would just log a decode error and return [] anyway).
+        return []
     try:
         import fitz  # PyMuPDF
 
@@ -660,8 +686,22 @@ async def ingest_local_path(
             continue
         sniff = _sniff_ext(data)
         if sniff is None:
-            skipped.append({"name": fp.name, "reason": "not pdf/png/jpg"})
-            continue
+            # Magic-byte sniff only recognizes pdf/png/jpg. Text-shaped files
+            # carry no stable signature, so fall back to the filename extension
+            # + a UTF-8 decodability check (same gate as `upload_doc`). This
+            # lets an agent `ingest-local` a directory of .json/.txt/.md rule
+            # files, not just binary docs.
+            name_ext = fp.name.rsplit(".", 1)[1].lower() if "." in fp.name else ""
+            if name_ext in _TEXT_EXTS:
+                try:
+                    data.decode("utf-8")
+                except UnicodeDecodeError:
+                    skipped.append({"name": fp.name, "reason": "not valid utf-8 text"})
+                    continue
+                sniff = _ALLOWED_EXT[name_ext]
+            else:
+                skipped.append({"name": fp.name, "reason": "not pdf/png/jpg or utf-8 text"})
+                continue
         # upload_doc validates by filename extension first; pass a normalized
         # filename so a `.heic` whose bytes are jpg still lands as `.jpg`.
         if "." in fp.name:

@@ -15,6 +15,11 @@ router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 _IMAGE_MEDIA = {"png": "image/png", "jpg": "image/jpeg"}
 
+# Text-shaped docs (extract's text-input path) have no raster: the page route
+# serves their raw bytes as UTF-8 text so the review panel can render them
+# verbatim. Keep in lockstep with `app.tools.docs._TEXT_EXTS`.
+_TEXT_EXTS = {"txt", "md", "json", "csv", "yml", "yaml"}
+
 # Page rasters are immutable: a doc never changes bytes once uploaded
 # (filename is a unique slot, the PDF render cache is content-addressed by
 # sha). So the browser can cache a page forever and skip the per-page
@@ -49,6 +54,16 @@ async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> Fil
         raise HTTPException(status_code=404, detail="doc_not_found")
     meta = json.loads(meta_p.read_text())
     ext = str(meta.get("ext", "")).lower()
+    if ext in _TEXT_EXTS:
+        # Text doc: single "page" of raw UTF-8 content, no raster. The review
+        # text panel fetches this URL and renders the body verbatim.
+        if page != 1:
+            raise HTTPException(status_code=404, detail="page out of range")
+        return FileResponse(
+            doc_path(current_ws(), slug, filename),
+            media_type="text/plain; charset=utf-8",
+            headers={"Cache-Control": _PAGE_CACHE},
+        )
     if ext in _IMAGE_MEDIA:
         if page != 1:
             raise HTTPException(status_code=404, detail="page out of range")

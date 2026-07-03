@@ -34,7 +34,10 @@ async def _resolve_judge_provider(
         from app.tools.model import read_active_model
 
         mc = await read_active_model(workspace, slug)
-        provider = get_provider_for_model(mc.provider_model_id, provider=mc.provider)
+        provider = get_provider_for_model(
+            mc.provider_model_id, provider=mc.provider,
+            base_url=mc.base_url, api_key_env=mc.api_key_env,
+        )
         return provider, mc.provider_model_id
     except Exception:
         return None, None

@@ -64,6 +64,43 @@ async def test_list_docs_returns_uploaded(workspace: Path) -> None:
     assert names == {"a.pdf", "b.pdf"}
 
 
+# ── text-file docs (extract's text-input path) ────────────────────────────────
+
+async def test_upload_doc_text_json_accepted(workspace: Path) -> None:
+    """A UTF-8 JSON file lands as a text doc: meta.ext=json, single page, empty
+    page_sizes (text has no raster geometry)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    meta = await upload_doc(workspace, pid, b'{"a": 1, "b": 2}', "rules.json")
+    assert meta["ext"] == "json"
+    assert meta["page_count"] == 1
+    assert meta["page_sizes"] == []
+    assert (workspace / pid / "docs" / "rules.json").read_bytes() == b'{"a": 1, "b": 2}'
+
+
+async def test_upload_doc_text_extensions_accepted(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    for name, ext in [("a.txt", "txt"), ("b.md", "md"), ("c.csv", "csv"),
+                      ("d.yaml", "yaml"), ("e.yml", "yml")]:
+        meta = await upload_doc(workspace, pid, b"hello world\n", name)
+        assert meta["ext"] == ext, name
+        assert meta["page_count"] == 1
+
+
+async def test_upload_doc_rejects_non_utf8_text(workspace: Path) -> None:
+    """A `.txt` filename whose bytes aren't valid UTF-8 is rejected (a binary
+    payload can't smuggle in through the text gate)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    with pytest.raises(ValueError, match="not valid utf-8 text"):
+        await upload_doc(workspace, pid, b"\xff\xfe\x00\x01binary", "notes.txt")
+
+
+async def test_upload_doc_binary_uploads_unchanged(workspace: Path) -> None:
+    """Existing pdf/png sniff behavior is untouched by the text branch."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    assert (await upload_doc(workspace, pid, SAMPLE_PDF, "a.pdf"))["ext"] == "pdf"
+    assert (await upload_doc(workspace, pid, SAMPLE_PNG, "b.png"))["ext"] == "png"
+
+
 async def test_read_doc_returns_bytes(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     meta = await upload_doc(workspace, pid, SAMPLE_PDF, "a.pdf")
@@ -278,6 +315,26 @@ async def test_image_doc_as_jpeg_transcodes_rgba_png(workspace: Path) -> None:
     meta = await upload_doc(workspace, pid, png_bytes, "scan.png")
     jpg = await image_doc_as_jpeg(workspace, pid, meta["filename"])
     assert jpg.suffix == ".jpg" and jpg.read_bytes()[:3] == b"\xff\xd8\xff"
+
+
+async def test_page_route_text_doc_serves_plaintext(workspace: Path) -> None:
+    """A text doc's page route serves the raw UTF-8 body as text/plain (no
+    raster); page 1 only, out-of-range pages 404."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    body = '{"a": 3, "b": 4}'
+    meta = await upload_doc(workspace, pid, body.encode(), "case.json")
+    client = TestClient(app)
+    base = f"/lab/projects/{pid}/docs/by-name/{meta['filename']}/pages/1"
+    r = client.get(base)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    assert r.text == body
+    r2 = client.get(f"/lab/projects/{pid}/docs/by-name/{meta['filename']}/pages/2")
+    assert r2.status_code == 404
 
 
 async def test_page_route_fmt_jpeg_content_type(workspace: Path) -> None:

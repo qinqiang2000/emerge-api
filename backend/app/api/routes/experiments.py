@@ -158,7 +158,10 @@ async def ground_experiment_prediction(
             status_code=404,
             detail={"error_code": "model_not_found", "error_message_en": str(exc)},
         )
-    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
+    provider = get_provider_for_model(
+        model.provider_model_id, provider=model.provider,
+        base_url=model.base_url, api_key_env=model.api_key_env,
+    )
     try:
         evidence = await ground_entities(
             workspace, slug, filename, entities,
@@ -211,7 +214,10 @@ async def run_experiment_prediction(
             detail={"error_code": "experiment_not_found"},
         )
     model = await read_model(workspace, slug, ex.model_id)
-    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
+    provider = get_provider_for_model(
+        model.provider_model_id, provider=model.provider,
+        base_url=model.base_url, api_key_env=model.api_key_env,
+    )
     try:
         payload = await extract_with_experiment(
             workspace, slug, experiment_id, filename, provider=provider,
@@ -317,7 +323,10 @@ async def post_run_experiment_eval(
             status_code=404,
             detail={"error_code": "model_not_found", "error_message_en": str(exc)},
         )
-    provider = get_provider_for_model(model.provider_model_id, provider=model.provider)
+    provider = get_provider_for_model(
+        model.provider_model_id, provider=model.provider,
+        base_url=model.base_url, api_key_env=model.api_key_env,
+    )
     try:
         ev = await run_experiment_eval(
             workspace, slug, experiment_id, provider=provider,

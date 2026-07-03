@@ -43,6 +43,48 @@ type PopoverState = {
   anchor: HTMLElement
 }
 
+// Text-shaped docs (extract's text-input path) have no raster / coordinates:
+// the viewer renders their raw body in a plain <pre> panel instead of the PDF
+// canvas. Field highlight / grounding / translate overlays never attach here.
+// Keep in lockstep with backend `_TEXT_EXTS`.
+const TEXT_EXTS = new Set(['txt', 'md', 'json', 'csv', 'yml', 'yaml'])
+
+// Plain-text review panel for text-shaped docs. Fetches the doc's page-1 URL
+// (backend serves text/plain for text exts) and renders the body verbatim.
+// No toolbar, overlays, or grounding — text has no coordinates.
+function TextDocPanel({ projectId, filename }: { projectId: string; filename: string }) {
+  const t = useT()
+  const [body, setBody] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setBody(null)
+    setFailed(false)
+    fetch(pdfPageUrl(projectId, filename, 1))
+      .then((r) => {
+        if (!r.ok) throw new Error(`text doc ${r.status}`)
+        return r.text()
+      })
+      .then((text) => { if (!cancelled) setBody(text) })
+      .catch(() => { if (!cancelled) setFailed(true) })
+    return () => { cancelled = true }
+  }, [projectId, filename])
+
+  return (
+    <div className="dv-textpanel">
+      {failed ? (
+        <div className="dv-textempty">{t('pdf.textLoadFailed')}</div>
+      ) : body === null ? (
+        <div className="dv-textempty">{t('pdf.textLoading')}</div>
+      ) : (
+        <div className="dv-textsheet">
+          <pre>{body}</pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PdfViewer() {
   const t = useT()
   const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
@@ -400,6 +442,15 @@ export default function PdfViewer() {
   }, [popover, activeProjectId, activeFilename, translateByKey])
 
   if (!activeProjectId || !activeFilename) return null
+
+  // Text doc → plain-text panel (no raster, toolbar, or overlays). Look up the
+  // active doc's ext from the docs store; fall back to the filename suffix if
+  // the summary hasn't loaded yet.
+  const activeDoc = byProject[activeProjectId]?.find((d) => d.filename === activeFilename)
+  const extGuess = (activeDoc?.ext || activeFilename.split('.').pop() || '').toLowerCase()
+  if (TEXT_EXTS.has(extGuess)) {
+    return <TextDocPanel projectId={activeProjectId} filename={activeFilename} />
+  }
 
   return (
     <>

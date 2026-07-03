@@ -64,6 +64,7 @@ class AnthropicProvider(Provider):
         timeout: float = 120.0,
         retry_max_attempts: int = 3,
         retry_base_delay: float = 0.5,
+        disable_thinking: bool = False,
     ) -> None:
         self._api_key = api_key
         self._proxy = proxy
@@ -71,6 +72,14 @@ class AnthropicProvider(Provider):
         self._timeout = timeout
         self._retry_max = retry_max_attempts
         self._retry_base = retry_base_delay
+        # Some anthropic-compatible third-party gateways (e.g. deepseek-v4-*)
+        # default to a "thinking" mode that REJECTS forced tool_choice with a
+        # 400 ("Thinking mode does not support this tool_choice"). We rely on
+        # forced tool_choice for structured extraction, so disable thinking on
+        # those gateways. Sent only when explicitly requested (custom gateway);
+        # the real Anthropic endpoint omits the field entirely (its default is
+        # already no extended thinking), so claude models are unaffected.
+        self._disable_thinking = disable_thinking
 
     async def extract(
         self,
@@ -82,7 +91,7 @@ class AnthropicProvider(Provider):
         params: dict[str, Any] | None = None,
     ) -> ProviderResult:
         params = params or {}
-        body = {
+        body: dict[str, Any] = {
             "model": model_id,
             "max_tokens": params.get("max_tokens", 4096),
             "temperature": params.get("temperature", 0.0),
@@ -102,6 +111,10 @@ class AnthropicProvider(Provider):
             ],
             "tool_choice": {"type": "tool", "name": _TOOL_NAME},
         }
+        if self._disable_thinking:
+            # Gateway-specific: opt out of extended/thinking mode so forced
+            # tool_choice is accepted. Harmless on gateways that ignore it.
+            body["thinking"] = {"type": "disabled"}
         headers = {
             "x-api-key": self._api_key,
             "anthropic-version": "2023-06-01",

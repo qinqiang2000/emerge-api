@@ -58,6 +58,45 @@ async def test_extract_happy_path(respx_mock: respx.MockRouter) -> None:
 
 
 @pytest.mark.respx(base_url="https://api.anthropic.com")
+async def test_default_provider_omits_thinking(respx_mock: respx.MockRouter) -> None:
+    """Claude (no disable_thinking) must NOT send a `thinking` field — the API
+    default already means no extended thinking, and forced tool_choice works."""
+    route = respx_mock.post("/v1/messages").mock(
+        return_value=httpx.Response(200, json=_tool_use_response({"entities": []}))
+    )
+    p = AnthropicProvider(api_key="sk-test")
+    await p.extract(
+        model_id="claude-sonnet-4-6", system_prompt="x",
+        user_content=[TextBlock(text="hi")], response_schema=SCHEMA,
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert "thinking" not in body
+    assert body["tool_choice"] == {"type": "tool", "name": "emit_extraction"}
+
+
+@pytest.mark.respx(base_url="https://api.deepseek.com")
+async def test_disable_thinking_sends_thinking_disabled(respx_mock: respx.MockRouter) -> None:
+    """A gateway provider built with disable_thinking=True must send
+    `thinking: {type: disabled}` alongside the forced tool_choice — deepseek-v4
+    400s ("Thinking mode does not support this tool_choice") otherwise."""
+    route = respx_mock.post("/anthropic/v1/messages").mock(
+        return_value=httpx.Response(200, json=_tool_use_response({"entities": []}))
+    )
+    p = AnthropicProvider(
+        api_key="sk-ds",
+        base_url="https://api.deepseek.com/anthropic",
+        disable_thinking=True,
+    )
+    await p.extract(
+        model_id="deepseek-v4-flash", system_prompt="x",
+        user_content=[TextBlock(text="a=3 b=4 c=12")], response_schema=SCHEMA,
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["thinking"] == {"type": "disabled"}
+    assert body["tool_choice"] == {"type": "tool", "name": "emit_extraction"}
+
+
+@pytest.mark.respx(base_url="https://api.anthropic.com")
 async def test_extract_retries_on_429(respx_mock: respx.MockRouter) -> None:
     payload = {"entities": []}
     respx_mock.post("/v1/messages").mock(

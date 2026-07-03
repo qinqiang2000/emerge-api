@@ -71,11 +71,14 @@ def _wire(monkeypatch, *, blob: dict, missing: bool = False):
 
     async def fake_read_model(ws, slug, mid):
         captured["model_id_arg"] = mid
-        return SimpleNamespace(provider_model_id="gemini-x", provider="gemini")
+        return SimpleNamespace(
+            provider_model_id="gemini-x", provider="gemini",
+            base_url=None, api_key_env=None,
+        )
 
     monkeypatch.setattr(exp_route, "read_model", fake_read_model)
     monkeypatch.setattr(
-        exp_route, "get_provider_for_model", lambda pmid, provider=None: object()
+        exp_route, "get_provider_for_model", lambda pmid, provider=None, base_url=None, api_key_env=None: object()
     )
 
     @contextlib.asynccontextmanager

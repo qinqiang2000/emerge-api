@@ -332,6 +332,8 @@ const en: Dict = {
   'pdf.translate.title.on': 'overlay on · T to close · Shift+T re-translate page',
   'pdf.translate.title.failed': 'translate failed: {error} (T)',
   'pdf.translate.loading': 'processing this page…',
+  'pdf.textLoading': 'loading text…',
+  'pdf.textLoadFailed': 'could not load text',
 
   // ── TranslateOverlay (popover) ─────────────────────────────────────────
   'translate.aria.pair': 'original and translation',

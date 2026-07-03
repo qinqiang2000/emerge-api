@@ -17,6 +17,8 @@ class ModelConfig(BaseModel):
     provider_model_id: str
     params: dict[str, Any] = Field(default_factory=dict)
     created_at: str
+    base_url: str | None = None       # per-model gateway；None → 回退全局 env
+    api_key_env: str | None = None    # 环境变量名，NOT 明文 key
 
 
 def infer_provider_from_model_id(provider_model_id: str) -> Provider:

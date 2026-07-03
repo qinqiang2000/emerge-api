@@ -50,6 +50,8 @@ async def write_model(
     provider: Provider,
     provider_model_id: str,
     params: dict[str, Any] | None = None,
+    base_url: str | None = None,
+    api_key_env: str | None = None,
 ) -> None:
     """Upsert a model config. created_at is preserved on update, set fresh on create."""
     async with project_lock(workspace, project_id):
@@ -67,6 +69,8 @@ async def write_model(
             provider_model_id=provider_model_id,
             params=params or {},
             created_at=created,
+            base_url=base_url,
+            api_key_env=api_key_env,
         )
         atomic_write_json(mp, mc.model_dump(mode="json"))
 
@@ -79,6 +83,8 @@ async def create_model(
     provider: Provider,
     provider_model_id: str,
     params: dict[str, Any] | None = None,
+    base_url: str | None = None,
+    api_key_env: str | None = None,
 ) -> str:
     """Mint a new model_id and write the config. Returns the new model_id."""
     mid = new_model_id()
@@ -89,6 +95,8 @@ async def create_model(
         provider=provider,
         provider_model_id=provider_model_id,
         params=params,
+        base_url=base_url,
+        api_key_env=api_key_env,
     )
     return mid
 

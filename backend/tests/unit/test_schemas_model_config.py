@@ -41,6 +41,40 @@ def test_codex_provider_config() -> None:
     assert mc.provider == "codex"
 
 
+def test_per_model_endpoint_fields_round_trip() -> None:
+    """base_url / api_key_env survive a model_dump → reconstruct cycle, and the
+    api_key_env stores an env NAME, never a plaintext key."""
+    mc = ModelConfig(
+        model_id="m_deepseek",
+        label="DeepSeek V4 Flash",
+        provider="anthropic",
+        provider_model_id="deepseek-v4-flash",
+        params={"temperature": 0.0, "max_tokens": 4096},
+        created_at="2026-07-02T00:00:00+00:00",
+        base_url="https://api.deepseek.com/anthropic",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    dumped = mc.model_dump(mode="json")
+    assert dumped["base_url"] == "https://api.deepseek.com/anthropic"
+    assert dumped["api_key_env"] == "DEEPSEEK_API_KEY"
+    reconstructed = ModelConfig(**dumped)
+    assert reconstructed == mc
+
+
+def test_legacy_config_without_endpoint_fields() -> None:
+    """Existing model json (no base_url/api_key_env) still constructs; the new
+    fields default to None → zero regression for claude/gemini models."""
+    mc = ModelConfig(
+        model_id="m_default",
+        label="Default",
+        provider="google",
+        provider_model_id="gemini-2.5-flash",
+        created_at="2026-05-12T00:00:00+00:00",
+    )
+    assert mc.base_url is None
+    assert mc.api_key_env is None
+
+
 def test_provider_literal_constraint() -> None:
     with pytest.raises(ValidationError):
         ModelConfig(

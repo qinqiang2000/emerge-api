@@ -247,7 +247,8 @@ async def test_ingest_local_endpoint_imports_directory(
     src.mkdir()
     (src / "a.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
     (src / "b.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
-    (src / "junk.txt").write_bytes(b"hello")
+    (src / "notes.txt").write_bytes(b"hello")  # text docs now ingest too
+    (src / "junk.bin").write_bytes(b"\x00\x01binary")  # genuinely unsupported
     # Whitelist the test's tmp_path via env override so the default allowlist
     # doesn't have to include pytest's tmpdir.
     monkeypatch.setenv("EMERGE_INGEST_LOCAL_EXTRA_ROOTS", str(tmp_path))
@@ -259,8 +260,8 @@ async def test_ingest_local_endpoint_imports_directory(
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert {f["filename"] for f in body["ingested"]} == {"a.pdf", "b.png"}
-    assert body["skipped"] == [{"name": "junk.txt", "reason": "not pdf/png/jpg"}]
+    assert {f["filename"] for f in body["ingested"]} == {"a.pdf", "b.png", "notes.txt"}
+    assert body["skipped"] == [{"name": "junk.bin", "reason": "not pdf/png/jpg or utf-8 text"}]
     assert (workspace / pid / "docs" / "a.pdf").exists()
 
 

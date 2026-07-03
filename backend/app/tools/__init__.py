@@ -750,7 +750,10 @@ def build_emerge_mcp(
 
         mc = await model_mod.read_active_model(workspace, args["slug"])
         mid = mc.provider_model_id
-        prj_provider = get_provider_for_model(mid, provider=mc.provider)
+        prj_provider = get_provider_for_model(
+            mid, provider=mc.provider,
+            base_url=mc.base_url, api_key_env=mc.api_key_env,
+        )
         fields = await schema_mod.derive_schema(
             workspace,
             args["slug"],
@@ -890,11 +893,14 @@ def build_emerge_mcp(
         "atomically (the id + ModelConfig shape are invariants — do NOT hand-"
         "write models/{id}.json). `provider` is one of anthropic|openai|google|"
         "codex (Gemini → google); `provider_model_id` is the provider's own name "
-        "(e.g. \"gemini-2.5-flash\"). To copy another project's model, ws_read "
-        "its models/{id}.json for the provider + provider_model_id first. Returns "
-        "{model_id}. Follow with switch_active_model or create_experiment to use "
-        "it. Rendering: browser → one-line confirm; headless → state the new "
-        "model_id + label.",
+        "(e.g. \"gemini-2.5-flash\"). For an anthropic-compatible third-party "
+        "gateway (e.g. deepseek), set `provider=anthropic`, `base_url` to the "
+        "gateway root, and `api_key_env` to the NAME of the env var holding the "
+        "key (e.g. \"DEEPSEEK_API_KEY\") — never the plaintext key. To copy "
+        "another project's model, ws_read its models/{id}.json for the provider + "
+        "provider_model_id first. Returns {model_id}. Follow with "
+        "switch_active_model or create_experiment to use it. Rendering: browser → "
+        "one-line confirm; headless → state the new model_id + label.",
         {
             "type": "object",
             "properties": {
@@ -903,6 +909,8 @@ def build_emerge_mcp(
                 "provider": {"type": "string", "enum": ["anthropic", "openai", "google", "codex"]},
                 "provider_model_id": {"type": "string"},
                 "params": {"type": "object"},
+                "base_url": {"type": "string"},
+                "api_key_env": {"type": "string"},
             },
             "required": ["slug", "provider", "provider_model_id"],
         },
@@ -914,6 +922,8 @@ def build_emerge_mcp(
             provider=args["provider"],
             provider_model_id=args["provider_model_id"],
             params=args.get("params") or {},
+            base_url=args.get("base_url"),
+            api_key_env=args.get("api_key_env"),
         )
         return {"content": [{"type": "text", "text": _json.dumps(
             {"model_id": mid}, ensure_ascii=False)}]}
@@ -985,6 +995,7 @@ def build_emerge_mcp(
         from app.provider import get_provider_for_model
         exp_provider = get_provider_for_model(
             model.provider_model_id, provider=model.provider,
+            base_url=model.base_url, api_key_env=model.api_key_env,
         )
         try:
             payload = await experiment_mod.extract_with_experiment(
@@ -1022,6 +1033,7 @@ def build_emerge_mcp(
         from app.provider import get_provider_for_model
         exp_provider = get_provider_for_model(
             model.provider_model_id, provider=model.provider,
+            base_url=model.base_url, api_key_env=model.api_key_env,
         )
         ev = await experiment_mod.run_experiment_eval(
             workspace, args["slug"], args["experiment_id"],
@@ -1120,8 +1132,16 @@ def build_emerge_mcp(
                 _chat_not_bound_error("extract_one")
             )}]}
         try:
+            # provider=None so extract_one resolves the provider from the
+            # project's ACTIVE model config (provider + base_url + api_key_env),
+            # NOT the startup default_extract_model closure. Passing the closure
+            # here pinned every chat extract to the boot-time Gemini provider, so
+            # switch_active_model to an anthropic-gateway model (deepseek) was
+            # silently ignored — the call still hit Google's endpoint. The HTTP
+            # twin (extract_lab.py) already calls extract_one without a provider;
+            # this keeps the two forms symmetric.
             out = await extract_mod.extract_one(
-                workspace, args["slug"], args["filename"], provider=provider
+                workspace, args["slug"], args["filename"], provider=None
             )
         except Exception as e:  # noqa: BLE001 — provider failure envelope
             return {"content": [{"type": "text", "text": _json.dumps(

@@ -191,13 +191,22 @@ def _scrub_proposer_field(node: Any) -> Any:
     return out
 
 
-_SUPPORTED_EXTS = {"pdf", "png", "jpg", "jpeg"}
+# Text-shaped docs are fed to the extract LLM as a plain `TextBlock` (no
+# base64 / image encoding) — the model reads the raw content and emits the same
+# schema-driven structured output as it does for pdf/png/jpg. Text carries no
+# coordinates, so grounding/locate degrade to "not highlighted" downstream (the
+# existing value-matcher fallback), which is deliberate — see the field-source-
+# grounding note in INSIGHTS.
+_TEXT_EXTS = {"txt", "md", "json", "csv", "yml", "yaml"}
+_SUPPORTED_EXTS = {"pdf", "png", "jpg", "jpeg"} | _TEXT_EXTS
 
 
 def _bytes_to_block(data: bytes, ext: str) -> ContentBlock:
     ext = ext.lower().lstrip(".")
     if ext not in _SUPPORTED_EXTS:
         raise ValueError(f"unsupported file extension: {ext!r}")
+    if ext in _TEXT_EXTS:
+        return TextBlock(text=data.decode("utf-8"))
     b64 = base64.b64encode(data).decode("ascii")
     if ext == "pdf":
         return DocumentBlock(media_type="application/pdf", data_b64=b64)

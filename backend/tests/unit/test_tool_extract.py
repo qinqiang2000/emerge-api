@@ -90,6 +90,42 @@ async def test_extract_one_prewarms_textlayer_sidecar(
     assert sidecar.exists(), "extract_one must warm the page-1 text-layer sidecar"
 
 
+async def test_extract_one_text_doc_feeds_textblock(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """A text doc (json/txt/…) is fed to the provider as a plain TextBlock
+    carrying the file's raw content — the schema-driven structured-output path
+    is otherwise identical to pdf/png. Grounding returns nothing (text has no
+    coordinates)."""
+    from app.provider.base import TextBlock
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    body = '{"a": 3, "b": 4, "c": 12}'
+    did = (await upload_doc(workspace, pid, body.encode(), "case.json"))["filename"]
+    # Rule-check schema: {pass: boolean, reason: string} — the plan's canonical
+    # "single text file → one structured verdict" shape.
+    schema = [
+        SchemaField(name="pass", type=FieldType.BOOLEAN, description="a*b==c ?"),
+        SchemaField(name="reason", type=FieldType.STRING, description="why"),
+    ]
+    await write_schema(workspace, pid, schema, reason="init", allow_structural=True)
+
+    stub_provider.extract.side_effect = [
+        make_provider_result({"entities": [{"pass": True, "reason": "3*4==12"}]}),
+        make_provider_result({"groundings": []}),
+    ]
+
+    out = await extract_one(workspace, pid, did, provider=stub_provider)
+    assert out["entities"][0] == {"pass": True, "reason": "3*4==12"}
+
+    # The first provider call is the extraction; its user_content must include a
+    # TextBlock whose text is the raw doc body (no base64/image encoding).
+    first_call = stub_provider.extract.await_args_list[0]
+    user_content = first_call.kwargs["user_content"]
+    text_blocks = [b for b in user_content if isinstance(b, TextBlock)]
+    assert any(b.text == body for b in text_blocks), "doc body must reach provider as TextBlock"
+
+
 async def test_extract_one_model_override_resolves_project_model_id(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:
@@ -119,7 +155,7 @@ async def test_extract_one_model_override_resolves_project_model_id(
 
 
 async def test_extract_one_tool_returns_envelope_on_transient_provider_error(
-    workspace: Path, stub_provider: AsyncMock
+    workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The 振兴_testset bug: a flaky proxy raised a bare httpx.ConnectError out
     of the provider, which propagated through the MCP wrapper and the SDK
@@ -137,6 +173,12 @@ async def test_extract_one_tool_returns_envelope_on_transient_provider_error(
 
     # Bare ConnectError — empty message, exactly what the proxy produced.
     stub_provider.extract.side_effect = httpx.ConnectError("")
+
+    # extract_one now resolves the provider from the ACTIVE model config (the
+    # closure provider is no longer threaded through — see t_extract_one), so
+    # inject the stub at that resolution point instead of via build_emerge_mcp.
+    import app.provider as _prov_mod
+    monkeypatch.setattr(_prov_mod, "get_provider_for_model", lambda *a, **k: stub_provider)
 
     server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=MagicMock())
     call_handler = server["instance"].request_handlers[mcp_types.CallToolRequest]

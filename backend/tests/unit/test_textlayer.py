@@ -224,6 +224,22 @@ async def test_extract_textlayer_image_doc_skip_ocr(workspace: Path) -> None:
     assert result["page_h"] == 100.0
 
 
+async def test_extract_textlayer_text_doc_degrades_to_empty(workspace: Path) -> None:
+    """Text-shaped docs (json/txt/md/…) have no visual layer — the textlayer
+    call must short-circuit to an empty-spans payload, NOT try to `fitz.Pixmap`
+    the raw bytes (which raises → 500 on the review-open textlayer fetch)."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    fname = (await upload_doc(workspace, pid, b'{"a": 3, "b": 4, "c": 12}', "mul.json"))["filename"]
+
+    result = await extract_textlayer(workspace, pid, fname, page=1)
+
+    assert result["text_source"] == "none"
+    assert result["spans"] == []
+    assert result["scanned"] is False
+    assert result["ocr_attempted"] is False
+    assert result["page_w"] == 0.0 and result["page_h"] == 0.0
+
+
 async def test_extract_textlayer_page_out_of_range(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     pdf_bytes = _build_text_pdf()

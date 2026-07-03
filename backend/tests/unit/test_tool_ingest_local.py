@@ -29,16 +29,18 @@ async def test_ingest_dir_into_docs(workspace: Path, tmp_path: Path) -> None:
     src.mkdir()
     (src / "a.pdf").write_bytes(SAMPLE_PDF)
     (src / "b.png").write_bytes(SAMPLE_PNG)
-    (src / "junk.txt").write_bytes(b"hello world")
+    (src / "notes.txt").write_bytes(b"hello world")  # text docs now ingest too
+    (src / "junk.bin").write_bytes(b"\x00\x01\x02binary")  # genuinely unsupported
     slug = (await create_project(workspace, name="x"))["slug"]
 
     out = await ingest_local_path(
         workspace, slug, str(src), allowlist=(tmp_path.resolve(),),
     )
-    assert {f["filename"] for f in out["ingested"]} == {"a.pdf", "b.png"}
-    assert out["skipped"] == [{"name": "junk.txt", "reason": "not pdf/png/jpg"}]
+    assert {f["filename"] for f in out["ingested"]} == {"a.pdf", "b.png", "notes.txt"}
+    assert out["skipped"] == [{"name": "junk.bin", "reason": "not pdf/png/jpg or utf-8 text"}]
     assert out["errors"] == []
     assert (workspace / slug / "docs" / "a.pdf").read_bytes() == SAMPLE_PDF
+    assert (workspace / slug / "docs" / "notes.txt").read_bytes() == b"hello world"
 
 
 async def test_ingest_single_file_path(workspace: Path, tmp_path: Path) -> None:

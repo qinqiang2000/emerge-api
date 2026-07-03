@@ -48,6 +48,8 @@ class _CreateModelBody(BaseModel):
     provider: Provider
     provider_model_id: str
     params: dict = {}
+    base_url: str | None = None
+    api_key_env: str | None = None
 
 
 @router.post("/lab/projects/{slug}/models")
@@ -64,6 +66,8 @@ async def post_project_model(slug: str, body: _CreateModelBody) -> dict:
         provider=body.provider,
         provider_model_id=body.provider_model_id,
         params=body.params,
+        base_url=body.base_url,
+        api_key_env=body.api_key_env,
     )
     return {"model_id": mid}
 

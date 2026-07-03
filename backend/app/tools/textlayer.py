@@ -430,6 +430,29 @@ async def extract_textlayer(
     meta = json.loads(meta_p.read_text())
     ext = str(meta.get("ext", "")).lower()
 
+    # Text-shaped docs (txt/md/json/csv/yml/yaml) carry no visual layer — there
+    # is no raster to OCR and no fitz geometry to harvest, so a text-selection
+    # overlay makes no sense. Short-circuit with an empty-spans payload BEFORE
+    # the fitz path (which would `fitz.Pixmap(json_bytes)` → raise → 500). The
+    # review text panel reads the raw content directly from the page route; the
+    # overlay just has nothing to hang. page_w/h are 0 (no geometry); the
+    # frontend never draws spans for these.
+    from app.tools.docs import _TEXT_EXTS
+
+    if ext in _TEXT_EXTS:
+        return {
+            "filename": filename,
+            "page": page,
+            "page_w": 0.0,
+            "page_h": 0.0,
+            "image_w": 0,
+            "image_h": 0,
+            "scanned": False,
+            "text_source": "none",
+            "ocr_attempted": False,
+            "spans": [],
+        }
+
     sidecar = doc_textlayer_path(workspace, project_id, filename, page)
     if sidecar.exists():
         cached = json.loads(sidecar.read_text())

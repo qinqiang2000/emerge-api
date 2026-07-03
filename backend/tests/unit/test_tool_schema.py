@@ -168,3 +168,40 @@ async def test_write_schema_preserves_global_notes(workspace: Path) -> None:
     pv = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
     assert pv["global_notes"] == "some legacy notes"
     assert pv["schema"][0]["description"] == "new"
+
+
+# ── _bytes_to_block: text docs become a plain TextBlock, binary docs unchanged ──
+
+from app.provider.base import DocumentBlock, ImageBlock, TextBlock
+from app.tools.schema import _bytes_to_block
+
+
+def test_bytes_to_block_json_returns_textblock() -> None:
+    block = _bytes_to_block(b'{"a": 1}', "json")
+    assert isinstance(block, TextBlock)
+    assert block.text == '{"a": 1}'
+
+
+def test_bytes_to_block_text_extensions_all_return_textblock() -> None:
+    for ext in ("txt", "md", "csv", "yaml", "yml"):
+        block = _bytes_to_block(b"a * b = c\n", ext)
+        assert isinstance(block, TextBlock), ext
+        assert block.text == "a * b = c\n"
+
+
+def test_bytes_to_block_pdf_unchanged() -> None:
+    block = _bytes_to_block(b"%PDF-1.4 fake", "pdf")
+    assert isinstance(block, DocumentBlock)
+    assert block.media_type == "application/pdf"
+
+
+def test_bytes_to_block_png_and_jpg_unchanged() -> None:
+    png = _bytes_to_block(b"\x89PNG\r\n\x1a\n....", "png")
+    assert isinstance(png, ImageBlock) and png.media_type == "image/png"
+    jpg = _bytes_to_block(b"\xff\xd8\xff....", "jpg")
+    assert isinstance(jpg, ImageBlock) and jpg.media_type == "image/jpeg"
+
+
+def test_bytes_to_block_rejects_unsupported_ext() -> None:
+    with pytest.raises(ValueError, match="unsupported file extension"):
+        _bytes_to_block(b"MZ....", "exe")
