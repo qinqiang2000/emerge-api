@@ -20,6 +20,7 @@ from app.tools.ground import (
     _reshape,
     _value_lines,
     _walk_values,
+    ground_entities,
     ground_prediction,
     has_evidence,
 )
@@ -172,3 +173,25 @@ async def test_ground_missing_blob_raises(
     await write_schema(workspace, pid, _schema(), reason="init", allow_structural=True)
     with pytest.raises(FileNotFoundError):
         await ground_prediction(workspace, pid, did, provider=stub_provider)
+
+
+async def test_ground_text_doc_short_circuits_no_llm(
+    workspace: Path, stub_provider: AsyncMock
+) -> None:
+    """Text-shaped docs never render grounding (no coordinate overlay), so
+    ``ground_entities`` must return empty evidence WITHOUT spending the
+    provider call — the eager produce path otherwise pays one wasted LLM
+    round trip per prediction (per rule × doc in judgment-style projects)."""
+    pid = (await create_project(workspace, name="g"))["slug"]
+    did = (
+        await upload_doc(workspace, pid, b'{"a": 3, "b": 4, "c": 12}', "mul.json")
+    )["filename"]
+
+    ev = await ground_entities(
+        workspace, pid, did,
+        [{"pass": False, "reason": "a×b=12，c=10，差值为 2"}],
+        provider=stub_provider, model_id="deepseek-v4-flash",
+    )
+
+    assert ev == [{}]
+    stub_provider.extract.assert_not_awaited()

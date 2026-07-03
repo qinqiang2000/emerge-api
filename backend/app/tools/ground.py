@@ -215,6 +215,18 @@ async def ground_entities(
     finds warm evidence — see app/tools/locate.py and stores/locate.ts)."""
     if not entities:
         return []
+    # Text-shaped docs (txt/md/json/csv/yml/yaml) never consume grounding: the
+    # review text panel renders the raw content with no coordinate overlay, so
+    # highlights/grounding are never mounted for them — evidence produced here
+    # is dead weight. Short-circuit BEFORE the provider call; the eager produce
+    # paths (extract_one / experiment write) would otherwise pay one wasted LLM
+    # round trip per prediction — per (rule × doc) run in judgment-style
+    # projects whose outputs are conclusions, not verbatim doc values.
+    from app.tools.docs import _TEXT_EXTS
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in _TEXT_EXTS:
+        return [{} for _ in entities]
     worklist, n_items = _value_lines(entities)
     if n_items == 0:
         return [{} for _ in entities]
