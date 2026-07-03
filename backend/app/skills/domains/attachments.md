@@ -54,8 +54,34 @@ at staging time):
   replacement ("这是最新的 / 更新一下"), default the recommendation to
   替换; when it implies comparison ("再加一个 / 对比一下"), recommend 新变体.
 - `data` (csv) — possibly a truth-set or sample list. Ask the user what
-  to do; no tool wired yet.
-- `note` (txt/md) — read with `Read` tool when relevant; conversational.
+  to do; no tool wired yet. **But** if the user's intent is to run the
+  project's schema over it (校验/提取/审核 a text/tabular file), treat it as
+  a promotable text doc — see "Text files as extract targets" below.
+- `note` (txt/md; or json that isn't a `[{name,type}]` schema list) — by
+  default conversational: `Read` it when relevant. **But** a text/JSON file
+  the user wants the schema run against is a doc, not a note — see below.
+
+## Text files as extract targets (txt/md/json/csv/yaml)
+
+`docs/` and the extract pipeline accept **text files**, not just pdf/png/jpg.
+A JSON/txt/csv the user wants validated or extracted (e.g. "校验这个 JSON",
+"按规则判断这份文件", "extract this config") is a real sample doc — even
+though it staged as `kind=note`/`data`/`schema` (that classification is a
+best-effort hint, not a hard gate). The model reads the raw text and emits
+the same schema-driven structured output as for a scanned document; text
+carries no coordinates, so review shows the raw text with no field
+highlighting (expected).
+
+When the user shows that intent on a text/JSON/csv attachment, route it the
+SAME way as a doc: **ask first** ("要把 `<name>` 收进项目样本集（docs/）按
+当前 schema 跑校验/提取吗？"), then on confirm
+`promote_attachment_to_docs(slug, chat_id, filename)` → `extract_one` (or
+`derive_schema` → `write_schema` → `extract_one` if the schema isn't set up
+yet). Do NOT dead-end a text file as "just a note" when the user clearly
+wants extraction. The schema-import path (kind=schema, above) still wins when
+the file IS a field definition and the intent is "导入 schema/prompt" — the
+disambiguator is the user's intent, not the extension.
+
 
 ## Routing for chat attachments
 
@@ -66,13 +92,16 @@ at staging time):
   `read_doc_image(slug, filename, page)` to pull vision. Do NOT ask the
   user to re-paste — they can see the file in the UI; we just need a pull
   instead of a push.
-- **Clear extraction intent** ("extract this", "提取", "build a schema",
-  user drops 3+ similar files): ask first —
-  "要把这 N 张图收进项目样本集（docs/）吗？" Only on confirm: call
+- **Clear extraction intent** ("extract this", "提取", "校验这个",
+  "build a schema", user drops 3+ similar files): ask first —
+  "要把这 N 份文件收进项目样本集（docs/）吗？" Only on confirm: call
   `promote_attachment_to_docs` per file, then proceed with
   `derive_schema` → `write_schema` → parallel `extract_one` per file.
-- **PDFs**: `extract_one` requires the file in `docs/` — promote first
-  (same ack rule).
+  Works for **text files (json/txt/csv/md) too**, not just images — see
+  "Text files as extract targets" above.
+- **PDFs / text files**: `extract_one` requires the file in `docs/` —
+  promote first (same ack rule). Applies to any non-image doc (pdf and the
+  text extensions alike).
 
 ## On the first turn after an empty-hero drop
 

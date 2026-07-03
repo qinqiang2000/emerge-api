@@ -54,6 +54,25 @@ async def test_promote_attachment_to_docs_moves_with_sidecar_and_dedupe(
     assert out2 == {"final_name": "scan (1).pdf"}
 
 
+async def test_promote_text_attachment_lands_as_doc(workspace: Path) -> None:
+    """A text/JSON attachment (staged kind=note/schema/data) is promotable to
+    docs/ exactly like a pdf — the extract pipeline accepts text files. This is
+    the path a user takes to 校验 a dropped JSON: promote → extract_one."""
+    slug = (await create_project(workspace, name="x"))["slug"]
+    chat_id = "c_abc123def456"
+    payload = b'{"a": 3, "b": 4, "c": 12}'
+    await _stage_chat_attachment(workspace, slug, chat_id, "mul.json", payload)
+
+    out = await promote_attachment_to_docs(workspace, slug, chat_id, "mul.json")
+    assert out == {"final_name": "mul.json"}
+    assert doc_path(workspace, slug, "mul.json").read_bytes() == payload
+    meta = json.loads(doc_meta_path(workspace, slug, "mul.json").read_text())
+    assert meta["ext"] == "json"
+    assert meta["page_count"] == 1
+    # Text docs have no raster geometry — page_sizes is empty (board falls back).
+    assert meta["page_sizes"] == []
+
+
 async def test_promote_removes_chat_source_file(workspace: Path) -> None:
     slug = (await create_project(workspace, name="x"))["slug"]
     chat_id = "c_abc123def456"
