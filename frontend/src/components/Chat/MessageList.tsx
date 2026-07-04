@@ -13,6 +13,7 @@ import { useT } from '../../i18n'
 import AgentMessage from './AgentMessage'
 import { AuditCardAdapter } from './AuditCard'
 import { EvalCardAdapter } from './EvalCard'
+import { ReviewBoardCardAdapter } from './ReviewBoardCard'
 import JobProgressCard from './JobProgressCard'
 import AskUserCard from './AskUserCard'
 import PermissionCard from './PermissionCard'
@@ -222,6 +223,9 @@ function HoistedToolCard({ call }: { call: ToolCallEvent }) {
     call.tool_name === 'mcp__emerge_tools__score_audit'
   ) {
     return <AuditCardAdapter call={call} />
+  }
+  if (call.tool_name === 'mcp__emerge_tools__render_review_board') {
+    return <ReviewBoardCardAdapter call={call} />
   }
   if (call.tool_name === 'mcp__emerge_tools__save_reviewed') {
     // Render the regular plumbing tool card AND the escalation chip row

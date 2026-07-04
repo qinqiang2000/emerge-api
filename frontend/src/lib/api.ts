@@ -844,6 +844,35 @@ export async function putBoardNotes(slug: string, body: BoardNotesPayload): Prom
   if (!r.ok) throw new Error(`putBoardNotes ${r.status}`)
 }
 
+// ── Review board (审单核对白板) ──────────────────────────────────────────────
+// `render_review_board` tool's HTTP twin. Each `html_by_id[id]` is a complete
+// self-contained HTML doc (inlined CSS + prefers-color-scheme) — the frontend
+// never parses it, it drops straight into an `<iframe srcDoc>`. Docs without a
+// prediction draft are omitted; an empty project → `docs: []`.
+
+export interface ReviewBoardDoc {
+  id: string
+  verdict: 'pass' | 'fail' | 'unclear'
+  supplier: string
+  amount: string
+  invoice_no: string
+  memo: string
+  reason: string
+}
+
+export interface ReviewBoardPayload {
+  docs: ReviewBoardDoc[]
+  html_by_id: Record<string, string>
+  tally: { pass: number; fail: number; unclear: number }
+  model_label: string
+}
+
+export async function getReviewBoard(slug: string): Promise<ReviewBoardPayload> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/review/board-render`)
+  if (!r.ok) throw new Error(`getReviewBoard ${r.status}`)
+  return r.json()
+}
+
 // ── Stage 2: project tree (for `@` mention) ────────────────────────────────
 export interface TreeEntry {
   name: string

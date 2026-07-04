@@ -2195,6 +2195,64 @@ def build_emerge_mcp(
             })
         return {"content": content}
 
+    @tool(
+        "render_review_board",
+        "Render a human-review board for a structured/text-document审核 project "
+        "(审单核对白板) — reads the extraction results + each doc's precomputed "
+        "reconciliation and lays out, PER doc, the two ORIGINAL tables side by "
+        "side (采购发票明细 + 结算细单) with the mismatched product groups' rows "
+        "red-framed and cross-linked by a shared number badge. This is the "
+        "structured-data twin of render_audit_board's page-image circling: "
+        "text docs have no page raster, so evidence is rows in the source "
+        "tables, not quotes on a page. Zero LLM cost — pure computation over "
+        "existing files. Docs without a draft prediction are skipped. Use when "
+        "the user asks to SEE / 复核 / 核对 the审核 result. Rendering: browser — "
+        "one-line summary (N 单，驳回 m / 通过 k · model) and point at the board "
+        "(→ board); the result card auto-renders the per-doc list. headless — "
+        "print each doc's line (结算总单ID · 通过/驳回 · reason) and, for driven "
+        "docs, the mismatched product group's 发票 vs 结算 数量对比; then forward "
+        "the interactive board link. The HTML itself never enters this text "
+        "result (it travels only over the HTTP twin into the iframe).",
+        {"type": "object", "properties": {"slug": {"type": "string"}},
+         "required": ["slug"]},
+    )
+    async def t_render_review_board(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.review_board_render import render_review_board
+        out = await render_review_board(workspace, args["slug"])
+        docs = out["docs"]
+        tally = out["tally"]
+        glyph = {"pass": "通过", "fail": "驳回", "unclear": "待定"}
+        header = (
+            f"审单核对白板：{len(docs)} 单"
+            f"（驳回 {tally.get('fail', 0)} / 通过 {tally.get('pass', 0)}"
+        )
+        if tally.get("unclear"):
+            header += f" / 待定 {tally['unclear']}"
+        header += "）"
+        if out["model_label"]:
+            header += f" · {out['model_label']}"
+        lines = [header]
+        for d in docs:
+            line = f"· 结算总单 {d['id']} — {glyph.get(d['verdict'], '?')}"
+            if d.get("supplier"):
+                line += f" · {d['supplier']}"
+            if d.get("reason"):
+                line += f"：{d['reason']}"
+            lines.append(line)
+        # Interactive board deep-link — same posture as render_audit_board:
+        # remote hosts (Cowork/Desktop) don't render an iframe, so forward the
+        # URL that opens the full left-rail + iframe board in a browser.
+        from app.config import get_settings as _gs_rb
+        _rb_base = _gs_rb().public_base_url.rstrip("/")
+        if _rb_base:
+            lines.append(
+                f"interactive board (open in a browser): "
+                f"{_rb_base}/p/{args['slug']}?reviewboard=1"
+            )
+        # HTML stays OUT of the text result (large + meaningless to the agent);
+        # it travels only over the HTTP twin into the iframe render layer.
+        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
     _tools = [
             t_create_project,
             t_delete_project,
@@ -2231,6 +2289,7 @@ def build_emerge_mcp(
             t_run_audit,
             t_read_audit_report,
             t_render_audit_board,
+            t_render_review_board,
             t_save_reviewed_audit,
             t_score_audit,
             t_extract_one,

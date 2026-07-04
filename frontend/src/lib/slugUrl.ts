@@ -227,3 +227,21 @@ export function readBoardOpenFromSearch(search: string): boolean {
 export function pathForBoard(slug: string): string {
   return `/p/${encodeURIComponent(slug)}?board=1`
 }
+
+
+// Review board route — `/p/<slug>?reviewboard=1`. Mirrors `?board=1` exactly:
+// project-scoped, no sub-state, presence of the param carries open/close.
+
+/** Read `?reviewboard=1` from a URL search string. Returns true iff the param
+ *  is present AND has a non-empty value. */
+export function readReviewBoardOpenFromSearch(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const v = params.get('reviewboard')
+  return v !== null && v.length > 0
+}
+
+
+/** Build the canonical path that opens the review board for `slug`. */
+export function pathForReviewBoard(slug: string): string {
+  return `/p/${encodeURIComponent(slug)}?reviewboard=1`
+}

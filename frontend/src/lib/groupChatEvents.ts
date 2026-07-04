@@ -18,6 +18,9 @@ const HOISTED_TOOL_NAMES = new Set([
   // checklist / score strip is the user's primary artifact.
   'mcp__emerge_tools__run_audit',
   'mcp__emerge_tools__score_audit',
+  // 审单核对白板: render_review_board hoists so its ReviewBoardCard (doc list +
+  // "打开白板 ↗") renders inline instead of collapsing into the tool stack.
+  'mcp__emerge_tools__render_review_board',
 ])
 
 export function groupChatEvents(events: ChatEvent[]): RenderItem[] {

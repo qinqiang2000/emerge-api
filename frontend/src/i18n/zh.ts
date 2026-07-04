@@ -532,6 +532,18 @@ const zh: Dict = {
   'board.error.retry': '重试',
   'board.empty': '还没有报告——先在 chat 里跑一次 audit',
   'board.notes.stale': '画布批注来自上一次 run',
+
+  // ── Review board (`?reviewboard=1` overlay) ─────────────────────────────
+  'reviewboard.title': '审单核对白板',
+  'reviewboard.open': '打开白板',
+  'reviewboard.close': '关闭',
+  'reviewboard.close.aria': '关闭审单核对白板',
+  'reviewboard.loading': '白板加载中…',
+  'reviewboard.empty': '还没有可核对的单据——先在 chat 里跑一次 extract',
+  'reviewboard.tally.fail': '驳回 {n}',
+  'reviewboard.tally.pass': '通过 {n}',
+  'reviewboard.rail.collapse': '收起单列表',
+  'reviewboard.rail.expand': '展开单列表',
 }
 
 export default zh

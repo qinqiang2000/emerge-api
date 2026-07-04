@@ -532,6 +532,18 @@ const en: Dict = {
   'board.error.retry': 'retry',
   'board.empty': 'no report yet — run an audit in chat first',
   'board.notes.stale': 'canvas notes are from a previous run',
+
+  // ── Review board (`?reviewboard=1` overlay) ─────────────────────────────
+  'reviewboard.title': '审单核对白板',
+  'reviewboard.open': 'open board',
+  'reviewboard.close': 'close',
+  'reviewboard.close.aria': 'close review board',
+  'reviewboard.loading': 'loading board…',
+  'reviewboard.empty': 'nothing to review yet — run an extract in chat first',
+  'reviewboard.tally.fail': 'rejected {n}',
+  'reviewboard.tally.pass': 'passed {n}',
+  'reviewboard.rail.collapse': 'collapse doc list',
+  'reviewboard.rail.expand': 'expand doc list',
 }
 
 export default en

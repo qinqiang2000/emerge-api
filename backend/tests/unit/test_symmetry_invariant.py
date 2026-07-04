@@ -125,6 +125,7 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # the board-notes GET/PUT siblings are render-layer persistence and stay
     # route-without-tool, same as locate / locate-quotes).
     "render_audit_board":   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
+    "render_review_board":  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
     "save_reviewed_audit":  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
     "score_audit":          ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
     # Publish + keys

@@ -20,6 +20,9 @@ const BenchOverlay = lazy(() => import('./components/Bench/BenchOverlay'))
 // lazy boundary is the ONLY import path into components/Board/, so excalidraw
 // never enters the main bundle and only loads when `?board=1` appears.
 const BoardOverlay = lazy(() => import('./components/Board/BoardOverlay'))
+// The review board is a light shell (no excalidraw) but URL-gated all the same;
+// defer its chunk until `?reviewboard=1` appears.
+const ReviewBoardOverlay = lazy(() => import('./components/ReviewBoard/ReviewBoardOverlay'))
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
 import {
@@ -32,6 +35,7 @@ import {
   readEvalRouteFromUrl,
   readEvalTsFromSearch,
   readLegacyEvalMatrixPath,
+  readReviewBoardOpenFromSearch,
   readReviewFilenameFromSearch,
   readSlugFromPathname,
   searchWithoutParam,
@@ -46,10 +50,13 @@ import {
 function stripProjectScopedParams(search: string): string {
   return searchWithoutParam(
     searchWithoutParam(
-      searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
-      'bench',
+      searchWithoutParam(
+        searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
+        'bench',
+      ),
+      'board',
     ),
-    'board',
+    'reviewboard',
   )
 }
 
@@ -125,6 +132,11 @@ export default function AppShell() {
   const [boardOpen, setBoardOpen] = useState<boolean>(() =>
     readBoardOpenFromSearch(window.location.search),
   )
+  // `?reviewboard=1` opens the project-level review board — same URL contract
+  // as board (presence = open, no sub-state).
+  const [reviewBoardOpen, setReviewBoardOpen] = useState<boolean>(() =>
+    readReviewBoardOpenFromSearch(window.location.search),
+  )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
@@ -134,6 +146,7 @@ export default function AppShell() {
       setReviewFilename(readReviewFilenameFromSearch(window.location.search))
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
       setBoardOpen(readBoardOpenFromSearch(window.location.search))
+      setReviewBoardOpen(readReviewBoardOpenFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -243,6 +256,7 @@ export default function AppShell() {
       setEvalTs(readEvalTsFromSearch(window.location.search))
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
       setBoardOpen(readBoardOpenFromSearch(window.location.search))
+      setReviewBoardOpen(readReviewBoardOpenFromSearch(window.location.search))
     }
   }, [selectedSlug, loadedUnboundChatId])
 
@@ -479,6 +493,26 @@ export default function AppShell() {
                 window.history.pushState(null, '', target)
               }
               setBoardOpen(false)
+            }}
+          />
+        </Suspense>
+      )}
+
+      {/* Review board overlay — mounts on `?reviewboard=1` (same owner/URL
+          contract as board/bench). `hidden` cedes layout + keyboard while an
+          eval matrix or review layers on top. */}
+      {reviewBoardOpen && selectedSlug && (
+        <Suspense fallback={null}>
+          <ReviewBoardOverlay
+            slug={selectedSlug}
+            hidden={!!evalTs || !!reviewFilename}
+            onClose={() => {
+              const next = searchWithoutParam(window.location.search, 'reviewboard')
+              const target = pathForSlug(selectedSlug, next, window.location.hash)
+              if (target !== window.location.pathname + window.location.search + window.location.hash) {
+                window.history.pushState(null, '', target)
+              }
+              setReviewBoardOpen(false)
             }}
           />
         </Suspense>
