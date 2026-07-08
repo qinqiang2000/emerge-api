@@ -111,7 +111,20 @@ class AnthropicProvider(Provider):
             ],
             "tool_choice": {"type": "tool", "name": _TOOL_NAME},
         }
-        if self._disable_thinking:
+        thinking = params.get("thinking")
+        if thinking:
+            # Per-model opt-in（模型配置 params.thinking, anthropic 格式
+            # {"type": "enabled"}）。思考模式与强制 tool_choice 互斥（网关 400），
+            # 降为 auto，靠 system prompt 约束模型仍调用抽取工具；思考 token 计入
+            # max_tokens，调用方应给足预算。effort 经 params.output_config 透传
+            # （{"effort": "high/max"}，网关默认 high）。温度在思考模式下移除——
+            # 部分 anthropic 兼容网关会拒绝它。
+            body["thinking"] = thinking
+            body["tool_choice"] = {"type": "auto"}
+            body.pop("temperature", None)
+            if params.get("output_config"):
+                body["output_config"] = params["output_config"]
+        elif self._disable_thinking:
             # Gateway-specific: opt out of extended/thinking mode so forced
             # tool_choice is accepted. Harmless on gateways that ignore it.
             body["thinking"] = {"type": "disabled"}
