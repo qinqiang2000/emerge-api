@@ -52,6 +52,24 @@ async def _emit(action: str, params: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "action": action, "params": params, "ts": ts}
 
 
+async def ui_open_review(slug: str, filename: str) -> dict[str, Any]:
+    """Open review mode on `filename` from the chat surface — the agent-side
+    twin of clicking the doc row in the spine. The frontend surfaceRouter
+    resolves this to `navigateToReview` (URL push, back-button friendly), so
+    the overlay opens exactly as if the user had clicked."""
+    if not isinstance(filename, str) or not filename:
+        return {
+            "ok": False,
+            "error": {
+                "error_code": "ui_action_invalid_param",
+                "error_message_en": (
+                    f"filename must be a non-empty string, got {filename!r}"
+                ),
+            },
+        }
+    return await _emit("review:open", {"slug": slug, "filename": filename})
+
+
 async def ui_goto_page(slug: str, filename: str, page: int) -> dict[str, Any]:
     """Tell the review viewer to jump to `page` (1-indexed). The frontend
     surfaceRouter clamps to [1, page_count] so passing a slightly-off page

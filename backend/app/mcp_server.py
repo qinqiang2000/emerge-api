@@ -5,7 +5,7 @@ without requiring the browser frontend. The agent brain is the external
 Claude client; emerge provides tools only.
 
 **Tools excluded** (browser side-channel, meaningless without a live viewer):
-  ui_goto_page · ui_set_active_field · ui_set_active_tab ·
+  ui_open_review · ui_goto_page · ui_set_active_field · ui_set_active_tab ·
   ui_set_active_entity · ask_user
 
 **Prompts exposed**:
@@ -59,6 +59,7 @@ from app.tools import build_emerge_mcp
 # Tools with no meaning outside of an active browser session.
 # Mirrored from the _HTTP_EXEMPT rationale in test_symmetry_invariant.py.
 _HEADLESS_EXCLUDE: frozenset[str] = frozenset({
+    "ui_open_review",
     "ui_goto_page",
     "ui_set_active_field",
     "ui_set_active_tab",

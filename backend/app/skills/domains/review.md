@@ -67,11 +67,17 @@ keep the nudge to one short line.
 > (it reads disk state, not browser state) — call it when you need
 > review_status / prediction presence.
 
-When the surface context is `review` (`interface: browser`), four `ui_*`
-tools push navigation commands to the open viewer, and `get_surface_state`
-reads disk truth about the current doc. All five take `slug` + `filename`;
+When the surface context is `review` (`interface: browser`), five `ui_*`
+tools push navigation commands to the client, and `get_surface_state`
+reads disk truth about the current doc. All six take `slug` + `filename`;
 `slug` is from `## Active context`, `filename` is from `## Surface context`.
 
+- `ui_open_review(slug, filename)` — open review mode on a doc **from the
+  chat surface** (the agent-side twin of clicking the doc row in the
+  spine). The only `ui_*` tool that works without an open viewer — this is
+  how `/review` lands on the first un-reviewed doc and how "打开 xxx.pdf"
+  is honored. headless: narrate `→ review <filename>` and give the link
+  `{base}/p/{slug}?review=<filename>` instead.
 - `ui_goto_page(slug, filename, page)` — jump the PDF viewer to page N
   (1-indexed). "跳到第 5 页" / "go to page 3 of this doc" → call.
 - `ui_set_active_field(slug, filename, path)` — focus a field row.

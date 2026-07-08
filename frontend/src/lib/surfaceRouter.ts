@@ -9,6 +9,7 @@
 // the chat stream.
 
 import { useReview } from '../stores/review'
+import { navigateToReview } from './slugUrl'
 
 interface UiActionPayload {
   type?: string
@@ -34,6 +35,16 @@ export function dispatchUiAction(data: unknown): void {
   if (typeof payload.action !== 'string') return
   const params = payload.params ?? {}
   switch (payload.action) {
+    case 'review:open': {
+      // Agent-side twin of clicking a doc row in the spine — URL push via
+      // navigateToReview, so back-button history and the AppShell URL→store
+      // sync behave exactly as a human click would.
+      const slug = _asString(params.slug)
+      const filename = _asString(params.filename)
+      if (slug === null || filename === null) return
+      navigateToReview(slug, filename)
+      return
+    }
     case 'review:goto_page': {
       const page = _asInt(params.page)
       if (page === null) return

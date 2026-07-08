@@ -31,7 +31,9 @@ on this turn is to KICK OFF a background job - not to run the loop yourself.
 
 ## Workflow on `/improve`
 
-1. Call `list_reviewed(slug)`.
+1. Count reviewed examples: `Glob {CURRENT_PROJECT_DIR}/reviewed/*.json`
+   (top level only — `_pending/` drafts don't count; remote client:
+   `ws_list("{slug}/reviewed")`).
    - **Broad** (no specific field named): if fewer than 5 reviewed examples
      exist, stop — tell the user "/improve needs >=5 reviewed examples to have
      signal - you currently have N. Please /review more docs first." Do NOT

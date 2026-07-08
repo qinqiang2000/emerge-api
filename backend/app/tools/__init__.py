@@ -132,6 +132,7 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "ws_write",  # same content → same file state; binary overwrite refused
     "extract_textlayer", "translate_page",
     "pause_job", "resume_job", "cancel_job",
+    "ui_open_review",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
 })
 _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
@@ -1439,6 +1440,27 @@ def build_emerge_mcp(
         }
 
     @tool(
+        "ui_open_review",
+        "Open review mode on a doc — the chat-side twin of clicking the doc "
+        "row in the spine. Use for `/review` (after picking the first "
+        "un-reviewed doc) and for \"打开 xxx.pdf\" intents. Pure navigation; "
+        "no disk side-effect. Errors if called outside an active chat turn.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["slug", "filename"],
+        },
+    )
+    async def t_ui_open_review(args: dict[str, Any]) -> dict[str, Any]:
+        out = await ui_actions_mod.ui_open_review(
+            slug=args["slug"], filename=args["filename"],
+        )
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
         "ui_goto_page",
         "Navigate the review viewer to page N (1-indexed). Pure navigation; "
         "no disk side-effect. Errors if called outside an active chat turn.",
@@ -2305,6 +2327,7 @@ def build_emerge_mcp(
             t_resume_job,
             t_cancel_job,
             t_get_surface_state,
+            t_ui_open_review,
             t_ui_goto_page,
             t_ui_set_active_field,
             t_ui_set_active_tab,
@@ -2359,6 +2382,7 @@ _EMERGE_TOOL_NAMES = (
     "start_job", "get_job", "pause_job", "resume_job", "cancel_job",
     "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
     "get_surface_state",
+    "ui_open_review",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
     "ask_user",
     "read_skill",

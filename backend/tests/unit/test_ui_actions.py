@@ -8,6 +8,7 @@ from typing import Any
 from app.chat.sse_context import current_sse_writer
 from app.tools.ui_actions import (
     ui_goto_page,
+    ui_open_review,
     ui_set_active_entity,
     ui_set_active_field,
     ui_set_active_tab,
@@ -79,6 +80,30 @@ async def test_ui_set_active_entity_emits_event() -> None:
         current_sse_writer.reset(token)
     assert out["ok"] is True
     assert fake.events[0][1]["params"]["idx"] == 1
+
+
+async def test_ui_open_review_emits_event() -> None:
+    fake = _FakeWriter()
+    token = current_sse_writer.set(fake)
+    try:
+        out = await ui_open_review(slug="x", filename="a.pdf")
+    finally:
+        current_sse_writer.reset(token)
+    assert out["ok"] is True
+    assert out["action"] == "review:open"
+    assert fake.events[0][1]["params"] == {"slug": "x", "filename": "a.pdf"}
+
+
+async def test_ui_open_review_invalid_param() -> None:
+    fake = _FakeWriter()
+    token = current_sse_writer.set(fake)
+    try:
+        out = await ui_open_review(slug="x", filename="")
+    finally:
+        current_sse_writer.reset(token)
+    assert out["ok"] is False
+    assert out["error"]["error_code"] == "ui_action_invalid_param"
+    assert fake.events == []
 
 
 async def test_ui_goto_page_no_writer_returns_error() -> None:

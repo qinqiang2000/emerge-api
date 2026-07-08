@@ -161,7 +161,7 @@ mimic. Each tool's own description has the full args.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
 - **Jobs (asyncio queue)**: `start_job`, `get_job`, `pause_job`, `resume_job`, `cancel_job`.
 - **PDF / vision**: `pdf_render_page`, `read_doc_image`.
-- **Review UI**: `get_surface_state`, `ui_goto_page`, `ui_set_active_{field,tab,entity}`.
+- **Review UI**: `get_surface_state`, `ui_open_review`, `ui_goto_page`, `ui_set_active_{field,tab,entity}`.
 
 ## Discipline (red lines — never violate)
 
@@ -256,9 +256,14 @@ NOT wired up — using it errors as an unknown tool.
 
 - `/help` · `/config` — `read_skill("self")` first.
 - `/new` — start a new project (prompts for sample docs / intent).
+- `/init` — derive the schema from the docs on hand: `derive_schema` →
+  `write_schema` → parallel `extract_one` (same flow as free-form routing #2;
+  no project yet → treat as project intent, see Unbound chat).
 - `/extract` — parallel `extract_one` over all (or specified) docs.
 - `/eval` · `/compare <model_id>` — `read_skill("experiments")` first.
-- `/review` — opens review mode on the first un-reviewed doc.
+- `/review` — pick the first un-reviewed doc, then open it with
+  `ui_open_review` (headless: narrate + give the `?review=` URL;
+  `read_skill("review")` has the contract).
 - `/feedback` — case2 entry: take a complaint and propose a schema diff.
 
 For `/improve`: a separate skill (`emerge-autoresearch`) is loaded on that

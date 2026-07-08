@@ -44,6 +44,7 @@ _HTTP_EXEMPT: dict[str, str] = {
     # no meaning for a CLI client driving HTTP. The agent emits them; the
     # frontend listens on the SSE bus. A headless caller silently ignores
     # them and the agent's reply still lands.
+    "ui_open_review":       "ui side-channel; agent→UI only, CLI clients ignore",
     "ui_goto_page":         "ui side-channel; agent→UI only, CLI clients ignore",
     "ui_set_active_field":  "ui side-channel; agent→UI only, CLI clients ignore",
     "ui_set_active_tab":    "ui side-channel; agent→UI only, CLI clients ignore",
