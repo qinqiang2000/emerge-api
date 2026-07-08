@@ -7,7 +7,8 @@
 
 数据链路（纯计算，0 LLM）：每单来自两个文件——
 - ``docs/审核数据_{id}.json``：``发票主信息`` / ``采购发票明细行`` / ``结算明细行`` /
-  ``程序预计算.商品组配对明细``（哪个组数量不符 + 两侧细单ID，用于定位高亮行）。
+  ``程序预计算.商品组配对明细``（数量规则）或 ``按商品分组的更价行分析``（更价规则）
+  ——哪个组不合规 + 细单ID，用于定位高亮行。
 - ``predictions/_draft/{filename}.json``：``entities[0].pass`` → verdict，
   ``entities[0].reason`` → 理由行，``entities[0].issues[].product`` → 问题商品交叉验证。
 
@@ -137,6 +138,14 @@ _DTL_COLS: list[tuple[str, str, bool]] = [
 ]
 
 _PROBLEM_GROUPS_KEY = "商品组配对明细(同一商品的结算多行已合并求和)"
+# 更价规则(R-REPRICE-PAIR)数据文件的预计算形态：问题组 = 更价行不成对（一正一负
+# 且数量净额为0 = False）。更价行只存在于结算细单，发票侧无对应行可框。
+# v2 起首选「更价事件分析」（按采购细单.SUREPRICEDTLID 更价事件分组，确定性配对键）；
+# 「按商品分组的更价行分析」是无采购数据时的退路键，两者条目形状相同。
+_REPRICE_GROUPS_KEYS = (
+    "更价事件分析(按SUREPRICEDTLID分组)",
+    "按商品分组的更价行分析",
+)
 
 
 def _trim_num(v: Any) -> str:
@@ -185,27 +194,60 @@ def _sid(v: Any) -> str:
     return str(v).strip()
 
 
-def _problem_groups(precalc: dict[str, Any]) -> list[dict[str, Any]]:
-    """数量合计不一致的商品组，保留预计算里的次序（= 徽章编号 1-based 依据）。"""
+def _problem_groups(
+    precalc: dict[str, Any], issue_products: Optional[list[str]] = None,
+) -> list[tuple[str, list[Any], list[Any]]]:
+    """问题商品组 → (商品名, 发票侧细单IDs, 结算侧细单IDs)，保留预计算里的次序
+    （= 徽章编号 1-based 依据）。规则无关的归一化层：每种规则的数据文件预计算
+    形态不同，这里各认各的键，新规则加新分支即可，渲染层其余部分零改动。
+
+    ``issue_products``（模型 entities[0].issues[].product）用于交叉验证：问题行
+    = **导致驳回**的行。预计算里的结构异常若被规则的豁免分支放过（规格换算成立、
+    备注已引用对应发票号），不该顶着红框出现在通过单上。传了非空 issue_products
+    就只保留商品名能对上的组；全对不上时退回不过滤（宁可多框，别丢高亮）。"""
+    out: list[tuple[str, list[Any], list[Any]]] = []
     groups = precalc.get(_PROBLEM_GROUPS_KEY)
-    if not isinstance(groups, list):
-        return []
-    return [
-        g for g in groups
-        if isinstance(g, dict) and g.get("数量合计一致") is False
-    ]
+    if isinstance(groups, list):
+        for g in groups:
+            if isinstance(g, dict) and g.get("数量合计一致") is False:
+                out.append((
+                    str(g.get("商品") or ""),
+                    (g.get("发票侧") or {}).get("细单ID") or [],
+                    (g.get("结算侧") or {}).get("细单ID") or [],
+                ))
+    for key in _REPRICE_GROUPS_KEYS:
+        groups = precalc.get(key)
+        if not isinstance(groups, list):
+            continue
+        for g in groups:
+            if isinstance(g, dict) and g.get("一正一负且数量净额为0") is False:
+                out.append((
+                    str(g.get("商品") or ""),
+                    [],
+                    [r.get("细单ID") for r in (g.get("更价行明细") or [])
+                     if isinstance(r, dict)],
+                ))
+        break  # 首个存在的键生效，事件键与商品键不叠加
+    if issue_products:
+        hit = [
+            t for t in out
+            if t[0] and any(t[0] in p or p in t[0] for p in issue_products if p)
+        ]
+        if hit:
+            out = hit
+    return out
 
 
 def _hit_maps(
-    problem_groups: list[dict[str, Any]],
+    problem_groups: list[tuple[str, list[Any], list[Any]]],
 ) -> tuple[dict[str, int], dict[str, int]]:
     """问题组 → {细单ID(str): 徽章号} 映射，发票侧 / 结算侧各一。"""
     inv_badge: dict[str, int] = {}
     dtl_badge: dict[str, int] = {}
-    for n, g in enumerate(problem_groups, start=1):
-        for sid in (g.get("发票侧") or {}).get("细单ID") or []:
+    for n, (_name, inv_sids, dtl_sids) in enumerate(problem_groups, start=1):
+        for sid in inv_sids:
             inv_badge[_sid(sid)] = n
-        for sid in (g.get("结算侧") or {}).get("细单ID") or []:
+        for sid in dtl_sids:
             dtl_badge[_sid(sid)] = n
     return inv_badge, dtl_badge
 
@@ -264,6 +306,11 @@ def _doc_summary(
         "invoice_no": str(info.get("金税发票号码(GOLDTAXINVOICENUM)") or ""),
         "memo": str(info.get("总单备注(MEMO)") or ""),
         "reason": str(ent.get("reason") or ""),
+        "issue_products": [
+            str(i.get("product") or "")
+            for i in (ent.get("issues") or [])
+            if isinstance(i, dict)
+        ],
     }
 
 
@@ -291,7 +338,12 @@ def _build_doc_html(summary: dict[str, Any], doc_json: dict[str, Any]) -> str:
         reason_html = f'<p class="reason{reason_cls}">{html.escape(summary["reason"])}</p>'
 
     precalc = doc_json.get("程序预计算") or {}
-    problem_groups = _problem_groups(precalc)
+    # 问题行 = 导致驳回的行：通过单不标（结构异常已被规则豁免分支解释，红框只会
+    # 让「通过」印章显得自相矛盾）；驳回单用模型 issues 的商品名交叉验证后再框。
+    problem_groups = (
+        _problem_groups(precalc, summary.get("issue_products"))
+        if verdict == "fail" else []
+    )
     inv_badge, dtl_badge = _hit_maps(problem_groups)
 
     inv_rows = doc_json.get("采购发票明细行") or []
