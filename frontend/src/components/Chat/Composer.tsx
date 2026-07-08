@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 
 import { listProjectTree, type TreeEntry } from '../../lib/api'
 import { useProjects } from '../../stores/projects'
@@ -42,6 +42,12 @@ const PaperclipIcon = () => (
   <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden>
     <path d="M6.068 2.161a2.72 2.72 0 0 1 3.524 1.533l3.206 8.14a1.61 1.61 0 0 1-.907 2.087l-.076.03a1.61 1.61 0 0 1-2.087-.908L8.027 8.726a.5.5 0 0 1 .93-.367l1.702 4.318a.61.61 0 0 0 .79.343l.076-.03a.61.61 0 0 0 .343-.79L8.662 4.06a1.72 1.72 0 0 0-2.227-.968l-.154.06a1.72 1.72 0 0 0-.97 2.228l3.87 9.821a2.826 2.826 0 0 0 3.665 1.594l.23-.09a2.83 2.83 0 0 0 1.595-3.666l-2.363-6a.5.5 0 1 1 .93-.366l2.363 6a3.826 3.826 0 0 1-2.158 4.962l-.23.09a3.827 3.827 0 0 1-4.963-2.157L4.382 5.747a2.72 2.72 0 0 1 1.532-3.525z" />
   </svg>
+)
+
+// Bare "/" glyph for the commands-menu button — same mono slash the slash
+// menu itself uses for each `.cmd`, so the button visually promises what it opens.
+const SlashGlyph = () => (
+  <span aria-hidden style={{ fontFamily: 'var(--mono)', fontSize: 16, lineHeight: 1, fontWeight: 500 }}>/</span>
 )
 
 // Mac shows ⌘, everything else shows Ctrl. Falls back to non-Mac when
@@ -166,6 +172,40 @@ const RetryIcon = () => (
     <path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 )
+
+// Matches a /command mention inside tip copy (`/run`, `/compare`, …) so it
+// can render as a clickable token — same regex intent as SlashMenu's own
+// commands, but not limited to the fixed COMMANDS list since tip text (e.g.
+// tip.run's "/run") can reference agent commands the menu doesn't enumerate.
+const TIP_CMD_RE = /\/[a-zA-Z][\w-]*/g
+
+/** Split tip copy on /command mentions, rendering each as a clickable token
+ *  that fires the same `emerge:composer-command` event as EmptyHero's row
+ *  (see the window-event listener in Composer). Plain text passes through
+ *  untouched. */
+function renderTipText(text: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  let last = 0
+  let key = 0
+  TIP_CMD_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = TIP_CMD_RE.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    const cmd = m[0]
+    parts.push(
+      <span
+        key={key++}
+        className="tip-cmd"
+        onClick={() => window.dispatchEvent(new CustomEvent('emerge:composer-command', { detail: { cmd } }))}
+      >
+        {cmd}
+      </span>,
+    )
+    last = m.index + cmd.length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
 
 /** Parse the textarea around `caret` and return the current mention context
  *  (dir + query) if the active token starts with `@`. The active token is the
@@ -572,7 +612,10 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     return () => window.removeEventListener('keydown', handler)
   }, [disabled])
 
-  function pickSlash(cmd: string) {
+  // useCallback (stable identity, empty deps — body only touches setState
+  // setters + refs, both stable) so external callers (the window-event
+  // listener below) can depend on it without resubscribing every render.
+  const pickSlash = useCallback((cmd: string) => {
     const next = cmd + ' '
     setText(next)
     const nextCaret = next.length
@@ -586,7 +629,51 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
       ta.setSelectionRange(nextCaret, nextCaret)
       setCaret(nextCaret)
     })
+  }, [])
+
+  // Insert a literal "/" at the caret (what pressing the `/` key would do),
+  // without clobbering any text already in the box. Wired to the composer's
+  // dedicated commands-menu button — the always-available answer to "where's
+  // the menu" for users who never think to type `/` themselves.
+  function insertSlashChar() {
+    if (disabled) return
+    const ta = taRef.current
+    const start = ta?.selectionStart ?? text.length
+    const end = ta?.selectionEnd ?? text.length
+    const next = text.slice(0, start) + '/' + text.slice(end)
+    setText(next)
+    const nextCaret = start + 1
+    queueMicrotask(() => {
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(nextCaret, nextCaret)
+      setCaret(nextCaret)
+    })
   }
+
+  // EmptyHero's command-token row and the composer-tip's inline `/xxx` tokens
+  // fire this instead of duplicating insertion/submit logic — same outcome as
+  // typing the command by hand. Zero-arg commands (currently just /help)
+  // submit immediately; everything else inserts + focuses like picking from
+  // SlashMenu. `onSubmit` is recreated every ChatPanel render (inline arrow
+  // fn closing over `pending`), so it — and `disabled` — are real deps here,
+  // unlike the ref-only `emerge:focus-composer` listener above.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ cmd: string; autoSubmit?: boolean }>).detail
+      if (!detail?.cmd) return
+      markCompetent()
+      if (detail.autoSubmit) {
+        if (disabled) return
+        onSubmit(detail.cmd)
+        setText('')
+        return
+      }
+      pickSlash(detail.cmd)
+    }
+    window.addEventListener('emerge:composer-command', handler)
+    return () => window.removeEventListener('emerge:composer-command', handler)
+  }, [disabled, onSubmit, pickSlash])
 
   /** Replace the current `@…` token with the rendered handle + suffix and move
    *  the caret to just after the suffix.
@@ -993,7 +1080,7 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     >
       <div className="composer-col">
       {tipKey && (
-        <div className="composer-tip" aria-live="polite">{t(tipKey)}</div>
+        <div className="composer-tip" aria-live="polite">{renderTipText(t(tipKey))}</div>
       )}
       <div className="composer" onClick={(e) => {
         // claude.ai: clicking anywhere inside the card focuses the textarea
@@ -1154,6 +1241,16 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
                   </div>
                 )}
               </div>
+              <button
+                type="button"
+                className="iconbtn ghost"
+                onClick={insertSlashChar}
+                disabled={disabled}
+                title={t('composer.commands.title')}
+                aria-label={t('composer.commands')}
+              >
+                <SlashGlyph />
+              </button>
             </div>
             <div className="right">
               {disabled && onCancel ? (

@@ -117,6 +117,8 @@ const zh: Dict = {
   'composer.sendMessage.title': '发送  {shortcut}',
   'composer.sendMessage.titleWaiting': '正在等待文件上传…',
   'composer.addFilesOrPhotos': '添加文件或图片',
+  'composer.commands': '命令',
+  'composer.commands.title': '查看所有命令',
   'composer.removeName': '移除 {name}',
   'composer.retryName': '重试 {name}',
   'composer.bulk.summary': '共 {total} 个',

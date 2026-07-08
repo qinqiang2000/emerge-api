@@ -117,6 +117,8 @@ const en: Dict = {
   'composer.sendMessage.title': 'Send  {shortcut}',
   'composer.sendMessage.titleWaiting': 'Waiting for uploads to finish…',
   'composer.addFilesOrPhotos': 'Add files or photos',
+  'composer.commands': 'Commands',
+  'composer.commands.title': 'See all commands',
   'composer.removeName': 'Remove {name}',
   'composer.retryName': 'Retry {name}',
   'composer.bulk.summary': '{total} files',
