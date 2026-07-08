@@ -8,7 +8,7 @@ import { useT } from '../../i18n'
 import { markCompetent, useOnboarding } from '../../stores/onboarding'
 import MentionMenu, { type MentionItem, type ProjectPick } from './MentionMenu'
 import { RESOURCE_SOURCES, modelCandidates, promptCandidates, filterCandidates, type MentionCandidate } from './mentionSources'
-import SlashMenu, { COMMANDS, filterSlashCommands } from './SlashMenu'
+import SlashMenu, { COMMAND_DEFS, localizedCommands, filterSlashCommands } from './SlashMenu'
 import { pickTipKey } from './composerTips'
 
 // Phosphor-style icons lifted from claude.ai's composer so the send/stop
@@ -263,7 +263,12 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   // name. Once a full command prefixes the text (`/eval` or `/eval …`), the
   // menu closes and plain Enter behaves like the rest of the composer (submit;
   // Shift+Enter for newline) — matching ChatGPT / Claude.ai / Gemini.
-  const completedCommand = COMMANDS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
+  const completedCommand = COMMAND_DEFS.some(c => text === c.cmd || text.startsWith(c.cmd + ' '))
+  // Locale-resolved command rows — the single source both the slash menu and
+  // the keyboard-nav index below read, so display + highlight never disagree.
+  // `t` is a fresh closure each render, so this rebuilds every render; it's 8
+  // tiny objects, cheaper than the machinery to avoid it.
+  const commands = useMemo(() => localizedCommands(t), [t])
   // Path-vs-command disambiguation: if the user types/pastes a path like
   // `/Users/...`, a second `/` appears in the first whitespace-delimited
   // segment. Treat that as a path and keep the menu closed — none of our
@@ -283,8 +288,8 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
   // `showSlash` consumes it below.
   const slashMatches = useMemo(() => {
     if (!text.startsWith('/')) return []
-    return filterSlashCommands(firstSegment)
-  }, [text, firstSegment])
+    return filterSlashCommands(commands, firstSegment)
+  }, [text, firstSegment, commands])
   const showSlash =
     text.startsWith('/') &&
     !completedCommand &&
@@ -1088,7 +1093,7 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
       }}>
         {showSlash && (
           <SlashMenu
-            query={text}
+            items={slashMatches}
             activeIdx={activeIdx}
             onPick={pickSlash}
             onHover={setActiveIdx}

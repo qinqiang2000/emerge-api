@@ -469,14 +469,33 @@ html, body, #root {
 .empty-hero .drop b{font-size:15px;color:var(--ink-2);font-weight:500}
 /* Command-token row — see EmptyHero.tsx header comment. Order doubles as the
    pipeline mental model (init → extract → review → publish), so no label
-   text is needed above it. */
+   text is needed above it. Always shown (mouse users, expert or not, prefer a
+   click over typing `/`). */
 .empty-hero .cmd-row{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:-6px}
 .empty-hero .cmd-token{
+  position:relative;
   font-family:var(--mono);font-size:12px;color:var(--ochre-2);
   background:transparent;border:1px solid var(--rule);border-radius:6px;
   padding:5px 10px;cursor:pointer;transition:background .12s,border-color .12s;
 }
 .empty-hero .cmd-token:hover{background:var(--ochre-soft);border-color:transparent}
+/* Hover bubble: the command's localized one-liner, so a newcomer never has to
+   guess what `/init` means. Pure CSS off `data-tip` — appears immediately (no
+   native-title delay) and styled in the paper/ink token system. */
+.empty-hero .cmd-token::after{
+  content:attr(data-tip);
+  position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
+  width:max-content;max-width:240px;
+  padding:6px 10px;border-radius:8px;
+  background:var(--ink);color:var(--paper);
+  font-family:var(--sans);font-size:12px;line-height:1.4;font-weight:400;
+  text-align:center;white-space:normal;
+  box-shadow:0 4px 16px rgba(31,27,20,.18);
+  opacity:0;pointer-events:none;
+  transition:opacity .12s ease,transform .12s ease;
+  z-index:8;
+}
+.empty-hero .cmd-token:hover::after{opacity:1;transform:translateX(-50%) translateY(0)}
 /* Recent-conversations strip: above the tagline, a single quiet row of the
    five most-recent unbound chats. Visual weight matches the sidebar's
    project list (mono + ink-3) — never card-like, never bordered. Each item

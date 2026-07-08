@@ -136,6 +136,16 @@ const zh: Dict = {
   'menu.mention.noMatch': '没有匹配',
   'menu.mention.noDir': '目录不存在',
 
+  // 斜杠命令逐条说明（斜杠菜单 + 主页 token 气泡共用，见 Chat/SlashMenu.tsx）
+  'slash.help.desc': '我能做什么、该怎么跟我配合',
+  'slash.config.desc': '查看或更换我用的模型',
+  'slash.init.desc': '从这个文件夹的文档里推导出提取规则',
+  'slash.extract.desc': '对所有文档（或部分）跑一遍抽取',
+  'slash.review.desc': '打开下一份待评审的文档',
+  'slash.eval.desc': '拿当前规则跟已评审结果打分对比',
+  'slash.improve.desc': '长任务：打磨字段描述以提升 F1',
+  'slash.publish.desc': '冻结一个版本并签发 API key',
+
   // ── EmptyHero ──────────────────────────────────────────────────────────
   'empty.eyebrow.newProject': '~/projects/新项目/',
   'empty.newproject.note': '拖入文档，我帮你自动起名。',

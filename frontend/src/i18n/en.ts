@@ -136,6 +136,17 @@ const en: Dict = {
   'menu.mention.noMatch': 'no match',
   'menu.mention.noDir': 'no such directory',
 
+  // Per-command descriptions (shared by the slash menu + home token tooltips,
+  // see Chat/SlashMenu.tsx)
+  'slash.help.desc': 'what I can do and how to work with me',
+  'slash.config.desc': 'show or change the models I use',
+  'slash.init.desc': 'derive a prompt from the documents in this folder',
+  'slash.extract.desc': 'run extraction on every doc, or a subset',
+  'slash.review.desc': 'open the next pending document for review',
+  'slash.eval.desc': 'score current prompt against reviewed/',
+  'slash.improve.desc': 'long-running: refine field descriptions to lift F1',
+  'slash.publish.desc': 'freeze a version and mint an API key',
+
   // ── EmptyHero ──────────────────────────────────────────────────────────
   'empty.eyebrow.newProject': '~/projects/new-project/',
   'empty.newproject.note': "New project — not named yet. Drop in a document or tell me what you're working on, and I'll set up the folder and name it.",
