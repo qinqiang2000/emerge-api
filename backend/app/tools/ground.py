@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.provider.base import ContentBlock, Provider, TextBlock
-from app.tools.extract import _doc_to_block
+from app.tools.schema import doc_to_blocks
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
@@ -231,11 +231,15 @@ async def ground_entities(
     if n_items == 0:
         return [{} for _ in entities]
 
-    doc_block = await _doc_to_block(workspace, project_id, filename)
+    # `=== Page N ===` markers are interleaved when a PDF is rasterized for a
+    # provider that can't read it natively — this pass reports a 1-based `page`
+    # per value, and a bare image sequence carries no page signal.
+    doc_blocks = await doc_to_blocks(
+        workspace, project_id, filename, supports_pdf=provider.supports_pdf,
+    )
     user_blocks: list[ContentBlock] = [
         TextBlock(text="Values to locate in the document:\n" + worklist),
-        doc_block,
-    ]
+    ] + doc_blocks
     result = await provider.extract(
         model_id=model_id,
         system_prompt=_GROUND_SYSTEM,

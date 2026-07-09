@@ -9,7 +9,7 @@ from typing import Any
 from app.provider.base import ContentBlock, Provider, TextBlock
 from app.schemas.extraction import ExtractionOutput
 from app.schemas.schema_field import FieldType, SchemaField
-from app.tools.schema import _doc_to_block
+from app.tools.schema import _doc_to_block, doc_to_blocks
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.paths import (
@@ -174,10 +174,12 @@ async def extract_one(
             base_url=mc.base_url, api_key_env=mc.api_key_env,
         )
 
-    doc_block = await _doc_to_block(workspace, project_id, filename)
+    doc_blocks = await doc_to_blocks(
+        workspace, project_id, filename, supports_pdf=provider.supports_pdf,
+    )
     user_blocks: list[ContentBlock] = (
         [TextBlock(text=global_notes)] if global_notes else []
-    ) + [TextBlock(text=_build_field_instructions(schema)), doc_block]
+    ) + [TextBlock(text=_build_field_instructions(schema))] + doc_blocks
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
         model_id=mid,
@@ -324,10 +326,12 @@ async def extract_one_with_schema(
     if not schema:
         raise ValueError("schema must be non-empty")
 
-    doc_block = await _doc_to_block(workspace, project_id, filename)
+    doc_blocks = await doc_to_blocks(
+        workspace, project_id, filename, supports_pdf=provider.supports_pdf,
+    )
     user_blocks: list[ContentBlock] = (
         [TextBlock(text=global_notes)] if global_notes else []
-    ) + [TextBlock(text=_build_field_instructions(schema)), doc_block]
+    ) + [TextBlock(text=_build_field_instructions(schema))] + doc_blocks
     response_schema = _build_response_schema(schema)
     result = await provider.extract(
         model_id=model_id,

@@ -221,6 +221,52 @@ async def _doc_to_block(workspace: Path, project_id: str, filename: str) -> Cont
     return _bytes_to_block(data, meta["ext"])
 
 
+# A rasterized PDF can outgrow any request budget; extraction targets receipts
+# and invoices, so the first pages carry the signal. Mirrors the audit judge's
+# per-doc cap (`app/tools/audit_run.py::_MAX_PAGES_PER_DOC`).
+_MAX_RASTER_PAGES = 20
+
+
+async def doc_to_blocks(
+    workspace: Path,
+    project_id: str,
+    filename: str,
+    *,
+    supports_pdf: bool = True,
+) -> list[ContentBlock]:
+    """One doc → the content blocks that represent it to an extract LLM.
+
+    Normally a single block (text / image / native pdf `DocumentBlock`). When
+    the target provider cannot read PDF natively (`supports_pdf=False`, e.g.
+    `OpenAIProvider` — DashScope's `image_url` rejects raw PDF bytes), a PDF is
+    rasterized client-side into one `ImageBlock` per page, each preceded by an
+    explicit ``=== Page N ===`` marker.
+
+    The page markers are load-bearing, not decoration: the grounding pass asks
+    the model for a 1-based `page` per extracted value. Native PDF handling lets
+    the model infer page order implicitly; once we hand it a bare sequence of
+    images that signal is gone, so we state it. (Providers that DO read PDF
+    natively are untouched, so their grounding behavior cannot regress.)
+    """
+    import json as _json
+
+    meta = _json.loads(doc_meta_path(workspace, project_id, filename).read_text())
+    ext = str(meta["ext"]).lower().lstrip(".")
+    if ext != "pdf" or supports_pdf:
+        return [await _doc_to_block(workspace, project_id, filename)]
+
+    # Lazy import: `read_doc_image` pulls in fitz (PyMuPDF) via pdf_render_page.
+    from app.tools.docs import read_doc_image
+
+    page_count = int(meta.get("page_count") or 1)
+    blocks: list[ContentBlock] = []
+    for page in range(1, min(page_count, _MAX_RASTER_PAGES) + 1):
+        out = await read_doc_image(workspace, project_id, filename, page=page)
+        blocks.append(TextBlock(text=f"=== Page {page} ==="))
+        blocks.append(ImageBlock(media_type=out["mime"], data_b64=out["data"]))
+    return blocks
+
+
 async def derive_schema(
     workspace: Path,
     project_id: str,
@@ -232,7 +278,9 @@ async def derive_schema(
 ) -> list[SchemaField]:
     user_blocks: list[ContentBlock] = [TextBlock(text=f"User intent: {intent}")]
     for fn in sample_filenames:
-        user_blocks.append(await _doc_to_block(workspace, project_id, fn))
+        user_blocks.extend(await doc_to_blocks(
+            workspace, project_id, fn, supports_pdf=provider.supports_pdf,
+        ))
 
     result = await provider.extract(
         model_id=model_id,

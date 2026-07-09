@@ -40,7 +40,7 @@ from app.tools.extract import (
     _build_response_schema,
 )
 from app.tools.prompt import read_active_prompt
-from app.tools.schema import _doc_to_block
+from app.tools.schema import doc_to_blocks
 from app.workspace.atomic import atomic_write_json
 from app.workspace.lock import project_lock
 from app.workspace.migrate import migrate_project_if_needed
@@ -180,10 +180,12 @@ async def label_docs(
             skipped.append({"filename": fn, "reason": "already_pending"})
             continue
         try:
-            doc_block = await _doc_to_block(workspace, slug, fn)
+            doc_blocks = await doc_to_blocks(
+                workspace, slug, fn, supports_pdf=provider.supports_pdf,
+            )
             user_blocks: list[ContentBlock] = (
                 [TextBlock(text=global_notes)] if global_notes else []
-            ) + [TextBlock(text=field_instructions), doc_block]
+            ) + [TextBlock(text=field_instructions)] + doc_blocks
             result = await provider.extract(
                 model_id=mid,
                 system_prompt=_EXTRACT_SYSTEM,
