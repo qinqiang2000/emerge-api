@@ -270,6 +270,41 @@ async def test_extract_with_experiment_writes_to_predictions_dir(
     assert on_disk["_run"]["prompt_id"] == "pr_baseline"
 
 
+async def test_extract_with_experiment_sends_prompt_global_notes(
+    workspace: Path, stub_provider,
+):
+    """An experiment IS its (prompt, model) pair — and a prompt's instructions
+    live in `global_notes`. Dropping them silently ran the experiment against a
+    different prompt than the one it names (the baseline `extract_one` path has
+    always sent them)."""
+    from app.provider.base import TextBlock
+    from app.tools.experiment import create_experiment, extract_with_experiment
+    from app.workspace.paths import doc_meta_path, doc_path, docs_dir, prompt_path
+    from tests.conftest import make_provider_result
+
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    notes = "你是个费用报销专家。只识别住宿类型的水单。"
+    prompt_blob = json.loads(prompt_path(workspace, pid, "pr_baseline").read_text())
+    prompt_blob["global_notes"] = notes
+    atomic_write_json(prompt_path(workspace, pid, "pr_baseline"), prompt_blob)
+
+    filename = "invoice.png"
+    docs_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    doc_path(workspace, pid, filename).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 61)
+    meta_p = doc_meta_path(workspace, pid, filename)
+    meta_p.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(meta_p, {"filename": filename, "ext": "png"})
+    stub_provider.extract.return_value = make_provider_result({"entities": []})
+
+    eid = await create_experiment(workspace, pid)
+    await extract_with_experiment(workspace, pid, eid, filename, provider=stub_provider)
+
+    blocks = stub_provider.extract.call_args.kwargs["user_content"]
+    texts = [b.text for b in blocks if isinstance(b, TextBlock)]
+    assert notes in texts
+
+
 async def test_extract_with_experiment_uses_experiment_prompt_not_active(
     workspace: Path, stub_provider,
 ):

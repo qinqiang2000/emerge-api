@@ -231,6 +231,12 @@ async def extract_with_experiment(
         provider=provider,
         model_id=model.provider_model_id,
         params=model.params or None,
+        # An experiment IS its (prompt, model) pair, and a prompt's instructions
+        # live in `global_notes` — omitting them ran the experiment against a
+        # different prompt than the one it names (the baseline `extract_one`
+        # path has always passed them). Autoresearch deliberately does NOT pass
+        # global_notes: it grades candidate *schemas* on a separate axis.
+        global_notes=prompt.global_notes or "",
     )
     # M14 — same blob shape as `run_experiment_eval`'s write path: stamp the
     # experiment-write payload so review tabstrip / score anchor read (model,
@@ -328,6 +334,9 @@ async def run_experiment_eval(
                 provider=provider,
                 model_id=model.provider_model_id,
                 params=model.params or None,
+                # See `extract_with_experiment`: the prompt's instructions live
+                # in global_notes; an experiment must reproduce its own prompt.
+                global_notes=prompt.global_notes or "",
             )
             # M14 — stamp the experiment write with kind="experiment" so the
             # review tabstrip / score anchor reads (model, prompt) from the
