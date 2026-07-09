@@ -4,7 +4,7 @@
  *  Every prediction blob (baseline `_draft`, experiment, pre-label `_pending`)
  *  self-stamps so the review tabstrip / matrix UI / score anchor read
  *  identity from the blob, not from project.json at consume time. */
-export type RunKind = 'baseline' | 'experiment' | 'pre_label'
+export type RunKind = 'baseline' | 'experiment' | 'pre_label' | 'reviewed'
 
 export interface RunStamp {
   run_id: string
@@ -57,6 +57,10 @@ export interface ReviewedPayload {
    *  `extra="forbid"`, so send exactly this key and nothing else extra.
    *  Omitted entirely when no field changed. */
   _corrections?: Record<string, { before: unknown; after: unknown }>
+  /** Which prompt's schema this ground truth was edited against. Only the id
+   *  goes up (the server mints `_run`); the GET response carries `_run` back. */
+  prompt_id?: string
+  _run?: RunStamp | null
 }
 
 /** Pro-labeler draft sitting at `reviewed/_pending/{filename}.json`. Same
@@ -119,4 +123,8 @@ export interface ExperimentPredictionPayload {
   entities: Record<string, unknown>[]
   _evidence?: Record<string, number | null>[] | null
   _notes?: Record<string, string>
+  /** M14 — `extract_with_experiment` / `run_experiment_eval` both stamp their
+   *  writes (`build_stamp("experiment", …)`). Used to render the blob through
+   *  its OWN prompt's schema when the experiment list hasn't loaded yet. */
+  _run?: RunStamp | null
 }

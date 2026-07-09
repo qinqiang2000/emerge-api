@@ -133,6 +133,11 @@ interface State {
    *  re-fetching. */
   draftEntities: FieldsValue[] | null
   draftEvidence: Record<string, EvidenceValue>[] | null
+  /** Which prompt's schema the annotation (✏ 校订稿) holds values for. Read
+   *  from the reviewed blob's `_run` on open; re-anchored when the reviewer
+   *  adopts a prediction from a tab on a different prompt. null → the project's
+   *  active prompt. Sent back on save so the anchor survives a reload. */
+  annotationPromptId: string | null
   /** `_run` from the pre-label pending blob; powers the "pre-label" tab. */
   pendingRun: RunStamp | null
   /** Cached pending entities/evidence for the `_pending` tab's readonly view. */
@@ -168,6 +173,11 @@ interface State {
   adoptPrediction: (
     entities: FieldsValue[],
     evidence?: Record<string, EvidenceValue>[] | null,
+    /** Prompt of the tab being adopted. Re-anchors the annotation's schema —
+     *  a bulk adopt replaces the whole record, so the record now belongs to
+     *  that prompt's contract. (Per-field adopt does NOT re-anchor: it copies
+     *  one value into the annotation's existing contract.) */
+    promptId?: string | null,
   ) => void
   adoptPredictionField: (
     entityIdx: number,
@@ -200,6 +210,7 @@ export const useReview = create<State>((set, get) => ({
   draftRun: null,
   draftEntities: null,
   draftEvidence: null,
+  annotationPromptId: null,
   pendingRun: null,
   pendingEntities: null,
   pendingEvidence: null,
@@ -238,6 +249,7 @@ export const useReview = create<State>((set, get) => ({
       draftRun: null,
       draftEntities: null,
       draftEvidence: null,
+      annotationPromptId: null,
       pendingRun: null,
       pendingEntities: null,
       pendingEvidence: null,
@@ -282,6 +294,14 @@ export const useReview = create<State>((set, get) => ({
         labelerModel: !reviewed && pending ? pending.labeler_model ?? null : null,
         // M14 — cache the draft/pending payloads (entities + evidence + _run)
         // so the tabstrip can offer them as readonly tabs without re-fetching.
+        // The annotation holds whichever blob seeded it; anchor its schema to
+        // that blob's prompt. reviewed's own stamp wins; else the pre-label /
+        // baseline draft it was prefilled from; else (null) the active prompt.
+        annotationPromptId:
+          reviewed?._run?.prompt_id ??
+          (!reviewed && pending ? pending._run?.prompt_id : null) ??
+          (!reviewed && !pending ? pred?._run?.prompt_id : null) ??
+          null,
         draftRun: pred?._run ?? null,
         draftEntities: pred?.entities ?? null,
         draftEvidence: (pred?._evidence ?? null) as Record<string, EvidenceValue>[] | null,
@@ -304,7 +324,7 @@ export const useReview = create<State>((set, get) => ({
     set({ pendingFocusField: field })
   },
   consumePendingFocus: () => set({ pendingFocusField: null }),
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, corrections: {}, pendingFocusField: null, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
+  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, corrections: {}, pendingFocusField: null, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, annotationPromptId: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -324,7 +344,7 @@ export const useReview = create<State>((set, get) => ({
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
   save: async () => {
-    const { activeProjectId, activeFilename, entities, baselineEntities, evidence, notes } = get()
+    const { activeProjectId, activeFilename, entities, baselineEntities, evidence, notes, annotationPromptId } = get()
     if (!activeProjectId || !activeFilename) return
     set({ saving: true, err: null })
     try {
@@ -339,6 +359,10 @@ export const useReview = create<State>((set, get) => ({
         ...(evidence ? { _evidence: evidence } : {}),
         ...(Object.keys(notes).length > 0 ? { _notes: notes } : {}),
         ...(Object.keys(corrections).length > 0 ? { _corrections: corrections } : {}),
+        // Anchor the ground truth to the prompt it was edited against; the
+        // server mints the `_run` stamp from it. Omitted → server uses the
+        // project's active prompt (the hand-typed-review case).
+        ...(annotationPromptId ? { prompt_id: annotationPromptId } : {}),
       }
       await saveReviewed(activeProjectId, activeFilename, payload)
       // refresh the doc-list status so the badge flips to "reviewed"
@@ -396,9 +420,13 @@ export const useReview = create<State>((set, get) => ({
     set((s) => ({ predictionsByExp: { ...s.predictionsByExp, [experimentId]: payload } }))
   },
 
-  adoptPrediction: (entities, evidence) => set({
+  adoptPrediction: (entities, evidence, promptId) => set({
     entities: entities.map((e) => ({ ...(e ?? {}) })),
     evidence: evidence ? evidence.map((e) => ({ ...(e ?? {}) })) : null,
+    // The adopted record IS that prompt's shape — render and save it as such,
+    // or its extra fields land on disk (entities are written verbatim) while
+    // staying invisible behind the active prompt's shorter schema.
+    ...(promptId !== undefined ? { annotationPromptId: promptId } : {}),
     // Adopting a prediction verbatim is a NEW baseline, not a human edit:
     // re-anchor so save() diffs subsequent hand-edits against the adopted
     // values (empty diff right after adopt → no spurious `_corrections`, no

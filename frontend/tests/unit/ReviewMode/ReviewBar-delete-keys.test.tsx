@@ -56,12 +56,14 @@ describe('ReviewBar title + delete + keyboard', () => {
     useReviewTune.setState({ signal: null, dismissedKey: null })
   })
 
-  it('renders "reviewing <filename> <status>" matching the design copy', () => {
+  it('renders "<filename> <status>" — the "reviewing" label was dropped to free bar width', () => {
     seedAt('2024-Q4-soylent.pdf', [makeDoc('2024-Q4-soylent.pdf', false)])
     render(<ReviewOverlay onBack={() => {}} />)
     const title = document.querySelector('.rev-bar .title') as HTMLElement
     expect(title).toBeTruthy()
-    expect(title.textContent).toContain('reviewing')
+    // The bar's horizontal room belongs to the experiment tab strip; the
+    // standing "reviewing" label said nothing the mode chrome didn't already.
+    expect(title.textContent).not.toContain('reviewing')
     // chip carries the bare filename — no `docs/` prefix
     expect(title.querySelector('.doc')?.textContent).toBe('2024-Q4-soylent.pdf')
     // no prediction + not reviewed → 'new' (the no-prediction state; 'pending'

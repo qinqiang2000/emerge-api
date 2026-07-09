@@ -8,6 +8,7 @@ import { toast } from '../../stores/toast'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
 import { useExperiments } from '../../stores/experiments'
+import { usePrompts } from '../../stores/prompts'
 import { useModels } from '../../stores/models'
 import { useChat } from '../../stores/chat'
 import { useQuickLook } from '../../stores/quicklook'
@@ -62,6 +63,7 @@ export default function ReviewOverlay({
     activeEntityIdx,
     isPending,
     labelerModel,
+    annotationPromptId,
     draftRun,
     draftEntities,
     draftEvidence,
@@ -111,8 +113,44 @@ export default function ReviewOverlay({
         : (predictionsByExp[activeTabKey]?._evidence ?? null)
   const readOnly = activeTabKey !== 'active'
 
+  // Every tab renders through the schema of the prompt its CONTENT belongs to,
+  // never the project's currently-active prompt. Otherwise a blob produced by a
+  // different prompt loses every field the active schema doesn't declare — the
+  // reviewer sees a short form and concludes the model "didn't extract" values
+  // that are right there in the blob (and, on the annotation tab, values that
+  // `save()` will happily write to disk unseen — `entities` is persisted
+  // verbatim).
+  const tabPromptId: string | null = !readOnly
+    // ✏ annotation: the reviewed blob's own `_run` stamp, or the tab it was
+    // adopted from. null → the active prompt (a hand-typed review).
+    ? annotationPromptId
+    : activeTabKey === '_draft'
+      ? (draftRun?.prompt_id ?? null)
+      : activeTabKey === '_pending'
+        ? (pendingRun?.prompt_id ?? null)
+        : (experimentList.find(e => e.experiment_id === activeTabKey)?.prompt_id
+            ?? predictionsByExp[activeTabKey]?._run?.prompt_id
+            ?? null)
+
+  const loadPromptSchema = usePrompts((s) => s.loadPromptSchema)
+  // Selector returns a stable ref (the cached array, `null` for a 404, or
+  // `undefined` when unfetched) — never a fresh literal. See INSIGHTS on the
+  // Zustand fresh-ref render loop.
+  const tabPromptSchema = usePrompts((s) =>
+    activeProjectId && tabPromptId
+      ? s.schemaById[activeProjectId]?.[tabPromptId]
+      : undefined,
+  )
+  useEffect(() => {
+    if (activeProjectId && tabPromptId) void loadPromptSchema(activeProjectId, tabPromptId)
+  }, [activeProjectId, tabPromptId, loadPromptSchema])
+
+  // Fall back to the project schema while the fetch is in flight, and
+  // permanently if the prompt is gone (deleted → cached as `null`).
+  const displaySchema = tabPromptSchema ?? schema
+
   const handleAdoptAll = readOnly
-    ? () => adoptPrediction(displayEntities, displayEvidence ?? null)
+    ? () => adoptPrediction(displayEntities, displayEvidence ?? null, tabPromptId)
     : undefined
   const handleAdoptField = readOnly
     ? (entityIdx: number, name: string, value: unknown, evidencePage?: number | null) =>
@@ -442,10 +480,6 @@ export default function ReviewOverlay({
       <ReviewBar
         saving={saving}
         canSave={!readOnly}
-        view={view}
-        onSetView={handleSetView}
-        forceOpen={forceOpen}
-        onToggleExpand={handleToggleExpand}
         docs={docs}
         activeFilename={activeFilename}
         activeProjectId={activeProjectId}
@@ -572,7 +606,7 @@ export default function ReviewOverlay({
             </div>
           ) : (
             <FieldEditor
-              schema={schema}
+              schema={displaySchema}
               entities={displayEntities}
               notes={notes}
               evidence={displayEvidence ?? null}
@@ -581,7 +615,9 @@ export default function ReviewOverlay({
               onRemoveEntity={removeEntity}
               onJumpToPage={goPage}
               view={view}
+              onSetView={handleSetView}
               forceOpen={forceOpen}
+              onToggleExpand={handleToggleExpand}
               readOnly={readOnly}
               onAdopt={handleAdoptAll}
               onAdoptField={handleAdoptField}

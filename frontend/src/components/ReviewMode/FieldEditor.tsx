@@ -35,8 +35,10 @@ interface Props {
   onJumpToPage?: (page: number) => void
   /** 'form' | 'json' — controlled by ReviewOverlay via view toggle */
   view?: 'form' | 'json'
+  onSetView?: (v: 'form' | 'json') => void
   /** null = natural, true = expand all, false = collapse all */
   forceOpen?: boolean | null
+  onToggleExpand?: () => void
   /** When true, all fields are read-only (experiment tabs) */
   readOnly?: boolean
   /** Bulk-copy the current display (a prediction) into the annotation and
@@ -57,7 +59,9 @@ export default function FieldEditor({
   onRemoveEntity,
   onJumpToPage,
   view = 'form',
+  onSetView,
   forceOpen = null,
+  onToggleExpand,
   readOnly = false,
   onAdopt,
   onAdoptField,
@@ -283,12 +287,47 @@ export default function FieldEditor({
             {entities.length === 1 ? t('field.entity.count.one') : t('field.entity.count.many', { n: entities.length })}
           </span>
         )}
+        {/* FORM/JSON + expand-all live here, not in the top ReviewBar: they act
+            on THIS panel, and the bar needs its horizontal room for the
+            experiment tab strip (which otherwise collapses into a "»N" chip). */}
+        <div className="rev-toolbar ml-auto">
+          {onSetView && (
+            <div className="seg">
+              <button
+                className={view === 'form' ? 'on' : ''}
+                onClick={() => onSetView('form')}
+                type="button"
+              >
+                {t('review.view.form')}
+              </button>
+              <button
+                className={view === 'json' ? 'on' : ''}
+                onClick={() => onSetView('json')}
+                type="button"
+              >
+                {t('review.view.json')}
+              </button>
+            </div>
+          )}
+          {onToggleExpand && view === 'form' && (
+            <button
+              className="ghostbtn"
+              onClick={onToggleExpand}
+              title={forceOpen === true ? t('review.collapseAll') : t('review.expandAll')}
+              aria-label={forceOpen === true ? t('review.collapseAll') : t('review.expandAll')}
+              type="button"
+              style={{ padding: '4px 7px', fontSize: 12 }}
+            >
+              {forceOpen === true ? '⤡' : '⤢'}
+            </button>
+          )}
+        </div>
         {!readOnly && (
           <button
             type="button"
             aria-label={t('field.entity.add')}
             onClick={onAddEntity}
-            className="ml-auto font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
+            className="font-mono text-xs px-2 py-1 border border-rule rounded hover:bg-paper-2"
           >
             {t('field.entity.addLabel')}
           </button>
@@ -299,7 +338,7 @@ export default function FieldEditor({
             aria-label={t('field.adopt.aria')}
             onClick={onAdopt}
             title={t('field.adopt.title')}
-            className="ml-auto adopt-all-btn"
+            className="adopt-all-btn"
           >
             <ArrowLeftToLine size={11} strokeWidth={1.7} />
             <span>{t('field.adopt.label')}</span>

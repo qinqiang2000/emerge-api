@@ -10,10 +10,6 @@ import { useT } from '../../i18n'
 type Props = {
   saving: boolean
   canSave: boolean
-  view: 'form' | 'json'
-  onSetView: (v: 'form' | 'json') => void
-  forceOpen: boolean | null
-  onToggleExpand: () => void
   docs: DocSummary[]
   /** On-disk filename of the open doc — the only doc handle now. */
   activeFilename: string | null
@@ -48,10 +44,6 @@ type Props = {
 export default function ReviewBar({
   saving,
   canSave,
-  view,
-  onSetView,
-  forceOpen,
-  onToggleExpand,
   docs,
   activeFilename,
   activeProjectId,
@@ -88,8 +80,6 @@ export default function ReviewBar({
     if (nextDoc && activeProjectId) void onOpen(activeProjectId, nextDoc.filename)
   }
 
-  const allExpanded = forceOpen === true
-
   const status = activeDoc ? docStatus(activeDoc) : null
 
   return (
@@ -109,7 +99,6 @@ export default function ReviewBar({
 
       {activeFilename && (
         <div className="title" title={activeFilename}>
-          {t('review.reviewing')}
           <span className="doc">{activeFilename}</span>
           {status && (
             <span className={`status ${status}`}>{t(`spine.stamp.${status}`)}</span>
@@ -144,35 +133,6 @@ export default function ReviewBar({
       ) : (
         <div className="spacer" />
       )}
-
-      <div className="rev-toolbar">
-        <div className="seg">
-          <button
-            className={view === 'form' ? 'on' : ''}
-            onClick={() => onSetView('form')}
-            type="button"
-          >
-            {t('review.view.form')}
-          </button>
-          <button
-            className={view === 'json' ? 'on' : ''}
-            onClick={() => onSetView('json')}
-            type="button"
-          >
-            {t('review.view.json')}
-          </button>
-        </div>
-        <button
-          className="ghostbtn"
-          onClick={onToggleExpand}
-          title={allExpanded ? t('review.collapseAll') : t('review.expandAll')}
-          aria-label={allExpanded ? t('review.collapseAll') : t('review.expandAll')}
-          type="button"
-          style={{ padding: '4px 7px', fontSize: 12 }}
-        >
-          {allExpanded ? '⤡' : '⤢'}
-        </button>
-      </div>
 
       <div className="nav">
         <button
