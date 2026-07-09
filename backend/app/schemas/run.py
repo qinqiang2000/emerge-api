@@ -15,7 +15,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-RunKind = Literal["baseline", "experiment", "pre_label"]
+# "reviewed" stamps the human ground-truth blob (`reviewed/{f}.json`). Unlike
+# the other three it names no model — only the prompt whose schema the reviewer
+# actually edited against, which is NOT always the project's active prompt (a
+# reviewer can adopt a prediction from an experiment on a different prompt).
+RunKind = Literal["baseline", "experiment", "pre_label", "reviewed"]
 
 
 class RunStamp(BaseModel):

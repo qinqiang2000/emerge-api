@@ -3,6 +3,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.run import RunStamp
+
 
 class ReviewedSource(str, Enum):
     MANUAL = "manual"
@@ -72,3 +74,11 @@ class Reviewed(BaseModel):
     # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
     # Validation and normalization live in ExtractionOutput (extract time only).
     evidence: Optional[list[dict[str, Any]]] = Field(default=None, alias="_evidence")
+    # Which prompt's schema this ground truth was edited against. A reviewer may
+    # adopt a prediction from an experiment whose prompt differs from the
+    # project's active one; without this anchor the review UI re-renders the
+    # blob through the active schema and the extra fields become invisible
+    # (they are still saved — `entities` is written verbatim). Optional so
+    # pre-stamp files keep parsing; `kind` is always "reviewed" and `model_*`
+    # stay null — a human, not a model, produced these values.
+    run: Optional[RunStamp] = Field(default=None, alias="_run")

@@ -33,6 +33,7 @@ async def save_reviewed(
     evidence: Optional[list[dict[str, Optional[int]]]] = None,
     notes_consumed: Any = _OMITTED,
     corrections: Optional[dict[str, dict[str, Any]]] = None,
+    prompt_id: Optional[str] = None,
 ) -> None:
     """Persist a corrected extraction as ground truth for a doc.
 
@@ -85,6 +86,26 @@ async def save_reviewed(
         # Fallback: ignore garbage shapes.
         resolved_consumed = None
 
+    # Anchor the ground truth to the prompt whose schema it was edited against.
+    # `prompt_id` comes from the caller (the reviewer may have adopted a
+    # prediction from an experiment on a non-active prompt); absent → the
+    # project's active prompt, which is what a hand-typed review used. Minting
+    # the stamp server-side keeps `run_id`/`ts` off the wire. Best-effort: a
+    # missing/deleted prompt must never block a save of human work.
+    run_stamp = None
+    try:
+        from app.eval.run_stamp import build_stamp
+        from app.tools.prompt import read_active_prompt, read_prompt
+
+        pv = (
+            await read_prompt(workspace, project_id, prompt_id)
+            if prompt_id
+            else await read_active_prompt(workspace, project_id)
+        )
+        run_stamp = build_stamp("reviewed", None, pv)
+    except Exception:  # noqa: BLE001
+        run_stamp = None
+
     payload = Reviewed(
         entities=entities,
         source=source,
@@ -92,6 +113,7 @@ async def save_reviewed(
         notes_consumed=resolved_consumed,
         corrections=corrections or None,
         evidence=evidence,
+        run=run_stamp,
     ).model_dump(by_alias=True, exclude_none=True, mode="json")
     async with project_lock(workspace, project_id):
         reviewed_dir(workspace, project_id).mkdir(parents=True, exist_ok=True)

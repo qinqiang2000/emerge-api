@@ -29,6 +29,10 @@ class ReviewedBody(BaseModel):
     )
     # Accept both legacy {field: int|null} and new {field: {page, source}} shapes.
     evidence: Optional[list[dict[str, Any]]] = Field(default=None, alias="_evidence")
+    # The prompt whose schema the reviewer edited against. Absent → the
+    # project's active prompt. Only the id crosses the wire; the server mints
+    # the `_run` stamp (run_id / ts).
+    prompt_id: Optional[str] = None
 
 
 @router.post("/lab/projects/{slug}/reviewed/{filename:path}")
@@ -51,6 +55,7 @@ async def post_reviewed(
         notes=body.notes,
         evidence=body.evidence,
         corrections=body.corrections,
+        prompt_id=body.prompt_id,
     )
     return {"ok": True}
 

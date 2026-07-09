@@ -104,3 +104,56 @@ async def test_get_reviewed_returns_payload(workspace: Path) -> None:
 async def test_get_reviewed_returns_none_for_missing(workspace: Path) -> None:
     pid = (await create_project(workspace, name="x"))["slug"]
     assert await get_reviewed(workspace, pid, "nope.pdf") is None
+
+
+# ── `_run` anchor: which prompt's schema was this ground truth edited against? ──
+#
+# A reviewer can adopt a prediction from an experiment whose prompt differs from
+# the project's active one. `entities` is written verbatim, so those extra fields
+# land on disk; without this anchor the review UI re-renders the blob through the
+# ACTIVE schema and they become invisible (saved but unshowable).
+
+
+async def test_save_reviewed_stamps_active_prompt_by_default(workspace: Path) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    await save_reviewed(workspace, pid, "a.pdf", entities=[{"k": "v"}])
+
+    blob = json.loads((workspace / pid / "reviewed" / "a.pdf.json").read_text())
+    from app.tools.prompt import read_active_prompt
+
+    active = await read_active_prompt(workspace, pid)
+    assert blob["_run"]["kind"] == "reviewed"
+    assert blob["_run"]["prompt_id"] == active.prompt_id
+    # A human, not a model, produced these values.
+    assert blob["_run"].get("extract_model") is None
+    assert blob["_run"].get("model_id") is None
+
+
+async def test_save_reviewed_honors_explicit_prompt_id(workspace: Path) -> None:
+    """Adopting an experiment's prediction anchors the review to THAT prompt."""
+    from app.tools.prompt import create_prompt, read_active_prompt
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    active = await read_active_prompt(workspace, pid)
+    other_id = await create_prompt(workspace, pid, label="lodging")
+    assert other_id != active.prompt_id
+
+    await save_reviewed(
+        workspace, pid, "b.pdf",
+        entities=[{"checkInDate": "2025-06-18"}],
+        prompt_id=other_id,
+    )
+    blob = json.loads((workspace / pid / "reviewed" / "b.pdf.json").read_text())
+    assert blob["_run"]["prompt_id"] == other_id
+    assert blob["_run"]["prompt_label"] == "lodging"
+
+
+async def test_save_reviewed_survives_unknown_prompt_id(workspace: Path) -> None:
+    """A bad/deleted prompt id must never block a save of human work."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    await save_reviewed(
+        workspace, pid, "c.pdf", entities=[{"k": "v"}], prompt_id="pr_does_not_exist",
+    )
+    blob = json.loads((workspace / pid / "reviewed" / "c.pdf.json").read_text())
+    assert blob["entities"] == [{"k": "v"}]
+    assert "_run" not in blob  # best-effort stamp omitted, save still succeeded
