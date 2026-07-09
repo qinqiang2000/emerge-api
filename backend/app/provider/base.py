@@ -38,6 +38,14 @@ class ProviderResult(BaseModel):
 
 @runtime_checkable
 class Provider(Protocol):
+    # Whether the adapter can send a `DocumentBlock` (application/pdf) straight
+    # to the API and have the model READ it visually. Anthropic and Google both
+    # rasterize PDF pages server-side, so they accept the raw bytes. OpenAI-
+    # compatible `image_url` does not (DashScope 400s: "image format is
+    # illegal"). When False, callers must rasterize PDF pages to images first —
+    # see `app.tools.schema.doc_to_blocks`.
+    supports_pdf: bool = True
+
     async def extract(
         self,
         *,

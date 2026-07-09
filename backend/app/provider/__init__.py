@@ -77,6 +77,21 @@ def get_provider_for_model(
         return CodexCliProvider()
     if provider == "google":
         return _google()
+    if provider == "openai":
+        from app.provider.openai import OpenAIProvider
+
+        key = os.getenv(api_key_env) if api_key_env else (api_key or os.getenv("OPENAI_API_KEY", ""))
+        url = base_url or os.getenv("OPENAI_BASE_URL") or None
+        return OpenAIProvider(
+            api_key=key,
+            proxy=os.getenv("OPENAI_PROXY") or None,
+            base_url=url,
+            # A per-model base_url means a third-party openai-compatible
+            # gateway (e.g. DashScope/Qwen), which may default to a thinking
+            # mode that 400s on forced tool_choice; disable it so structured
+            # extract works. The real api.openai.com (no base_url) is unaffected.
+            disable_thinking=bool(base_url),
+        )
     if provider == "anthropic":
         from app.provider.anthropic import AnthropicProvider
 

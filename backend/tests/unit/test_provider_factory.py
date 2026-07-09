@@ -95,6 +95,36 @@ def test_factory_never_writes_environ(monkeypatch) -> None:
     assert os.environ.get("ANTHROPIC_BASE_URL") == "https://agent-brain-gateway/anthropic"
 
 
+def test_openai_compat_gateway_resolves_and_disables_thinking(monkeypatch) -> None:
+    """DashScope/Qwen: `provider=openai` + per-model base_url → OpenAIProvider on
+    the gateway's /chat/completions, thinking disabled so forced tool_choice is
+    accepted (the gateway 400s otherwise)."""
+    from app.provider.openai import OpenAIProvider
+
+    monkeypatch.setenv("DASHSCOPE_KEY_TEST", "sk-dashscope")
+    prov = get_provider_for_model(
+        "qwen3.7-plus",
+        provider="openai",
+        base_url="https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        api_key_env="DASHSCOPE_KEY_TEST",
+    )
+    assert isinstance(prov, OpenAIProvider)
+    assert prov._url.endswith("/compatible-mode/v1/chat/completions")
+    assert prov._api_key == "sk-dashscope"
+    assert prov._disable_thinking is True
+
+
+def test_openai_provider_cannot_read_pdf_natively() -> None:
+    """Capability lives on the adapter, not on ModelConfig: `image_url` rejects
+    raw PDF bytes, so callers must rasterize. Anthropic/Google rasterize PDF
+    server-side and keep the default."""
+    from app.provider.anthropic import AnthropicProvider
+    from app.provider.openai import OpenAIProvider
+
+    assert OpenAIProvider.supports_pdf is False
+    assert AnthropicProvider.supports_pdf is True
+
+
 def test_missing_api_key_env_resolves_empty(monkeypatch) -> None:
     """api_key_env pointing at an unset var resolves to None (not a crash); the
     provider is still constructed so the failure surfaces at call time, not build."""
