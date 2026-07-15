@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # setting. To change the model an existing project uses, edit
     # `models/{mid}.json` or run `switch_active_model` / `/compare`.
     default_extract_model: str = "gemini-2.5-flash"
-    default_agent_model: str = "claude-sonnet-4-6"
+    default_agent_model: str = "claude-sonnet-5"
     # Pro-labeler model. None = label_docs refuses with `labeler_model_not_configured`
     # unless the caller passes an explicit override or sets `project.json.labeler_model`.
     default_labeler_model: str | None = None

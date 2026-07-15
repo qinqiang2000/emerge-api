@@ -620,7 +620,7 @@ class ChatService:
         *,
         workspace: Path,
         provider: Provider,
-        agent_model: str = "claude-sonnet-4-6",
+        agent_model: str = "claude-sonnet-5",
     ) -> None:
         self.workspace = workspace
         self.provider = provider
