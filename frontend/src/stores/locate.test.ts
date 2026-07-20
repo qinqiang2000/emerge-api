@@ -120,6 +120,54 @@ describe('useLocate', () => {
     expect(calls(fetchMock).length).toBe(0)
   })
 
+  // ── self-heal: a blob whose produce-time ground pass failed to null ────────
+  // Each test uses its own filename: the `_selfHealed` guard is module-level
+  // (like `_ocrRelocated`) and deliberately survives reset(), so a shared name
+  // would let one test's guard suppress the next test's ground call.
+
+  it('groundAndRelocate grounds first, then re-locates with the fresh evidence', async () => {
+    const fetchMock = routedFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await useLocate
+      .getState()
+      .groundAndRelocate('s', 'heal-a.pdf', 'active', '_draft', [{ invoice_number: 'A' }])
+
+    const urls = calls(fetchMock).map((u) => u.url)
+    expect(urls.length).toBe(2)
+    expect(urls[0]).toContain('/ground')
+    expect(urls[1]).toContain('/locate')
+    expect(useLocate.getState().byKey['heal-a.pdf::active']).toEqual(sample)
+    expect(useLocate.getState().loading).toBe(false)
+  })
+
+  it('grounds at most once per (doc, tab) so a doc that grounds to nothing never loops', async () => {
+    const fetchMock = routedFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const g = () =>
+      useLocate.getState().groundAndRelocate('s', 'heal-b.pdf', 'active', '_draft', [{ a: 1 }])
+    await g()
+    const after = calls(fetchMock).length
+    await g()
+    expect(calls(fetchMock).length).toBe(after)
+  })
+
+  it('a failed ground leaves the cache untouched and clears loading', async () => {
+    // ground returns a non-array envelope → fetchGround resolves null.
+    // (`null` can't express this: routedFetch's `??` would swap it for the
+    // default grounded evidence and the pass would look like a success.)
+    const fetchMock = routedFetch({ groundEvidence: {} })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await useLocate.getState().groundAndRelocate('s', 'heal-c.pdf', 'active', '_draft', [{ a: 1 }])
+
+    // no locate attempted — grounding is what failed, so there's nothing new to resolve
+    expect(calls(fetchMock).every((u) => !u.url.includes('/locate'))).toBe(true)
+    expect(useLocate.getState().byKey['heal-c.pdf::active']).toBeUndefined()
+    expect(useLocate.getState().loading).toBe(false)
+  })
+
   it('reset clears cache and focus', async () => {
     vi.stubGlobal('fetch', routedFetch())
     await useLocate.getState().loadFor('s', 'f.pdf', 'active', [{ a: 1 }], null)

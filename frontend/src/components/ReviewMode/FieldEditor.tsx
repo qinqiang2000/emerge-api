@@ -16,7 +16,7 @@ import Section, { type SectionField } from './Section'
 import JsonView from './JsonView'
 import { useReview } from '../../stores/review'
 import { useLocate } from '../../stores/locate'
-import { evidencePageOf, type EvidenceValue } from '../../lib/locate'
+import { evidencePageOf, hasEvidenceSignal, type EvidenceValue } from '../../lib/locate'
 import { useT } from '../../i18n'
 import type { SchemaField } from '../../stores/schema'
 
@@ -93,6 +93,7 @@ export default function FieldEditor({
   const requestScroll = useLocate(s => s.requestScroll)
   const loadFor = useLocate(s => s.loadFor)
   const warmAndRelocate = useLocate(s => s.warmAndRelocate)
+  const groundAndRelocate = useLocate(s => s.groundAndRelocate)
   const locateLoading = useLocate(s => s.loading)
   const tabLocations = useLocate(s => s.byKey[`${filename}::${activeTabKey}`])
 
@@ -136,7 +137,29 @@ export default function FieldEditor({
     if (resolved) return
     const evEntry = evidence?.[focusedEntity] ?? undefined
     const evPage = evidencePageOf(evEntry?.[focusedPath] as EvidenceValue)
-    if (evPage == null) return
+    if (evPage == null) {
+      // No page hint anywhere on this blob → it was never successfully grounded
+      // (the produce-time pass failed and got swallowed to null). Without an
+      // anchor the resolver refuses any non-distinctive value outright — every
+      // decimal amount reads as "无法定位来源" even when it's plainly on the page.
+      // Recover it once, in the background: first paint already happened, so the
+      // LLM round-trip costs the reviewer nothing but a late-arriving highlight,
+      // and the server caches it into the blob so this never repeats.
+      // Draft/pending-backed tabs only — the ground route caches into that blob,
+      // so doing this under an experiment tab would stamp the wrong anchors.
+      const groundable =
+        activeTabKey === 'active' || activeTabKey === '_draft' || activeTabKey === '_pending'
+      if (groundable && !hasEvidenceSignal((evidence ?? null) as (Record<string, unknown> | null)[] | null)) {
+        void groundAndRelocate(
+          projectId,
+          filename,
+          activeTabKey,
+          isPending ? '_pending' : '_draft',
+          entities as Record<string, unknown>[],
+        )
+      }
+      return
+    }
     void warmAndRelocate(
       projectId,
       filename,
@@ -145,7 +168,7 @@ export default function FieldEditor({
       entities as Record<string, unknown>[],
       (evidence ?? null) as (Record<string, unknown> | null)[] | null,
     )
-  }, [projectId, filename, activeTabKey, focusedPath, focusedEntity, tabLocations, locateLoading, evidence, entities, warmAndRelocate])
+  }, [projectId, filename, activeTabKey, focusedPath, focusedEntity, tabLocations, locateLoading, evidence, entities, warmAndRelocate, groundAndRelocate, isPending])
 
   // Field click → existing select + new source-grounding focus. If the field's
   // resolved source sits on another page, scroll there (off-page jump lives in

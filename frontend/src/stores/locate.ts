@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { fetchLocate, type FieldLocation } from '../lib/locate'
+import { fetchGround, fetchLocate, type FieldLocation } from '../lib/locate'
 import { fetchTextlayer } from '../lib/api'
 
 /**
@@ -32,6 +32,17 @@ const _inflight = new Set<string>()
 // per tab — a page whose image genuinely has no recoverable text stays none
 // instead of looping warm→relocate→none forever.
 const _ocrRelocated = new Set<string>()
+
+// (filename, tabKey) we've already run the self-heal ground pass for. A blob
+// whose `_evidence` is null was NEVER successfully grounded: the eager pass at
+// produce time threw and `_ground_payload` swallowed it to null
+// (app/tools/extract.py). That degraded silently and PERMANENTLY — locate then
+// has no page hint, and a non-distinctive value (any decimal amount, e.g.
+// `88.74`) is refused outright by the resolver's no-hint guard, so the reviewer
+// sees "此字段在文档中无法定位来源" on a value that is plainly on the page.
+// This set bounds the recovery to one ground call per (doc, tab) per session so
+// a doc that genuinely grounds to nothing never loops.
+const _selfHealed = new Set<string>()
 
 interface LocateState {
   byKey: Record<string, FieldLocation[]>
@@ -73,6 +84,31 @@ interface LocateState {
    * ONE page's OCR (the existing /textlayer route does OCR), then re-run locate
    * for the tab so it reads the now-warm sidecar. Idempotent per (tab, page).
    */
+  /**
+   * Self-heal a blob that carries NO evidence at all, then re-locate.
+   *
+   * Complements `warmAndRelocate`: that one fixes "has a page hint but the value
+   * lives in a cold page image"; this one fixes "has no hint at all because the
+   * produce-time ground pass failed and was swallowed to null".
+   *
+   * Deliberately NOT folded into `loadFor`. Grounding is an LLM round-trip, and
+   * the render path must never block on a provider (see the note in `loadFor`) —
+   * so this fires only AFTER locate has settled and left a field the user
+   * actually focused unresolved. First paint stays LLM-free; the highlight
+   * appears a few seconds later, once. The result is cached server-side into the
+   * blob, so the next open is instant and needs no LLM at all.
+   *
+   * Only ever call for a tab backed by the `_draft` / `_pending` blob — the
+   * ground route caches into that blob, so running it while an EXPERIMENT tab is
+   * displayed would stamp the experiment's anchors onto the draft.
+   */
+  groundAndRelocate: (
+    projectId: string,
+    filename: string,
+    tabKey: string,
+    tab: '_draft' | '_pending',
+    entities: Record<string, unknown>[],
+  ) => Promise<void>
   warmAndRelocate: (
     projectId: string,
     filename: string,
@@ -125,10 +161,41 @@ export const useLocate = create<LocateState>((set, get) => ({
       // emitted no evidence fall back to the LLM-free value matcher, which is
       // already quite capable; producing source quotes belongs in the
       // extract/label pipeline (warmed into the blob), not lazily on review.
+      //
+      // A blob that was NEVER grounded (produce-time pass failed → `_evidence`
+      // null) is recovered by `groundAndRelocate`, but only AFTER this settles
+      // and only for a field the user actually focused — so the LLM stays off
+      // the first-paint path while the reviewer still stops seeing a bogus
+      // "无法定位来源" on a value that is plainly on the page.
       const locations = await fetchLocate(projectId, filename, entities, evidence)
       set((s) => ({ byKey: { ...s.byKey, [key]: locations }, loading: false }))
     } finally {
       _inflight.delete(key)
+    }
+  },
+
+  groundAndRelocate: async (projectId, filename, tabKey, tab, entities) => {
+    const guard = cacheKey(filename, tabKey)
+    if (_selfHealed.has(guard) || !entities.length) return
+    _selfHealed.add(guard)
+    set({ loading: true })
+    try {
+      // One grounding pass over the displayed values. Pass `entities` explicitly:
+      // the `active` tab may be backed by pending, and the route grounds exactly
+      // what we send (caching into `tab` only when the entity count lines up).
+      const evidence = await fetchGround(projectId, filename, tab, entities)
+      if (!evidence) {
+        set({ loading: false })
+        return
+      }
+      const locations = await fetchLocate(projectId, filename, entities, evidence)
+      set((s) => ({ byKey: { ...s.byKey, [cacheKey(filename, tabKey)]: locations }, loading: false }))
+      // Re-pan: the click that triggered this consumed its scroll request while
+      // the field was still `none` (same reason warmAndRelocate re-bumps).
+      const fp = get().focusedPath
+      if (fp) set((s) => ({ scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, path: fp } }))
+    } catch {
+      set({ loading: false })
     }
   },
 
