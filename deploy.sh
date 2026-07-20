@@ -46,7 +46,14 @@ rsync -az --delete -e "ssh -i $PEM" \
   --exclude='backend/.env' \
   "$HERE/" "$HOST:$REMOTE/"
 
-REMOTE_CMD='set -e; export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"'
+REMOTE_CMD='set -e; export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+  # rsync -a replicates LOCAL directory modes, and this dev box'"'"'s umask leaves
+  # repo dirs 0700. That silently made /root/emerge/frontend un-enterable by the
+  # nginx user: every page 403d while both /healthz probes (proxied to the
+  # backend, no static read) stayed green. Re-open just the traversal chain nginx
+  # needs — the dist/ contents themselves are built server-side under umask 022.
+  # (macOS ships openrsync, which has no --chmod, so this must run server-side.)
+  chmod 755 /root/emerge /root/emerge/frontend 2>/dev/null || true'
 if [ "$API" = 1 ]; then
   REMOTE_CMD="$REMOTE_CMD"'
   echo "→ uv sync"; cd /root/emerge/backend && uv sync -q'
@@ -69,7 +76,17 @@ REMOTE_CMD="$REMOTE_CMD"'
   sleep 4
   systemctl is-active emerge.service nginx
   echo -n "backend healthz: "; curl -s -m5 http://127.0.0.1:8080/healthz; echo
-  echo -n "https healthz:   "; curl -s -m5 -k --resolve fpydoc.duckdns.org:443:127.0.0.1 https://fpydoc.duckdns.org/healthz; echo'
+  echo -n "https healthz:   "; curl -s -m5 -k --resolve fpydoc.duckdns.org:443:127.0.0.1 https://fpydoc.duckdns.org/healthz; echo
+  # Both healthz probes are PROXIED to the backend and read no static file, so
+  # they stayed green while the SPA itself 403d (unreadable dist → every page
+  # dead). Fetch the actual index too, and fail the deploy loudly if it is not
+  # 200 — the deploy must never report success on a site that serves nothing.
+  code=$(curl -s -o /dev/null -w "%{http_code}" -m5 -k --resolve fpydoc.duckdns.org:443:127.0.0.1 https://fpydoc.duckdns.org/)
+  echo "index.html:      $code"
+  if [ "$code" != "200" ]; then
+    echo "✗ SPA index is not served (HTTP $code) — check dist perms + nginx error.log" >&2
+    exit 1
+  fi'
 
 ssh -i "$PEM" "$HOST" "$REMOTE_CMD"
 echo "✓ deployed → https://fpydoc.duckdns.org  (label-studio → http://${HOST#root@}:9090)"
