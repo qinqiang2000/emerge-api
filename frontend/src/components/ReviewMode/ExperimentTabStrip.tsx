@@ -35,6 +35,19 @@ type TabSpec =
 
 const GAP = 4
 
+/** The backend mints an experiment label as
+ *  `{prompt.label} v{version} × {model.provider_model_id}` (tools/experiment.py),
+ *  i.e. the model's human name is already inside the experiment row. Read it
+ *  from there when the models store has no entry for `model_id` — a model
+ *  added mid-session (`add_model` in chat) leaves that store cached, and the
+ *  tab would otherwise show the raw `m_xxxxxxxx` id. The suffix is the same
+ *  `provider_model_id` the store would have yielded, so the two paths agree. */
+export function modelFromExperimentLabel(label: string): string | null {
+  const i = label.indexOf(' × ')
+  if (i < 0) return null
+  return label.slice(i + 3).trim() || null
+}
+
 function _runTitle(run: RunStamp, kindLabel: string): string {
   const model = run.extract_model ?? run.model_id ?? '?'
   const prompt = run.prompt_label ?? run.prompt_id ?? '?'
@@ -85,7 +98,9 @@ export default function ExperimentTabStrip({
     ...availableExperiments
       .filter((e) => e.status !== 'archived')
       .map<TabSpec>((e) => {
-        const model = modelLabels[e.model_id] ?? e.model_id
+        const model = modelLabels[e.model_id]
+          ?? modelFromExperimentLabel(e.label)
+          ?? e.model_id
         // label is typically "{prompt_name} × {model_label}"; strip the model
         // suffix so the second line is just the prompt's own name.
         const prompt = e.label.includes(' × ') ? e.label.split(' × ')[0] : e.label

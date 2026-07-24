@@ -1374,7 +1374,15 @@ function handleToolResult(
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
     }
-    if (t === 'mcp__emerge_tools__switch_active_model') {
+    // `switch_active_model` flips the pointer; `add_model` mints a brand-new
+    // models/{id}.json (the typed tool the skill mandates over hand-writing
+    // the file). Both change the list the review tab strip resolves labels
+    // from — without the `add_model` arm a model registered mid-session left
+    // the store cached and its tab rendered the raw `m_xxxxxxxx` id.
+    if (
+      t === 'mcp__emerge_tools__switch_active_model' ||
+      t === 'mcp__emerge_tools__add_model'
+    ) {
       useModels.getState().invalidate(projectId)
       void useModels.getState().load(projectId)
     }
@@ -1515,8 +1523,14 @@ function handleToolResult(
 
 /** Built-in SDK filesystem-write tools. Post-Step-B these — not the removed
  *  create/write/delete business tools — are how the agent mutates model &
- *  prompt JSON files, so cross-store invalidation keys off their file_path. */
-const FS_WRITE_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit'])
+ *  prompt JSON files, so cross-store invalidation keys off their file_path.
+ *  `ws_write` / `ws_edit` are the remote (headless / Cowork) branch of the
+ *  same pair: tools/__init__.py clones the built-ins' `file_path` arg name
+ *  exactly, so one path-based check serves both branches. */
+const FS_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'Write', 'Edit', 'MultiEdit',
+  'mcp__emerge_tools__ws_write', 'mcp__emerge_tools__ws_edit',
+])
 
 /** Tools whose successful completion can change Bench leaderboard rows
  *  (score, axis activeness, axis label, experiment status) or per-doc strip

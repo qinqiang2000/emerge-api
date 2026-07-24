@@ -632,4 +632,58 @@ describe('chat store: cross-store invalidation → filesystem model/prompt write
 
     expect(modelSpy).not.toHaveBeenCalled()
   })
+
+  // The remote (headless / Cowork) skill branch writes through ws_write /
+  // ws_edit instead of the built-ins — same `file_path` arg, so the same
+  // path-based catch must fire.
+  it('ws_write to models/*.json invalidates useModels (remote skill branch)', () => {
+    seedFsWrite('mcp__emerge_tools__ws_write', '北方工业/models/m_g25flash.json')
+    const modelSpy = vi.spyOn(useModels.getState(), 'invalidate')
+
+    _testUtils.handleToolResult({ tool_use_id: TUID, result_text: 'ok', ok: true }, PID, null)
+
+    expect(modelSpy).toHaveBeenCalledWith(PID)
+  })
+
+  it('ws_edit to prompts/*.json invalidates usePrompts + useSchema', () => {
+    seedFsWrite('mcp__emerge_tools__ws_edit', '北方工业/prompts/pr_abc123.json')
+    const promptSpy = vi.spyOn(usePrompts.getState(), 'invalidate')
+    const schemaSpy = vi.spyOn(useSchema.getState(), 'invalidate')
+
+    _testUtils.handleToolResult({ tool_use_id: TUID, result_text: 'ok', ok: true }, PID, null)
+
+    expect(promptSpy).toHaveBeenCalledWith(PID)
+    expect(schemaSpy).toHaveBeenCalledWith(PID)
+  })
+
+  // add_model is a typed business tool (the skill mandates it over
+  // hand-writing models/*.json), so it carries NO file_path — the path-based
+  // catch above can never see it. Without its own arm the models store stays
+  // cached and the review tab strip falls back to the raw `m_xxxxxxxx` id.
+  it('add_model invalidates useModels (typed tool, no file_path)', () => {
+    useChat.setState({
+      chatId: 'c_fs00000002',
+      events: [{
+        type: 'tool_call',
+        tool_use_id: TUID,
+        tool_name: 'mcp__emerge_tools__add_model',
+        tool_input: { label: 'qwen3.7-plus-openai-compat', provider: 'openai' },
+        tool_result: null,
+        ok: true,
+      }],
+      busy: false,
+      loadedProjectId: PID,
+      loadedUnboundChatId: null,
+      chatsByProject: {},
+      chatsUnbound: [],
+      streamAbort: null,
+      inflightTurnId: null,
+      interrupted: false,
+    })
+    const modelSpy = vi.spyOn(useModels.getState(), 'invalidate')
+
+    _testUtils.handleToolResult({ tool_use_id: TUID, result_text: 'ok', ok: true }, PID, null)
+
+    expect(modelSpy).toHaveBeenCalledWith(PID)
+  })
 })
