@@ -7,7 +7,9 @@
 #
 # Idempotent. Protects server-managed state: backend/.env and backend/workspace
 # are never overwritten or deleted (the prod .env has GOOGLE_PROXY commented out
-# and points ANTHROPIC_BASE_URL at the on-host proxy; workspace holds migrated
+# and points ANTHROPIC_BASE_URL at the Anthropic gateway — as of 2026-07-24 the
+# remote apse-sg-kiro gateway, after the on-host :8000 proxy hit its monthly
+# quota and started 402ing every agent turn; workspace holds migrated
 # data). Frontend build uses `vite build` directly — `npm run build` runs
 # `tsc -b` first which currently fails on pre-existing test-fixture type errors.
 #
