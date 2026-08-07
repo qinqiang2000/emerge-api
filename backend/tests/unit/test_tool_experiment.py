@@ -59,7 +59,12 @@ async def test_create_experiment_defaults_to_active(workspace: Path) -> None:
     assert ex.model_id == "m_default"
     assert ex.status == "draft"
     assert ex.eval is None
-    # Label is auto-derived from prompt label + content version + model id
+    # Label is auto-derived from prompt label + content version + the MODEL CONFIG's
+    # label (not its provider_model_id — see test_experiment_labels_distinguish_
+    # model_configs below for why). Here the two coincide: the fixture seeds the
+    # legacy `m_default.label == "Default"`, which `_backfill_m_default_label`
+    # rewrites to the provider_model_id during migrate — so real projects keep
+    # rendering "× gemini-2.5-flash" exactly as before this change.
     assert ex.label == "Baseline v1 × gemini-2.5-flash"
     assert ex.prompt_version == 1
 
@@ -85,9 +90,45 @@ async def test_create_experiment_explicit_axes(workspace: Path) -> None:
         workspace, pid, prompt_id="pr_v2", model_id="m_other",
     )
     ex = await read_experiment(workspace, pid, eid)
-    assert ex.label == "v2 v1 × claude-haiku-4-5-20251001"
+    assert ex.label == "v2 v1 × Other"
     assert ex.prompt_id == "pr_v2"
     assert ex.model_id == "m_other"
+
+
+async def test_experiment_labels_distinguish_model_configs(workspace: Path) -> None:
+    """Two ModelConfigs wrapping the SAME provider_model_id must not collide.
+
+    Regression: the upsert key is (prompt_id, prompt_version, model_id), so two
+    configs of one underlying model — differing only in `params` (e.g. reasoning
+    effort) — are legitimately distinct experiments. The label used to be derived
+    from `provider_model_id`, so both rendered under an identical name and the
+    review tabstrip showed two indistinguishable tabs.
+    """
+    from app.tools.experiment import create_experiment, read_experiment
+    pid = "p_test12345678"
+    _seed_axes(workspace, pid)
+    for mid, label, params in (
+        ("m_terra_low", "gpt-5.6-terra (low)", {"effort": "low"}),
+        ("m_terra_def", "gpt-5.6-terra (default)", {}),
+    ):
+        atomic_write_json(model_path(workspace, pid, mid), {
+            "model_id": mid, "label": label,
+            "provider": "bedrock_mantle",
+            "provider_model_id": "openai.gpt-5.6-terra",
+            "params": params, "created_at": _now(),
+        })
+
+    eid_low = await create_experiment(workspace, pid, model_id="m_terra_low")
+    eid_def = await create_experiment(workspace, pid, model_id="m_terra_def")
+
+    # Distinct experiments (upsert must not fold them together)...
+    assert eid_low != eid_def
+    low = await read_experiment(workspace, pid, eid_low)
+    dfl = await read_experiment(workspace, pid, eid_def)
+    # ...and distinguishable by name in the UI.
+    assert low.label != dfl.label
+    assert low.label == "Baseline v1 × gpt-5.6-terra (low)"
+    assert dfl.label == "Baseline v1 × gpt-5.6-terra (default)"
 
 
 async def test_create_experiment_is_upsert_by_axes_pair(workspace: Path) -> None:

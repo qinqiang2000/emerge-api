@@ -119,7 +119,16 @@ async def create_experiment(
         now = _now_iso()
         ex = Experiment(
             experiment_id=new_id,
-            label=f"{prompt.label} v{prompt.version} × {model.provider_model_id}",
+            # `model.label`, not `model.provider_model_id`: the upsert key above is
+            # (prompt_id, prompt_version, MODEL_ID), so two ModelConfigs wrapping the
+            # same underlying model — same provider_model_id, different params such
+            # as effort/temperature, or a different base_url — are legitimately
+            # distinct experiments. Deriving the label from provider_model_id made
+            # them render as the SAME name in the review tabstrip, leaving the user
+            # unable to tell two side-by-side result sets apart. `label` is required
+            # non-empty at create time (the route defaults it to provider_model_id),
+            # so this never regresses to a blank name.
+            label=f"{prompt.label} v{prompt.version} × {model.label}",
             prompt_id=pid_resolved,
             prompt_version=prompt.version,
             model_id=mid_resolved,

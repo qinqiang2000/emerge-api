@@ -87,10 +87,16 @@ export default function ReviewOverlay({
   const modelList = useModels(useShallow(s => activeProjectId ? s.list[activeProjectId] ?? [] : []))
 
   // For the tab strip's top line we want a compact, recognizable model name.
-  // The user-supplied `label` often duplicates the model_id ("Default (gemini-
-  // 2.5-flash)"); the bare provider_model_id reads better in a tight chip.
+  // Use the config's `label`, NOT provider_model_id: two ModelConfigs may wrap
+  // the same underlying model and differ only in `params` (e.g. reasoning
+  // effort), which are legitimately separate experiments — keying on
+  // provider_model_id rendered both tabs with an identical name, leaving the
+  // user unable to tell two side-by-side result sets apart. `label` is required
+  // non-empty at create time (routes/models.py defaults it to
+  // provider_model_id), so the compact chip never degrades to a blank or a bare
+  // `m_xxxx` id. Matches BenchOverlay, which already keys on `label`.
   const modelLabels = useMemo(
-    () => Object.fromEntries(modelList.map(m => [m.model_id, m.provider_model_id])),
+    () => Object.fromEntries(modelList.map(m => [m.model_id, m.label])),
     [modelList],
   )
 
