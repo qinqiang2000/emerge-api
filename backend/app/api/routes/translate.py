@@ -31,7 +31,11 @@ async def post_translate(
     force: bool = Query(False),
 ) -> dict:
     """Return `{mode, page_w, page_h, image_w, image_h, lines[], model_id,
-    input_tokens, output_tokens, …}` for one page.
+    input_tokens, output_tokens, thinking_tokens, …}` for one page.
+
+    `thinking_tokens` is billed at the output rate but counted apart from
+    `output_tokens` (Gemini 2.5+); sum the two for output spend. Sidecars
+    cached before the field existed omit the key — absent means unknown.
 
     Query params:
         page  — 1-indexed page number (required, ≥1)

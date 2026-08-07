@@ -278,7 +278,7 @@ async def translate_page(
             "lines": [
                 {"bbox": [x0, y0, x1, y1], "original": str, "translated": str}
             ],
-            "input_tokens": int, "output_tokens": int,
+            "input_tokens": int, "output_tokens": int, "thinking_tokens": int,
         }
 
     `bbox` is ALWAYS in PDF page units (top-left origin, matching fitz). The
@@ -319,6 +319,11 @@ async def translate_page(
     # no provider call, so we can't read them off a `result` that never exists.
     input_tokens = 0
     output_tokens = 0
+    # Reported apart from `output_tokens` by Gemini 2.5+, and 0 elsewhere —
+    # see `ProviderResult.thinking_tokens`. Sidecars written before this field
+    # existed simply lack the key; absent means "unknown", not zero, so
+    # readers must not silently treat old cache entries as thinking-free.
+    thinking_tokens = 0
 
     if use_textlayer:
         originals = [str(s.get("text", "")) for s in spans]
@@ -344,6 +349,7 @@ async def translate_page(
             )
             input_tokens = int(result.input_tokens or 0)
             output_tokens = int(result.output_tokens or 0)
+            thinking_tokens = int(result.thinking_tokens or 0)
             # Gemini's JSON mode returns the schema's root type verbatim. For an
             # array response_schema, `raw_json` may arrive as either the bare
             # list or wrapped in a single-key dict depending on schema-mode
@@ -398,6 +404,7 @@ async def translate_page(
         )
         input_tokens = int(result.input_tokens or 0)
         output_tokens = int(result.output_tokens or 0)
+        thinking_tokens = int(result.thinking_tokens or 0)
         raw = result.raw_json
         if not isinstance(raw, dict) or "lines" not in raw:
             raise ValueError(
@@ -430,6 +437,7 @@ async def translate_page(
         "lines": lines,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "thinking_tokens": thinking_tokens,
     }
     atomic_write_text(cache, json.dumps(payload, ensure_ascii=False))
     return payload

@@ -111,9 +111,39 @@ class GoogleProvider(Provider):
         # thinking only adds latency / load (and worsens 503 "high demand"),
         # with no quality gain. Only set when the caller asks via params, so
         # extract / proposer / translate keep the model's default thinking.
+        #
+        # `thinking_level` ("low" / "high") is the Gemini 3 form of the same
+        # knob — 3.x tunes reasoning by level, 2.5 by token budget. Both are
+        # refused together rather than one silently winning: a ModelConfig
+        # pins exactly one provider_model_id, so only one generation's knob
+        # can ever be meaningful, and dropping the other would turn a
+        # hand-edited params typo into an invisible no-op that surfaces only
+        # as unexplained latency / spend (gemini-3-flash measured 14.6s at its
+        # default `high` vs 5.8s at `low` — a drop that big must not be silent).
         tb = params.get("thinking_budget")
+        tl = params.get("thinking_level")
+        if tb is not None and tl is not None:
+            raise ValueError(
+                "params sets both thinking_budget and thinking_level; they are "
+                "the Gemini 2.5 and Gemini 3 forms of the same control and "
+                "cannot be sent together — keep only the one this model uses "
+                f"(got thinking_budget={tb!r}, thinking_level={tl!r})"
+            )
         if tb is not None:
             cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=tb)
+        elif tl is not None:
+            # The SDK enum is case-insensitive but does NOT reject unknown
+            # strings — it warns and forwards them verbatim, so a typo'd level
+            # dies as an opaque 400 from the API instead of at the config edit.
+            # Gate on the enum itself rather than a literal list so a future
+            # SDK adding a level keeps working without a change here.
+            allowed = {lv.value for lv in types.ThinkingLevel}
+            if not isinstance(tl, str) or tl.upper() not in allowed:
+                raise ValueError(
+                    f"invalid thinking_level {tl!r}; expected one of "
+                    f"{sorted(allowed)} (case-insensitive)"
+                )
+            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=tl)
 
         async def _call() -> ProviderResult:
             try:
@@ -137,6 +167,16 @@ class GoogleProvider(Provider):
                 model_id=model_id,
                 input_tokens=getattr(resp.usage_metadata, "prompt_token_count", 0) or 0,
                 output_tokens=getattr(resp.usage_metadata, "candidates_token_count", 0) or 0,
+                # Gemini 2.5+ bills thinking at the output rate but counts it
+                # OUTSIDE candidates_token_count — the SDK defines
+                # total_token_count as prompt + candidates + tool_use_prompt +
+                # thoughts, so reading only candidates silently drops it. It's
+                # the dominant term on gemini-3's default level (measured 5630
+                # thoughts vs 819 candidates), which would understate output
+                # spend ~7x. The field is Optional[int]: absent on pre-2.5
+                # models and None when thinking is off, so it needs the same
+                # getattr + `or 0` shape as the two counts above.
+                thinking_tokens=getattr(resp.usage_metadata, "thoughts_token_count", 0) or 0,
             )
 
         return await retry_async(

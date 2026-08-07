@@ -253,6 +253,11 @@ export interface TranslatePayload {
   lines: TranslateLine[]
   input_tokens: number
   output_tokens: number
+  /** Output-priced reasoning tokens, counted APART from `output_tokens` by
+   *  Gemini 2.5+ (0 for providers that fold reasoning into the output count).
+   *  Add both for output spend. Optional because sidecars cached before the
+   *  field existed omit it — `undefined` means unknown, not zero. */
+  thinking_tokens?: number
 }
 
 export async function translatePage(

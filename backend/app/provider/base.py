@@ -33,7 +33,31 @@ class ProviderResult(BaseModel):
     raw_json: dict[str, Any]
     model_id: str
     input_tokens: int = 0
+    # Output-side tokens for the VISIBLE answer, exactly as the provider counts
+    # them. Deliberately unchanged in meaning since it was introduced, so a
+    # number recorded months ago stays comparable with one recorded today.
     output_tokens: int = 0
+    # Reasoning / "thinking" tokens the provider reports SEPARATELY from
+    # `output_tokens` — output-priced tokens that are NOT already inside the
+    # count above. Gemini 2.5+ is the case that forces this: the SDK documents
+    # `total_token_count` as prompt + candidates + tool_use_prompt + thoughts,
+    # i.e. `thoughts_token_count` is disjoint from `candidates_token_count`,
+    # and on gemini-3-flash's default thinking level it dwarfs the visible
+    # output (measured 5630 thoughts vs 819 candidates on one PDF extract).
+    #
+    # Stays 0 for Anthropic, OpenAI Chat Completions and OpenAI Responses,
+    # whose usage already folds reasoning INTO the output count and exposes it
+    # only as a `*_details.reasoning_tokens` SUB-total — populating it there
+    # would double-count. The invariant every adapter must uphold is that
+    # `output_tokens + thinking_tokens` covers all output-billed tokens exactly
+    # once, which is what `total_output_tokens` below relies on.
+    thinking_tokens: int = 0
+
+    @property
+    def total_output_tokens(self) -> int:
+        """Every output-priced token. Use this for cost/spend, never
+        `output_tokens` alone — that one omits Gemini's thinking tokens."""
+        return self.output_tokens + self.thinking_tokens
 
 
 @runtime_checkable
