@@ -3,7 +3,9 @@ import { create } from 'zustand'
 export interface ModelRow {
   model_id: string
   label: string
-  provider: 'anthropic' | 'openai' | 'google'
+  // Mirrors backend `app.schemas.model_config.Provider`. Keep in sync — the
+  // backend already served 'codex' while this union still listed three.
+  provider: 'anthropic' | 'openai' | 'google' | 'codex' | 'bedrock_mantle'
   provider_model_id: string
   is_active: boolean
   created_at: string
@@ -12,7 +14,9 @@ export interface ModelRow {
 export interface ActiveModel {
   model_id: string
   label: string
-  provider: 'anthropic' | 'openai' | 'google'
+  // Mirrors backend `app.schemas.model_config.Provider`. Keep in sync — the
+  // backend already served 'codex' while this union still listed three.
+  provider: 'anthropic' | 'openai' | 'google' | 'codex' | 'bedrock_mantle'
   provider_model_id: string
   params: Record<string, unknown>
   created_at: string

@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-Provider = Literal["anthropic", "openai", "google", "codex"]
+Provider = Literal["anthropic", "openai", "google", "codex", "bedrock_mantle"]
 
 
 class ModelConfig(BaseModel):
@@ -23,6 +23,12 @@ class ModelConfig(BaseModel):
 
 def infer_provider_from_model_id(provider_model_id: str) -> Provider:
     mid = provider_model_id.lower()
+    # Bedrock-mantle ids are dot-namespaced by vendor ("openai.gpt-5.6-terra"),
+    # which is what separates them from a direct OpenAI id ("gpt-5.6"). Checked
+    # before the bare-vendor branches so the dotted form never falls through to
+    # the plain openai/anthropic adapters, which speak the wrong wire shape.
+    if "." in mid.split("-")[0]:
+        return "bedrock_mantle"
     if mid.startswith("claude-"):
         return "anthropic"
     if mid.startswith("gpt-") or mid.startswith("o1-") or mid.startswith("o3-"):

@@ -92,6 +92,23 @@ def get_provider_for_model(
             # extract works. The real api.openai.com (no base_url) is unaffected.
             disable_thinking=bool(base_url),
         )
+    if provider == "bedrock_mantle":
+        from app.provider.bedrock_mantle import BedrockMantleProvider
+
+        # One Bedrock API key serves every mantle model, so the default env var
+        # needs no per-model override; `api_key_env` still wins when a model
+        # config points at a different key (e.g. a second AWS account).
+        key = (
+            os.getenv(api_key_env)
+            if api_key_env
+            else (api_key or os.getenv("AWS_BEARER_TOKEN_BEDROCK", ""))
+        )
+        url = base_url or os.getenv("BEDROCK_MANTLE_BASE_URL") or None
+        return BedrockMantleProvider(
+            api_key=key,
+            proxy=os.getenv("BEDROCK_PROXY") or None,
+            base_url=url,
+        )
     if provider == "anthropic":
         from app.provider.anthropic import AnthropicProvider
 
@@ -108,6 +125,19 @@ def get_provider_for_model(
             # 400s on forced tool_choice; disable it so structured extract works.
             # The global ANTHROPIC_BASE_URL (claude) is NOT treated as custom.
             disable_thinking=bool(base_url),
+        )
+    if model_id.startswith("openai."):
+        from app.provider.bedrock_mantle import BedrockMantleProvider
+
+        key = (
+            os.getenv(api_key_env)
+            if api_key_env
+            else (api_key or os.getenv("AWS_BEARER_TOKEN_BEDROCK", ""))
+        )
+        return BedrockMantleProvider(
+            api_key=key,
+            proxy=os.getenv("BEDROCK_PROXY") or None,
+            base_url=base_url or os.getenv("BEDROCK_MANTLE_BASE_URL") or None,
         )
     if model_id.startswith("gemini"):
         return _google()
