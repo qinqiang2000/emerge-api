@@ -22,6 +22,7 @@ work, not transient upload staging (`_staging/`, 24h). Purged on startup by
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 from datetime import datetime, timezone
@@ -56,6 +57,14 @@ def trash(workspace: Path, path: Path) -> Path | None:
         n += 1
         dest = root / f"{ts}-{path.name}-{n}"
     shutil.move(str(path), str(dest))
+    # Stamp the trash entry with "deleted at NOW". `shutil.move` within one
+    # filesystem is `rename(2)`, which PRESERVES the original mtime — and
+    # `cleanup_trash` ages entries by mtime. Without this, deleting anything
+    # older than the retention window lands it in trash already expired, so the
+    # next startup purge destroys it with zero recovery window — the exact
+    # opposite of what trash is for. (Observed 2026-08-07: two experiments last
+    # written 23 days earlier were purge-eligible the moment they were deleted.)
+    os.utime(dest, None)
     logger.info("trash: %s -> %s", path, dest)
     return dest
 

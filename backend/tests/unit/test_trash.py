@@ -64,6 +64,27 @@ def test_cleanup_trash_purges_only_expired(workspace: Path) -> None:
     assert fresh.exists()
 
 
+def test_trash_stamps_deletion_time_so_retention_starts_now(workspace: Path) -> None:
+    """An OLD project must still get its full retention window after deletion.
+
+    `shutil.move` on one filesystem is `rename(2)`, which preserves mtime, and
+    `cleanup_trash` ages by mtime — so without an explicit re-stamp anything
+    older than the window is purge-eligible the instant it's trashed, and the
+    next startup purge destroys it with no recovery window at all.
+    """
+    proj = _mk(workspace, "ancient")
+    ancient = time.time() - 30 * 24 * 3600  # last touched a month ago
+    os.utime(proj, (ancient, ancient))
+
+    dest = trash(workspace, proj)
+    assert dest is not None
+
+    # Retention is measured from the delete, not from the last edit.
+    assert dest.stat().st_mtime > time.time() - 60
+    assert cleanup_trash(workspace, max_age_hours=24.0 * 14) == 0
+    assert dest.exists()
+
+
 def test_cleanup_trash_missing_bin_returns_zero(workspace: Path) -> None:
     assert cleanup_trash(workspace) == 0
 
