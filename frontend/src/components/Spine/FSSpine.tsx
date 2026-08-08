@@ -19,7 +19,9 @@ import PanelToggle from '../Shell/PanelToggle'
 import UserMenu from '../Shell/UserMenu'
 import RowMenu, { type RowAction } from './RowMenu'
 import RowRename from './RowRename'
+import TrashModal from './TrashModal'
 import { toast } from '../../stores/toast'
+import { useTrash } from '../../stores/trash'
 import {
   ApiError,
   deleteExperiment, deleteModel, deleteProject, deletePrompt,
@@ -176,6 +178,8 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   const modelListByProject = useModels(s => s.list)
   const experimentListByProject = useExperiments(s => s.list)
 
+  // Recycle-bin size drives whether the sidebar entry exists at all.
+  const trashCount = useTrash(s => s.rows.length)
   const openVersion = useQuickLook(s => s.openVersion)
   const openPrompt = useQuickLook(s => s.openPrompt)
   // Spine doc clicks navigate via the URL — App.tsx then drives
@@ -249,6 +253,8 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     try {
       await fn()
       after?.()
+      // The row just moved into the bin — surface the entry immediately.
+      void useTrash.getState().refresh()
       toast.ok(t('spine.op.deleted', { name: label }))
     } catch (e) {
       reportOpError(e)
@@ -310,8 +316,11 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     setDocsAutoload(true)
   }, [])
 
-  // On mount: refresh project list
-  useEffect(() => { void useProjects.getState().refresh() }, [])
+  // On mount: refresh project list + recycle bin
+  useEffect(() => {
+    void useProjects.getState().refresh()
+    void useTrash.getState().refresh()
+  }, [])
 
   // When active project changes: load docs + schema + prompts + models
   useEffect(() => {
@@ -983,10 +992,26 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
 
       </div>{/* /fs-scroll */}
 
-      {/* ── pinned bottom: user identity + menu ──────────────────────── */}
+      {/* ── pinned bottom: recycle bin (only when it has something) + user ──
+          Every delete tells the user their data is recoverable for 14 days;
+          this is where they act on it. Hidden when empty — its absence IS the
+          "nothing to recover" signal, and an always-present empty bin is
+          chrome that teaches nothing. */}
+      {trashCount > 0 && (
+        <button
+          type="button"
+          className="fs-trash"
+          onClick={() => useTrash.getState().show()}
+        >
+          <Trash2 size={14} strokeWidth={1.75} className="fs-trash-icon" />
+          {t('trash.title')}
+          <span className="fs-trash-count">{trashCount}</span>
+        </button>
+      )}
       <div className="fs-foot">
         <UserMenu variant="expanded" />
       </div>
+      <TrashModal />
     </div>
   )
 }

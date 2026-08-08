@@ -26,8 +26,9 @@ import logging
 import os
 import shutil
 import time
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from pathlib import Path, PurePosixPath
+from typing import Any
 
 from app.workspace.paths import teams_root, trash_root
 
@@ -46,27 +47,25 @@ def trash(workspace: Path, path: Path) -> Path | None:
     `workspace` is the EFFECTIVE workspace the path belongs to (a team dir in
     tenant mode, the flat root in open mode) — trash lands inside it, never
     crossing the tenant boundary. The move is atomic on a single filesystem.
+
+    This is `trash_bundle` with a single member: the entry is a directory
+    holding the moved payload plus a `_manifest.json` recording where it came
+    from. The manifest is what makes restore possible at all — a bare
+    `_trash/{ts}-{name}` tells you an experiment called `ex_9f3` was deleted
+    but NOT which project owned it, so there is nowhere to put it back.
     """
-    if not path.exists():
-        return None
+    return trash_bundle(workspace, path.name, [("item", path)])
+
+
+def _new_entry_dir(workspace: Path, label: str) -> Path:
     root = trash_root(workspace)
     root.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dest = root / f"{ts}-{path.name}"
+    dest = root / f"{ts}-{label}"
     n = 1
-    while dest.exists():  # same name trashed within one second
+    while dest.exists():  # same label trashed within one second
         n += 1
-        dest = root / f"{ts}-{path.name}-{n}"
-    shutil.move(str(path), str(dest))
-    # Stamp the trash entry with "deleted at NOW". `shutil.move` within one
-    # filesystem is `rename(2)`, which PRESERVES the original mtime — and
-    # `cleanup_trash` ages entries by mtime. Without this, deleting anything
-    # older than the retention window lands it in trash already expired, so the
-    # next startup purge destroys it with zero recovery window — the exact
-    # opposite of what trash is for. (Observed 2026-08-07: two experiments last
-    # written 23 days earlier were purge-eligible the moment they were deleted.)
-    os.utime(dest, None)
-    logger.info("trash: %s -> %s", path, dest)
+        dest = root / f"{ts}-{label}-{n}"
     return dest
 
 
@@ -95,14 +94,7 @@ def trash_bundle(
     if not present:
         return None
 
-    root = trash_root(workspace)
-    root.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dest = root / f"{ts}-{label}"
-    n = 1
-    while dest.exists():  # same label trashed within one second
-        n += 1
-        dest = root / f"{ts}-{label}-{n}"
+    dest = _new_entry_dir(workspace, label)
     dest.mkdir(parents=True)
 
     entries: list[dict[str, str]] = []
@@ -133,6 +125,200 @@ def trash_bundle(
     os.utime(dest, None)  # same mtime-stamp reasoning as `trash()` above
     logger.info("trash_bundle: %s (%d members) -> %s", label, len(entries), dest)
     return dest
+
+
+class TrashError(Exception):
+    """Restore refused — entry unknown, unreadable, or its origin is occupied."""
+
+
+def _read_manifest(entry: Path) -> dict[str, Any] | None:
+    mp = entry / "_manifest.json"
+    if not mp.is_file():
+        return None
+    try:
+        blob = json.loads(mp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return blob if isinstance(blob, dict) and isinstance(blob.get("members"), list) else None
+
+
+def _classify(origins: list[str]) -> str:
+    """What kind of thing was deleted, inferred from where it used to live.
+
+    Deliberately derived from `origin` rather than stored at delete time: the
+    delete paths that predate the manifest (and any future caller that just
+    calls `trash()`) get classified for free, and there is no second field to
+    keep in sync with the first.
+    """
+    first = origins[0] if origins else ""
+    parts = PurePosixPath(first).parts
+    if len(parts) == 1:
+        return "project"
+    if "docs" in parts:
+        return "doc"
+    if "prompts" in parts:
+        return "prompt"
+    if "models" in parts:
+        return "model"
+    if "experiments" in parts:
+        return "experiment"
+    return "item"
+
+
+def _display_name(entry: Path, kind: str, origins: list[str], members: list[dict]) -> str:
+    """Human-facing name for a trash row. Prefers the object's own `label` over
+    its id: a row reading `ex_0ojxll…` is unusable for deciding what to restore
+    (see the "address things by semantic name" rule). Falls back to the
+    filename when there's no label to read."""
+    first = PurePosixPath(origins[0]) if origins else PurePosixPath("")
+    stored = entry / members[0]["stored"] if members else None
+
+    def _label_from(p: Path | None) -> str | None:
+        if p is None or not p.exists():
+            return None
+        target = p / "meta.json" if p.is_dir() else p
+        if not target.is_file() or target.suffix != ".json":
+            return None
+        try:
+            blob = json.loads(target.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        label = blob.get("label") or blob.get("name")
+        return str(label) if label else None
+
+    if kind in ("experiment", "model", "prompt"):
+        label = _label_from(stored)
+        if label:
+            return label
+    return first.name or entry.name
+
+
+def list_trash(workspace: Path) -> list[dict[str, Any]]:
+    """Everything recoverable in this workspace's trash, newest first.
+
+    Each row: `{entry, name, kind, project, deleted_at, expires_at,
+    member_count, restorable, blocked_reason}`. `entry` is the directory name
+    and the handle `restore_from_trash` takes.
+
+    `restorable` is false for entries trashed before the manifest existed
+    (they record no origin, so there is no way to know where an `ex_xxx` came
+    from) and for entries whose origin is occupied again. Those still get
+    listed — "it's here but I can't put it back automatically, go look at this
+    path" beats pretending the delete never happened.
+    """
+    root = trash_root(workspace)
+    if not root.is_dir():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for entry in root.iterdir():
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            continue
+
+        manifest = _read_manifest(entry)
+        members = manifest["members"] if manifest else []
+        origins = [str(m.get("origin", "")) for m in members]
+        kind = _classify(origins) if origins else "item"
+
+        blocked: str | None = None
+        if manifest is None:
+            blocked = "legacy_no_manifest"
+        else:
+            occupied = [o for o in origins if (workspace / o).exists()]
+            if occupied:
+                blocked = f"origin_occupied:{occupied[0]}"
+
+        deleted_at = datetime.fromtimestamp(mtime, timezone.utc)
+        project = ""
+        if origins:
+            parts = PurePosixPath(origins[0]).parts
+            project = parts[0] if len(parts) > 1 else ""
+
+        rows.append({
+            "entry": entry.name,
+            "name": _display_name(entry, kind, origins, members) if members else entry.name,
+            "kind": kind,
+            "project": project,
+            "deleted_at": deleted_at.isoformat(),
+            "expires_at": (
+                deleted_at + timedelta(hours=TRASH_RETENTION_HOURS)
+            ).isoformat(),
+            "member_count": len(members),
+            "restorable": blocked is None,
+            "blocked_reason": blocked,
+        })
+
+    rows.sort(key=lambda r: r["deleted_at"], reverse=True)
+    return rows
+
+
+def restore_from_trash(workspace: Path, entry_name: str) -> dict[str, Any]:
+    """Put one trash entry back where it came from, replaying its manifest.
+
+    All-or-nothing on conflicts: if ANY member's origin is occupied, nothing
+    moves and `TrashError` names the collision. A half-restored doc (file back,
+    reviewed JSON refused) is worse than a clean refusal — it looks restored
+    while its ground truth is still in the bin.
+
+    Parent dirs are recreated as needed, so a doc can come back into a project
+    whose `docs/` was emptied. It canNOT come back into a project that no
+    longer exists — that would leave a directory with no `project.json`, which
+    the orphan sweeper would then trash right back.
+
+    Returns `{entry, restored: [origins], kind}`."""
+    root = trash_root(workspace)
+    entry = root / entry_name
+    # Containment: `entry_name` arrives from HTTP. Resolve and require the
+    # result to still sit directly under this workspace's trash root.
+    if "/" in entry_name or "\\" in entry_name or entry_name.startswith("."):
+        raise TrashError(f"invalid trash entry: {entry_name}")
+    if not entry.is_dir():
+        raise TrashError(f"no such trash entry: {entry_name}")
+
+    manifest = _read_manifest(entry)
+    if manifest is None:
+        raise TrashError(
+            f"{entry_name} predates the delete manifest, so its original "
+            "location was never recorded — restore it by hand from _trash/"
+        )
+    members = manifest["members"]
+
+    targets: list[tuple[Path, Path]] = []
+    for m in members:
+        origin = workspace / str(m["origin"])
+        stored = entry / str(m["stored"])
+        if origin.exists():
+            raise TrashError(f"already exists, refusing to overwrite: {m['origin']}")
+        if not stored.exists():
+            raise TrashError(f"missing from the trash entry: {m['stored']}")
+        targets.append((stored, origin))
+
+    kind = _classify([str(m.get("origin", "")) for m in members])
+    if kind != "project":
+        # Everything below project level needs its owner to still be there.
+        first = PurePosixPath(str(members[0]["origin"]))
+        if len(first.parts) > 1:
+            owner = workspace / first.parts[0]
+            if not (owner / "project.json").exists():
+                raise TrashError(
+                    f"project '{first.parts[0]}' no longer exists — restore it first"
+                )
+
+    for stored, origin in targets:
+        origin.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(stored), str(origin))
+
+    shutil.rmtree(entry, ignore_errors=True)
+    logger.info("restore_from_trash: %s -> %d member(s)", entry_name, len(targets))
+    return {
+        "entry": entry_name,
+        "kind": kind,
+        "restored": [str(m["origin"]) for m in members],
+    }
 
 
 def cleanup_trash(workspace: Path, max_age_hours: float = TRASH_RETENTION_HOURS) -> int:

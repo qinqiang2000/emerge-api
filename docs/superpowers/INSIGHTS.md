@@ -543,6 +543,34 @@ the move: the single rename IS the tombstone (live `project.json` vanishes
 atomically, tripping the chat-log gate) AND keeps `project.json` in the trashed
 copy — strictly better than the old unlink-then-rmtree which destroyed it.
 
+**Every trash entry is a manifest bundle, including single-member ones
+(2026-08-08).** `trash()` used to move the payload so the entry directory *was*
+the deleted thing — which reads simpler, and is why someone will try to
+"simplify" the extra nesting level back out. Don't: that layout records no
+origin, so `_trash/{ts}-ex_9f3` tells you an experiment was deleted but NOT
+which project owned it, and there is nowhere to put it back. `trash()` is now
+`trash_bundle(label, [("item", path)])`, and every entry carries
+`_manifest.json` with each member's workspace-relative `origin`. That single
+change is what makes `restore_from_trash` possible at all, and it's why
+`list_trash` can classify a row (`_classify` infers kind from the origin path
+shape rather than from a second stored field that could drift).
+
+Entries trashed BEFORE this exist without a manifest. They still list, flagged
+`restorable: false` / `legacy_no_manifest` — "it's here but I can't put it back
+automatically" is honest; hiding the row would read as "the data is gone".
+
+**Restore is all-or-nothing, and needs the owner project alive.** A partial
+restore (doc back, `reviewed/` refused because something occupies the name)
+looks restored while the ground truth is still in the bin — worse than a clean
+refusal. And an item restored under a project whose `project.json` is gone
+would be trashed straight back by the orphan sweeper on the next boot, so
+`restore_from_trash` refuses with "restore the project first".
+
+**The bin needs its own tools even though the agent has Bash.** `workspace_fs`
+hides `_`-prefixed dirs (`_HIDDEN_PREFIXES`), so `ws_list` cannot see `_trash/`
+— without `list_trash` / `restore_from_trash`, chat could not reach the recycle
+bin at all while the UI could, which breaks the "chat can do everything" line.
+
 ---
 
 ## team workspace dir is named by `Team.slug`, not `t_…` id

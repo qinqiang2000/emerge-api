@@ -111,6 +111,27 @@ const en: Dict = {
   'spine.op.err.experiment_promoted': 'promoted experiments are kept as the audit trail',
   'spine.op.err.project_busy': 'a turn is running here — renaming would move the folder out from under it',
 
+  // ── Recycle bin ────────────────────────────────────────────────────────
+  'trash.title': 'Recycle bin',
+  'trash.retention': 'Deleted items are kept for 14 days, then purged for good.',
+  'trash.close': 'close',
+  'trash.loading': 'loading…',
+  'trash.empty': 'nothing deleted recently',
+  'trash.restore': 'Restore',
+  'trash.restoring': 'restoring…',
+  'trash.restored': 'Restored {name}',
+  'trash.restore.failed': 'could not restore that',
+  'trash.expires': '{n}d left',
+  'trash.members': '{n} files',
+  'trash.kind.project': 'project',
+  'trash.kind.doc': 'document',
+  'trash.kind.prompt': 'prompt',
+  'trash.kind.model': 'model',
+  'trash.kind.experiment': 'experiment',
+  'trash.kind.item': 'item',
+  'trash.blocked.occupied': 'something else now occupies {path} — rename or remove it first',
+  'trash.blocked.legacy': 'deleted before restore existed, so its original location wasn’t recorded — recover by hand from _trash/{entry}',
+
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': 'say something to the agent, or type / for a command…',
   'composer.placeholder.askAgent': 'ask the agent…',

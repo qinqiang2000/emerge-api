@@ -241,11 +241,19 @@ async def test_delete_project_is_recoverable_from_trash(workspace: Path) -> None
     slug = out["slug"]
     await delete_project(workspace, slug)
 
+    from app.workspace.trash import list_trash, restore_from_trash
+
     assert not (workspace / slug).exists()
     trashed = list(trash_root(workspace).iterdir())
     assert len(trashed) == 1
     assert trashed[0].name.endswith(f"-{slug}")
-    assert (trashed[0] / "project.json").exists()  # recoverable
+
+    # Recoverable means restorable — the row shows up as a project, and putting
+    # it back brings the live project.json with it.
+    row = list_trash(workspace)[0]
+    assert (row["kind"], row["name"], row["restorable"]) == ("project", slug, True)
+    restore_from_trash(workspace, row["entry"])
+    assert (workspace / slug / "project.json").exists()
 
 
 async def test_create_project_with_from_unbound_chat_id_relocates_chat(

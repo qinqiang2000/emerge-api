@@ -74,6 +74,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "create_project":             ("POST",   r"^/lab/projects$"),
     "delete_project":             ("DELETE", r"^/lab/projects/\{slug\}$"),
     "rename_project":             ("POST",   r"^/lab/projects/\{slug\}/rename$"),
+    # Recycle bin — workspace-scoped (a deleted project lives here too), so
+    # neither form takes a slug.
+    "list_trash":                 ("GET",    r"^/lab/trash$"),
+    "restore_from_trash":         ("POST",   r"^/lab/trash/\{entry\}/restore$"),
     # Doc lifecycle — filename is a primary key, so both of these move the
     # doc's whole artifact set (see the tool definitions); they are not rm/mv.
     "delete_doc":                 ("DELETE", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}$"),

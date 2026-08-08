@@ -272,6 +272,38 @@ export async function deleteExperiment(slug: string, experimentId: string): Prom
   if (!r.ok) throw await apiFailure(r, 'deleteExperiment')
 }
 
+// ── recycle bin ───────────────────────────────────────────────────────────
+// Workspace-scoped, not project-scoped — a deleted project lives here too.
+
+export interface TrashRow {
+  /** Directory name under `_trash/`; the handle `restoreFromTrash` takes. */
+  entry: string
+  name: string
+  kind: 'project' | 'doc' | 'prompt' | 'model' | 'experiment' | 'item'
+  /** Owning project slug, empty for a deleted project itself. */
+  project: string
+  deleted_at: string
+  expires_at: string
+  member_count: number
+  /** False when the origin is occupied again, or the entry predates the
+   *  delete manifest. Such rows still list — "here but not automatically
+   *  restorable" beats implying the data is gone. */
+  restorable: boolean
+  blocked_reason: string | null
+}
+
+export async function listTrash(): Promise<TrashRow[]> {
+  const r = await fetch('/lab/trash')
+  if (!r.ok) throw await apiFailure(r, 'listTrash')
+  return r.json()
+}
+
+export async function restoreFromTrash(entry: string): Promise<{ kind: string; restored: string[] }> {
+  const r = await fetch(`/lab/trash/${encodeURIComponent(entry)}/restore`, { method: 'POST' })
+  if (!r.ok) throw await apiFailure(r, 'restoreFromTrash')
+  return r.json()
+}
+
 export async function getPrediction(slug: string, filename: string): Promise<PredictionPayload | null> {
   const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/predictions/${encodeURIComponent(filename)}`)
   if (r.status === 404) return null

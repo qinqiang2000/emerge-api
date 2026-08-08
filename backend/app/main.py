@@ -35,6 +35,7 @@ from app.api.routes import label_docs as label_docs_route
 from app.api.routes import config as config_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
+from app.api.routes import trash as trash_route
 from app.api.routes import ws as ws_route
 from app.api.routes import audit_board as audit_board_route
 from app.api.routes import review_board as review_board_route
@@ -164,6 +165,7 @@ app.include_router(history_route.router)
 app.include_router(schema_route.router)
 app.include_router(export_route.router)
 app.include_router(bench_route.router)
+app.include_router(trash_route.router)
 async def _load_keystore_on_startup() -> None:
     settings = get_settings()
     settings.workspace_root.mkdir(parents=True, exist_ok=True)

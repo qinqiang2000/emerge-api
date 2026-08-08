@@ -113,7 +113,7 @@ def _extract_provider_error(exc: Exception) -> dict[str, Any]:
 SERVICE_PREFIX = "emerge_"
 
 _READ_ONLY = frozenset({  # pure read / local compute — no durable state change
-    "list_projects", "list_docs", "read_prompt", "read_skill",
+    "list_projects", "list_docs", "read_prompt", "read_skill", "list_trash",
     "ws_list", "ws_read", "ws_grep",
     "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
@@ -258,6 +258,60 @@ def build_emerge_mcp(
                 },
             }
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    # The recycle bin needs tools of its own even though the agent has Bash:
+    # the workspace fs tools hide `_`-prefixed dirs (`workspace_fs`
+    # `_HIDDEN_PREFIXES`), so `ws_list` cannot see `_trash/` at all, and the
+    # restore is a manifest replay with real refusal rules (occupied origin,
+    # vanished owner project) that shouldn't be re-improvised as `mv` each time.
+    @tool(
+        "list_trash",
+        "List what's in this workspace's recycle bin, newest first — deleted "
+        "projects, docs, prompts, models and experiments, each with when it "
+        "was deleted and when it expires (14 days). Returns rows of "
+        "{entry, name, kind, project, deleted_at, expires_at, restorable, "
+        "blocked_reason}; `entry` is the handle `restore_from_trash` takes. "
+        "`restorable: false` means the original location is occupied again or "
+        "the entry predates the delete manifest — say so rather than implying "
+        "the data is gone. Use this to answer 'what did I delete' / 'can I get "
+        "X back'. Rendering: browser → one-line summary (the trash panel shows "
+        "the list); headless → a dated list of name · kind · expires.",
+        {"type": "object", "properties": {}},
+    )
+    async def t_list_trash(args: dict[str, Any]) -> dict[str, Any]:
+        from app.workspace.trash import list_trash
+
+        out = list_trash(workspace)
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "restore_from_trash",
+        "Put one recycle-bin entry back where it came from, with every piece "
+        "it was deleted with (a doc brings its prediction and reviewed ground "
+        "truth along). Takes the `entry` handle from `list_trash`. "
+        "All-or-nothing: if anything already occupies the original location, "
+        "NOTHING is moved and the error names the collision — a half-restored "
+        "doc looks restored while its ground truth is still in the bin. An "
+        "item below project level cannot come back into a project that no "
+        "longer exists; restore the project first. Rendering: browser → one "
+        "line; headless → name what came back and where.",
+        {
+            "type": "object",
+            "properties": {"entry": {"type": "string"}},
+            "required": ["entry"],
+        },
+    )
+    async def t_restore_from_trash(args: dict[str, Any]) -> dict[str, Any]:
+        from app.workspace.trash import TrashError, restore_from_trash
+
+        try:
+            # Plain rename(2)s within one filesystem — same as every other
+            # trash-side move in this codebase; no thread hop needed.
+            out = restore_from_trash(workspace, args["entry"])
+        except TrashError as e:
+            out = {"ok": False, "error": {
+                "error_code": "restore_blocked", "error_message_en": str(e)}}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
         "rename_project",

@@ -111,6 +111,27 @@ const zh: Dict = {
   'spine.op.err.experiment_promoted': '已 promote 的实验作为审计留痕保留',
   'spine.op.err.project_busy': '此项目有会话在跑 — 改名会把目录从它脚下搬走',
 
+  // ── 回收站 ──────────────────────────────────────────────────────────────
+  'trash.title': '回收站',
+  'trash.retention': '删除的内容保留 14 天，之后彻底清除。',
+  'trash.close': '关闭',
+  'trash.loading': '加载中…',
+  'trash.empty': '最近没有删除任何内容',
+  'trash.restore': '恢复',
+  'trash.restoring': '恢复中…',
+  'trash.restored': '已恢复 {name}',
+  'trash.restore.failed': '恢复失败',
+  'trash.expires': '剩 {n} 天',
+  'trash.members': '{n} 个文件',
+  'trash.kind.project': '项目',
+  'trash.kind.doc': '文档',
+  'trash.kind.prompt': 'prompt',
+  'trash.kind.model': '模型',
+  'trash.kind.experiment': '实验',
+  'trash.kind.item': '条目',
+  'trash.blocked.occupied': '原位置 {path} 已被别的东西占用 — 先改名或移走它',
+  'trash.blocked.legacy': '删除时还没有恢复功能，没记下原位置 — 需从 _trash/{entry} 手动取回',
+
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': '对 agent 说点什么，或输入 / 调出命令…',
   'composer.placeholder.askAgent': '问 agent…',

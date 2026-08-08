@@ -1,0 +1,94 @@
+/* Recycle bin sheet. Narrower and shorter than the settings sheet on purpose:
+   this is a list you scan and leave, not a workspace. */
+
+.trash-scrim{
+  position:fixed;inset:0;background:rgba(0,0,0,.32);
+  display:flex;align-items:center;justify-content:center;
+  z-index:120;padding:24px;
+}
+.trash-sheet{
+  width:100%;max-width:560px;max-height:70vh;
+  background:var(--paper);border:1px solid var(--rule);border-radius:16px;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.22);
+  font-family:var(--sans);
+}
+
+.trash-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:16px 18px 12px;border-bottom:1px solid var(--rule-soft);flex-shrink:0;
+}
+.trash-title{font-size:14.5px;font-weight:600;color:var(--ink)}
+.trash-sub{font-size:11.5px;color:var(--ink-4);margin-top:2px}
+.trash-close{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;padding:0;flex-shrink:0;
+  border:1px solid transparent;border-radius:7px;background:transparent;
+  color:var(--ink-4);cursor:pointer;transition:background .12s,color .12s,border-color .12s;
+}
+.trash-close:hover{background:var(--paper-2);color:var(--ink-2);border-color:var(--rule-soft)}
+.trash-close:focus{outline:none}
+.trash-close:focus-visible{outline:none;box-shadow:0 0 0 2px var(--ochre)}
+
+.trash-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px 10px 12px}
+.trash-empty{
+  padding:28px 12px;text-align:center;
+  font-size:12.5px;color:var(--ink-5);font-style:italic;
+}
+
+.trash-row{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:9px;
+  transition:background .12s;
+}
+.trash-row:hover{background:var(--paper-2)}
+.trash-row-icon{color:var(--ink-4);flex-shrink:0}
+.trash-row-main{flex:1;min-width:0}
+.trash-row-name{
+  font-size:13px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.trash-row-meta{
+  font-size:11px;color:var(--ink-5);margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* Why a row can't be put back — the whole point of listing it anyway. */
+.trash-row-blocked{
+  font-size:11px;color:var(--rose);margin-top:3px;
+  font-family:var(--mono);word-break:break-all;
+}
+.trash-row.blocked .trash-row-name{color:var(--ink-3)}
+
+.trash-restore{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  padding:5px 10px;border:1px solid var(--rule);border-radius:7px;
+  background:var(--paper);color:var(--ink-2);
+  font-family:var(--sans);font-size:12px;cursor:pointer;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.trash-restore:hover:not(:disabled){background:var(--paper-3);color:var(--ink);border-color:var(--ink-5)}
+.trash-restore:focus{outline:none}
+.trash-restore:focus-visible{outline:none;box-shadow:0 0 0 2px var(--ochre)}
+.trash-restore:disabled{opacity:.4;cursor:default}
+
+/* ── sidebar entry ──────────────────────────────────────────────────────
+   Lives just above the account row and renders ONLY when the bin has
+   something in it: an always-present empty bin is chrome that teaches
+   nothing, and its absence is itself the "nothing to recover" signal. */
+.fs .fs-trash{
+  display:flex;align-items:center;gap:7px;
+  margin:1px 8px 3px;padding:5px 8px;border-radius:8px;
+  border:0;background:transparent;width:calc(100% - 16px);
+  font-family:var(--sans);font-size:12px;color:var(--ink-4);
+  cursor:pointer;text-align:left;
+  transition:background .12s,color .12s;
+}
+.fs .fs-trash:hover{background:var(--paper-2);color:var(--ink-2)}
+.fs .fs-trash:focus{outline:none}
+.fs .fs-trash:focus-visible{outline:none;box-shadow:0 0 0 2px var(--ochre)}
+.fs .fs-trash .fs-trash-icon{flex-shrink:0;color:var(--ink-5)}
+.fs .fs-trash:hover .fs-trash-icon{color:var(--ink-4)}
+.fs .fs-trash .fs-trash-count{
+  margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-5);
+  font-variant-numeric:tabular-nums;
+}
