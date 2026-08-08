@@ -73,6 +73,11 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Project lifecycle
     "create_project":             ("POST",   r"^/lab/projects$"),
     "delete_project":             ("DELETE", r"^/lab/projects/\{slug\}$"),
+    "rename_project":             ("POST",   r"^/lab/projects/\{slug\}/rename$"),
+    # Doc lifecycle — filename is a primary key, so both of these move the
+    # doc's whole artifact set (see the tool definitions); they are not rm/mv.
+    "delete_doc":                 ("DELETE", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}$"),
+    "rename_doc":                 ("POST",   r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/rename$"),
     "fork_project":               ("POST",   r"^/lab/projects/fork$"),
     "promote_chat_to_project":    ("POST",   r"^/lab/chats/\{chat_id\}/promote$"),
     "promote_attachment_to_docs": ("POST",   r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/promote$"),

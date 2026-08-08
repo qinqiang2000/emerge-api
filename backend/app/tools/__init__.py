@@ -124,7 +124,8 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     "render_audit_board",
 })
 _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should gate
-    "delete_project", "freeze_version", "issue_api_key", "promote_experiment",
+    "delete_project", "delete_doc",
+    "freeze_version", "issue_api_key", "promote_experiment",
 })
 _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "set_labeler_model", "set_translate_model", "set_proposer_model",
@@ -173,10 +174,10 @@ def build_emerge_mcp(
     from the same headless surface).
 
     Step B (SDK reframe) cut the filesystem-wrapper tools — ls/cp/rm/cat
-    replacements (`list_docs`, `upload_doc`, `delete_doc`, `read_schema`,
+    replacements (`list_docs`, `upload_doc`, `read_schema`,
     `list_projects`, `list_prompts`, `list_models`, `list_reviewed`,
     `list_experiments`, `get_prediction`, `get_reviewed`, `get_pending`,
-    `rename_project`, `ingest_local_path`, `import_prompt`,
+    `ingest_local_path`, `import_prompt`,
     `create_prompt`, `write_prompt`, `delete_prompt`,
     `create_model`, `write_model`, `delete_model`,
     `archive_experiment`, `delete_experiment`) — and rely on the Claude
@@ -185,6 +186,11 @@ def build_emerge_mcp(
     `_workspace_safety_gate`. What stays here is the business moat: schema
     + version atomicity, provider-bound extract/label, doc vision,
     lifecycle ops with audit trails, and the UI-action bridge.
+    (`delete_doc` and `rename_project` came back, and `rename_doc` joined
+    them: they read like rm/mv wrappers but aren't — a doc's filename is the
+    primary key of four other artifacts, and a project's folder name is
+    mirrored in project.json + the pid index, so Bash gets all three wrong.
+    See their definitions.)
 
     Every tool that needs a project handle takes a `slug` — the
     human-readable folder name (`us-invoice`, `美国发票`) — never the opaque
@@ -230,8 +236,8 @@ def build_emerge_mcp(
         "half-zombie folder. This tool renames the dir into _trash/ in one "
         "atomic step, so the live project.json vanishes (the log writer's gate "
         "trips even on in-flight events) while the trashed copy stays restorable. "
-        "For sub-paths (docs/, prompts/, experiments/, individual files) keep "
-        "using Bash rm — only whole-project delete needs this tool.",
+        "For docs use `delete_doc` (same reason, one level down); for other "
+        "sub-paths (prompts/, experiments/, individual files) keep using Bash rm.",
         {
             "type": "object",
             "properties": {
@@ -252,6 +258,126 @@ def build_emerge_mcp(
                 },
             }
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+
+    @tool(
+        "rename_project",
+        "Rename a project. Pass `name` (the display name) — the slug, which is "
+        "the folder name AND the handle every other tool takes, is re-derived "
+        "from it so the two stay locked together; pass `new_slug` to change "
+        "only the handle. Use this instead of `Bash mv <dir>`: a bare mv leaves "
+        "`project.json.slug` and the pid index pointing at the old name, so "
+        "chat-log render and every pid lookup silently drift. Returns {slug} — "
+        "the NEW slug; keep using that one for the rest of the turn. Rendering: "
+        "browser → one line (the spine relabels itself); headless → '<old> → "
+        "<new>'.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "name": {"type": "string"},
+                "new_slug": {"type": "string"},
+            },
+            "required": ["slug"],
+        },
+    )
+    async def t_rename_project(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("rename_project"))}]}
+        try:
+            out = await projects_mod.rename_project(
+                workspace,
+                args["slug"],
+                new_slug=args.get("new_slug") or None,
+                name=args.get("name") or None,
+            )
+        except FileNotFoundError as e:
+            out = {"ok": False, "error": {
+                "error_code": "project_not_found", "error_message_en": str(e)}}
+        except ValueError as e:
+            out = {"ok": False, "error": {
+                "error_code": "invalid_name", "error_message_en": str(e)}}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    # `delete_doc` / `rename_doc` are NOT the rm/mv wrappers Step B cut. A doc's
+    # filename is a primary key: the sidecar meta, draft prediction, reviewed
+    # ground truth and every per-experiment prediction are stored as
+    # `{filename}.json` beside it. `Bash rm docs/x.pdf` therefore destroys the
+    # doc while leaving its artifacts as permanent orphans (and takes the
+    # hand-corrected reviewed JSON with it, unrecoverably); `Bash mv` orphans
+    # the whole set under the old name. These two tools move the set as a unit.
+    @tool(
+        "delete_doc",
+        "Delete one doc and every artifact keyed off its filename (sidecar "
+        "meta, draft prediction, reviewed ground truth, per-experiment "
+        "predictions) by MOVING the set into one _trash/ bundle — recoverable "
+        "for ~2 weeks. Use this instead of `Bash rm docs/<file>`: bare rm "
+        "orphans the artifacts and permanently destroys the reviewed JSON, "
+        "which is hand-corrected ground truth no re-run can rebuild. Ask the "
+        "user to confirm first. Returns {removed, filename, artifacts, "
+        "trashed_to}. Rendering: browser → one line ('deleted <file>', the "
+        "spine refreshes itself); headless → name the file and list which "
+        "artifacts went with it.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+            },
+            "required": ["slug", "filename"],
+        },
+    )
+    async def t_delete_doc(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("delete_doc"))}]}
+        out = await docs_mod.delete_doc(workspace, args["slug"], args["filename"])
+        if not out.get("removed"):
+            out = {
+                "ok": False,
+                "error": {
+                    "error_code": "doc_not_found",
+                    "error_message_en": f"no doc named {args['filename']}",
+                },
+            }
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
+        "rename_doc",
+        "Rename a doc, carrying its sidecar meta, draft prediction, reviewed "
+        "ground truth and per-experiment predictions to the new name. Use this "
+        "instead of `Bash mv docs/<old> docs/<new>`: a bare mv leaves the "
+        "prediction and review history stranded under the old name, so the "
+        "renamed doc looks unprocessed and unreviewed. The extension is fixed "
+        "(it selects the extract path) — omit it in `new_filename` to keep it; "
+        "passing a different one is an error. Returns {filename, previous, "
+        "artifacts}. Rendering: browser → one line; headless → 'renamed <old> "
+        "→ <new>' plus what moved with it.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "filename": {"type": "string"},
+                "new_filename": {"type": "string"},
+            },
+            "required": ["slug", "filename", "new_filename"],
+        },
+    )
+    async def t_rename_doc(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("rename_doc"))}]}
+        try:
+            out = await docs_mod.rename_doc(
+                workspace, args["slug"], args["filename"], args["new_filename"],
+            )
+        except FileNotFoundError as e:
+            out = {"ok": False, "error": {
+                "error_code": "doc_not_found", "error_message_en": str(e)}}
+        except ValueError as e:
+            out = {"ok": False, "error": {
+                "error_code": "invalid_filename", "error_message_en": str(e)}}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
         "history_log",

@@ -682,6 +682,29 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## A doc's filename is a PRIMARY KEY — `rm`/`mv` on `docs/` orphans four artifacts
+
+**Where:** `tools/docs.py::_doc_artifacts` (the single source of truth), `delete_doc`, `rename_doc`; `workspace/trash.py::trash_bundle`.
+
+**The trap.** `docs/{filename}` looks like an ordinary file, so both a human and an agent reach for `Bash rm` / `Bash mv`. But the name is the key under which four *other* artifacts are stored, each in a different directory:
+
+- `docs/.meta/{filename}.json` — sidecar (sha, page_count, ext, page_sizes)
+- `predictions/_draft/{filename}.json`
+- `reviewed/{filename}.json` — **hand-corrected ground truth**
+- `experiments/{exp_id}/predictions/{filename}.json` — one per experiment
+
+`rm docs/a.pdf` leaves all four behind as permanent orphans **and** destroys the reviewed JSON, which is the one artifact no re-run can rebuild. `mv docs/a.pdf docs/b.pdf` is worse in a quieter way: the doc arrives at its new name looking unprocessed and unreviewed, while its real history sits under the old name forever.
+
+**The fix (2026-08-07).** `_doc_artifacts()` enumerates the set once; `delete_doc` moves it into ONE `_trash/` bundle (`trash_bundle`, with a `_manifest.json` recording each member's origin so a restore can replay it), and `rename_doc` renames the set in a single locked step. Both are registered `@tool`s + HTTP routes — this is exactly why they came BACK after Step B cut the filesystem wrappers: they read like rm/mv wrappers but aren't. Their tool descriptions say "use this instead of Bash rm/mv" for that reason.
+
+**Adding a fifth filename-keyed artifact?** Add it to `_doc_artifacts` and nowhere else. Miss it and delete leaks it, rename orphans it — silently, in both cases.
+
+**Sibling case:** `rename_project` is back for the same shape of reason — the folder name is mirrored in `project.json.slug` and the pid index, so `Bash mv` on a project dir drifts both (`list_projects` still carries a defensive comment about exactly this).
+
+**Content-addressed caches are deliberately NOT in the set.** `.cache/_render|_textlayer|_translate/{sha}/` is keyed by the doc's *bytes*, so a rename doesn't move them and a delete must not wipe them — the same bytes may back a sibling project's doc. Orphan cache entries are harmless.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

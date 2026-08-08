@@ -254,11 +254,49 @@ async def switch_active_prompt(workspace: Path, project_id: str, prompt_id: str)
         atomic_write_json(pj, blob)
 
 
+async def rename_prompt(
+    workspace: Path, project_id: str, prompt_id: str, label: str,
+) -> dict[str, str]:
+    """Change a prompt variant's display label. Returns `{prompt_id, label}`.
+
+    Content (schema + global_notes) is untouched, so `version` and
+    `content_hash` deliberately do NOT move: a rename is not a new prompt
+    version, and every experiment that pinned `prompt_version=N` must keep
+    resolving to the same snapshot. Nor does this rewrite the labels of
+    experiments that already ran against this prompt — those strings are
+    point-in-time snapshots of what was run, and rewriting history to match a
+    new name is exactly what they exist to prevent."""
+    clean = (label or "").strip()
+    if not clean:
+        raise ValueError("label must be non-empty")
+    if len(clean) > 120:
+        raise ValueError("label too long (>120 chars)")
+
+    async with project_lock(workspace, project_id):
+        pp = prompt_path(workspace, project_id, prompt_id)
+        if not pp.exists():
+            raise PromptNotFoundError(f"{prompt_id} not found in project {project_id}")
+        blob = json.loads(pp.read_text(encoding="utf-8"))
+        blob["label"] = clean
+        blob["updated_at"] = _now_iso()
+        atomic_write_json(pp, blob)
+    return {"prompt_id": prompt_id, "label": clean}
+
+
 async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> None:
-    """Physically remove prompts/{prompt_id}.json. Blocks deletion of the active
-    prompt (PromptInUseError) and of any prompt referenced by a non-archived
-    experiment (also PromptInUseError — archive the experiment first).
+    """Delete a prompt variant by MOVING prompts/{prompt_id}.json and its
+    version snapshots (prompts/_versions/{prompt_id}/) into one recoverable
+    `_trash/` bundle. Blocks deletion of the active prompt (PromptInUseError)
+    and of any prompt referenced by a non-archived experiment (also
+    PromptInUseError — archive the experiment first).
+
+    A prompt is hand-tuned work, so this follows the same never-unlink-user-data
+    rule as project and doc delete. The snapshots travel with the head: leaving
+    `_versions/{id}/` behind would strand a directory nothing can reach, and
+    keeping them together is what lets a restore bring back the full history.
     """
+    from app.workspace.trash import trash_bundle
+
     async with project_lock(workspace, project_id):
         pp = prompt_path(workspace, project_id, prompt_id)
         if not pp.exists():
@@ -275,7 +313,10 @@ async def delete_prompt(workspace: Path, project_id: str, prompt_id: str) -> Non
                 f"cannot delete {prompt_id}: referenced by experiment(s) {refs}; "
                 "archive them first"
             )
-        pp.unlink()
+        trash_bundle(workspace, f"prompt-{prompt_id}", [
+            ("prompt", pp),
+            ("versions", prompt_versions_dir(workspace, project_id, prompt_id)),
+        ])
 
 
 async def import_prompt(

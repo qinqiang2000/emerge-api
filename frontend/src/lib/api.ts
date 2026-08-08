@@ -138,7 +138,138 @@ export async function deleteProjectDoc(slug: string, filename: string): Promise<
     `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}`,
     { method: 'DELETE' },
   )
-  if (!r.ok) throw new Error(`deleteProjectDoc ${r.status}`)
+  if (!r.ok) throw await apiFailure(r, 'deleteProjectDoc')
+}
+
+// ── spine row operations (rename / delete) ────────────────────────────────
+// Every one of these has a tool or agent-reachable twin — the spine's ⋮ menu
+// is a second client of the same operations, not a UI-only shortcut.
+//
+// These carry the server's reason forward instead of collapsing it to a status
+// code: the interesting failures here are refusals with something to say
+// ("it's the active prompt", "that experiment was promoted"), and a toast that
+// only says "409" teaches nothing.
+
+/** Server-side failure carrying the backend's `{error_code, error_message_en}`
+ *  envelope. `code` lets a caller branch; `message` is safe to show. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function apiFailure(r: Response, op: string): Promise<ApiError> {
+  let code: string | null = null
+  let message = ''
+  try {
+    // FastAPI `detail` is either our envelope dict or a bare string.
+    const j = await r.json() as { detail?: string | { error_code?: string; error_message_en?: string } }
+    const d = j?.detail
+    if (typeof d === 'string') code = d
+    else if (d) { code = d.error_code ?? null; message = d.error_message_en ?? '' }
+  } catch {
+    // Non-JSON body (proxy error page, empty 500) — status alone is all we have.
+  }
+  return new ApiError(r.status, code, message || code || `${op} ${r.status}`)
+}
+
+export async function renameProjectDoc(
+  slug: string, filename: string, newFilename: string,
+): Promise<{ filename: string; previous: string }> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/docs/by-name/${encodeURIComponent(filename)}/rename`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_filename: newFilename }),
+    },
+  )
+  if (!r.ok) throw await apiFailure(r, 'renameProjectDoc')
+  return r.json()
+}
+
+/** Returns the NEW slug — renaming moves the folder, so the caller must
+ *  re-point selection and URL at it; the old slug 404s afterwards. */
+export async function renameProject(slug: string, name: string): Promise<{ slug: string }> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw await apiFailure(r, 'renameProject')
+  return r.json()
+}
+
+export async function deleteProject(slug: string): Promise<void> {
+  const r = await fetch(`/lab/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+  if (!r.ok) throw await apiFailure(r, 'deleteProject')
+}
+
+export async function renamePrompt(slug: string, promptId: string, label: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/prompts/${encodeURIComponent(promptId)}/rename`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    },
+  )
+  if (!r.ok) throw await apiFailure(r, 'renamePrompt')
+}
+
+export async function deletePrompt(slug: string, promptId: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/prompts/${encodeURIComponent(promptId)}`,
+    { method: 'DELETE' },
+  )
+  if (!r.ok) throw await apiFailure(r, 'deletePrompt')
+}
+
+export async function renameModel(slug: string, modelId: string, label: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/models/${encodeURIComponent(modelId)}/rename`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    },
+  )
+  if (!r.ok) throw await apiFailure(r, 'renameModel')
+}
+
+export async function deleteModel(slug: string, modelId: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/models/${encodeURIComponent(modelId)}`,
+    { method: 'DELETE' },
+  )
+  if (!r.ok) throw await apiFailure(r, 'deleteModel')
+}
+
+export async function renameExperiment(
+  slug: string, experimentId: string, label: string,
+): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/experiments/${encodeURIComponent(experimentId)}/rename`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    },
+  )
+  if (!r.ok) throw await apiFailure(r, 'renameExperiment')
+}
+
+export async function deleteExperiment(slug: string, experimentId: string): Promise<void> {
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/experiments/${encodeURIComponent(experimentId)}`,
+    { method: 'DELETE' },
+  )
+  if (!r.ok) throw await apiFailure(r, 'deleteExperiment')
 }
 
 export async function getPrediction(slug: string, filename: string): Promise<PredictionPayload | null> {

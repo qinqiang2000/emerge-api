@@ -1,0 +1,113 @@
+/* Row actions: the `⋮` on a spine row + its portal menu.
+   Visual language deliberately matches `.user-pop` (the other popover in this
+   app) — same radius, shadow, row metrics — so the sidebar has one menu look. */
+
+/* ── trigger ────────────────────────────────────────────────────────────
+   Absolutely positioned over the row's right edge — the slot the stamp
+   ("reviewed", "draft · 0.85") occupies at rest. On hover the stamp fades and
+   the ⋮ fades in over it, so the affordance costs ZERO row width. The sidebar
+   is narrow and doc names are long; a permanently reserved 22px column would
+   truncate a filename on every row to serve a button used occasionally.
+   Rows that own a menu carry `.has-ops`, which is what licenses the stamp to
+   fade — without it, a hover on versions/ or metrics/ would blank the stamp
+   and put nothing in its place. */
+.row-menu-btn{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;padding:0;
+  border:1px solid transparent;border-radius:5px;background:transparent;
+  color:var(--ink-4);cursor:pointer;
+  opacity:0;pointer-events:none;
+  transition:opacity .12s, background .12s, color .12s, border-color .12s;
+}
+.proj:hover .row-menu-btn,
+.branch:hover .row-menu-btn,
+.proj:focus-within .row-menu-btn,
+.branch:focus-within .row-menu-btn,
+.row-menu-btn.open{opacity:1;pointer-events:auto}
+.row-menu-btn:hover{background:var(--paper-3);color:var(--ink-2);border-color:var(--rule-soft)}
+.row-menu-btn.open{background:var(--paper-3);color:var(--ink);border-color:var(--rule-soft)}
+.row-menu-btn:focus{outline:none}
+.row-menu-btn:focus-visible{outline:none;opacity:1;pointer-events:auto;box-shadow:0 0 0 2px var(--ochre)}
+
+/* Anchor + the hand-off: what sits in that slot yields to the ⋮ on hover. */
+.fs .proj.has-ops,
+.fs .branch.has-ops{position:relative}
+.fs .branch.has-ops:hover .stamp,
+.fs .branch.has-ops:focus-within .stamp,
+.fs .proj.has-ops:hover .status-dot,
+.fs .proj.has-ops:hover .run-dot{opacity:0;transition:opacity .12s}
+
+/* Touch / coarse pointers have no hover: always show the affordance rather
+   than making it unreachable, and leave the stamp alone (nothing to hand off
+   to — both are simply visible). */
+@media (hover:none){
+  .row-menu-btn{opacity:1;pointer-events:auto;position:static;transform:none}
+  .fs .branch.has-ops:hover .stamp{opacity:1}
+}
+
+/* ── menu ───────────────────────────────────────────────────────────────
+   Portaled to document.body; top/left come from the trigger rect inline. */
+.row-menu-pop{
+  position:fixed;
+  background:#FFFFFF;border:1px solid var(--rule);border-radius:10px;
+  box-shadow:0 12px 32px rgba(31,27,20,.12);
+  z-index:60;display:flex;flex-direction:column;padding:5px;
+  animation:rowMenuIn .12s ease-out;
+  font-family:var(--sans);
+}
+.row-menu-pop:focus{outline:none}
+@keyframes rowMenuIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.row-menu-pop{animation:none}}
+
+.row-menu-item{
+  display:flex;align-items:center;gap:9px;
+  width:100%;padding:7px 8px;border:0;background:transparent;border-radius:6px;
+  text-align:left;cursor:default;color:var(--ink-2);
+  font-family:var(--sans);font-size:13px;
+  transition:background .12s, color .12s;
+}
+.row-menu-item:hover,
+.row-menu-item.cursor{background:var(--paper-2);color:var(--ink)}
+.row-menu-item .row-menu-icon{color:var(--ink-3);flex-shrink:0}
+.row-menu-item:hover .row-menu-icon,
+.row-menu-item.cursor .row-menu-icon{color:var(--ink)}
+.row-menu-item .row-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-menu-item .row-menu-kbd{
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-5);
+  flex-shrink:0;letter-spacing:.02em;
+}
+.row-menu-item:focus{outline:none}
+
+/* Destructive row — rose, and it stays rose on hover (a delete that turns
+   neutral under the cursor reads as "safe now"). */
+.row-menu-item.danger{color:var(--rose)}
+.row-menu-item.danger .row-menu-icon{color:var(--rose)}
+.row-menu-item.danger:hover,
+.row-menu-item.danger.cursor{background:var(--rose-soft,var(--paper-2));color:var(--rose)}
+.row-menu-item.danger:hover .row-menu-icon,
+.row-menu-item.danger.cursor .row-menu-icon{color:var(--rose)}
+
+/* Blocked action (active prompt, promoted experiment…). Kept visible instead
+   of hidden: "you can't delete this yet, and here's why" (title) teaches the
+   invariant; a missing row just looks broken. */
+.row-menu-item:disabled{color:var(--ink-5);cursor:default}
+.row-menu-item:disabled .row-menu-icon{color:var(--ink-5)}
+.row-menu-item:disabled:hover{background:transparent;color:var(--ink-5)}
+.row-menu-item.danger:disabled,
+.row-menu-item.danger:disabled .row-menu-icon{color:var(--ink-5)}
+.row-menu-item.danger:disabled:hover{background:transparent}
+
+/* ── inline rename ──────────────────────────────────────────────────────
+   The row becomes an input in place — no dialog. Inherits the row's own font
+   so the text doesn't jump between display and edit. */
+.row-rename-input{
+  flex:1;min-width:0;
+  border:1px solid var(--ochre);border-radius:5px;
+  background:var(--paper);color:var(--ink);
+  font-family:inherit;font-size:inherit;font-weight:inherit;
+  padding:1px 5px;margin:-2px 0;
+  outline:none;
+}
+.row-rename-input::selection{background:var(--ochre-soft)}
+.row-rename-input.busy{opacity:.55}

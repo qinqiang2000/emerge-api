@@ -99,6 +99,17 @@ const zh: Dict = {
   'spine.stamp.reviewed': '已审',
   'spine.stamp.frozen': '冻结',
   'spine.experiments.open_bench': '打开 bench',
+  // 行操作（⋮ 菜单 + 行内重命名）
+  'spine.op.menu': '{name} 的操作',
+  'spine.op.rename': '重命名',
+  'spine.op.delete': '删除',
+  'spine.op.deleted': '已删除 {name} — 14 天内可从回收站恢复',
+  'spine.op.confirm.project': '删除项目「{name}」？其文档、prompt、实验一并删除（14 天内可从回收站恢复）。',
+  'spine.op.err.generic': '操作没成功',
+  'spine.op.err.prompt_in_use': '这是当前活跃 prompt — 先切换活跃项',
+  'spine.op.err.model_in_use': '这是当前活跃模型 — 先切换活跃项',
+  'spine.op.err.experiment_promoted': '已 promote 的实验作为审计留痕保留',
+  'spine.op.err.project_busy': '此项目有会话在跑 — 改名会把目录从它脚下搬走',
 
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': '对 agent 说点什么，或输入 / 调出命令…',

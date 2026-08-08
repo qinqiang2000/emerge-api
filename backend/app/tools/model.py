@@ -147,11 +147,43 @@ async def switch_active_model(workspace: Path, project_id: str, model_id: str) -
         atomic_write_json(pj, blob)
 
 
+async def rename_model(
+    workspace: Path, project_id: str, model_id: str, label: str,
+) -> dict[str, str]:
+    """Change a model config's display label. Returns `{model_id, label}`.
+
+    Only the label moves. `provider_model_id` is the id the provider's API
+    answers to — it is not a nickname and is never renamed here. That
+    separation is the whole reason a label exists: two configs of the SAME
+    provider model (different thinking budget, different gateway) are
+    indistinguishable in a list until the user can name them apart."""
+    clean = (label or "").strip()
+    if not clean:
+        raise ValueError("label must be non-empty")
+    if len(clean) > 120:
+        raise ValueError("label too long (>120 chars)")
+
+    async with project_lock(workspace, project_id):
+        mp = model_path(workspace, project_id, model_id)
+        if not mp.exists():
+            raise ModelNotFoundError(f"{model_id} not found in project {project_id}")
+        blob = json.loads(mp.read_text(encoding="utf-8"))
+        blob["label"] = clean
+        atomic_write_json(mp, blob)
+    return {"model_id": model_id, "label": clean}
+
+
 async def delete_model(workspace: Path, project_id: str, model_id: str) -> None:
-    """Physically remove models/{model_id}.json. Blocks deletion of the active
-    model (ModelInUseError) and of any model referenced by a non-archived
-    experiment (also ModelInUseError — archive the experiment first).
-    """
+    """Delete a model config by MOVING models/{model_id}.json to `_trash/`
+    (recoverable), not unlinking it. Blocks deletion of the active model
+    (ModelInUseError) and of any model referenced by a non-archived experiment
+    (also ModelInUseError — archive the experiment first).
+
+    The config can carry a per-model gateway `base_url` and the NAME of the env
+    var holding its key — settings a user had to look up once and would have to
+    look up again. Cheap to keep recoverable; annoying to reconstruct."""
+    from app.workspace.trash import trash
+
     async with project_lock(workspace, project_id):
         mp = model_path(workspace, project_id, model_id)
         if not mp.exists():
@@ -168,4 +200,4 @@ async def delete_model(workspace: Path, project_id: str, model_id: str) -> None:
                 f"cannot delete {model_id}: referenced by experiment(s) {refs}; "
                 "archive them first"
             )
-        mp.unlink()
+        trash(workspace, mp)

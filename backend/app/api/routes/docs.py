@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.deps import bind_workspace, current_ws
 from fastapi.responses import FileResponse
 
+from pydantic import BaseModel
+
 from app.api.routes._safety import safe_filename, safe_slug
 from app.config import get_settings
-from app.tools.docs import delete_doc, image_doc_as_jpeg, pdf_render_page
+from app.tools.docs import delete_doc, image_doc_as_jpeg, pdf_render_page, rename_doc
 from app.workspace.paths import doc_meta_path, doc_path
 
 
@@ -88,13 +90,33 @@ async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> Fil
 @router.delete("/lab/projects/{slug}/docs/by-name/{filename:path}")
 async def delete_doc_endpoint(slug: str, filename: str) -> dict:
     """Delete a doc and every artifact keyed off its filename — sidecar meta,
-    PDF render cache, draft prediction, reviewed JSON, per-experiment
-    predictions. Returns 404 if the doc isn't on disk so callers can
-    distinguish a real removal from a no-op."""
+    draft prediction, reviewed JSON, per-experiment predictions — by moving the
+    set into one recoverable `_trash/` bundle. Returns 404 if the doc isn't on
+    disk so callers can distinguish a real removal from a no-op."""
     safe_slug(slug)
     safe_filename(filename)
-    settings = get_settings()
     result = await delete_doc(current_ws(), slug, filename)
     if not result["removed"]:
         raise HTTPException(status_code=404, detail="doc_not_found")
     return result
+
+
+class _RenameDocBody(BaseModel):
+    new_filename: str
+
+
+@router.post("/lab/projects/{slug}/docs/by-name/{filename:path}/rename")
+async def rename_doc_endpoint(slug: str, filename: str, body: _RenameDocBody) -> dict:
+    """Rename a doc, carrying its sidecar meta, draft prediction, reviewed JSON
+    and per-experiment predictions along. HTTP twin of the `rename_doc` tool —
+    both exist because a plain `mv` orphans the artifact set (see the tool
+    docstring). 400 on an empty / taken name or an extension change."""
+    safe_slug(slug)
+    safe_filename(filename)
+    safe_filename(body.new_filename.strip())
+    try:
+        return await rename_doc(current_ws(), slug, filename, body.new_filename)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="doc_not_found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

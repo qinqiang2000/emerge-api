@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.tools.docs import list_docs
-from app.tools.projects import create_project, delete_project, list_projects
+from app.tools.projects import (
+    create_project,
+    delete_project,
+    list_projects,
+    rename_project,
+)
 from app.tools.reviewed import list_reviewed
 from app.workspace.paths import predictions_draft_dir, project_dir, project_json_path
 
@@ -158,6 +163,46 @@ async def delete_project_route(slug: str) -> dict:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "project_not_found"},
+        )
+
+
+class _RenameProjectBody(BaseModel):
+    """`name` is the display name; the slug (= folder name = URL handle) is
+    re-derived from it, same single-concept rule `create_project` uses. Pass
+    `new_slug` instead to change only the handle."""
+
+    name: str | None = None
+    new_slug: str | None = None
+
+
+@router.post("/lab/projects/{slug}/rename")
+async def rename_project_route(slug: str, body: _RenameProjectBody) -> dict:
+    """Rename a project. Dual of the `rename_project` tool. Returns
+    `{slug}` — the NEW slug, which the caller must navigate to: renaming moves
+    the folder, so the old URL 404s afterwards.
+
+    409 when a turn is running in this project. The rename is an `os.rename` of
+    the project dir, and the live agent's cwd is that dir — renaming out from
+    under it leaves the turn writing into a path that no longer exists."""
+    safe_slug(slug)
+    if body.name is None and body.new_slug is None:
+        raise HTTPException(status_code=400, detail={"error_code": "name_required"})
+
+    from app.api.routes.turns import get_registry
+
+    if slug in get_registry().active_slugs(str(current_ws())):
+        raise HTTPException(status_code=409, detail={"error_code": "project_busy"})
+
+    try:
+        return await rename_project(
+            current_ws(), slug, new_slug=body.new_slug, name=body.name,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "project_not_found"})
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_name", "error_message_en": str(e)},
         )
 
 

@@ -16,10 +16,12 @@ from app.tools.experiment import (
     ExperimentNotFoundError,
     archive_experiment,
     create_experiment,
+    delete_experiment,
     extract_with_experiment,
     list_experiments,
     promote_experiment,
     read_experiment,
+    rename_experiment,
     run_experiment_eval,
 )
 from app.tools.ground import ground_entities, has_evidence
@@ -379,3 +381,45 @@ async def post_promote_experiment(
             detail={"error_code": "experiment_promoted", "error_message_en": str(exc)},
         )
     return {"ok": True}
+
+
+class _RenameExperimentBody(BaseModel):
+    label: str
+
+
+@router.post("/lab/projects/{slug}/experiments/{experiment_id}/rename")
+async def post_rename_experiment(
+    slug: str, experiment_id: str, body: _RenameExperimentBody,
+) -> dict:
+    """Relabel one experiment. The pinned prompt_id / prompt_version / model_id
+    the results came from are untouched — only the caption changes."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        return await rename_experiment(workspace, slug, experiment_id, body.label)
+    except ExperimentNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "experiment_not_found"})
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_label", "error_message_en": str(e)},
+        )
+
+
+@router.delete("/lab/projects/{slug}/experiments/{experiment_id}")
+async def delete_experiment_route(slug: str, experiment_id: str) -> dict:
+    """Delete one experiment run (dir → `_trash/`, recoverable). 409 when the
+    experiment was promoted: that is the audit trail of what shipped, and it
+    outlives the convenience of tidying up the bench."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        await delete_experiment(workspace, slug, experiment_id)
+    except ExperimentNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "experiment_not_found"})
+    except ExperimentInUseError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "experiment_promoted", "error_message_en": str(exc)},
+        )
+    return {"deleted": experiment_id}

@@ -21,6 +21,7 @@ work, not transient upload staging (`_staging/`, 24h). Purged on startup by
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -66,6 +67,71 @@ def trash(workspace: Path, path: Path) -> Path | None:
     # written 23 days earlier were purge-eligible the moment they were deleted.)
     os.utime(dest, None)
     logger.info("trash: %s -> %s", path, dest)
+    return dest
+
+
+def trash_bundle(
+    workspace: Path,
+    label: str,
+    members: list[tuple[str, Path]],
+) -> Path | None:
+    """Move several related paths into ONE `_trash/{ts}-{label}/` entry, with a
+    `_manifest.json` recording where each piece came from. Returns the bundle
+    dir, or None when no member exists on disk.
+
+    `members` is `[(role, path), ...]`. `role` names what the file was
+    (``doc``, ``reviewed``, ``experiment/ex_123``) — purely descriptive; the
+    manifest's `origin` (workspace-relative source path) is what a restore
+    actually replays.
+
+    Why a bundle rather than N calls to `trash()`: deleting one doc touches the
+    file plus every artifact keyed off its name — sidecar meta, draft
+    prediction, the reviewed ground truth, one prediction per experiment. Those
+    are scattered across the project tree, so trashing them one by one produces
+    half a dozen unrelated-looking trash entries and no way to tell they were a
+    single delete. One bundle keeps the delete recoverable as a unit.
+    """
+    present = [(role, p) for role, p in members if p.exists()]
+    if not present:
+        return None
+
+    root = trash_root(workspace)
+    root.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest = root / f"{ts}-{label}"
+    n = 1
+    while dest.exists():  # same label trashed within one second
+        n += 1
+        dest = root / f"{ts}-{label}-{n}"
+    dest.mkdir(parents=True)
+
+    entries: list[dict[str, str]] = []
+    for i, (role, path) in enumerate(present):
+        # Flat storage names: members can share a basename (`x.pdf.json` lives
+        # under .meta/, predictions/_draft/ and every experiment dir), so the
+        # index prefix is what keeps them from colliding inside the bundle.
+        stored = f"{i:02d}__{path.name}"
+        shutil.move(str(path), str(dest / stored))
+        try:
+            origin = str(path.relative_to(workspace))
+        except ValueError:  # pragma: no cover — member outside the workspace
+            origin = str(path)
+        entries.append({"role": role, "origin": origin, "stored": stored})
+
+    (dest / "_manifest.json").write_text(
+        json.dumps(
+            {
+                "label": label,
+                "trashed_at": datetime.now(timezone.utc).isoformat(),
+                "members": entries,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    os.utime(dest, None)  # same mtime-stamp reasoning as `trash()` above
+    logger.info("trash_bundle: %s (%d members) -> %s", label, len(entries), dest)
     return dest
 
 

@@ -10,11 +10,14 @@ from app.api.routes._safety import safe_slug
 from app.config import get_settings
 from app.schemas.model_config import Provider
 from app.tools.model import (
+    ModelInUseError,
     ModelNotFoundError,
     create_model,
+    delete_model,
     list_models,
     read_active_model,
     read_model,
+    rename_model,
     switch_active_model,
 )
 from app.workspace.migrate import migrate_project_if_needed
@@ -117,3 +120,42 @@ async def get_project_model_by_id(slug: str, model_id: str) -> dict:
             detail={"error_code": "model_not_found"},
         )
     return mc.model_dump(mode="json")
+
+
+class _RenameModelBody(BaseModel):
+    label: str
+
+
+@router.post("/lab/projects/{slug}/models/{model_id}/rename")
+async def post_rename_project_model(slug: str, model_id: str, body: _RenameModelBody) -> dict:
+    """Relabel one model config. `provider_model_id` is untouched — it is what
+    the provider's API answers to, not a nickname."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        return await rename_model(workspace, slug, model_id, body.label)
+    except ModelNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "model_not_found"})
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_label", "error_message_en": str(e)},
+        )
+
+
+@router.delete("/lab/projects/{slug}/models/{model_id}")
+async def delete_project_model(slug: str, model_id: str) -> dict:
+    """Delete one model config (into `_trash/`, recoverable). 409 when it is
+    the active model or a non-archived experiment still references it."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        await delete_model(workspace, slug, model_id)
+    except ModelNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "model_not_found"})
+    except ModelInUseError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "model_in_use", "error_message_en": str(e)},
+        )
+    return {"deleted": model_id}

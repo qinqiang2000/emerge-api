@@ -460,6 +460,33 @@ async def promote_experiment(
         )
 
 
+async def rename_experiment(
+    workspace: Path,
+    project_id: str,
+    experiment_id: str,
+    label: str,
+) -> dict[str, str]:
+    """Change an experiment's display label. Returns `{experiment_id, label}`.
+
+    The auto-minted label ("<prompt> v3 × <model>") is a snapshot of what was
+    run; renaming replaces the caption, never the pinned `prompt_id` /
+    `prompt_version` / `model_id` the results actually came from."""
+    clean = (label or "").strip()
+    if not clean:
+        raise ValueError("label must be non-empty")
+    if len(clean) > 120:
+        raise ValueError("label too long (>120 chars)")
+
+    async with project_lock(workspace, project_id):
+        ex = await read_experiment(workspace, project_id, experiment_id)
+        updated = ex.model_copy(update={"label": clean})
+        atomic_write_json(
+            experiment_meta_path(workspace, project_id, experiment_id),
+            updated.model_dump(mode="json"),
+        )
+    return {"experiment_id": experiment_id, "label": clean}
+
+
 async def delete_experiment(
     workspace: Path,
     project_id: str,

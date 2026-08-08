@@ -11,11 +11,14 @@ from app.config import get_settings
 from app.schemas.schema_field import SchemaField
 from app.tools.prompt import (
     PromptClearError,
+    PromptInUseError,
     PromptNotFoundError,
+    delete_prompt,
     import_prompt,
     list_prompts,
     read_active_prompt,
     read_prompt,
+    rename_prompt,
     switch_active_prompt,
     write_prompt,
 )
@@ -137,6 +140,48 @@ async def get_project_prompt_by_id(slug: str, prompt_id: str) -> dict:
             detail={"error_code": "prompt_not_found"},
         )
     return pv.model_dump(mode="json", exclude_none=True)
+
+
+class _RenamePromptBody(BaseModel):
+    label: str
+
+
+@router.post("/lab/projects/{slug}/prompts/{prompt_id}/rename")
+async def post_rename_project_prompt(slug: str, prompt_id: str, body: _RenamePromptBody) -> dict:
+    """Relabel one prompt variant. Content, `version` and `content_hash` stay
+    put — see the `rename_prompt` docstring for why a rename must not look
+    like a new prompt version."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        return await rename_prompt(workspace, slug, prompt_id, body.label)
+    except PromptNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "prompt_not_found"})
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_label", "error_message_en": str(e)},
+        )
+
+
+@router.delete("/lab/projects/{slug}/prompts/{prompt_id}")
+async def delete_project_prompt(slug: str, prompt_id: str) -> dict:
+    """Delete one prompt variant (into `_trash/`, recoverable). 409 when it is
+    the active prompt or a non-archived experiment still points at it — the
+    caller must switch active / archive first, which is a decision, not
+    something a delete should silently make."""
+    workspace = _project_or_404(slug)
+    await migrate_project_if_needed(workspace, slug)
+    try:
+        await delete_prompt(workspace, slug, prompt_id)
+    except PromptNotFoundError:
+        raise HTTPException(status_code=404, detail={"error_code": "prompt_not_found"})
+    except PromptInUseError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "prompt_in_use", "error_message_en": str(e)},
+        )
+    return {"deleted": prompt_id}
 
 
 class _ImportPromptBody(BaseModel):

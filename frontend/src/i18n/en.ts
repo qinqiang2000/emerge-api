@@ -99,6 +99,17 @@ const en: Dict = {
   'spine.stamp.reviewed': 'reviewed',
   'spine.stamp.frozen': 'frozen',
   'spine.experiments.open_bench': 'open bench',
+  // Row actions (⋮ menu + inline rename)
+  'spine.op.menu': 'actions for {name}',
+  'spine.op.rename': 'Rename',
+  'spine.op.delete': 'Delete',
+  'spine.op.deleted': 'Deleted {name} — recoverable from trash for 14 days',
+  'spine.op.confirm.project': 'Delete project “{name}”? Its docs, prompts and experiments go with it (recoverable from trash for 14 days).',
+  'spine.op.err.generic': 'that didn’t work',
+  'spine.op.err.prompt_in_use': 'this is the active prompt — switch active first',
+  'spine.op.err.model_in_use': 'this is the active model — switch active first',
+  'spine.op.err.experiment_promoted': 'promoted experiments are kept as the audit trail',
+  'spine.op.err.project_busy': 'a turn is running here — renaming would move the folder out from under it',
 
   // ── Composer ───────────────────────────────────────────────────────────
   'composer.placeholder.default': 'say something to the agent, or type / for a command…',

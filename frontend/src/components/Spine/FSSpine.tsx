@@ -4,7 +4,7 @@ import './spine.css'
 import kdfpyIcon from '../../assets/kdfpy-icon.png'
 
 import { useI18n, useT } from '../../i18n'
-import { navigateToReview, pathForBench } from '../../lib/slugUrl'
+import { navigateToReview, pathForBench, pathForSlug, searchWithoutParam } from '../../lib/slugUrl'
 import { useProjects } from '../../stores/projects'
 import { useDocs } from '../../stores/docs'
 import { useSchema } from '../../stores/schema'
@@ -17,15 +17,36 @@ import { useEval } from '../../stores/eval'
 import { pathForEvalMatrix } from '../../lib/slugUrl'
 import PanelToggle from '../Shell/PanelToggle'
 import UserMenu from '../Shell/UserMenu'
+import RowMenu, { type RowAction } from './RowMenu'
+import RowRename from './RowRename'
+import { toast } from '../../stores/toast'
+import {
+  ApiError,
+  deleteExperiment, deleteModel, deleteProject, deletePrompt,
+  renameExperiment, renameModel, renameProject, renameProjectDoc, renamePrompt,
+} from '../../lib/api'
 import {
   Folder, FolderOpen, FolderPlus, FileText, ScrollText, Cpu,
   FlaskConical, Gauge, Tag, Star, ChevronRight, ChevronDown, MoreHorizontal,
-  Search, X,
+  Pencil, Search, Trash2, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 // ── Tree node shapes ───────────────────────────────────────────────────────
-type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; selected?: boolean; onClick?: () => void }
+/** Rename / delete for one row. Pointer and keyboard are a second client of
+ *  the same operations chat drives through tools — see RowMenu's header. */
+type RowOps = {
+  /** Stable identity: which row owns the open menu / the rename editor. */
+  key: string
+  actions: RowAction[]
+  rename?: {
+    initial: string
+    /** Chars pre-selected on open (docs pass the basename, sparing the ext). */
+    selectLen?: number
+    commit: (next: string) => Promise<void>
+  }
+}
+type FileNode  = { kind: 'file';  name: string; stamp: string; active?: boolean; selected?: boolean; onClick?: () => void; ops?: RowOps; /** Row tooltip — secondary detail that shouldn't cost row width. */ hint?: string }
 type GhostNode = { kind: 'ghost'; name: string }
 type MoreNode  = { kind: 'more'; remaining: number; onClick: () => void }
 type LeafNode  = FileNode | GhostNode | MoreNode
@@ -59,6 +80,24 @@ type StampLabels = {
   frozen: string
 }
 
+// Server refusal codes worth restating in the user's own language. Anything
+// unlisted falls through to the backend's `error_message_en`, which is always
+// more specific than a generic failure line.
+const OP_ERR_KEY: Record<string, string> = {
+  prompt_in_use:        'spine.op.err.prompt_in_use',
+  model_in_use:         'spine.op.err.model_in_use',
+  experiment_promoted:  'spine.op.err.experiment_promoted',
+  project_busy:         'spine.op.err.project_busy',
+}
+
+/** Length of a filename's stem, so inline rename pre-selects `invoice` out of
+ *  `invoice.pdf` — the extension is fixed server-side and typing over it is
+ *  never what the user meant. Extensionless names select whole. */
+function stemLength(filename: string): number {
+  const dot = filename.lastIndexOf('.')
+  return dot > 0 ? dot : filename.length
+}
+
 function buildTree(
   slug: string,
   docs: import('../../types/review').DocSummary[],
@@ -73,6 +112,7 @@ function buildTree(
   selectedDocFilename: string | null,
   versionsEmptyLabel: string,
   stampLabels: StampLabels,
+  docOps: (filename: string) => RowOps,
 ): BuiltTree {
   // ── docs/ ──────────────────────────────────────────────────────────────
   // reviewed/ has been retired — the reviewed state is already shown as
@@ -90,6 +130,7 @@ function buildTree(
       stamp,
       selected: doc.filename === selectedDocFilename,
       onClick: () => openDoc(slug, doc.filename),
+      ops: docOps(doc.filename),
     })
   }
   const remaining = docs.length - visible.length
@@ -178,6 +219,86 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
   // it; clicking the already-open active project collapses it again.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
+  // ── row operations ─────────────────────────────────────────────────────
+  // At most one row is in rename mode at a time; `null` means nobody is.
+  const [renamingKey, setRenamingKey] = useState<string | null>(null)
+  const closeRename = useCallback(() => setRenamingKey(null), [])
+  // Renaming survives neither a project switch nor a rename that changed the
+  // row's own key, so drop the editor whenever the tree's owner changes.
+  useEffect(() => { setRenamingKey(null) }, [selectedSlug])
+
+  /** Surface a failed row op. The refusals worth reading are the ones the
+   *  server explains ("it's the active prompt", "that experiment was
+   *  promoted"), so prefer a localized line for known codes and the server's
+   *  own English reason over a generic failure. */
+  const reportOpError = useCallback((e: unknown) => {
+    const code = e instanceof ApiError ? e.code : null
+    const key = code ? OP_ERR_KEY[code] : undefined
+    if (key) { toast.err(t(key)); return }
+    const msg = e instanceof Error ? e.message : ''
+    toast.err(msg || t('spine.op.err.generic'))
+  }, [t])
+
+  /** Delete-style op: run, then refresh whatever list owns the row. Deletes
+   *  are recoverable (everything moves to `_trash/`), which is why they fire
+   *  straight from the menu with a toast instead of a confirm dialog — the
+   *  exception is a whole project, handled at its own row. */
+  const runDelete = useCallback(async (
+    label: string, fn: () => Promise<void>, after?: () => void,
+  ) => {
+    try {
+      await fn()
+      after?.()
+      toast.ok(t('spine.op.deleted', { name: label }))
+    } catch (e) {
+      reportOpError(e)
+    }
+  }, [reportOpError, t])
+
+  /** Rename-style op. Rethrows so `RowRename` keeps the editor open on the
+   *  bad value instead of discarding what the user typed. */
+  const runRename = useCallback(async (fn: () => Promise<void>, after?: () => void) => {
+    try {
+      await fn()
+      setRenamingKey(null)
+      after?.()
+    } catch (e) {
+      reportOpError(e)
+      throw e
+    }
+  }, [reportOpError])
+
+  /** The two actions every renameable row carries, in claude.ai's order.
+   *  `blocked` carries the REASON a side is unavailable (shown on hover), not
+   *  a boolean — a greyed row that won't say what's blocking it is worse than
+   *  no row. The two sides block independently: a running turn makes a project
+   *  rename unsafe (the agent's cwd moves) while delete stays available. */
+  const rowActions = useCallback((
+    rowKey: string,
+    onDelete: () => void,
+    blocked?: { rename?: string; delete?: string },
+  ): RowAction[] => [
+    {
+      key: 'rename',
+      label: t('spine.op.rename'),
+      icon: Pencil,
+      shortcut: 'R',
+      disabled: !!blocked?.rename,
+      disabledReason: blocked?.rename,
+      onSelect: () => setRenamingKey(rowKey),
+    },
+    {
+      key: 'delete',
+      label: t('spine.op.delete'),
+      icon: Trash2,
+      shortcut: 'D',
+      danger: true,
+      disabled: !!blocked?.delete,
+      disabledReason: blocked?.delete,
+      onSelect: onDelete,
+    },
+  ], [t])
+
   // Reset pagination when switching project
   useEffect(() => {
     setDocsVisible(DOCS_INITIAL)
@@ -249,11 +370,50 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     highlightRowRef.current?.scrollIntoView({ block: 'nearest' })
   }, [highlightIdx])
 
+  // Docs: rename carries the doc's whole artifact set (prediction, reviewed,
+  // per-experiment predictions) server-side; delete moves the same set to
+  // `_trash/`. Both re-point review when the doc being acted on is the one
+  // currently open, otherwise the overlay is left pointing at a dead name.
+  const docOps = useCallback((filename: string): RowOps => {
+    const slug = selectedSlug!
+    const isOpenInReview = () => useReview.getState().activeFilename === filename
+      && useReview.getState().activeProjectId === slug
+    return {
+      key: `doc:${filename}`,
+      actions: rowActions(`doc:${filename}`, () => {
+        void runDelete(filename, async () => {
+          const wasOpen = isOpenInReview()
+          await useDocs.getState().remove(slug, filename)
+          if (wasOpen) {
+            // Leave review — its subject no longer exists.
+            const next = searchWithoutParam(window.location.search, 'review')
+            window.history.pushState(null, '', pathForSlug(slug, next, window.location.hash))
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          }
+        })
+      }),
+      rename: {
+        initial: filename,
+        selectLen: stemLength(filename),
+        commit: (next) => runRename(async () => {
+          const wasOpen = isOpenInReview()
+          const out = await renameProjectDoc(slug, filename, next)
+          await useDocs.getState().refresh(slug)
+          if (wasOpen) navigateToReview(slug, out.filename)
+        }),
+      },
+    }
+  }, [selectedSlug, rowActions, runDelete, runRename])
+
   // Build prompts leaf nodes
   const promptItems: LeafNode[] = useMemo(() => {
     if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = promptListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
+    const reload = () => {
+      usePrompts.getState().invalidate(selectedSlug)
+      void usePrompts.getState().load(selectedSlug)
+    }
     return rows.map(row => ({
       kind: 'file' as const,
       name: row.label,
@@ -262,22 +422,79 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
       onClick: row.is_active
         ? () => openPrompt(selectedSlug)
         : () => openPrompt(selectedSlug, row.prompt_id),
+      ops: {
+        key: `prompt:${row.prompt_id}`,
+        // The server refuses to delete the active prompt (and any prompt a
+        // live experiment points at). Disabling the active case up front is
+        // the honest version: the row is right there saying it's active.
+        actions: rowActions(
+          `prompt:${row.prompt_id}`,
+          () => void runDelete(row.label, async () => {
+            await deletePrompt(selectedSlug, row.prompt_id)
+            reload()
+          }),
+          row.is_active ? { delete: t('spine.op.err.prompt_in_use') } : undefined,
+        ),
+        rename: {
+          initial: row.label,
+          commit: (next: string) => runRename(async () => {
+            await renamePrompt(selectedSlug, row.prompt_id, next)
+            reload()
+          }),
+        },
+      },
     }))
-  }, [selectedSlug, promptListByProject, openPrompt, locale, t])
+  }, [selectedSlug, promptListByProject, openPrompt, rowActions, runDelete, runRename, locale, t])
 
-  // Build models leaf nodes
+  // Build models leaf nodes.
+  // The row shows `label` when the user has given the config one, falling back
+  // to the raw provider id. Two configs of the SAME provider model (different
+  // thinking budget, different gateway) are otherwise two identical-looking
+  // rows — and renaming one would appear to do nothing at all.
   const modelItems: LeafNode[] = useMemo(() => {
     if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = modelListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
-    return rows.map(row => ({
-      kind: 'file' as const,
-      name: row.provider_model_id,
-      stamp: '',
-      active: row.is_active,
-      onClick: undefined,
-    }))
-  }, [selectedSlug, modelListByProject, locale, t])
+    const reload = () => {
+      useModels.getState().invalidate(selectedSlug)
+      void useModels.getState().load(selectedSlug)
+    }
+    return rows.map(row => {
+      const named = row.label.trim() && row.label.trim() !== row.provider_model_id
+      return {
+        kind: 'file' as const,
+        name: named ? row.label.trim() : row.provider_model_id,
+        stamp: '',
+        // The provider id stays reachable on hover when a label replaced it —
+        // it's what the API answers to and the first thing you check when a
+        // run misbehaves. As a stamp it would fight the label for a narrow
+        // row and both would end up truncated.
+        hint: named ? row.provider_model_id : undefined,
+        active: row.is_active,
+        onClick: undefined,
+        ops: {
+          key: `model:${row.model_id}`,
+          actions: rowActions(
+            `model:${row.model_id}`,
+            () => void runDelete(row.label || row.provider_model_id, async () => {
+              await deleteModel(selectedSlug, row.model_id)
+              reload()
+            }),
+            row.is_active ? { delete: t('spine.op.err.model_in_use') } : undefined,
+          ),
+          rename: {
+            // Seed with the provider id when there's no label yet, so renaming
+            // starts from what the row shows rather than from an empty box.
+            initial: named ? row.label.trim() : row.provider_model_id,
+            commit: (next: string) => runRename(async () => {
+              await renameModel(selectedSlug, row.model_id, next)
+              reload()
+            }),
+          },
+        },
+      }
+    })
+  }, [selectedSlug, modelListByProject, rowActions, runDelete, runRename, locale, t])
 
   // Build metrics/ leaf nodes from the eval list. Each entry routes to the
   // matrix page for that ts; the most recent ts gets the active marker.
@@ -316,6 +533,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
     if (!selectedSlug) return [{ kind: 'ghost', name: t('spine.none.yet') }]
     const rows = experimentListByProject[selectedSlug]
     if (!rows || rows.length === 0) return [{ kind: 'ghost', name: t('spine.none.yet') }]
+    const reload = () => {
+      useExperiments.getState().invalidate(selectedSlug)
+      void useExperiments.getState().load(selectedSlug)
+    }
     return rows.map(row => ({
       kind: 'file' as const,
       name: row.label,
@@ -324,8 +545,29 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
         : row.status,
       active: false,
       onClick: undefined,
+      ops: {
+        key: `experiment:${row.experiment_id}`,
+        // A promoted experiment is the audit trail of what shipped — the
+        // server refuses to delete it, so the row says so rather than letting
+        // the click fail.
+        actions: rowActions(
+          `experiment:${row.experiment_id}`,
+          () => void runDelete(row.label, async () => {
+            await deleteExperiment(selectedSlug, row.experiment_id)
+            reload()
+          }),
+          row.status === 'promoted' ? { delete: t('spine.op.err.experiment_promoted') } : undefined,
+        ),
+        rename: {
+          initial: row.label,
+          commit: (next: string) => runRename(async () => {
+            await renameExperiment(selectedSlug, row.experiment_id, next)
+            reload()
+          }),
+        },
+      },
     }))
-  }, [selectedSlug, experimentListByProject, locale, t])
+  }, [selectedSlug, experimentListByProject, rowActions, runDelete, runRename, locale, t])
 
   const tree = useMemo<BuiltTree | null>(
     () => activeProject
@@ -348,9 +590,10 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
             reviewed: t('spine.stamp.reviewed'),
             frozen: t('spine.stamp.frozen'),
           },
+          docOps,
         )
       : null,
-    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename, locale, t],
+    [activeProject, activeDocs, activeSchemaFields.length, promptItems, modelItems, experimentItems, metricsItems, docsVisible, loadMoreDocs, selectedDocFilename, docOps, locale, t],
   )
 
   // When review ← / → steps past the visible page boundary, bump
@@ -484,17 +727,19 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                 : n.onClick
               const isSelected = !!n.selected
               const LeafIcon = n.active ? Star : (GROUP_ICON[g.name] ?? FileText)
+              const editing = !!n.ops?.rename && renamingKey === n.ops.key
               return (
                 <div
                   key={j}
                   ref={isSelected ? selectedRowRef : undefined}
-                  className={'branch file' + (isSelected ? ' selected' : '')}
-                  onClick={clickHandler}
-                  role={clickHandler ? 'button' : undefined}
-                  tabIndex={clickHandler ? 0 : undefined}
-                  onKeyDown={clickHandler ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
-                  style={clickHandler ? { cursor: 'pointer' } : undefined}
+                  className={'branch file' + (isSelected ? ' selected' : '') + (n.ops ? ' has-ops' : '')}
+                  onClick={editing ? undefined : clickHandler}
+                  role={clickHandler && !editing ? 'button' : undefined}
+                  tabIndex={clickHandler && !editing ? 0 : undefined}
+                  onKeyDown={clickHandler && !editing ? e => { if (e.key === 'Enter' || e.key === ' ') clickHandler() } : undefined}
+                  style={clickHandler && !editing ? { cursor: 'pointer' } : undefined}
                   aria-current={isSelected ? 'true' : undefined}
+                  title={n.hint}
                 >
                   <LeafIcon
                     size={14}
@@ -502,8 +747,25 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                     className={'leaf-icon' + (n.active ? ' active' : '')}
                     {...(n.active ? { fill: 'currentColor' } : {})}
                   />
-                  <span className="leaf-name">{n.name}</span>
-                  {n.stamp && <span className="stamp">{n.stamp}</span>}
+                  {editing && n.ops?.rename ? (
+                    <RowRename
+                      initial={n.ops.rename.initial}
+                      selectLen={n.ops.rename.selectLen}
+                      onCommit={n.ops.rename.commit}
+                      onCancel={closeRename}
+                    />
+                  ) : (
+                    <>
+                      <span className="leaf-name">{n.name}</span>
+                      {n.stamp && <span className="stamp">{n.stamp}</span>}
+                      {n.ops && (
+                        <RowMenu
+                          actions={n.ops.actions}
+                          label={t('spine.op.menu', { name: n.name })}
+                        />
+                      )}
+                    </>
+                  )}
                 </div>
               )
             })}
@@ -629,12 +891,32 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
             setExpanded(s => ({ ...s, [p.slug]: true }))
           }
         }
+        const rowKey = `proj:${p.slug}`
+        const editing = renamingKey === rowKey
+        const projActions = rowActions(
+          rowKey,
+          () => {
+            // The one delete that asks first. It is recoverable like the rest
+            // (the folder moves to `_trash/`), but it takes a whole project's
+            // docs, prompts and experiments with it and there is no in-app
+            // undo — so the cost of a mis-click is an afternoon, not a redo.
+            if (!window.confirm(t('spine.op.confirm.project', { name: p.name }))) return
+            void runDelete(p.name, async () => {
+              await deleteProject(p.slug)
+              if (isActive) useProjects.getState().select(null)
+              await useProjects.getState().refresh()
+            })
+          },
+          // Renaming os.rename's the project dir out from under a running
+          // agent's cwd; the server refuses, so say so before the click.
+          p.has_active_turn ? { rename: t('spine.op.err.project_busy') } : undefined,
+        )
         return (
           <div key={p.slug}>
             <div
               ref={isActive ? selectedProjRef : isHighlighted ? highlightRowRef : undefined}
-              className={'proj' + (isActive ? ' active' : '') + (isHighlighted ? ' kbd-highlight' : '')}
-              onClick={onRowClick}
+              className={'proj has-ops' + (isActive ? ' active' : '') + (isHighlighted ? ' kbd-highlight' : '')}
+              onClick={editing ? undefined : onRowClick}
             >
               {/* folder + chevron share one slot — the twisty replaces the
                   folder on hover/active so the column never gains a reserved
@@ -647,19 +929,49 @@ export default function FSSpine({ onToggleLeft }: FSSpineProps = {}) {
                   ? <ChevronDown size={13} className="proj-arrow" strokeWidth={2} />
                   : <ChevronRight size={13} className="proj-arrow" strokeWidth={2} />}
               </span>
-              <span className="proj-name">{p.name}</span>
+              {editing ? (
+                <RowRename
+                  initial={p.name}
+                  onCommit={next => runRename(
+                    async () => {
+                      // The folder moves, so the slug moves: re-select the new
+                      // one and let AppShell's slug→URL effect rewrite the
+                      // address. Without the re-select the sidebar would still
+                      // point at a path that now 404s.
+                      const out = await renameProject(p.slug, next)
+                      await useProjects.getState().refresh()
+                      if (out.slug !== p.slug) {
+                        if (isActive) useProjects.getState().select(out.slug)
+                        setExpanded(s => {
+                          const { [p.slug]: was, ...rest } = s
+                          return was ? { ...rest, [out.slug]: true } : s
+                        })
+                      }
+                    },
+                  )}
+                  onCancel={closeRename}
+                />
+              ) : (
+                <span className="proj-name">{p.name}</span>
+              )}
               {/* "working" dot — a chat in this project has a live turn. Shown
                   on ANY row (active or not) so a turn you navigated away from
                   stays visible; the backend turn keeps running after the SSE
                   detaches (M11 T5), so this is the cue to come back. */}
-              {p.has_active_turn && (
+              {!editing && p.has_active_turn && (
                 <span className="run-dot" title={t('spine.project.running')} />
               )}
-              {isActive && (
+              {!editing && isActive && (
                 <span
                   className="status-dot"
                   title={p.status ?? 'empty'}
                   style={{ background: STATUS_DOT[p.status ?? 'empty'] ?? 'var(--ink-5)' }}
+                />
+              )}
+              {!editing && (
+                <RowMenu
+                  actions={projActions}
+                  label={t('spine.op.menu', { name: p.name })}
                 />
               )}
             </div>

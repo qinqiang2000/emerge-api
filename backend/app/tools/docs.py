@@ -321,65 +321,142 @@ async def read_doc(workspace: Path, project_id: str, filename: str) -> bytes:
     return doc_path(workspace, project_id, filename).read_bytes()
 
 
+def _doc_artifacts(
+    workspace: Path, project_id: str, filename: str,
+) -> list[tuple[str, Path]]:
+    """Every path keyed off a doc's filename, as `(role, path)` pairs — the doc
+    itself, its sidecar meta, the draft prediction, the reviewed ground truth,
+    and one prediction per experiment. Paths are returned whether or not they
+    exist; callers filter.
+
+    Single source of truth for "what does this doc own", shared by `delete_doc`
+    (which trashes the set) and `rename_doc` (which renames it). Adding a new
+    filename-keyed artifact ANYWHERE means adding it here, or delete leaks it
+    and rename orphans it.
+
+    NOTE: the render / textlayer / translate caches are deliberately absent.
+    They live in a workspace-level, content-addressed store
+    (`.cache/_render|_textlayer|_translate/{sha}/`) keyed by the doc's bytes,
+    not its name — so a rename doesn't move them and a delete must not wipe
+    them (the same bytes may back a sibling project's doc). Orphan entries are
+    harmless and cheap to regenerate."""
+    out: list[tuple[str, Path]] = [
+        ("doc", doc_path(workspace, project_id, filename)),
+        ("meta", doc_meta_path(workspace, project_id, filename)),
+        ("prediction_draft", prediction_draft_path(workspace, project_id, filename)),
+        ("reviewed", reviewed_path(workspace, project_id, filename)),
+    ]
+    edir = experiments_dir(workspace, project_id)
+    if edir.exists():
+        for sub in sorted(edir.iterdir()):
+            if not sub.is_dir():
+                continue
+            out.append((
+                f"experiment/{sub.name}",
+                experiment_prediction_path(workspace, project_id, sub.name, filename),
+            ))
+    return out
+
+
 async def delete_doc(
     workspace: Path, project_id: str, filename: str,
 ) -> dict[str, Any]:
-    """Remove a doc from the project. Wipes every artifact keyed off the
-    filename — the file itself, sidecar meta, PDF render cache, draft
-    prediction, reviewed JSON, and any per-experiment predictions — so the
-    next `list_docs` no longer sees it and stale predictions can't resurrect
-    later.
+    """Delete a doc and every artifact keyed off its filename by MOVING the set
+    into one `_trash/` bundle (recoverable for ~2 weeks), not by unlinking.
 
-    No-op if the doc file isn't present (caller will see `removed: False`).
-    Raises only on permission errors or filesystem failures the caller is
-    expected to surface."""
-    removed: list[str] = []
+    Reversibility matters most for the `reviewed/` JSON: that is hand-corrected
+    ground truth, the one artifact here no amount of re-running can rebuild. A
+    mis-aimed delete used to destroy it outright — now it lands in trash with
+    the rest of the doc's set and can be moved back (`_manifest.json` records
+    each member's origin path).
+
+    No-op if the doc file isn't present (caller will see `removed: False`)."""
+    from app.workspace.trash import trash_bundle
 
     async with project_lock(workspace, project_id):
         primary = doc_path(workspace, project_id, filename)
         if not primary.exists():
             return {"removed": False, "filename": filename, "artifacts": []}
-        primary.unlink()
-        removed.append("doc")
 
-        side = doc_meta_path(workspace, project_id, filename)
+        members = [(r, p) for r, p in _doc_artifacts(workspace, project_id, filename) if p.exists()]
+        dest = trash_bundle(workspace, f"doc-{filename}", members)
+
+    return {
+        "removed": True,
+        "filename": filename,
+        "artifacts": [role for role, _ in members],
+        "trashed_to": dest.name if dest else None,
+    }
+
+
+async def rename_doc(
+    workspace: Path, project_id: str, filename: str, new_filename: str,
+) -> dict[str, Any]:
+    """Rename a doc, carrying every filename-keyed artifact with it.
+
+    A doc's name IS its primary key here — the sidecar meta, draft prediction,
+    reviewed ground truth and per-experiment predictions are all stored as
+    `{filename}.json`. So a bare `mv docs/a.pdf docs/b.pdf` doesn't rename a
+    doc, it orphans one: the new name has no prediction and no review history,
+    while the old name's artifacts linger forever pointing at a file that no
+    longer exists. This moves the whole set in one locked step.
+
+    The extension is not user-editable: it drives which extract path the doc
+    takes (raster vs text) and is recorded in the sidecar. `new_filename`
+    without an extension inherits the current one; with a *different* one it
+    raises ValueError.
+
+    Returns `{"filename": <new>, "previous": <old>, "artifacts": [roles]}`.
+    Raises FileNotFoundError when the doc is missing, ValueError when the
+    target name is empty / already taken / changes the extension."""
+    new_name = (new_filename or "").strip()
+    if not new_name:
+        raise ValueError("new_filename must be non-empty")
+    if "/" in new_name or "\\" in new_name or new_name.startswith("."):
+        raise ValueError("new_filename must be a bare filename")
+
+    old_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    new_ext = new_name.rsplit(".", 1)[-1].lower() if "." in new_name else ""
+    if old_ext and not new_ext:
+        new_name = f"{new_name}.{old_ext}"
+    elif new_ext != old_ext:
+        raise ValueError(
+            f"cannot change extension on rename ({old_ext or 'none'} → {new_ext}); "
+            "the extension selects the extract path and is recorded in the sidecar"
+        )
+
+    async with project_lock(workspace, project_id):
+        primary = doc_path(workspace, project_id, filename)
+        if not primary.exists():
+            raise FileNotFoundError(f"doc not found: {filename}")
+        if new_name == filename:
+            return {"filename": filename, "previous": filename, "artifacts": []}
+        if doc_path(workspace, project_id, new_name).exists():
+            raise ValueError(f"a doc named {new_name} already exists")
+
+        moved: list[str] = []
+        src_pairs = _doc_artifacts(workspace, project_id, filename)
+        dst_pairs = _doc_artifacts(workspace, project_id, new_name)
+        for (role, src), (_, dst) in zip(src_pairs, dst_pairs):
+            if not src.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src.rename(dst)
+            moved.append(role)
+
+        # The sidecar carries a `filename` field that `list_docs` trusts (and
+        # otherwise back-fills defensively). Write it through so the sidecar
+        # agrees with disk immediately rather than on next read.
+        side = doc_meta_path(workspace, project_id, new_name)
         if side.exists():
-            side.unlink()
-            removed.append("meta")
+            try:
+                blob = json.loads(side.read_text(encoding="utf-8"))
+                blob["filename"] = new_name
+                atomic_write_json(side, blob)
+            except (json.JSONDecodeError, OSError):
+                pass
 
-        # NOTE: the render / textlayer / translate caches are deliberately
-        # NOT wiped here. They moved to a workspace-level, content-addressed
-        # store (`.cache/_render|_textlayer|_translate/{sha}/`) that may be
-        # shared by the same bytes in other projects — and they're pure
-        # functions of the doc, cheap to regenerate. Wiping on a per-project
-        # delete would corrupt a sibling project's cache. Orphan entries are
-        # harmless and can be GC'd workspace-wide later.
-        draft = prediction_draft_path(workspace, project_id, filename)
-        if draft.exists():
-            draft.unlink()
-            removed.append("prediction_draft")
-
-        rev = reviewed_path(workspace, project_id, filename)
-        if rev.exists():
-            rev.unlink()
-            removed.append("reviewed")
-
-        edir = experiments_dir(workspace, project_id)
-        if edir.exists():
-            wiped = 0
-            for sub in edir.iterdir():
-                if not sub.is_dir():
-                    continue
-                ep = experiment_prediction_path(
-                    workspace, project_id, sub.name, filename,
-                )
-                if ep.exists():
-                    ep.unlink()
-                    wiped += 1
-            if wiped:
-                removed.append(f"experiment_predictions×{wiped}")
-
-    return {"removed": True, "filename": filename, "artifacts": removed}
+    return {"filename": new_name, "previous": filename, "artifacts": moved}
 
 
 async def pdf_render_page(
