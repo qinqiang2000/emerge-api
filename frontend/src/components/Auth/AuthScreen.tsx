@@ -18,6 +18,22 @@ function readInvite(): string {
 }
 
 /**
+ * The previous-generation label-studio deployment, still running for people who
+ * navigate by its fixed menu rather than by chat.
+ *
+ * Deliberately a bare IP over plain http. :9090 terminates no TLS (the 2026-06-07
+ * port swap handed TLS to the emerge block), and fpydoc.duckdns.org serves HSTS
+ * on :443 — HSTS is scoped to the HOST and ignores the port, so the domain form
+ * would be force-upgraded to https and die with ERR_SSL_PROTOCOL_ERROR. The IP
+ * carries no HSTS entry, so it survives.
+ *
+ * Keep in lockstep with `HOST` in the server's /root/label_studio/ls_start.sh —
+ * that file is not in this repo, and the two drifting apart is exactly what broke
+ * the old app's styling for two months.
+ */
+const LEGACY_URL = 'http://43.166.182.9:9090/'
+
+/**
  * Full-screen login / signup gate (tenant mode, unauthenticated). Signup is
  * only reachable with an invite token in the URL — superuser curates teams and
  * members join via the shared link (no open self-serve registration).
@@ -136,6 +152,12 @@ export default function AuthScreen() {
               {t('auth.toLogin')}
             </button>
           )}
+        </div>
+
+        <div className="auth-legacy">
+          <a href={LEGACY_URL} target="_blank" rel="noopener noreferrer">
+            {t('auth.legacy')}
+          </a>
         </div>
       </div>
     </div>
