@@ -393,8 +393,9 @@ These don't fit a milestone but should be tracked:
     there). Dogfooding caught a loop the tests hadn't: `shutil.move` preserves
     mtime, so a restored deliverable came back still-expired and the next boot
     swept it again — `restore_from_trash` now restarts the clock for that kind
-    only. ("They're small next to `docs/`" was wrong, incidentally — the first
-    prod `_export/` held a 9.7 MB zip of `docs/` itself.)
+    only. ("They're small next to `docs/`" was wrong by two orders of
+    magnitude — measured on prod at deploy time, one project's `_export/` held
+    a **166 MB** zip of its own `docs/`.)
   - ~~**`export.py` reads whole bundles into RAM**~~ — closed 2026-08-11, but
     **resolved against its own premise**: `build_zip_bundle` assembles four
     small text members and returns kilobytes, so there was no RAM to save and

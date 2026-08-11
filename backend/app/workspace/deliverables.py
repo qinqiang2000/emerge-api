@@ -3,9 +3,9 @@
 `_export/` is where the agent writes things it built *for the user*: a zip of
 docs, a CSV, a self-contained HTML report. `emerge_extractor.md` tells it to
 build there and then hand the path to `offer_download`. Nothing ever removed
-them, so the drawer only grew — the first prod project to use the feature was
-already sitting on a 9.7 MB `docs.zip` (a re-derivable copy of `docs/`) beside
-an 8 KB report.
+them, so the drawer only grew. Measured on prod the day this shipped: one
+project holding a **166 MB** `docs_海信日本.zip` — a re-derivable copy of its own
+`docs/` — beside a 765-byte `prompts.zip`. The drawer is not small change.
 
 **This module deletes nothing.** It is a *policy* — "this deliverable has aged
 out" — and it hands the file to `trash()`, which is the existing retention

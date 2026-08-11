@@ -23,7 +23,7 @@ Nor is `FileResponse` reachable here: there is no file. `build_zip_bundle`
 returns bytes assembled from four small text members (schema.json,
 version.json, curl_example.sh, README.md), so a real project's bundle is
 kilobytes. The "reads whole bundles into RAM" concern that motivated this
-revisit applies to `offer_download`'s targets (a 9.7 MB `docs.zip` was observed
+revisit applies to `offer_download`'s targets (a 166 MB `docs.zip` was measured
 in prod), not to this route.
 """
 from __future__ import annotations
