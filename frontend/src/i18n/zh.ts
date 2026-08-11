@@ -29,6 +29,7 @@ const zh: Dict = {
   'auth.toSignup': '有邀请链接？创建账户',
   'auth.toLogin': '已有账户？去登录',
   'auth.needInvite': '第一次来？向同事索取邀请链接。',
+  'auth.legacy': '找旧版？打开 Piaozone AI Studio →',
   'auth.err.bad_login': '邮箱或密码不正确。',
   'auth.err.invalid_invite': '邀请链接无效或已过期。',
   'auth.err.email_taken': '该邮箱已注册。',
@@ -253,6 +254,7 @@ const zh: Dict = {
 
   // ── ToolCall / tool stack ──────────────────────────────────────────────
   'tool.running.aria': '运行中',
+  'turn.truncated': '走了 {n} 步先停一下 —— 回一句就接着干。',
   'tool.calling.aria': '调用 {name}',
   'tool.thinking.aria': 'agent 思考中',
   'tool.ran': '已执行',

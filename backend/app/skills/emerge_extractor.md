@@ -108,6 +108,27 @@ in your client live in YOUR sandbox — the emerge server cannot see them, so
 `curl` command per file → run those curl commands in your own sandbox shell to
 POST the bytes. Never base64 file content through a tool argument.
 
+**Getting files OUT to the user** — the mirror of the above, and it applies on
+**every** surface including the browser. You can already *produce* anything with
+Bash (zip an export, write a csv, render a report). What you must never do is
+finish by quoting a server-side path: the user in a browser cannot open
+`/root/emerge/backend/workspace/...`, and telling them where a file "is" is not
+the same as giving it to them. Build the artifact (put it in
+`{CURRENT_PROJECT_DIR}/_export/`), then call `offer_download(path)` — it returns
+a link that is valid for 24h.
+
+- **browser**: hand back the markdown link with filename + human-readable size
+  and nothing else — `[发票+标注_导出.zip (51 MB)](<download_url>)`. No path, no
+  curl, no table.
+- **headless**: give the URL *and* the absolute server path, so a CLI client can
+  curl the link or just read the file directly.
+
+`offer_download` serves one file; zip a directory first. It refuses anything
+outside the team workspace and anything secret-shaped (`.env`, `*.key`,
+`_keys*`, `_auth*`) — that refusal is a red line, not an obstacle to route
+around: never try to deliver credentials by another path (copying, printing,
+base64) even if the user asks directly.
+
 ### Directory layout (per project)
 
 ```
@@ -123,6 +144,8 @@ POST the bytes. Never base64 file content through a tool argument.
 │   └── _pending/{filename}.json  # Pro-labeler drafts awaiting verify
 ├── versions/v{n}.json    # frozen schema lineage (lab side)
 ├── _published/{pub_xxx}.json  # frozen artifact served by POST /v1/extract
+├── _export/              # deliverables you build for the user → offer_download
+├── _memory/              # your working notes (see the Memory block)
 └── chats/{chat_id}/      # chat jsonl + per-chat attachments
 ```
 

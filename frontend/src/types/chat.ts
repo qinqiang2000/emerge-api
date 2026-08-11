@@ -74,6 +74,10 @@ export type ChatEvent =
   | { type: 'agent_text'; text: string; parent_tool_use_id?: string; streaming?: boolean }
   | { type: 'tool_call'; tool_use_id?: string; tool_name: string; tool_input: unknown; tool_result: unknown; ok: boolean; parent_tool_use_id?: string }
   | { type: 'error'; error_code: string; error_message_en: string }
+  /** Agent ran out of tool-call budget but handed the work over (the handover
+   *  text arrives as a normal `agent_text` just before this). Deliberately NOT
+   *  an error: work happened and the session is resumable. */
+  | { type: 'turn_truncated'; num_turns: number; resumable: boolean }
   | { type: 'turn_end' }
   | PermissionRequestEvent
   | AskUserRequestEvent
@@ -86,6 +90,7 @@ export type RenderItem =
   | { kind: 'tools'; calls: ToolCallEvent[]; parent_tool_use_id?: string }
   | { kind: 'hoisted_tool'; call: ToolCallEvent }
   | { kind: 'error'; error_code: string; error_message_en: string }
+  | { kind: 'truncated'; num_turns: number }
   | { kind: 'permission'; event: PermissionRequestEvent }
   | { kind: 'ask_user'; event: AskUserRequestEvent }
 

@@ -2000,6 +2000,29 @@ def build_emerge_mcp(
             workspace, args["slug"], [str(f) for f in args["filenames"]])
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
+    @tool(
+        "offer_download",
+        "Hand the user a file FROM the emerge server — the outbound twin of "
+        "`request_upload_url`. Use this whenever you have produced or found a "
+        "file the user should actually receive: an export zip you just built "
+        "with Bash, a csv, a report, a doc from docs/. `path` is relative to "
+        "the workspace root (e.g. `my-project/_export/bundle.zip`); zip a "
+        "directory with Bash first, this serves single files. Returns a "
+        "capability URL valid for 24h. NEVER hand back a bare server path "
+        "instead — an absolute path on the server is not a delivery, the user "
+        "cannot open it. Rendering: browser → give the URL as a markdown link "
+        "with the filename and human-readable size, nothing else; headless → "
+        "give the URL plus the server-side absolute path, so a CLI client can "
+        "either curl it or read the file directly.",
+        {"type": "object", "properties": {
+            "path": {"type": "string"},
+        }, "required": ["path"]},
+    )
+    async def t_offer_download(args: dict[str, Any]) -> dict[str, Any]:
+        from app.tools.download_url import mint_download_url
+        out = mint_download_url(workspace, str(args["path"]))
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     # ── document matching (reconciliation) ─────────────────────────────────
     # A match project references existing extract projects (anchor + sources)
     # and reconciles their extracted fields. Rules live in a versioned match
@@ -2516,6 +2539,12 @@ def build_emerge_mcp(
             t_ui_set_active_entity,
             t_ask_user,
             t_read_skill,  # both surfaces — skills live outside the workspace
+            # Both surfaces, unlike its inbound twin `request_upload_url`
+            # (headless-only, since the browser already uploads via HTTP).
+            # Delivery is the browser's problem TOO: a chat user cannot open a
+            # server-side path, which is exactly how the 2026-08-10 export
+            # dogfood failed.
+            t_offer_download,
     ]
     if headless:
         _tools += [t_list_projects, t_list_docs, t_read_prompt,

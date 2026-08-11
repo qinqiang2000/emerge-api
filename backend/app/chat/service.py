@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,12 +49,57 @@ from app.workspace.paths import (
     reviewed_dir,
     unbound_chat_attachment_path,
 )
+from app.workspace.memory import render_memory_block
 from app.workspace.pid_index import get_index
 from app.workspace.staging import (
     StagingClaimError,
     claim_staged_to_chat,
     claim_staged_to_unbound_chat,
 )
+
+
+# Turn budget for one chat turn. Was 20 — too tight for a document agent that
+# batch-labels, greps a big workspace, or has to explore before it can act. The
+# ceiling is no longer a cliff (see `_run_wrapup`), so a generous value costs
+# nothing when unused: turns are only spent if the agent actually needs them.
+_MAX_TURNS = 40
+
+# The wrap-up turn gets exactly one turn and zero tools — its only job is to
+# speak. Without the tool ban it would "just quickly check one more thing" and
+# burn another whole budget.
+_WRAPUP_INSTRUCTION = (
+    "SYSTEM: You have hit this turn's tool-call budget, so you must stop "
+    "working now. Do NOT call any tool — they are disabled for this message.\n\n"
+    "Hand the work over to the user in a few lines, in their language:\n"
+    "1. What you actually completed (be concrete — names, counts, paths).\n"
+    "2. Where any artifact you produced lives, and how the user reaches it "
+    "(if it is a file the user should download, say so explicitly — you can "
+    "call `offer_download` on the next turn to hand them a link).\n"
+    "3. The single next step you were about to take.\n\n"
+    "End by telling them to reply 「继续」 (or 'continue') to resume — "
+    "your session is preserved, so the next turn picks up with everything you "
+    "have already learned. Do not apologise at length; just hand over cleanly."
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_wrapup_failure(exc: BaseException) -> None:
+    logger.warning("max-turns wrap-up failed, falling back to notice: %s", exc)
+
+
+def _is_max_turns_result(message: ResultMessage) -> bool:
+    """Did the query loop stop because it ran out of turns (vs a real error)?
+
+    `terminal_reason` is the clean discriminator, but it only exists on newer
+    CLIs (SDK ships it since the 0.2.13x line; older CLIs report `None`), so
+    fall back to the legacy `subtype` string. Both are checked because the
+    bundled CLI version is not pinned by us.
+    """
+    if getattr(message, "terminal_reason", None) == "max_turns":
+        return True
+    return (message.subtype or "") == "error_max_turns"
 
 
 # Filename suffix → Anthropic image media type. PDFs deliberately excluded:
@@ -231,6 +277,9 @@ _WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
   reviewed/_pending/   # label_docs 产生的待审稿
   predictions/_draft/  # 最新提取输出
   chats/               # chat 历史（jsonl）+ chats/<chat_id>/attachments/
+  _export/             # 你为用户生成的交付物（zip / csv / 报表）；建好后用
+                       # offer_download 换成链接交给用户，别只报路径
+  _memory/             # 你自己的工作笔记（见下方 Memory 段）
   schema.json          # 编辑态 schema — 只能用 write_schema/write_prompt 工具改
   project.json         # 项目配置（active_prompt_id / active_model_id / ...）"""
 
@@ -679,6 +728,13 @@ class ChatService:
             self._select_skill(user_message),
             "---",
             _build_active_context(self.workspace, slug, chat_id, interface=interface),
+            "---",
+            # Agent-brain scope ONLY — never forwarded to extract / labeler /
+            # proposer / translator prompts. See app/workspace/memory.py.
+            render_memory_block(
+                self.workspace,
+                None if slug in (_UNSET_SLUG, _UNBOUND_SLUG) else slug,
+            ),
         ]
         if surface_context is not None:
             parts.append("---")
@@ -797,7 +853,7 @@ class ChatService:
             # edit leaking a third-party server into the agent's tool list.
             strict_mcp_config=True,
             agents=agents,
-            max_turns=20,
+            max_turns=_MAX_TURNS,
             # Emit raw Anthropic stream events (content_block_delta) alongside
             # the completed-block messages so the chat can render token-level
             # streaming. `_events_from_message` translates StreamEvent →
@@ -816,6 +872,94 @@ class ChatService:
             # the headroom here as license to inline full-resolution renders.
             max_buffer_size=8 * 1024 * 1024,
         )
+
+    async def _run_wrapup(
+        self, *, slug: str, chat_id: str, session_id: str, num_turns: int,
+    ) -> AsyncIterator[str]:
+        """Turn a turn-budget exhaustion into a handover instead of a dropped turn.
+
+        Dogfood 2026-08-10 (prod, `receipt(小票)_海信日本`): the agent spent 20
+        turns discovering how to hand the user a file, then the loop hit its
+        ceiling and the whole turn surfaced as `error_max_turns after 21 turns`
+        — every intermediate artifact and everything it had figured out went in
+        the bin. A colleague who thinks for twenty steps doesn't exit with
+        amnesia; they tell you where they got to.
+
+        So: resume the SAME SDK session (the agent still has its full working
+        context), hand it a tool-less microphone, and let it speak. The user
+        gets "here's what I did, here's the next step"; replying 「继续」 resumes
+        from a live session rather than from scratch.
+
+        Belt and braces on the tool ban — `tools=[]` (no built-ins),
+        `mcp_servers={}` (no emerge tools), and two turns of headroom so that
+        even if a tool call somehow materialises and fails, there is still a
+        turn left to produce text. Without the ban the wrap-up would happily
+        "just quickly check one more thing" and burn another full budget.
+        """
+        opts = ClaudeAgentOptions(
+            system_prompt=(
+                "You are emerge's agent, wrapping up a turn that ran out of "
+                "tool-call budget. Reply in the user's language. Prose only."
+            ),
+            model=self.agent_model,
+            cwd=self.workspace.resolve(),
+            resume=session_id,
+            settings=str(_SDK_SETTINGS_PATH),
+            setting_sources=["project"],
+            tools=[],
+            mcp_servers={},
+            strict_mcp_config=True,
+            allowed_tools=[],
+            disallowed_tools=_SDK_NEVER_TOOLS,
+            max_turns=2,
+            include_partial_messages=True,
+            max_buffer_size=8 * 1024 * 1024,
+        )
+        spoke = False
+        try:
+            async with ClaudeSDKClient(options=opts) as client:
+                await client.query(_WRAPUP_INSTRUCTION)
+                async for message in client.receive_response():
+                    for etype, payload in _events_from_message(message):
+                        # Only text escapes the wrap-up. Thinking, results and
+                        # internal control events are noise here.
+                        if etype == "agent_text_delta":
+                            yield sse_event(etype, payload)
+                            continue
+                        if etype != "agent_text":
+                            continue
+                        spoke = True
+                        await append_event(
+                            self.workspace, slug, chat_id,
+                            {"type": etype, **payload},
+                        )
+                        yield sse_event(etype, payload)
+        except Exception as exc:  # noqa: BLE001
+            # The wrap-up is best-effort garnish on top of work that already
+            # happened. If it fails we still owe the user the truncation
+            # notice below — never let this path swallow the turn.
+            spoke = False
+            _log_wrapup_failure(exc)
+
+        if not spoke:
+            fallback = {
+                "text": (
+                    f"我在这一轮用满了 {num_turns} 步工具预算，还没来得及汇报就被打断了。"
+                    "已完成的工作和上下文都还在，回复「继续」我就接着干。"
+                )
+            }
+            await append_event(
+                self.workspace, slug, chat_id, {"type": "agent_text", **fallback}
+            )
+            yield sse_event("agent_text", fallback)
+
+        # Distinct from `error`: the turn produced real work and a handover.
+        # The frontend renders this as a "continue?" affordance, not a failure.
+        payload = {"num_turns": num_turns, "resumable": True}
+        await append_event(
+            self.workspace, slug, chat_id, {"type": "turn_truncated", **payload}
+        )
+        yield sse_event("turn_truncated", payload)
 
     async def chat_turn(
         self,
@@ -1044,6 +1188,7 @@ class ChatService:
 
         latest_sid: str | None = None
         yielded_any = False
+        hit_max_turns = False
 
         # Per-turn unified output queue. Both the SDK message loop and
         # out-of-band writers (`_ui_writer`, used by tools that push SSE frames
@@ -1070,7 +1215,7 @@ class ChatService:
             opts: ClaudeAgentOptions,
             out_queue: asyncio.Queue[tuple[str, dict[str, Any]] | object],
         ) -> None:
-            nonlocal latest_sid, yielded_any
+            nonlocal latest_sid, yielded_any, hit_max_turns
             redactor = EventRedactor()
             try:
                 async with ClaudeSDKClient(options=opts) as client:
@@ -1086,6 +1231,12 @@ class ChatService:
                                 latest_sid = sid
                         for etype, payload in _events_from_message(message):
                             redactor.observe(etype, payload)
+                            # Budget exhaustion is a handover cue, not an error
+                            # frame — `chat_turn` runs the wrap-up once this
+                            # stream drains. Never forwarded to the client.
+                            if etype == "_max_turns":
+                                hit_max_turns = True
+                                continue
                             # Internal control events (`_block_start` resets the
                             # redactor's per-block delta scrub buffer) are observed
                             # above but never persisted or forwarded.
@@ -1180,6 +1331,30 @@ class ChatService:
                 )
                 async for chunk in _run(options):
                     yield chunk
+            # Ran out of turns rather than out of things to say: resume the
+            # live session for one tool-less turn so the user gets a handover
+            # instead of `error_max_turns`. Needs a session id to resume from;
+            # without one there is nothing to hand over and the (rare) bare
+            # notice is the honest outcome.
+            if hit_max_turns:
+                if latest_sid:
+                    async for chunk in self._run_wrapup(
+                        slug=_current_slug(),
+                        chat_id=chat_id,
+                        session_id=latest_sid,
+                        num_turns=_MAX_TURNS,
+                    ):
+                        yield chunk
+                else:
+                    err = {
+                        "error_code": "error_max_turns",
+                        "error_message_en": f"agent stopped after {_MAX_TURNS} turns",
+                    }
+                    await append_event(
+                        self.workspace, _current_slug(), chat_id,
+                        {"type": "error", **err},
+                    )
+                    yield sse_event("error", err)
         except Exception as e:  # noqa: BLE001
             err = {"error_code": "agent_failure", "error_message_en": str(e)}
             await append_event(
@@ -1377,6 +1552,14 @@ def _events_from_message(message: Any) -> list[tuple[str, dict[str, Any]]]:
         # Only surface results when the run errored — successful turn already
         # reflected in the closing `turn_end` event.
         if message.is_error:
+            if _is_max_turns_result(message):
+                # NOT an error the user should ever see. The agent did N turns
+                # of real work; the loop just ran out of budget before it got
+                # to speak. `chat_turn` catches this internal event and runs a
+                # tool-less wrap-up turn so the work is handed over instead of
+                # discarded. See `_run_wrapup`.
+                out.append(("_max_turns", {"num_turns": message.num_turns}))
+                return out
             out.append(
                 (
                     "error",

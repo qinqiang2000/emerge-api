@@ -733,6 +733,111 @@ add anything prod reads, write it to the true root, not `current_ws()`.
 
 ---
 
+## `error_max_turns` is NOT an error — never surface it, and never re-tighten `max_turns`
+
+**Symptom (prod dogfood, 2026-08-10).** A user asked the agent to zip a project's
+docs and give a download link. The chat ended on a bare red
+`error_max_turns: error_max_turns after 21 turns`. Nothing delivered, no
+explanation, 20 turns of real work silently binned.
+
+**Two separate causes, and the shallow one is a decoy.** The visible cause was
+`max_turns=20` in `chat/service.py`. Raising it alone would have been the wrong
+fix: the *deep* cause is that emerge had no way to hand a file to a browser
+user, so the agent spent its entire budget reverse-engineering its own backend
+(`grep attachments` → `docs.py` → `upload.py`) — see `tools/download_url.py`.
+Any capability gap produces this same death spiral; the turn ceiling is only the
+amplifier.
+
+**The trap.** `_events_from_message` used to translate `ResultMessage.is_error`
+straight into an `error` SSE frame. That reads as obviously correct and is
+obviously wrong: budget exhaustion means "ran out of turns", not "failed". The
+work happened. The session is alive and resumable. Treating it as an error
+throws away both.
+
+**The fix.** `_is_max_turns_result` classifies it (checking `terminal_reason ==
+"max_turns"` first, falling back to the legacy `subtype` string because the
+bundled CLI version isn't pinned by us), and `chat_turn` responds by resuming the
+SAME SDK session for one **tool-less** turn — `tools=[]`, `mcp_servers={}`,
+`allowed_tools=[]` — so the agent narrates what it did and what comes next. The
+user gets a handover plus a `turn_truncated` notice (ochre, not rose); replying
+「继续」 resumes a live session.
+
+**Don't "simplify" any of these:**
+- The tool ban is load-bearing three times over. Give the wrap-up turn a single
+  tool and it will "just quickly check one more thing" and burn another budget —
+  which is the exact failure it exists to end.
+- `max_turns=2` on the wrap-up, not 1: leaves headroom to still produce text if
+  a tool call somehow materialises and gets refused.
+- Both discriminators, not just `terminal_reason`: it is `None` on older CLIs.
+- The bare-notice branch when `latest_sid` is missing — without a session there
+  is nothing to resume, and silently emitting nothing is worse than the notice.
+
+---
+
+## Both halves of the data plane sign with ONE secret — the kind claim is what separates them
+
+`upload_url.py` (bytes in) and `download_url.py` (bytes out) are deliberately the
+same design: control plane over MCP, data plane over plain HTTP, HMAC token as
+the capability, redemption route mounted with **no** auth dependency. They also
+share `secret_key`, so `download_url` imports `_b64` / `_sign` / `_unb64` from
+`upload_url` rather than copying them — two copies of a signing scheme drift, and
+a drifted copy is a security bug, not a style problem.
+
+What keeps an inbound capability from becoming an outbound one is the `"t":
+"dl"` kind claim, checked in `verify_token` before expiry. Drop it and an upload
+token — which any authed caller can mint for an arbitrary filename — becomes
+readable-as-a-download. There's a regression test
+(`test_upload_token_cannot_be_replayed_as_download`).
+
+**A third capability-token consumer is the signal to hoist the primitives into
+their own module.** At two, the cross-import is cheaper than the abstraction.
+
+**The containment check is not optional and is not `download_url`'s own.**
+`mint_download_url` delegates to `workspace_fs._safe_ws_path`, which resolves
+symlinks and `..` before proving containment, AND applies the secret denylist
+(`.env` / `*.key` / `*.pem` / `*secret*` / `_keys*` / `_auth*`). That last part
+is what makes the difference in **open mode**, where `current_ws()` IS the real
+workspace root — so `_auth/users.json` and `_keys.json` sit inside the range
+check. Without the denylist, "帮我下载一下配置文件" mints a working link to the
+keystore.
+
+**Deliberately not implemented: `Content-Disposition: inline`.** An agent-written
+HTML report served inline would run on the lab's own origin, with same-origin
+access to the session cookie and every `/lab/*` route. Inline preview needs a
+separate origin first. Until then everything downloads.
+
+---
+
+## Agent memory is Agent-brain scope ONLY — it must never reach the extract layer
+
+`workspace/memory.py` injects `_memory/MEMORY.md` into the chat system prompt so
+the agent stops re-deriving what it worked out last week. Claude Code's own
+auto-memory is the model, but emerge cannot inherit it: auto-memory is a
+*dynamic section of the `claude_code` preset* system prompt (see the SDK's
+`SystemPromptPreset.exclude_dynamic_sections` docstring), and emerge passes a
+hand-built string prompt. Adopting the preset to get memory for free would drag
+the whole coding-agent persona into a document colleague.
+
+**The red line.** Memory feeds the Agent brain and nothing else. An extraction
+rule that lands in `_memory/` instead of `global_notes` will silently stop
+applying the moment the project is published — the published API reads
+`_published/{pub_xxx}.json`, which never saw it. That is a lab-passes /
+prod-fails divergence with no error message anywhere. `test_agent_memory.py`
+asserts that `render_memory_block` is imported by exactly one module
+(`chat/service.py`) precisely to catch a future "just add more context" patch to
+an extract/labeler/proposer prompt builder.
+
+The skill text has to teach the split, because the model's instinct is to file
+everything: 「这个供应商日期是 DD/MM/YYYY」 is `global_notes`;
+「这个项目的交付物打包后放 `_export/` 再给链接」 is memory. Test: *would this fact
+change what gets extracted from a document?* If yes, it is not a memory.
+
+The index rides in **every** turn's prompt, so it is capped (6 KB) and truncates
+with a visible marker. Hitting the cap means notes need consolidating, not that
+the cap needs raising.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

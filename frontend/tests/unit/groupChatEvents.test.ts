@@ -127,4 +127,18 @@ describe('groupChatEvents', () => {
     const items = groupChatEvents(events)
     expect(items.map(i => i.kind)).toEqual(['hoisted_tool', 'hoisted_tool'])
   })
+
+  it('turn_truncated renders after the handover text, and is not an error', () => {
+    // The backend runs a tool-less wrap-up turn on budget exhaustion, so the
+    // agent's own summary arrives first and this event is only the notice.
+    const events: ChatEvent[] = [
+      tc('Bash'),
+      { type: 'agent_text', text: 'zip is built, next I hand you the link' },
+      { type: 'turn_truncated', num_turns: 40, resumable: true },
+    ]
+    const items = groupChatEvents(events)
+    expect(items.map(i => i.kind)).toEqual(['tools', 'agent', 'truncated'])
+    expect(items.some(i => i.kind === 'error')).toBe(false)
+    expect(items[2]).toEqual({ kind: 'truncated', num_turns: 40 })
+  })
 })

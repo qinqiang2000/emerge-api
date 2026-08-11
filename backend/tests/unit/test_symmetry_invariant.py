@@ -172,6 +172,9 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # mint route. The unauthed redemption endpoint (/lab/upload/{token}) is the
     # data plane itself, not a tool twin.
     "request_upload_url": ("POST", r"^/lab/upload-urls$"),
+    # Outbound half of the same data plane (/lab/download/{token} is likewise
+    # the unauthed data plane, not a twin).
+    "offer_download": ("POST", r"^/lab/download-urls$"),
     # Progressive disclosure: domain playbooks pulled on demand.
     "read_skill":    ("GET", r"^/lab/skills/\{domain\}$"),
 }

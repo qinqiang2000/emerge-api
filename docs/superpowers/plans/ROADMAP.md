@@ -356,6 +356,30 @@ These don't fit a milestone but should be tracked:
 - **per-field confidence dots** — hard-coded to 'high' (moss); needs per-field score from extract LLM.
 - **PDF→field bidirectional binding** — current click-to-page (field→PDF) is one-way; clicking in the PDF doesn't activate the corresponding field row.
 - **review toolbar `<flagged>/<total> flagged` status** — design shows a flagged-field count between the expand-toggle and prev/next arrows; deferred until per-field confidence lands (a "flag" needs a confidence threshold to count against).
+- **Agent parity with `claude code + ssh`** — shipped 2026-08-10
+  (`2026-08-10-agent-parity-with-ssh.md`): SDK 0.2.105→0.2.135, `max_turns`
+  soft landing (20→40 + tool-less wrap-up turn instead of `error_max_turns`),
+  `offer_download` outbound data plane, and `_memory/` agent-brain memory.
+  Follow-ups spun out of it:
+  - **Inline preview origin** — `offer_download` always sends
+    `Content-Disposition: attachment`. Serving agent-produced HTML inline needs a
+    separate origin first (same-origin markup would reach the session cookie and
+    every `/lab/*` route). Blocks the "agent renders a shareable report page" use
+    case; the board renderers already produce self-contained HTML that would
+    benefit.
+  - **Memory consolidation pass** — nothing prunes `_memory/`. The index is
+    capped at 6 KB and truncates loudly, but no one merges near-duplicate notes.
+    Revisit once a real project has accumulated ~30 notes; the likely shape is a
+    periodic agent-run "consolidate your notes" rather than a UI.
+  - **`_export/` retention** — deliverables accumulate under
+    `{project}/_export/` and nothing ages them out. Not urgent (they're small
+    next to `docs/`), but it is unbounded growth on a per-project basis.
+  - **`export.py` reads whole bundles into RAM** — `iter([blob])` predates
+    `download.py`'s `FileResponse`. The publish-bundle route should stream too;
+    RFC 5987 filenames are already solved in `download_url.content_disposition`,
+    which also closes the older "export bundle filename for non-ASCII project
+    names" follow-up above once that route is migrated.
+
 ## How to use this file
 
 1. **Before starting a plan**: read this file to know what comes next.

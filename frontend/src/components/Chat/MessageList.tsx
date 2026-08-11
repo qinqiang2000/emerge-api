@@ -400,6 +400,20 @@ export default function MessageList({ events, busy }: Props) {
             </div>
           )
         }
+        if (item.kind === 'truncated') {
+          // Deliberately NOT the rose error treatment: the agent did real work
+          // and just handed over (its own summary renders as the agent bubble
+          // directly above). Ochre rail = "attention, not failure".
+          return (
+            <div
+              key={i}
+              className="border-l-2 border-ochre px-3 py-2 bg-paper-2 text-sm text-ink-3"
+              data-testid="turn-truncated"
+            >
+              {t('turn.truncated', { n: String(item.num_turns) })}
+            </div>
+          )
+        }
         return (
           <div
             key={i}

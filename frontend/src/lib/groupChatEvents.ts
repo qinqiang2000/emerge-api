@@ -73,6 +73,10 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
         error_code: e.error_code,
         error_message_en: e.error_message_en,
       })
+    } else if (e.type === 'turn_truncated') {
+      // Follows the agent's own handover text. Renders as a quiet notice, not
+      // an error — the turn produced real work and the session resumes.
+      out.push({ kind: 'truncated', num_turns: e.num_turns })
     } else if (e.type === 'permission_request') {
       // Permission prompts render as their own item (own line in the conv).
       // They never collapse into a tool stack — the user needs the UI to

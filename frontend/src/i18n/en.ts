@@ -29,6 +29,7 @@ const en: Dict = {
   'auth.toSignup': 'Have an invite? Create an account',
   'auth.toLogin': 'Already have an account? Log in',
   'auth.needInvite': 'New here? Ask a teammate for an invite link.',
+  'auth.legacy': 'Looking for the old version? Open Piaozone AI Studio →',
   'auth.err.bad_login': 'Email or password is incorrect.',
   'auth.err.invalid_invite': 'This invite link is invalid or expired.',
   'auth.err.email_taken': 'An account with this email already exists.',
@@ -254,6 +255,7 @@ const en: Dict = {
 
   // ── ToolCall / tool stack ──────────────────────────────────────────────
   'tool.running.aria': 'running',
+  'turn.truncated': 'Paused after {n} steps — reply to pick up where it left off.',
   'tool.calling.aria': 'calling {name}',
   'tool.thinking.aria': 'agent is thinking',
   'tool.ran': 'Ran',

@@ -1619,6 +1619,13 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
           error_message_en: String(o.error_message_en ?? ''),
         })
         break
+      case 'turn_truncated':
+        out.push({
+          type: 'turn_truncated',
+          num_turns: Number(o.num_turns ?? 0),
+          resumable: o.resumable !== false,
+        })
+        break
       case 'tool_call': {
         const ev: ChatEvent = {
           type: 'tool_call',
@@ -1686,6 +1693,14 @@ function mapSse(event: string, data: unknown): ChatEvent | null {
   if (event === 'error') {
     const d = data as { error_code: string; error_message_en: string }
     return { type: 'error', error_code: d.error_code, error_message_en: d.error_message_en }
+  }
+  if (event === 'turn_truncated') {
+    const d = data as { num_turns?: number; resumable?: boolean }
+    return {
+      type: 'turn_truncated',
+      num_turns: Number(d.num_turns ?? 0),
+      resumable: d.resumable !== false,
+    }
   }
   if (event === 'turn_end') return { type: 'turn_end' }
   // user_acknowledged / system / unknown — ignored. Returning null lets
