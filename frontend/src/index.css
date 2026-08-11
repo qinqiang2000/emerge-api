@@ -523,7 +523,13 @@ html, body, #root {
 /* ── review overlay ──────────────────────────────────────────────── */
 .rev-overlay{position:absolute;inset:0;background:var(--chat-bg);display:flex;flex-direction:column;animation:slideUp .35s ease-out}
 @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-.rev-bar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--chat-bg);flex-wrap:nowrap;min-width:0}
+.rev-bar{position:relative;display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--chat-bg);flex-wrap:nowrap;min-width:0}
+/* Doc-level "still arriving" hairline. Sits on the bar's bottom rule so it
+   reads as belonging to the whole document, not to either pane — the panes
+   reveal independently, and this is what keeps the faster one from looking
+   like the whole story. */
+.rev-bar-progress{position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;pointer-events:none}
+.rev-bar-progress::after{content:'';position:absolute;top:0;bottom:0;left:-30%;width:30%;background:var(--ochre);animation:indet 1.6s ease-in-out infinite}
 .rev-bar .back{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px;cursor:default;padding:5px 9px;border-radius:5px;white-space:nowrap;flex-shrink:0}
 .rev-bar .back:hover{background:var(--paper-2);color:var(--ink)}
 .rev-bar .back-icon{padding:5px 7px}
@@ -658,6 +664,17 @@ html, body, #root {
 .dv-pagewrap .pgnum{position:absolute;top:8px;right:12px;font-family:var(--mono);font-size:10px;color:var(--ink-4);background:rgba(255,255,255,.85);padding:2px 6px;border-radius:3px;z-index:3;pointer-events:none}
 .dv-pagewrap img{display:block;width:100%}
 .dv-placeholder{width:100%;aspect-ratio:8.5/11;background:var(--paper-2)}
+/* Page skeleton — covers the page box (z above text layer z=1, ghost z=2 and
+   pgnum z=3) from the doc switch until this page's raster actually decodes.
+   Before it existed the left pane had no loading state at all. */
+.dv-pageskel{position:absolute;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;background:var(--paper-2)}
+/* Shared pane-loading chip (left skeleton + right field pane + text panel).
+   The .12s delay means a warmed switch — the common case now that the next
+   doc's raster is prefetched — never flashes it. */
+.pane-loading{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;color:var(--ink-4);animation:paneLoadIn .16s ease-out .12s both}
+.pane-loading.is-error{color:var(--rose)}
+@keyframes paneLoadIn{from{opacity:0}to{opacity:1}}
+.rev-pane-loading{padding:16px}
 /* Text-doc panel — extract's text-input path. White "paper" sheet, mono body,
    verbatim wrapping. No raster/overlays (text carries no coordinates). */
 .dv-textpanel{flex:1;overflow:auto;padding:18px 14px;background:#F8F3E6;min-height:0}

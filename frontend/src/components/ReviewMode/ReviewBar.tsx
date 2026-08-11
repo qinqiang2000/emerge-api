@@ -9,6 +9,11 @@ import { useT } from '../../i18n'
 
 type Props = {
   saving: boolean
+  /** True while EITHER pane is still fetching this doc. Drives the hairline
+   *  progress bar on the bar's bottom edge — the only place that answers "is
+   *  more of this document still coming?" once one pane has painted and the
+   *  other hasn't. */
+  docLoading?: boolean
   canSave: boolean
   docs: DocSummary[]
   /** On-disk filename of the open doc — the only doc handle now. */
@@ -43,6 +48,7 @@ type Props = {
 
 export default function ReviewBar({
   saving,
+  docLoading,
   canSave,
   docs,
   activeFilename,
@@ -181,6 +187,13 @@ export default function ReviewBar({
         >
           <MessageSquare size={14} strokeWidth={1.75} />
         </button>
+      )}
+      {docLoading && (
+        <span
+          className="rev-bar-progress"
+          role="progressbar"
+          aria-label={t('review.docLoading')}
+        />
       )}
     </div>
   )

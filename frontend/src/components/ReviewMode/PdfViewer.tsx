@@ -9,6 +9,7 @@ import { useTranslate } from '../../stores/translate'
 import TextLayer, { type SelectableSpan } from './TextLayer'
 import { TranslateGhost, TranslatePopover } from './TranslateOverlay'
 import { LocateHighlight } from './LocateHighlight'
+import PaneLoading from './PaneLoading'
 import { useLocate } from '../../stores/locate'
 import { useT } from '../../i18n'
 
@@ -56,6 +57,7 @@ function TextDocPanel({ projectId, filename }: { projectId: string; filename: st
   const t = useT()
   const [body, setBody] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const reportFirstPage = useReview((s) => s.setFirstPageState)
   useEffect(() => {
     let cancelled = false
     setBody(null)
@@ -65,17 +67,27 @@ function TextDocPanel({ projectId, filename }: { projectId: string; filename: st
         if (!r.ok) throw new Error(`text doc ${r.status}`)
         return r.text()
       })
-      .then((text) => { if (!cancelled) setBody(text) })
-      .catch(() => { if (!cancelled) setFailed(true) })
+      .then((text) => {
+        if (cancelled) return
+        setBody(text)
+        // Text docs take the same doc-level readiness contract as rasters —
+        // otherwise the bar's progress line never stops on a .txt doc.
+        reportFirstPage(filename, 'ready')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFailed(true)
+        reportFirstPage(filename, 'error')
+      })
     return () => { cancelled = true }
-  }, [projectId, filename])
+  }, [projectId, filename, reportFirstPage])
 
   return (
     <div className="dv-textpanel">
       {failed ? (
-        <div className="dv-textempty">{t('pdf.textLoadFailed')}</div>
+        <div className="dv-textempty"><PaneLoading label={t('pdf.textLoadFailed')} failed /></div>
       ) : body === null ? (
-        <div className="dv-textempty">{t('pdf.textLoading')}</div>
+        <div className="dv-textempty"><PaneLoading label={t('pdf.textLoading')} /></div>
       ) : (
         <div className="dv-textsheet">
           <pre>{body}</pre>
@@ -87,7 +99,7 @@ function TextDocPanel({ projectId, filename }: { projectId: string; filename: st
 
 export default function PdfViewer() {
   const t = useT()
-  const { activeProjectId, activeFilename, page, pageCount, setPageCount } = useReview()
+  const { activeProjectId, activeFilename, page, pageCount, setPageCount, setFirstPageState } = useReview()
   const activeTabKey = useReview((s) => s.activeTabKey)
   const { byProject } = useDocs()
   // Translate mode is driven by both the toolbar button and the `T` key
@@ -108,6 +120,12 @@ export default function PdfViewer() {
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set([1]))
   const [vpW, setVpW] = useState(600)
   const [aspectRatio, setAspectRatio] = useState(11 / 8.5)
+  // Per-page raster fate, keyed `${filename}::${page}` — deliberately NOT by
+  // page number alone. On a doc switch this map is stale for exactly one
+  // render (the reset effect below hasn't run yet); a filename-scoped key just
+  // misses, so the incoming doc can never inherit the outgoing doc's "ready"
+  // for a frame and flash the wrong page.
+  const [rasterFate, setRasterFate] = useState<Record<string, 'ready' | 'error'>>({})
   // The single popover instance — null when nothing hovered.
   const [popover, setPopover] = useState<PopoverState | null>(null)
 
@@ -176,12 +194,36 @@ export default function PdfViewer() {
     setRot(0)
     setFit(true)
     setLoadedPages(new Set([1]))
-    setAspectRatio(11 / 8.5)
+    setRasterFate({})
+    // `aspectRatio` is deliberately NOT reset to letter here: it's the page
+    // box the skeleton reserves while the next doc's raster is in flight, and
+    // docs in one project are near-always the same shape. Snapping to 8.5×11
+    // and back made every switch jump the layout twice.
     setPopover(null)
     pageRefs.current = {}
     clearOpenTimer()
     clearCloseTimer()
   }, [activeFilename])
+
+  // One settle path for a page that has arrived, shared by the load event and
+  // by the mount-time `complete` probe below. The `prev[rkey] === 'ready'`
+  // bail-out keeps the identical-state check happy — the probe re-runs on
+  // every render, and returning a fresh object each time would loop.
+  const settleRaster = useCallback((rkey: string, p: number, img: HTMLImageElement) => {
+    if (p === 1 && img.naturalWidth > 0) setAspectRatio(img.naturalHeight / img.naturalWidth)
+    setRasterFate((prev) => (prev[rkey] === 'ready' ? prev : { ...prev, [rkey]: 'ready' }))
+  }, [])
+
+  // Mirror page 1's fate into the review store — that's the left pane's half
+  // of "is this doc on screen yet", read by the bar's progress line and by the
+  // look-ahead prefetch. Done as an effect off the local map rather than
+  // inline in onLoad so a re-open of the already-rastered doc (no fresh load
+  // event to hook) still reports, instead of leaving the bar spinning forever.
+  useEffect(() => {
+    if (!activeFilename) return
+    const fate = rasterFate[`${activeFilename}::1`]
+    if (fate) setFirstPageState(activeFilename, fate)
+  }, [rasterFate, activeFilename, setFirstPageState])
 
   // Track viewport inner width for rotation-aware fit
   useEffect(() => {
@@ -564,7 +606,10 @@ export default function PdfViewer() {
 
       <div className="dv-viewport" ref={viewportRef}>
         <div className="dv-stack">
-          {Array.from({ length: pageCount }, (_, i) => i + 1).map(p => (
+          {Array.from({ length: pageCount }, (_, i) => i + 1).map(p => {
+            const rkey = `${activeFilename}::${p}`
+            const fate = rasterFate[rkey]
+            return (
             <div
               key={p}
               data-page={p}
@@ -580,13 +625,40 @@ export default function PdfViewer() {
                 {loadedPages.has(p) ? (
                   <>
                     <img
+                      // Keyed by doc+page so a doc switch MOUNTS A NEW NODE.
+                      // Reusing the node and swapping `src` left the previous
+                      // document's pixels on screen until the new bytes
+                      // decoded — seconds, during which the right pane had
+                      // already swapped to the new doc's fields. That pairing
+                      // isn't just unsynced, it's a wrong answer: the reviewer
+                      // checks new values against the old page.
+                      key={rkey}
                       src={pdfPageUrl(activeProjectId, activeFilename, p)}
                       alt={`page ${p}`}
-                      onLoad={p === 1 ? (e) => {
-                        const img = e.target as HTMLImageElement
-                        if (img.naturalWidth > 0) setAspectRatio(img.naturalHeight / img.naturalWidth)
-                      } : undefined}
+                      // Hold the estimated page box open until the raster
+                      // lands, so the skeleton has something to cover and the
+                      // scroll position doesn't collapse under the reviewer.
+                      style={fate === 'ready' ? undefined : { minHeight: pageH }}
+                      // A prefetched page is often already decoded by the time
+                      // React mounts the node, and a decoded image fires no
+                      // load event — without this probe the skeleton would sit
+                      // forever on top of a page that's right there. Warming
+                      // the next doc made this the COMMON case, not an edge one.
+                      ref={(el) => { if (el?.complete && el.naturalWidth > 0) settleRaster(rkey, p, el) }}
+                      onLoad={(e) => settleRaster(rkey, p, e.target as HTMLImageElement)}
+                      onError={() => setRasterFate((prev) => ({ ...prev, [rkey]: 'error' }))}
                     />
+                    {fate !== 'ready' && (
+                      <div className="dv-pageskel">
+                        <PaneLoading
+                          label={fate === 'error' ? t('pdf.pageLoadFailed') : t('pdf.pageLoading')}
+                          failed={fate === 'error'}
+                        />
+                      </div>
+                    )}
+                    {/* Mounted under the skeleton, not after it: the textlayer
+                        fetch it kicks off runs in parallel with the raster
+                        instead of queuing behind it. */}
                     <PageOverlays
                       projectId={activeProjectId}
                       filename={activeFilename}
@@ -600,7 +672,7 @@ export default function PdfViewer() {
                 )}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       </div>
 

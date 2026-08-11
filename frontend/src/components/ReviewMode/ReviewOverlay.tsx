@@ -16,11 +16,13 @@ import { useTranslate } from '../../stores/translate'
 import { useTextlayer } from '../../stores/textlayer'
 
 import FieldEditor from './FieldEditor'
+import PaneLoading from './PaneLoading'
 import PdfViewer from './PdfViewer'
 import PreLabelNotice from './PreLabelNotice'
 import ReviewBar from './ReviewBar'
 import ReviewChatColumn, { readRevChatWidth, writeRevChatWidth } from './ReviewChatColumn'
 import { navigateToReview } from '../../lib/slugUrl'
+import { prefetchPage } from '../../lib/rasterPrefetch'
 import { useT } from '../../i18n'
 
 type Props = {
@@ -46,6 +48,7 @@ export default function ReviewOverlay({
     evidence,
     notes,
     loading,
+    firstPageState,
     saving,
     err,
     setField,
@@ -337,13 +340,29 @@ export default function ReviewOverlay({
   // too. By the time they press → / "next", the spinner is already gone.
   // `prewarm` (not `ensure`) so warming a different doc never aborts the current
   // doc's inflight fetches.
+  //
+  // The page RASTER is warmed alongside them, and it's the one that actually
+  // hurt: `/pages/1` renders on demand server-side the first time anyone asks,
+  // so an un-warmed switch pays a multi-second render plus a PNG download —
+  // an order of magnitude more than the JSON the right pane waits on, which is
+  // exactly why the two panes drifted apart. Prev is warmed too (reviewers
+  // back up as often as they advance).
+  //
+  // Gated on the current doc being on screen (`firstPageState !== 'loading'`):
+  // a warmer that races the doc the reviewer is actually looking at would make
+  // the very latency it exists to hide worse.
   useEffect(() => {
     if (!activeProjectId || currentIdx < 0) return
+    if (firstPageState === 'loading') return
     const nextDoc = docs[currentIdx + 1]
-    if (!nextDoc) return
-    useTextlayer.getState().prewarm(activeProjectId, nextDoc.filename, 1)
-    useTranslate.getState().prewarm(activeProjectId, nextDoc.filename, 1)
-  }, [activeProjectId, activeFilename, currentIdx, docs, translateMode])
+    const prevDoc = docs[currentIdx - 1]
+    if (nextDoc) {
+      prefetchPage(activeProjectId, nextDoc.filename, 1)
+      useTextlayer.getState().prewarm(activeProjectId, nextDoc.filename, 1)
+      useTranslate.getState().prewarm(activeProjectId, nextDoc.filename, 1)
+    }
+    if (prevDoc) prefetchPage(activeProjectId, prevDoc.filename, 1)
+  }, [activeProjectId, activeFilename, currentIdx, docs, translateMode, firstPageState])
 
   const stepTo = (delta: -1 | 1) => {
     if (!activeProjectId || currentIdx < 0) return
@@ -485,6 +504,12 @@ export default function ReviewOverlay({
     <div className="rev-overlay">
       <ReviewBar
         saving={saving}
+        // One doc-level signal covering BOTH panes. The panes reveal
+        // independently (fields are readable the moment they land — gating
+        // them on a slow raster would trade a cosmetic problem for a real
+        // one), so this line is what tells the reviewer the doc is still
+        // arriving after the faster side has already painted.
+        docLoading={loading || firstPageState === 'loading'}
         canSave={!readOnly}
         docs={docs}
         activeFilename={activeFilename}
@@ -607,8 +632,8 @@ export default function ReviewOverlay({
         />
         <div style={{ minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           {loading ? (
-            <div style={{ padding: '16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-5)' }}>
-              {t('review.loading')}
+            <div className="rev-pane-loading">
+              <PaneLoading label={t('review.loading')} />
             </div>
           ) : (
             <FieldEditor

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ReviewOverlay from '../../../src/components/ReviewMode/ReviewOverlay'
+import { navigateToReview } from '../../../src/lib/slugUrl'
 import { useDocs } from '../../../src/stores/docs'
 import { useExperiments } from '../../../src/stores/experiments'
 import { useModels } from '../../../src/stores/models'
@@ -12,6 +13,16 @@ import { useTextlayer } from '../../../src/stores/textlayer'
 import { useTranslate } from '../../../src/stores/translate'
 import { useReviewTune } from '../../../src/stores/reviewTune'
 import type { DocSummary } from '../../../src/types/review'
+
+// Doc nav goes through the URL, not `store.open` — `?review=<filename>` has to
+// track the doc actually shown, and App's URL→store effect drives the open.
+// These tests used to spy on `open` and had silently stopped covering ←/→ at
+// all (the spy was simply never called); assert on the real hop instead.
+vi.mock('../../../src/lib/slugUrl', async (orig) => {
+  const real = await orig<typeof import('../../../src/lib/slugUrl')>()
+  return { ...real, navigateToReview: vi.fn() }
+})
+const navSpy = vi.mocked(navigateToReview)
 
 const SCHEMA = [{ name: 'supplier', type: 'string', description: 'supplier name' }]
 
@@ -43,17 +54,19 @@ function seedAt(active: string, docs: DocSummary[]) {
 
 describe('ReviewBar title + delete + keyboard', () => {
   beforeEach(() => {
+    // Shaped like a textlayer payload, NOT `[]`. A shapeless `ready` entry
+    // crashes PageOverlays on `payload.spans.length`, React unmounts the tree,
+    // and the ←/→ key handler that these tests exercise never gets registered —
+    // three of them failed for that reason alone, not for anything about nav.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, status: 200, json: async () => [],
+      ok: true, status: 200, json: async () => ({ spans: [], page_w: 612, page_h: 792 }),
     }))
-    // The blanket `fetch → []` mock resolves PdfViewer's async textlayer /
-    // translate fetches into shapeless `ready` payloads. Zustand stores persist
-    // across tests in a file, so a prior render's polluted entry bleeds into the
-    // next test's first synchronous render and crashes (PdfViewer reads
-    // payload.spans.length on a ready-but-shapeless key). Reset to clear it.
+    // Zustand stores persist across tests in a file, so a prior render's
+    // entry bleeds into the next test's first synchronous render. Reset.
     useTextlayer.setState({ byKey: {} })
     useTranslate.setState({ byKey: {} })
     useReviewTune.setState({ signal: null, dismissedKey: null })
+    navSpy.mockClear()
   })
 
   it('renders "<filename> <status>" — the "reviewing" label was dropped to free bar width', () => {
@@ -80,38 +93,30 @@ describe('ReviewBar title + delete + keyboard', () => {
 
   it('right-arrow key advances to the next doc', () => {
     seedAt('a.pdf', [makeDoc('a.pdf'), makeDoc('b.pdf'), makeDoc('c.pdf')])
-    const openSpy = vi.fn(async () => {})
-    useReview.setState({ open: openSpy } as never)
     render(<ReviewOverlay onBack={() => {}} />)
     fireEvent.keyDown(window, { key: 'ArrowRight' })
-    expect(openSpy).toHaveBeenCalledWith('p_x', 'b.pdf')
+    expect(navSpy).toHaveBeenCalledWith('p_x', 'b.pdf')
   })
 
   it('left-arrow key steps back', () => {
     seedAt('b.pdf', [makeDoc('a.pdf'), makeDoc('b.pdf')])
-    const openSpy = vi.fn(async () => {})
-    useReview.setState({ open: openSpy } as never)
     render(<ReviewOverlay onBack={() => {}} />)
     fireEvent.keyDown(window, { key: 'ArrowLeft' })
-    expect(openSpy).toHaveBeenCalledWith('p_x', 'a.pdf')
+    expect(navSpy).toHaveBeenCalledWith('p_x', 'a.pdf')
   })
 
   it('typing in an editable value swallows the arrow keys (no nav)', () => {
     seedAt('a.pdf', [makeDoc('a.pdf'), makeDoc('b.pdf')])
-    const openSpy = vi.fn(async () => {})
-    useReview.setState({ open: openSpy } as never)
     render(<ReviewOverlay onBack={() => {}} />)
     const val = document.querySelector('[contenteditable="true"]') as HTMLElement
     expect(val).toBeTruthy()
     fireEvent.keyDown(val, { key: 'ArrowRight' })
-    expect(openSpy).not.toHaveBeenCalled()
+    expect(navSpy).not.toHaveBeenCalled()
   })
 
   it('first trash click arms; second click runs delete + jumps to next', async () => {
     seedAt('a.pdf', [makeDoc('a.pdf'), makeDoc('b.pdf')])
-    const openSpy = vi.fn(async () => {})
     const removeSpy = vi.fn(async () => {})
-    useReview.setState({ open: openSpy } as never)
     useDocs.setState({ remove: removeSpy } as never)
     render(<ReviewOverlay onBack={() => {}} />)
     const trash = screen.getByRole('button', { name: /delete this file/i })
@@ -120,7 +125,7 @@ describe('ReviewBar title + delete + keyboard', () => {
     expect(removeSpy).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: /again to confirm/i }))
     await waitFor(() => expect(removeSpy).toHaveBeenCalledWith('p_x', 'a.pdf'))
-    expect(openSpy).toHaveBeenCalledWith('p_x', 'b.pdf')
+    await waitFor(() => expect(navSpy).toHaveBeenCalledWith('p_x', 'b.pdf'))
   })
 
   it('deleting the last remaining doc falls back to onBack()', async () => {
@@ -138,9 +143,7 @@ describe('ReviewBar title + delete + keyboard', () => {
 
   it('Backspace arms; second Backspace confirms delete', async () => {
     seedAt('a.pdf', [makeDoc('a.pdf'), makeDoc('b.pdf')])
-    const openSpy = vi.fn(async () => {})
     const removeSpy = vi.fn(async () => {})
-    useReview.setState({ open: openSpy } as never)
     useDocs.setState({ remove: removeSpy } as never)
     render(<ReviewOverlay onBack={() => {}} />)
     fireEvent.keyDown(window, { key: 'Backspace' })

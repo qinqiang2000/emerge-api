@@ -342,6 +342,7 @@ const en: Dict = {
   'review.tune.jumpHint': 'jump to this doc and locate the field',
   'review.field.corrected': 'corrected',
   'review.loading': 'loading…',
+  'review.docLoading': 'loading document…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────
   'field.entity.prev': 'previous entity',
@@ -381,6 +382,8 @@ const en: Dict = {
   'pdf.translate.title.on': 'overlay on · T to close · Shift+T re-translate page',
   'pdf.translate.title.failed': 'translate failed: {error} (T)',
   'pdf.translate.loading': 'processing this page…',
+  'pdf.pageLoading': 'loading page…',
+  'pdf.pageLoadFailed': 'page failed to load',
   'pdf.textLoading': 'loading text…',
   'pdf.textLoadFailed': 'could not load text',
 

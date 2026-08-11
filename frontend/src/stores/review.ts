@@ -86,6 +86,16 @@ interface State {
   page: number
   pageCount: number    // best-effort; defaulted to 1 until viewer probes
   loading: boolean
+  /** Whether the open doc's FIRST page has actually painted in the left pane.
+   *  Doc-scoped state, hoisted out of PdfViewer because two other places need
+   *  it: ReviewBar (the doc-level progress line, which must keep running while
+   *  EITHER pane is still arriving) and ReviewOverlay (look-ahead raster
+   *  prefetch, which may only fire once the current doc is on screen — warming
+   *  N+1 must never compete with N for the connection pool). Reset to
+   *  'loading' on every open so the two panes enter loading on the same frame,
+   *  which is the whole point: `loading` alone covers three millisecond-scale
+   *  JSON GETs, while the raster can take seconds of server-side render. */
+  firstPageState: 'loading' | 'ready' | 'error'
   saving: boolean
   err: string | null
   entities: FieldsValue[]
@@ -163,6 +173,11 @@ interface State {
   removeEntity: (idx: number) => void
   goPage: (page: number) => void
   setPageCount: (n: number) => void
+  /** The left pane reports its first page's fate here. Takes the filename it
+   *  is reporting FOR and drops the update when that doc is no longer open —
+   *  a raster from the doc the reviewer just left routinely resolves after the
+   *  switch, and must not mark the new doc ready. */
+  setFirstPageState: (filename: string, state: 'loading' | 'ready' | 'error') => void
   save: () => Promise<void>
   setActiveTab: (key: 'active' | '_draft' | '_pending' | string) => void
   loadExperimentPrediction: (experimentId: string) => Promise<void>
@@ -193,6 +208,7 @@ export const useReview = create<State>((set, get) => ({
   page: 1,
   pageCount: 1,
   loading: false,
+  firstPageState: 'loading',
   saving: false,
   err: null,
   entities: [],
@@ -232,6 +248,10 @@ export const useReview = create<State>((set, get) => ({
       page: 1,
       pageCount: 1,
       loading: true,
+      // Both panes flip to "loading" here, in one set() — the left pane's
+      // raster has no other moment where it can honestly claim to be showing
+      // this doc.
+      firstPageState: 'loading',
       err: null,
       entities: [],
       baselineEntities: [],
@@ -324,7 +344,7 @@ export const useReview = create<State>((set, get) => ({
     set({ pendingFocusField: field })
   },
   consumePendingFocus: () => set({ pendingFocusField: null }),
-  close: () => set({ activeProjectId: null, activeFilename: null, entities: [], baselineEntities: [], evidence: null, notes: {}, corrections: {}, pendingFocusField: null, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, annotationPromptId: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
+  close: () => set({ activeProjectId: null, activeFilename: null, firstPageState: 'loading', entities: [], baselineEntities: [], evidence: null, notes: {}, corrections: {}, pendingFocusField: null, page: 1, activeField: null, activeEntityIdx: 0, isPending: false, labelerModel: null, draftRun: null, draftEntities: null, draftEvidence: null, annotationPromptId: null, pendingRun: null, pendingEntities: null, pendingEvidence: null }),
   setField: (entityIdx, name, value) => set((s) => {
     const next = s.entities.slice()
     const cur = next[entityIdx] ?? {}
@@ -343,6 +363,8 @@ export const useReview = create<State>((set, get) => ({
   })),
   goPage: (page) => set((s) => ({ page: Math.max(1, Math.min(s.pageCount, page)) })),
   setPageCount: (n) => set({ pageCount: Math.max(1, n) }),
+  setFirstPageState: (filename, state) => set((s) =>
+    s.activeFilename === filename ? { firstPageState: state } : {}),
   save: async () => {
     const { activeProjectId, activeFilename, entities, baselineEntities, evidence, notes, annotationPromptId } = get()
     if (!activeProjectId || !activeFilename) return

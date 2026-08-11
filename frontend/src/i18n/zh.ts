@@ -341,6 +341,7 @@ const zh: Dict = {
   'review.tune.jumpHint': '跳到该文档并定位此字段',
   'review.field.corrected': '已修正',
   'review.loading': '加载中…',
+  'review.docLoading': '文档加载中…',
 
   // ── FieldEditor / array / entity controls ──────────────────────────────
   'field.entity.prev': '上一个 entity',
@@ -380,6 +381,8 @@ const zh: Dict = {
   'pdf.translate.title.on': '覆盖模式 · T 关闭 · Shift+T 重译本页',
   'pdf.translate.title.failed': '翻译失败: {error} (T)',
   'pdf.translate.loading': '正在处理本页…',
+  'pdf.pageLoading': '正在加载页面…',
+  'pdf.pageLoadFailed': '页面加载失败',
   'pdf.textLoading': '正在加载文本…',
   'pdf.textLoadFailed': '无法加载文本',
 
