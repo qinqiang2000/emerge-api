@@ -877,6 +877,51 @@ the cap needs raising.
 
 ---
 
+## Consolidating memory means SUPERSEDE, never merge — and never on a schedule
+
+The obvious way to keep `_memory/` tidy is a periodic agent run that merges
+near-duplicate notes. Both halves of that are wrong, and the follow-up was
+closed (2026-08-11) by *not* building it.
+
+**Merging is the dangerous operation, not the safe one.** Three things go wrong
+in a memory directory, and they are not equally bad: an oversized index (real
+information loss — everything past the 6 KB cut is invisible to every future
+turn), near-duplicates (a few hundred wasted tokens), and **notes that
+contradict each other** (the agent acts on the stale one). Merge only helps the
+harmless case, and the dangerous case is the one most likely to *look* like it
+needs merging — two notes on one subject with high overlap. Fold 「用
+gemini-flash」 and 「换成 qwen 了」 together and the result asserts something
+neither original said, with nothing downstream able to catch it.
+
+So the invariant: **the output of consolidation is always a subset of existing
+notes (keep one, retire the other), never a synthesis.** A deletion cannot
+invent a fact; a synthesis can. Contradiction is not duplication — it means a
+fact changed, and the answer is to check the workspace or ask, not to guess.
+`test_block_teaches_supersede_not_merge` pins the wording.
+
+**Why not a scheduled pass.** The agent that just learned something knows what
+it supersedes; an agent woken up a week later to "tidy" has strictly less
+context, runs with no user present (so a wrong deletion is invisible), and on a
+stable directory either no-ops or invents work. The trigger is therefore
+in-band: the memory block itself warns at 75 % of the index cap, where the
+agent is already reading about memory and is about to write a note anyway.
+
+**The root cause was recency, not volume.** Notes carried no date, which makes
+"duplicate" and "superseded" formally indistinguishable. `学到于 YYYY-MM-DD` on
+every note is what makes the supersede call decidable at all — it is the
+load-bearing part of this design, not decoration.
+
+**`forget_memory` is the third tool that reads like an `rm` wrapper and isn't**
+(after `delete_doc` / `rename_doc`). Retiring a note must move the body to
+`_trash/` AND drop its `MEMORY.md` line in one step: the index IS the agent's
+view of what it knows, so an unindexed note is invisible and a dangling line is
+a broken Read. Trash-first, de-index-second is deliberate — the leftover on
+failure is then the loud one (dangling line) rather than the silent one. Restore
+returns the file but does **not** replay the index edit; the tool says so in
+`restore_hint` rather than leaving that to be discovered.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

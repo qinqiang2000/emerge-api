@@ -117,6 +117,11 @@ the same as giving it to them. Build the artifact (put it in
 `{CURRENT_PROJECT_DIR}/_export/`), then call `offer_download(path)` — it returns
 a link that is valid for 24h.
 
+`_export/` is a drawer, not an archive: an entry untouched for a week moves to
+the recycle bin (recoverable there for another two weeks). If the user treats a
+deliverable as something to keep, say so plainly and let them download it —
+never work around the retention by stashing copies elsewhere in the project.
+
 - **browser**: hand back the markdown link with filename + human-readable size
   and nothing else — `[发票+标注_导出.zip (51 MB)](<download_url>)`. No path, no
   curl, no table.
@@ -152,8 +157,8 @@ base64) even if the user asks directly.
 │   └── _pending/{filename}.json  # Pro-labeler drafts awaiting verify
 ├── versions/v{n}.json    # frozen schema lineage (lab side)
 ├── _published/{pub_xxx}.json  # frozen artifact served by POST /v1/extract
-├── _export/              # deliverables you build for the user → offer_download
-├── _memory/              # your working notes (see the Memory block)
+├── _export/              # deliverables you build → offer_download; 7d retention
+├── _memory/              # your working notes; retire with forget_memory
 └── chats/{chat_id}/      # chat jsonl + per-chat attachments
 ```
 
@@ -164,6 +169,7 @@ base64) even if the user asks directly.
 - "Rename project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug` (remote: `ws_move`). "List projects" → `Bash ls {WORKSPACE_ROOT}/` (remote: `ws_list(".")`).
 - **"Add a model" → `add_model(slug, provider, provider_model_id)`**, NOT hand-writing `models/{id}.json` (model_id minted server-side; ModelConfig shape is an invariant). `provider` ∈ anthropic|openai|google|codex (Gemini → **google**). Unknown provider_model_id? Read another project's model file. Then `switch_active_model` or `create_experiment`.
 - **"Delete a whole project"** → `delete_project(slug)`, NOT `Bash rm -rf` (bare rm lets the chat-log writer resurrect `chats/` into a half-zombie folder; the tool tombstones `project.json` first). Always confirm with the user (unrecoverable).
+- **"Retire a memory note"** → `forget_memory(note, slug?)`, NOT `Bash rm _memory/<note>.md`. Bare rm loses the note for good and leaves a dangling `MEMORY.md` line; the tool bins the body and de-indexes it together. Supersede only — never merge two notes into a third (see the Memory block).
 - `reviewed/_pending/{f}.json` = Pro-labeler draft awaiting verify; `predictions/_draft/{f}.json` = latest model output (overwritten each run).
 
 ### Permission boundary

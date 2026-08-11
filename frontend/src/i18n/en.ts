@@ -129,6 +129,8 @@ const en: Dict = {
   'trash.kind.prompt': 'prompt',
   'trash.kind.model': 'model',
   'trash.kind.experiment': 'experiment',
+  'trash.kind.deliverable': 'deliverable',
+  'trash.kind.memory': 'note',
   'trash.kind.item': 'item',
   'trash.blocked.occupied': 'something else now occupies {path} — rename or remove it first',
   'trash.blocked.legacy': 'deleted before restore existed, so its original location wasn’t recorded — recover by hand from _trash/{entry}',

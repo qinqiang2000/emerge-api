@@ -396,6 +396,46 @@ def build_emerge_mcp(
             }
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
+    # `forget_memory` is the third tool in this family that reads like an `rm`
+    # wrapper and isn't. Retiring a note is how consolidation happens, and the
+    # supersede rules in the Memory prompt block are only safe to give an agent
+    # because a wrong call is undoable — `Bash rm` on `_memory/x.md` is not.
+    # It also has to drop the `MEMORY.md` pointer in the same step: the index
+    # IS the agent's view of what it knows, so a note whose line is gone is
+    # invisible, and a line whose note is gone is a broken Read.
+    @tool(
+        "forget_memory",
+        "Retire one note from `_memory/`: moves the note into _trash/ "
+        "(recoverable) AND removes its line from MEMORY.md, in one step. Use "
+        "this instead of `Bash rm _memory/<note>.md`, which loses the note for "
+        "good and leaves a dangling index line. This is for SUPERSEDE — a note "
+        "the newer one fully covers, or one the workspace/user has "
+        "contradicted. Never use it to merge two notes into a third: a "
+        "combined note asserts what neither original said. Omit `slug` for "
+        "team-scope notes. Returns {forgotten, note, scope, trashed_to, "
+        "deindexed}. Rendering: browser → one line ('retired <note>'); "
+        "headless → name the note, its scope, and where it was trashed to.",
+        {
+            "type": "object",
+            "properties": {
+                "note": {"type": "string"},
+                "slug": {"type": "string"},
+            },
+            "required": ["note"],
+        },
+    )
+    async def t_forget_memory(args: dict[str, Any]) -> dict[str, Any]:
+        from app.workspace.memory import MemoryNoteError, forget_note
+        slug = args.get("slug")
+        if slug == _UNBOUND_SLUG:
+            slug = None
+        try:
+            out = forget_note(workspace, slug, args["note"])
+        except MemoryNoteError as e:
+            out = {"ok": False, "error": {
+                "error_code": "memory_note_not_found", "error_message_en": str(e)}}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
     @tool(
         "rename_doc",
         "Rename a doc, carrying its sidecar meta, draft prediction, reviewed "

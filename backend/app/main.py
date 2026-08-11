@@ -33,6 +33,7 @@ from app.api.routes import history as history_route
 from app.api.routes import jobs as jobs_route
 from app.api.routes import label_docs as label_docs_route
 from app.api.routes import config as config_route
+from app.api.routes import memory as memory_route
 from app.api.routes import predictions as predictions_route
 from app.api.routes import projects as projects_route
 from app.api.routes import trash as trash_route
@@ -170,6 +171,7 @@ app.include_router(schema_route.router)
 app.include_router(export_route.router)
 app.include_router(bench_route.router)
 app.include_router(trash_route.router)
+app.include_router(memory_route.router)
 async def _load_keystore_on_startup() -> None:
     settings = get_settings()
     settings.workspace_root.mkdir(parents=True, exist_ok=True)
@@ -194,6 +196,15 @@ async def _cleanup_orphan_projects_on_startup() -> None:
     from app.workspace.orphans import cleanup_orphan_projects
     settings = get_settings()
     cleanup_orphan_projects(settings.workspace_root)
+
+
+async def _sweep_stale_exports_on_startup() -> None:
+    """Age `_export/` deliverables into `_trash/`. Registered BEFORE the trash
+    purge deliberately: an entry trashed on this boot gets a fresh mtime, so it
+    starts its full trash retention rather than being purged moments later."""
+    from app.workspace.deliverables import sweep_all_exports
+    settings = get_settings()
+    sweep_all_exports(settings.workspace_root)
 
 
 async def _purge_trash_on_startup() -> None:
@@ -381,6 +392,7 @@ app.router.on_startup.append(_load_keystore_on_startup)
 app.router.on_startup.append(_migrate_team_dirs_on_startup)
 app.router.on_startup.append(_cleanup_staging_on_startup)
 app.router.on_startup.append(_cleanup_orphan_projects_on_startup)
+app.router.on_startup.append(_sweep_stale_exports_on_startup)
 app.router.on_startup.append(_purge_trash_on_startup)
 app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_history_checkpoint_loop_on_startup)

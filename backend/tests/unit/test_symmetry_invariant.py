@@ -80,6 +80,12 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     "restore_from_trash":         ("POST",   r"^/lab/trash/\{entry\}/restore$"),
     # Doc lifecycle — filename is a primary key, so both of these move the
     # doc's whole artifact set (see the tool definitions); they are not rm/mv.
+    # Retiring a memory note is more than a file op (body → _trash/, index line
+    # dropped with it), so it is a verb; reading/writing notes needs no route
+    # because ws_read/ws_write already cover plain files. The project-scoped
+    # form is the one mapped here — the team-scoped twin is the same tool with
+    # `slug` omitted.
+    "forget_memory":              ("DELETE", r"^/lab/projects/\{slug\}/memory/\{note\}$"),
     "delete_doc":                 ("DELETE", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}$"),
     "rename_doc":                 ("POST",   r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/rename$"),
     "fork_project":               ("POST",   r"^/lab/projects/fork$"),

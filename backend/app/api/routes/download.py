@@ -50,9 +50,10 @@ async def post_download_urls(body: dict[str, Any] = Body(...)) -> dict[str, Any]
 async def redeem_download(token: str) -> FileResponse:
     """Stream the bytes for a minted capability.
 
-    `FileResponse` streams from disk — deliberately not `export.py`'s
-    `iter([blob])`, which materialises the whole archive in memory. Export
-    bundles from a real project run tens of MB.
+    `FileResponse` streams from disk, which is what the targets here need: an
+    agent-produced `docs.zip` was 9.7 MB in the first prod project to use this.
+    (`export.py` is NOT the same case and deliberately does not do this — its
+    bytes are generated, kilobyte-sized, and never on disk. See its docstring.)
     """
     try:
         claims = verify_token(token)

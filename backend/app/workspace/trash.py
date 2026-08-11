@@ -156,6 +156,14 @@ def _classify(origins: list[str]) -> str:
         return "project"
     if "docs" in parts:
         return "doc"
+    if "_memory" in parts:
+        return "memory"
+    if "_export" in parts:
+        # An agent-built deliverable aged out by `deliverables.cleanup_stale_
+        # exports`. Worth its own kind: it is the one trash row the user did
+        # not put there themselves, so "deliverable" answers the "why is this
+        # in my bin?" that a bare "item" provokes.
+        return "deliverable"
     if "prompts" in parts:
         return "prompt"
     if "models" in parts:
@@ -311,6 +319,16 @@ def restore_from_trash(workspace: Path, entry_name: str) -> dict[str, Any]:
     for stored, origin in targets:
         origin.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(stored), str(origin))
+        if kind == "deliverable":
+            # Restart the retention clock. A deliverable was trashed BY the
+            # `_export/` sweep, purely for being old, and a `shutil.move`
+            # preserves mtime — so without this the file lands back in `_export/`
+            # still expired and the very next boot sweeps it again. Restoring
+            # something is the user overriding that judgement; the override has
+            # to survive one restart or it isn't one. (Found by dogfooding
+            # 2026-08-11.) Only deliverables: nothing else ages on mtime, and
+            # a doc's timestamp is real metadata worth preserving.
+            os.utime(origin, None)
 
     shutil.rmtree(entry, ignore_errors=True)
     logger.info("restore_from_trash: %s -> %d member(s)", entry_name, len(targets))

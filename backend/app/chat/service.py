@@ -278,7 +278,8 @@ _WORKSPACE_LAYOUT_TEMPLATE = """{project_dir}/
   predictions/_draft/  # 最新提取输出
   chats/               # chat 历史（jsonl）+ chats/<chat_id>/attachments/
   _export/             # 你为用户生成的交付物（zip / csv / 报表）；建好后用
-                       # offer_download 换成链接交给用户，别只报路径
+                       # offer_download 换成链接交给用户，别只报路径。
+                       # 一周未改动的会自动进回收站（可恢复），别把它当长期存档
   _memory/             # 你自己的工作笔记（见下方 Memory 段）
   schema.json          # 编辑态 schema — 只能用 write_schema/write_prompt 工具改
   project.json         # 项目配置（active_prompt_id / active_model_id / ...）"""

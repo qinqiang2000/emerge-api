@@ -341,7 +341,7 @@ These don't fit a milestone but should be tracked:
 - **Workspace-wide flock for `_keys.json`** — M3 `issue_api_key` locks per-pid only; concurrent issuance for *different* pids races on the shared file. Single-user lab is fine; defer fix until multi-tenant.
 - ~~**`useJob` is a single global Zustand store**~~ — closed by M5: `useJob.byId[jobId]` per-slice state with `AbortController` abort-on-resubscribe; `JobProgressCard` reads the slice via selector.
 - **Per-tool retry endpoint** — M4 ships chat-level "重试上一条" only. Per-tool re-run needs `/lab/chat/retry-tool` keyed by prior `tool_use_id`, plus frontend splice semantics for replacing the failed pill result without replaying the full user turn.
-- **Export bundle filename for non-ASCII project names** — M4 `_safe_filename` strips non-ASCII, so a Chinese project name falls back toward `project-vN.zip`. Decide whether to preserve RFC 5987 `filename*=` UTF-8 names or use a deterministic ASCII slug with project id suffix.
+- ~~**Export bundle filename for non-ASCII project names**~~ — closed 2026-08-11 (see the `export.py` follow-up below, which it was resolved together with). RFC 5987 won: `_safe_filename`'s ASCII allowlist became a denylist of only what breaks a filesystem or a header, and the route now emits `content_disposition()` — the same helper `download.py` uses.
 - **dark-mode revival** — M7 ships light-only; design needs a dark palette pass before re-enabling the theme toggle.
 - **schema sections** — review renders one synthetic section because `SchemaField` has no `section` attribute; design shows multi-section grouping. Needs optional `section` field in backend schema model.
 - ~~**metrics tree section / `/eval` → right-panel metrics**~~ — right-panel half closed by **M7.2** (`2026-05-11-m7-2-metrics-panel.md`, commits `2c9b798..eb2fc61`): `GET /lab/projects/:id/evals/latest` endpoint + `useEval` store + `ContextSurface` rewrite + `useChat → useEval.refresh` cross-store hook. The FSSpine `metrics/` tree row is still open — different surface, different design question (one file per run vs. rolling history); keep deferred until design weighs in.
@@ -368,18 +368,44 @@ These don't fit a milestone but should be tracked:
     document in an opaque origin — verified in headless chromium with a planted
     session cookie, against a no-header control. See INSIGHTS "Inline preview is
     safe because of ONE header".
-  - **Memory consolidation pass** — nothing prunes `_memory/`. The index is
-    capped at 6 KB and truncates loudly, but no one merges near-duplicate notes.
-    Revisit once a real project has accumulated ~30 notes; the likely shape is a
-    periodic agent-run "consolidate your notes" rather than a UI.
-  - **`_export/` retention** — deliverables accumulate under
-    `{project}/_export/` and nothing ages them out. Not urgent (they're small
-    next to `docs/`), but it is unbounded growth on a per-project basis.
-  - **`export.py` reads whole bundles into RAM** — `iter([blob])` predates
-    `download.py`'s `FileResponse`. The publish-bundle route should stream too;
-    RFC 5987 filenames are already solved in `download_url.content_disposition`,
-    which also closes the older "export bundle filename for non-ASCII project
-    names" follow-up above once that route is migrated.
+  - ~~**Memory consolidation pass**~~ — closed 2026-08-11, **without building a
+    consolidator**. The periodic agent-run shape was rejected: it acts with
+    strictly less context than the agent that wrote the note (which knew what
+    it had just learned and what that superseded), it runs with no user present
+    so a wrong deletion is invisible, and on a stable `_memory/` it either
+    no-ops or invents work. What shipped instead: notes carry a `学到于` date
+    (without one, "duplicate" and "the fact changed" are indistinguishable —
+    that missing recency was the real root cause); the prompt teaches
+    **supersede, never merge**, because a merged note asserts something neither
+    original said and nothing downstream can catch it; retiring is a real verb
+    (`forget_memory` + `DELETE /lab/projects/{slug}/memory/{note}`) that bins
+    the body and drops the `MEMORY.md` line together, so a wrong call is
+    reversible; and the pressure nudge fires in-band at 75 % of the index cap,
+    where the agent is already reading about memory. Note the old "~30 notes"
+    trigger was conservative — measured at real line length the 6 KB cap holds
+    ~54.
+  - ~~**`_export/` retention**~~ — closed 2026-08-11 by
+    `workspace/deliverables.py`. No new cleaner: the sweep is a *policy* that
+    hands expired entries to `trash()`, so `cleanup_trash` stays the single
+    place user data is physically destroyed. A deliverable gets 7 days in the
+    drawer, then 14 in the bin, restorable throughout (it shows up as its own
+    `deliverable` kind, since it's the one trash row the user didn't put
+    there). Dogfooding caught a loop the tests hadn't: `shutil.move` preserves
+    mtime, so a restored deliverable came back still-expired and the next boot
+    swept it again — `restore_from_trash` now restarts the clock for that kind
+    only. ("They're small next to `docs/`" was wrong, incidentally — the first
+    prod `_export/` held a 9.7 MB zip of `docs/` itself.)
+  - ~~**`export.py` reads whole bundles into RAM**~~ — closed 2026-08-11, but
+    **resolved against its own premise**: `build_zip_bundle` assembles four
+    small text members and returns kilobytes, so there was no RAM to save and
+    no file to `FileResponse`. The route went the *other* way — to a plain
+    `Response`, which restores the `Content-Length` that
+    `StreamingResponse(iter([blob]))` had been suppressing. Folding it into
+    `offer_download` was also considered and rejected: it would trade an authed
+    download for a 24 h bearer URL and force a temp file into `_export/`. The
+    real shared noun (RFC 5987 filenames) is now shared, closing the non-ASCII
+    follow-up above. Rationale is in `api/routes/export.py`'s module docstring
+    so it isn't re-litigated.
 
 ## How to use this file
 

@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Undo2, Folder, FileText, ScrollText, Cpu, FlaskConical, Package,
+  X, Undo2, Folder, FileText, ScrollText, Cpu, FlaskConical, Package, Gift,
+  NotebookPen,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -23,6 +24,12 @@ const KIND_ICON: Record<string, LucideIcon> = {
   prompt: ScrollText,
   model: Cpu,
   experiment: FlaskConical,
+  // Agent-built `_export/` deliverable, aged out by retention rather than
+  // deleted by the user.
+  deliverable: Gift,
+  // A retired `_memory/` note — the agent superseded a fact it had written
+  // down. Restoring one also needs its MEMORY.md line put back.
+  memory: NotebookPen,
   item: Package,
 }
 

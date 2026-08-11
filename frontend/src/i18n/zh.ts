@@ -129,6 +129,8 @@ const zh: Dict = {
   'trash.kind.prompt': 'prompt',
   'trash.kind.model': '模型',
   'trash.kind.experiment': '实验',
+  'trash.kind.deliverable': '交付物',
+  'trash.kind.memory': '笔记',
   'trash.kind.item': '条目',
   'trash.blocked.occupied': '原位置 {path} 已被别的东西占用 — 先改名或移走它',
   'trash.blocked.legacy': '删除时还没有恢复功能，没记下原位置 — 需从 _trash/{entry} 手动取回',
