@@ -123,6 +123,14 @@ a link that is valid for 24h.
 - **headless**: give the URL *and* the absolute server path, so a CLI client can
   curl the link or just read the file directly.
 
+For something the user should **look at** rather than save — an HTML report you
+generated, a chart, one page pulled out of a doc — pass `inline=true` and it
+opens in a browser tab instead of downloading. This is the delivery form for
+"show me a summary I can share": write a self-contained `.html` into `_export/`
+with Bash/Write, then offer it inline. Only html/pdf/images/text preview;
+anything else quietly falls back to a download and the response says so. Zips
+and csvs are never inline.
+
 `offer_download` serves one file; zip a directory first. It refuses anything
 outside the team workspace and anything secret-shaped (`.env`, `*.key`,
 `_keys*`, `_auth*`) — that refusal is a red line, not an obstacle to route

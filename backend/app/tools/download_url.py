@@ -30,10 +30,32 @@ load-bearing, not decorative: in open mode ``current_ws()`` IS the real
 workspace root, so without the denylist "帮我下载一下配置文件" would happily mint a
 capability URL for the keystore.
 
-Deliberately NOT implemented: `Content-Disposition: inline` for agent-produced
-HTML reports. Serving agent-written markup on the lab's own origin would give it
-same-origin access to the session cookie and every `/lab/*` route. Inline
-preview needs a separate origin first; until then everything downloads.
+## Inline preview (2026-08-10)
+
+Agent-produced HTML (a report, a board render) is only useful if the user can
+LOOK at it, and a .zip-style forced download is the wrong verb for a page. But
+serving agent-written markup on the lab's own origin would hand it same-origin
+access to the session cookie and every `/lab/*` route — an ingested document
+that talks the agent into emitting a `fetch('/lab/...')` becomes account
+takeover.
+
+The obvious fix is a separate subdomain, and it is the weaker one: a sibling
+origin still shares the registrable domain, so the day anything sets a
+`domain=`-scoped cookie the isolation quietly evaporates — and it costs DNS +
+a cert. Instead the inline response carries `Content-Security-Policy: sandbox`,
+which drops the document into an **opaque** origin. Opaque is strictly stronger
+than "a different name": it is same-origin with nothing at all, including
+itself. No cookie access, no credentialed reads of `/lab/*`, no storage, and no
+infrastructure to maintain.
+
+`allow-scripts` is granted (charts and interactive reports are the point) but
+`allow-same-origin` is NEVER granted — the pair together is self-defeating,
+since a script in a same-origin sandbox can simply remove the sandbox.
+
+Inline is opt-in per call AND allow-listed by extension: `_INLINE_TYPES` is
+the full set. SVG is deliberately absent — it is an active document that can
+carry script, and it is the one image type that would surprise a reader who
+thinks "it's just a picture".
 """
 from __future__ import annotations
 
@@ -62,20 +84,66 @@ _TTL_SECONDS = 24 * 60 * 60
 # vice versa) even though both are signed with the same secret.
 _TOKEN_KIND = "dl"
 
+# Extensions that may be rendered in the browser instead of saved, and the type
+# each is served as. Anything absent here downloads, whatever the caller asked
+# for. Note `.svg` is intentionally NOT here (active content dressed as an
+# image) and neither is `.xml` (entity expansion / stylesheet tricks).
+_INLINE_TYPES = {
+    "html": "text/html; charset=utf-8",
+    "htm": "text/html; charset=utf-8",
+    "pdf": "application/pdf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/plain; charset=utf-8",
+    "csv": "text/plain; charset=utf-8",
+    "json": "text/plain; charset=utf-8",
+    "log": "text/plain; charset=utf-8",
+}
+
+# Applied to every inline response. `sandbox` with no `allow-same-origin` is the
+# whole security story: the document lands in an opaque origin, so it cannot
+# read `document.cookie`, cannot make credentialed same-origin requests to
+# `/lab/*`, and gets no storage. `nosniff` keeps a text/plain note from being
+# re-interpreted as markup; `no-referrer` stops the capability URL (which IS the
+# credential) leaking through outbound requests the page makes.
+_INLINE_HEADERS = {
+    "Content-Security-Policy": "sandbox allow-scripts allow-popups",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def inline_type_for(filename: str) -> str | None:
+    """Content type to serve ``filename`` as inline, or None if it must download."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return _INLINE_TYPES.get(ext)
+
+
 class DownloadTokenError(ValueError):
     """Token is malformed, tampered with, expired, or not a download token."""
 
 
-def mint_token(target: Path) -> str:
+def mint_token(target: Path, *, inline: bool = False) -> str:
     """One capability = one already-validated absolute path, for TTL seconds.
 
     ``target`` must already have passed ``_safe_ws_path`` — this function signs
     what it is given and performs no containment check of its own.
+
+    ``inline`` rides INSIDE the signed payload rather than as a query parameter
+    on purpose: disposition decides whether agent-written markup executes in the
+    user's browser, so it must not be something a link recipient can flip.
     """
-    payload = json.dumps(
-        {"t": _TOKEN_KIND, "p": str(target), "exp": int(time.time()) + _TTL_SECONDS},
-        separators=(",", ":"),
-    ).encode()
+    claims: dict[str, Any] = {
+        "t": _TOKEN_KIND, "p": str(target),
+        "exp": int(time.time()) + _TTL_SECONDS,
+    }
+    if inline:
+        claims["i"] = 1
+    payload = json.dumps(claims, separators=(",", ":")).encode()
     return f"{_b64(payload)}.{_sign(payload)}"
 
 
@@ -97,7 +165,7 @@ def verify_token(token: str) -> dict[str, Any]:
     return claims
 
 
-def content_disposition(filename: str) -> str:
+def content_disposition(filename: str, *, inline: bool = False) -> str:
     """RFC 5987 disposition header.
 
     emerge project and doc names are routinely non-ASCII (`海信日本-627人工标注_导出.zip`).
@@ -105,18 +173,26 @@ def content_disposition(filename: str) -> str:
     alongside an ASCII-safe fallback for ancient clients.
     """
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
+    kind = "inline" if inline else "attachment"
     return (
-        f'attachment; filename="{ascii_fallback}"; '
+        f'{kind}; filename="{ascii_fallback}"; '
         f"filename*=UTF-8''{quote(filename, safe='')}"
     )
 
 
-def mint_download_url(workspace: Path, path: str) -> dict[str, Any]:
+def mint_download_url(
+    workspace: Path, path: str, *, inline: bool = False,
+) -> dict[str, Any]:
     """Validate ``path`` inside ``workspace`` and mint a capability URL for it.
 
     Shared by the `offer_download` MCP tool and its HTTP twin. Returns an
     ``{error_code, error_message_en}`` envelope rather than raising, matching
     every other tool-facing helper in this package.
+
+    ``inline=True`` asks for a page the user opens rather than saves. It is
+    downgraded (not refused) for any extension outside `_INLINE_TYPES`: the
+    caller still gets a working link, and the response says what happened, so
+    "please preview this zip" degrades to a download instead of an error.
     """
     # Imported here rather than at module scope: `workspace_fs` pulls in the
     # tool-body helpers, and this module is imported by the route layer.
@@ -147,18 +223,31 @@ def mint_download_url(workspace: Path, path: str) -> dict[str, Any]:
                 "archive"
             ),
         }
+    served_inline = bool(inline) and inline_type_for(target.name) is not None
     out: dict[str, Any] = {
         "filename": target.name,
         "size_bytes": target.stat().st_size,
         "expires_in_seconds": _TTL_SECONDS,
-        "download_url": f"{base}/lab/download/{mint_token(target)}",
+        "download_url": (
+            f"{base}/lab/download/{mint_token(target, inline=served_inline)}"
+        ),
+        "opens_in_browser": served_inline,
         # The agent needs this for the headless rendering contract (a CLI client
         # can read the file directly instead of fetching it).
         "server_path": str(target),
     }
+    # Both conditions can hold at once (local dev previewing a zip), so collect
+    # rather than assign — an overwrite here would silently drop one warning.
+    notes: list[str] = []
+    if inline and not served_inline:
+        notes.append(
+            f"{target.name} is not a previewable type — link downloads instead"
+        )
     if not base:
-        out["note"] = (
+        notes.append(
             "relative URL — fine for a browser already on this origin; set "
             "EMERGE_PUBLIC_BASE_URL if links must work outside it"
         )
+    if notes:
+        out["note"] = "; ".join(notes)
     return out

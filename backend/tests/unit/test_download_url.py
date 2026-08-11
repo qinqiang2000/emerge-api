@@ -116,6 +116,106 @@ def test_disposition_survives_non_ascii_names():
     assert "%E6%B5%B7" in header
 
 
+def test_inline_is_signed_into_the_token_not_a_query_param(ws):
+    """Disposition decides whether agent-written markup EXECUTES, so a link
+    recipient must not be able to flip it."""
+    (ws / "proj" / "_export" / "report.html").write_text("<h1>hi</h1>")
+    out = mint_download_url(ws, "proj/_export/report.html", inline=True)
+    assert out["opens_in_browser"] is True
+    token = out["download_url"].rsplit("/", 1)[-1]
+    assert verify_token(token).get("i") == 1
+
+
+def test_inline_downgrades_for_non_previewable_types(ws):
+    """"preview this zip" must degrade to a download, not error out."""
+    out = mint_download_url(ws, "proj/_export/bundle.zip", inline=True)
+    assert "error_code" not in out
+    assert out["opens_in_browser"] is False
+    assert "not a previewable type" in out["note"]
+
+
+def test_svg_is_never_inline(ws):
+    """Active content dressed as an image — the one type a reader would assume
+    is inert."""
+    (ws / "proj" / "_export" / "x.svg").write_text("<svg onload='alert(1)'/>")
+    out = mint_download_url(ws, "proj/_export/x.svg", inline=True)
+    assert out["opens_in_browser"] is False
+
+
+def test_both_warnings_survive_together(ws, monkeypatch):
+    """Local dev previewing a zip trips two notes; an assign would drop one."""
+    monkeypatch.delenv("EMERGE_PUBLIC_BASE_URL", raising=False)
+    out = mint_download_url(ws, "proj/_export/bundle.zip", inline=True)
+    assert "not a previewable type" in out["note"]
+    assert "EMERGE_PUBLIC_BASE_URL" in out["note"]
+
+
+def test_inline_html_is_served_into_an_opaque_origin(ws):
+    """The whole reason inline is allowed. `sandbox` without `allow-same-origin`
+    means the page cannot read document.cookie or make credentialed calls to
+    /lab/* — without this header, agent-written HTML on our origin is account
+    takeover via any document that talks the agent into emitting a fetch()."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import download as route
+
+    (ws / "proj" / "_export" / "report.html").write_text("<h1>report</h1>")
+    app = FastAPI()
+    app.include_router(route.redeem_router)
+    client = TestClient(app)
+
+    url = mint_download_url(ws, "proj/_export/report.html", inline=True)["download_url"]
+    resp = client.get(f"/lab/download/{url.rsplit('/', 1)[-1]}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert resp.headers["content-disposition"].startswith("inline")
+    csp = resp.headers["content-security-policy"]
+    assert "sandbox" in csp
+    assert "allow-same-origin" not in csp  # would let a script drop the sandbox
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert resp.headers["referrer-policy"] == "no-referrer"
+
+
+def test_attachment_path_carries_no_sandbox_headers(ws):
+    """A zip download needs none of it — keep the security header surface
+    exactly where it belongs."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import download as route
+
+    app = FastAPI()
+    app.include_router(route.redeem_router)
+    client = TestClient(app)
+    url = mint_download_url(ws, "proj/_export/bundle.zip")["download_url"]
+    resp = client.get(f"/lab/download/{url.rsplit('/', 1)[-1]}")
+    assert resp.headers["content-disposition"].startswith("attachment")
+    assert "content-security-policy" not in resp.headers
+
+
+def test_stale_inline_token_cannot_resurrect_a_delisted_type(ws, monkeypatch):
+    """A token minted while `.svg` was previewable must not still render inline
+    after it leaves the allow-list — the route re-derives safety, it does not
+    trust the claim alone."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import download as route
+    from app.tools import download_url as du
+
+    target = ws / "proj" / "_export" / "x.svg"
+    target.write_text("<svg/>")
+    monkeypatch.setitem(du._INLINE_TYPES, "svg", "image/svg+xml")
+    token = du.mint_token(target, inline=True)
+    monkeypatch.delitem(du._INLINE_TYPES, "svg")
+
+    app = FastAPI()
+    app.include_router(route.redeem_router)
+    resp = TestClient(app).get(f"/lab/download/{token}")
+    assert resp.headers["content-disposition"].startswith("attachment")
+
+
 def test_redeem_streams_bytes(ws, monkeypatch):
     """End-to-end through the unauthed redemption route — a browser following
     the link carries no session, which is the whole point."""

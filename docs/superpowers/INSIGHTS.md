@@ -801,10 +801,49 @@ workspace root — so `_auth/users.json` and `_keys.json` sit inside the range
 check. Without the denylist, "帮我下载一下配置文件" mints a working link to the
 keystore.
 
-**Deliberately not implemented: `Content-Disposition: inline`.** An agent-written
-HTML report served inline would run on the lab's own origin, with same-origin
-access to the session cookie and every `/lab/*` route. Inline preview needs a
-separate origin first. Until then everything downloads.
+---
+
+## Inline preview is safe because of ONE header — `sandbox` without `allow-same-origin`
+
+Agent-produced HTML is only useful if the user can look at it, but serving
+agent-written markup on the lab's own origin is account takeover: any document
+that talks the agent into emitting `fetch('/lab/...', {credentials:'include'})`
+gets the user's session. The fix shipped 2026-08-10 is
+`Content-Security-Policy: sandbox allow-scripts allow-popups` on inline
+responses, which drops the document into an **opaque** origin.
+
+**The separate-subdomain approach was considered and is weaker.** A sibling
+origin still shares the registrable domain, so the day anything sets a
+`domain=`-scoped cookie the isolation evaporates — and it costs DNS + a cert.
+Opaque is same-origin with nothing, including itself.
+
+**Measured, not assumed** (headless chromium, session cookie planted on
+`localhost`):
+
+| | `window.origin` | `document.cookie` | `fetch('/lab/projects', credentials:'include')` |
+|---|---|---|---|
+| with the header | `null` | throws `SecurityError` | blocked |
+| same HTML, no header (control) | `http://localhost:9099` | `emerge_session=SECRET-SESSION-VALUE` | reaches the server |
+
+Keep the control in mind before touching this: the page is inert *only* because
+of the header.
+
+**Three things that must not be "simplified":**
+- **Never add `allow-same-origin`.** Paired with `allow-scripts` it is
+  self-defeating — a script in a same-origin sandbox can remove the sandbox.
+- **`inline` rides inside the SIGNED token, not a query param.** Disposition
+  decides whether markup executes; a link recipient must not be able to flip it.
+- **The route re-derives safety from the extension** (`inline_type_for`) instead
+  of trusting the claim. The claim says what was intended; the allow-list says
+  what is safe. A token minted while a type was previewable must not resurrect
+  inline rendering after that type is delisted (regression test:
+  `test_stale_inline_token_cannot_resurrect_a_delisted_type`).
+
+**`.svg` is deliberately not in `_INLINE_TYPES`** — an active document that can
+carry script, and the one image type a reader assumes is inert. `.xml` is out
+for the same family of reasons. Inline is opt-in per call AND allow-listed;
+anything else silently downgrades to a download rather than erroring, so
+"preview this zip" still delivers something.
 
 ---
 

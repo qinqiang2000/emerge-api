@@ -2010,17 +2010,26 @@ def build_emerge_mcp(
         "directory with Bash first, this serves single files. Returns a "
         "capability URL valid for 24h. NEVER hand back a bare server path "
         "instead — an absolute path on the server is not a delivery, the user "
-        "cannot open it. Rendering: browser → give the URL as a markdown link "
-        "with the filename and human-readable size, nothing else; headless → "
-        "give the URL plus the server-side absolute path, so a CLI client can "
-        "either curl it or read the file directly.",
+        "cannot open it. Set `inline=true` for something the user should LOOK "
+        "at rather than save — an HTML report you generated, a chart, a single "
+        "page/image — and it opens in the browser instead of downloading "
+        "(html/pdf/images/text only; anything else silently downloads and the "
+        "response tells you so). Leave it false for zips, csvs and archives. "
+        "Rendering: browser → give the URL as a markdown link with the "
+        "filename and human-readable size, nothing else (for inline=true say "
+        "it opens in a new tab rather than downloads); headless → give the URL "
+        "plus the server-side absolute path, so a CLI client can either curl "
+        "it or read the file directly.",
         {"type": "object", "properties": {
             "path": {"type": "string"},
+            "inline": {"type": "boolean"},
         }, "required": ["path"]},
     )
     async def t_offer_download(args: dict[str, Any]) -> dict[str, Any]:
         from app.tools.download_url import mint_download_url
-        out = mint_download_url(workspace, str(args["path"]))
+        out = mint_download_url(
+            workspace, str(args["path"]), inline=bool(args.get("inline")),
+        )
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     # ── document matching (reconciliation) ─────────────────────────────────

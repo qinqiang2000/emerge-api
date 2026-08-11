@@ -361,12 +361,13 @@ These don't fit a milestone but should be tracked:
   soft landing (20→40 + tool-less wrap-up turn instead of `error_max_turns`),
   `offer_download` outbound data plane, and `_memory/` agent-brain memory.
   Follow-ups spun out of it:
-  - **Inline preview origin** — `offer_download` always sends
-    `Content-Disposition: attachment`. Serving agent-produced HTML inline needs a
-    separate origin first (same-origin markup would reach the session cookie and
-    every `/lab/*` route). Blocks the "agent renders a shareable report page" use
-    case; the board renderers already produce self-contained HTML that would
-    benefit.
+  - ~~**Inline preview origin**~~ — closed same day by `offer_download(inline=true)`.
+    Resolved *against* the original sketch: no separate subdomain (a sibling
+    origin shares the registrable domain and costs DNS + a cert). Instead
+    `Content-Security-Policy: sandbox allow-scripts allow-popups` puts the
+    document in an opaque origin — verified in headless chromium with a planted
+    session cookie, against a no-header control. See INSIGHTS "Inline preview is
+    safe because of ONE header".
   - **Memory consolidation pass** — nothing prunes `_memory/`. The index is
     capped at 6 KB and truncates loudly, but no one merges near-duplicate notes.
     Revisit once a real project has accumulated ~30 notes; the likely shape is a

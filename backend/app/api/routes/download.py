@@ -20,8 +20,10 @@ from fastapi.responses import FileResponse
 
 from app.auth.deps import bind_workspace, current_ws
 from app.tools.download_url import (
+    _INLINE_HEADERS,
     DownloadTokenError,
     content_disposition,
+    inline_type_for,
     mint_download_url,
     verify_token,
 )
@@ -36,9 +38,9 @@ async def post_download_urls(body: dict[str, Any] = Body(...)) -> dict[str, Any]
     if not isinstance(path, str) or not path.strip():
         raise HTTPException(status_code=400, detail={
             "error_code": "bad_request",
-            "error_message_en": "body must be {path: str} relative to the workspace",
+            "error_message_en": "body must be {path: str, inline?: bool}",
         })
-    out = mint_download_url(current_ws(), path)
+    out = mint_download_url(current_ws(), path, inline=bool(body.get("inline")))
     if "error_code" in out:
         raise HTTPException(status_code=400, detail=out)
     return out
@@ -67,8 +69,24 @@ async def redeem_download(token: str) -> FileResponse:
             "error_code": "not_found",
             "error_message_en": "the file this link pointed at no longer exists",
         })
+    # `inline` is re-derived from the extension, not trusted from the claim
+    # alone: the claim says what was INTENDED, `inline_type_for` says what is
+    # SAFE. Both must agree, so a token minted before an extension left the
+    # allow-list can never resurrect inline rendering for it.
+    media_type = inline_type_for(target.name) if claims.get("i") else None
+    if media_type is None:
+        return FileResponse(
+            target,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": content_disposition(target.name)},
+        )
     return FileResponse(
         target,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": content_disposition(target.name)},
+        media_type=media_type,
+        headers={
+            "Content-Disposition": content_disposition(target.name, inline=True),
+            # Opaque-origin sandbox — the entire reason inline is allowed at
+            # all. See app/tools/download_url.py's module docstring.
+            **_INLINE_HEADERS,
+        },
     )
