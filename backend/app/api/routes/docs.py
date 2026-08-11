@@ -30,7 +30,7 @@ _PAGE_CACHE = "public, max-age=31536000, immutable"
 
 
 @router.get("/lab/projects/{slug}/docs/by-name/{filename:path}/pages/{page}")
-async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> FileResponse:
+async def get_page(slug: str, filename: str, page: int, fmt: str = "auto") -> FileResponse:
     """Serve a viewable page bitmap for a doc.
 
     Filename is the only doc handle (post-d_xxx removal). The `:path` converter
@@ -38,9 +38,13 @@ async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> Fil
     defensively validate the result via `safe_filename` to reject path
     separators and traversal segments.
 
-    `fmt=jpeg` serves a JPEG at the SAME resolution (board overview — smaller on
-    photo-heavy pages, clarity preserved); `fmt=png` (default) is pixel-exact
-    for review.
+    Resolution is identical across all three formats — only the codec differs.
+    `fmt=auto` (default) keeps whichever of PNG / progressive-JPEG is the
+    smaller file for that page; `fmt=png` forces lossless; `fmt=jpeg` is the
+    board's q85 baseline JPEG. Callers must NOT assume the content type from
+    the request: under `auto` the server picks per page, so the response's own
+    `Content-Type` is the only truth (browsers sniff it correctly; the
+    frontend `<img>` never cared).
 
     PDF: renders the requested page on demand (cached under
     `.cache/_render/{sha}/p{n}.{png|jpg}`).
@@ -80,10 +84,13 @@ async def get_page(slug: str, filename: str, page: int, fmt: str = "png") -> Fil
             headers={"Cache-Control": _PAGE_CACHE},
         )
     try:
-        path = await pdf_render_page(current_ws(), slug, filename, page=page, fmt="jpeg" if jpeg else "png")
+        path = await pdf_render_page(current_ws(), slug, filename, page=page, fmt=fmt)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
-    media = "image/jpeg" if jpeg else "image/png"
+    # Read the media type off the file the renderer actually chose — under
+    # `auto` the codec is a per-page decision, so deriving it from the request
+    # would mislabel every page that went the other way.
+    media = _IMAGE_MEDIA["jpg" if path.suffix.lower() in (".jpg", ".jpeg") else "png"]
     return FileResponse(path, media_type=media, headers={"Cache-Control": _PAGE_CACHE})
 
 

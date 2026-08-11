@@ -43,9 +43,23 @@ DEFAULT_RENDER_DPI = 150
 
 # Board overview serves JPEG instead of PNG at the SAME dpi (`?fmt=jpeg`): the
 # resolution is unchanged (review clarity preserved) but photo-heavy pages
-# (e.g. 社媒海报) shrink 3-5× — PNG stores photos terribly. Review mode keeps
-# PNG for pixel-exact fine reading. q85 keeps document text crisp.
+# (e.g. 社媒海报) shrink 3-5× — PNG stores photos terribly. q85 keeps document
+# text crisp.
 BOARD_JPEG_QUALITY = 85
+
+# `fmt='auto'` (the review path) encodes both and keeps the smaller file. Higher
+# quality than the board's q85 because this is the raster a human reads printed
+# digits off of.
+REVIEW_JPEG_QUALITY = 92
+
+# ...but only give up losslessness when it actually buys something. Measured on
+# prod (2026-08-11, n=12 sampled from 3089 docs): pages whose embedded images
+# are PNG-encoded land at 1.03–1.17× — no reason to re-encode those — while
+# scan-heavy pages hit 3.4–4.4×. Every sampled page above 400 KB carried
+# JPEG-encoded embedded images (14/14), so on exactly the pages this switches,
+# the pixels already went through JPEG once: PNG was losslessly preserving
+# someone else's compression noise. Nothing crosses this threshold by accident.
+_AUTO_JPEG_MIN_GAIN = 1.5
 
 # Magic-byte signatures for the formats we accept. Sniffing the bytes lets us
 # reject filename-spoofed uploads (e.g. HTML body with `.png` extension, or a
@@ -459,6 +473,35 @@ async def rename_doc(
     return {"filename": new_name, "previous": filename, "artifacts": moved}
 
 
+def encode_review_jpeg(img: Any) -> bytes:
+    """Encode a PIL RGB image as the review path's JPEG: q92, **progressive**.
+
+    Progressive is the point, not a detail. The reviewer and the server are a
+    continent apart, so the wire time is the wait — and a progressive JPEG
+    paints a full, coarse page after roughly the first tenth of its bytes
+    (measured on prod: 5-10%) and then sharpens, instead of showing nothing
+    until the last byte lands. Same total bytes, but the page becomes legible
+    almost immediately.
+
+    Goes through Pillow because PyMuPDF's `tobytes('jpeg')` has no progressive
+    switch. Takes a PIL image rather than a pixmap so the render path and the
+    backfill (which re-encodes from already-cached PNGs, without reopening the
+    PDF) share one definition of "the review JPEG" and cannot drift apart."""
+    import io
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=REVIEW_JPEG_QUALITY, progressive=True, optimize=True)
+    return buf.getvalue()
+
+
+def pixmap_to_image(pix: Any) -> Any:
+    """PyMuPDF pixmap → PIL RGB image. `get_pixmap` defaults to alpha=False, so
+    `samples` is packed RGB."""
+    from PIL import Image
+
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+
 async def pdf_render_page(
     workspace: Path,
     project_id: str,
@@ -470,14 +513,32 @@ async def pdf_render_page(
 ) -> Path:
     """Render a PDF page, cached at `.cache/_render/{sha}/p{n}.{png|jpg}`.
 
-    `fmt='jpeg'` renders at the SAME dpi but encodes JPEG q85 (board overview —
-    smaller, resolution unchanged); `fmt='png'` (default) stays pixel-exact for
-    review. Re-renders only on a cache miss; the path is content-addressed
-    (keyed by the doc's sha256, not project/filename) so the same bytes across
-    UI sessions — or copied into another project — hit one shared render."""
+    Three encodings, all at the SAME dpi (resolution never changes — only the
+    codec does):
+
+    - `fmt='png'` (default): lossless, one byte-for-byte file per page.
+    - `fmt='auto'`: encode both and keep whichever file is smaller, requiring
+      JPEG to win by `_AUTO_JPEG_MIN_GAIN` before losslessness is given up.
+      Text/vector pages stay PNG; scans — where PNG was losslessly preserving
+      JPEG artifacts — drop 3-4×. The JPEG is progressive, so it also starts
+      painting long before it finishes arriving.
+    - `fmt='jpeg'`: board overview, q85 baseline, its own `p{n}.jpg` slot.
+
+    The default stays `png` on purpose. `auto` returns a path whose SUFFIX is a
+    per-page decision, and three in-tree callers (`read_doc_image`,
+    `board_view`, `audit_board_render`) consume the result assuming they know
+    the codec — two of them hardcode `image/png` in a response. Only the
+    browser-facing page route opts in, because only there is the consumer a
+    content-type-sniffing client rather than code holding an assumption.
+
+    Re-renders only on a cache miss; the path is content-addressed (keyed by the
+    doc's sha256, not project/filename) so the same bytes across UI sessions —
+    or copied into another project — hit one shared render."""
     import fitz  # PyMuPDF
 
-    jpeg = fmt.lower() in ("jpeg", "jpg")
+    mode = fmt.lower()
+    jpeg = mode in ("jpeg", "jpg")
+    auto = mode == "auto"
     meta = json.loads(doc_meta_path(workspace, project_id, filename).read_text())
     if meta["ext"] != "pdf":
         raise ValueError(f"doc {filename!r} is not a pdf")
@@ -485,21 +546,51 @@ async def pdf_render_page(
 
     cache_dir = doc_render_dir(workspace, project_id, filename)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    out = cache_dir / f"p{page}.{'jpg' if jpeg else 'png'}"
-    if out.exists():
-        return out
+    png_out = cache_dir / f"p{page}.png"
+    auto_jpg_out = cache_dir / f"p{page}.r.jpg"
+
+    if auto:
+        # The auto slot wins over a lossless render sitting beside it. Those two
+        # files mean different things: `p{n}.r.jpg` is a decision this path
+        # already made for this page, while `p{n}.png` may be incidental — the
+        # other callers (`read_doc_image`, `board_view`, `audit_board_render`)
+        # all render at the `png` default, so a single agent vision call
+        # re-materializes it. Probing PNG first would let that call silently
+        # undo the backfill and put a 12 MB page back on the reviewer's wire.
+        #
+        # Falling back to an existing PNG is still right when NO decision has
+        # been made: it's warm, and re-deciding is the backfill's job, not a
+        # cost to charge the reader.
+        for cached in (auto_jpg_out, png_out):
+            if cached.exists():
+                return cached
+        out = None  # decided after encoding
+    else:
+        out = cache_dir / f"p{page}.jpg" if jpeg else png_out
+        if out.exists():
+            return out
 
     with fitz.open(src) as pdf:
         if page < 1 or page > pdf.page_count:
             raise ValueError(f"page {page} out of range (1..{pdf.page_count})")
-        # get_pixmap defaults to alpha=False, so the JPEG branch never sees an
+        # get_pixmap defaults to alpha=False, so the JPEG branches never see an
         # alpha channel (PDF pages don't carry one anyway). PNG stays byte-for-
         # byte as before for the review render cache.
         pix = pdf[page - 1].get_pixmap(dpi=dpi)
-        if jpeg:
+        if auto:
+            png_bytes = pix.tobytes("png")
+            jpg_bytes = encode_review_jpeg(pixmap_to_image(pix))
+            if len(png_bytes) >= len(jpg_bytes) * _AUTO_JPEG_MIN_GAIN:
+                out = auto_jpg_out
+                atomic_write_bytes(out, jpg_bytes)
+            else:
+                out = png_out
+                atomic_write_bytes(out, png_bytes)
+        elif jpeg:
             atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
         else:
             atomic_write_bytes(out, pix.tobytes("png"))
+    assert out is not None
     return out
 
 
