@@ -305,6 +305,43 @@ async def _prewarm_claude_cli_on_startup() -> None:
     asyncio.create_task(_run())
 
 
+async def _prewarm_raster_imports_on_startup() -> None:
+    """Import PyMuPDF + Pillow off the first request's critical path.
+
+    Every raster path (`pdf_render_page`, textlayer, locate, staging) imports
+    fitz lazily inside the function — deliberately, so CLI/MCP entry points that
+    never touch a PDF don't pay for it. This hook keeps that laziness and just
+    makes sure it has already happened before a reviewer asks for a page.
+
+    Honest sizing (prod, 2026-08-11): on a service restart the import measures
+    **0.08s**, because the PyMuPDF shared objects are still in the OS page
+    cache. So this is cheap insurance for the cold-page-cache case (a real
+    machine reboot), not a big win.
+
+    It is specifically NOT the fix for the ~1s penalty the first `/lab/*`
+    request after a restart pays — that was measured again WITH this prewarm in
+    place (1768ms vs 710ms for the next identical cold page) and remains
+    unexplained. Don't let this hook's presence suggest that one is solved."""
+    if _skip_background_startup():
+        return
+
+    def _load() -> None:
+        import fitz  # noqa: F401 — PyMuPDF; import IS the work
+        from PIL import Image  # noqa: F401
+
+    async def _run() -> None:
+        log = logging.getLogger(__name__)
+        t0 = time.monotonic()
+        try:
+            await asyncio.to_thread(_load)
+            log.warning("raster prewarm done in %.2fs", time.monotonic() - t0)
+        except Exception as exc:  # noqa: BLE001 - prewarm is best-effort
+            log.warning("raster prewarm failed after %.2fs: %s",
+                        time.monotonic() - t0, exc)
+
+    asyncio.create_task(_run())
+
+
 app.include_router(publish_route.router)
 from app.api.routes import monitor as monitor_route  # noqa: E402
 
@@ -397,6 +434,7 @@ app.router.on_startup.append(_purge_trash_on_startup)
 app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_history_checkpoint_loop_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
+app.router.on_startup.append(_prewarm_raster_imports_on_startup)
 app.router.on_startup.append(_start_monitor_on_startup)
 app.router.on_startup.append(_start_remote_mcp_on_startup)
 app.router.on_shutdown.append(_stop_remote_mcp_on_shutdown)

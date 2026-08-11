@@ -100,6 +100,38 @@ async def test_auto_jpeg_is_progressive(workspace: Path) -> None:
         assert im.info.get("progressive") or im.info.get("progression")
 
 
+async def test_render_does_not_block_the_event_loop(workspace: Path) -> None:
+    """Rasterising + encoding is 150-500 ms of pure CPU (and `auto` encodes
+    twice). Left on the event loop it stalls every other request for that whole
+    window — and opening a doc fans out ~10 parallel calls, so one cold page
+    held up the fields the reviewer was waiting for.
+
+    The margin here is ~30×, not marginal: a ticker on a 1 ms sleep racks up
+    dozens of ticks across a threaded render and exactly 0-1 if the work is
+    inline, so `>= 2` is a sharp assertion, not a timing gamble."""
+    import asyncio
+
+    pid, fn = await _pdf_project(workspace)
+
+    ticks = 0
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.001)
+            ticks += 1
+
+    beat = asyncio.create_task(ticker())
+    try:
+        await asyncio.sleep(0.005)  # let the ticker actually start
+        ticks = 0
+        await pdf_render_page(workspace, pid, fn, page=1, fmt="auto")
+    finally:
+        beat.cancel()
+
+    assert ticks >= 2, "render held the event loop for its whole duration"
+
+
 async def test_other_formats_are_untouched(workspace: Path) -> None:
     """`auto` is opt-in. The default and the board's explicit jpeg keep their
     own cache slots, so in-tree callers that assume a codec still get it."""

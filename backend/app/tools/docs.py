@@ -533,8 +533,15 @@ async def pdf_render_page(
 
     Re-renders only on a cache miss; the path is content-addressed (keyed by the
     doc's sha256, not project/filename) so the same bytes across UI sessions —
-    or copied into another project — hit one shared render."""
-    import fitz  # PyMuPDF
+    or copied into another project — hit one shared render.
+
+    A cache miss runs `_render_page_sync` on a worker thread. Rasterising and
+    encoding is 150-500 ms of pure CPU (and `auto` encodes twice), which on the
+    event loop stalls *every* other request for that whole window — the doc
+    route fans out ~10 parallel calls, so a single cold page used to hold up the
+    fields the reviewer is waiting for. Same offload the locate route, history
+    and the workspace locks already use."""
+    import asyncio
 
     mode = fmt.lower()
     jpeg = mode in ("jpeg", "jpg")
@@ -570,6 +577,33 @@ async def pdf_render_page(
         if out.exists():
             return out
 
+    return await asyncio.to_thread(
+        _render_page_sync,
+        src, page=page, dpi=dpi, auto=auto, jpeg=jpeg,
+        png_out=png_out, auto_jpg_out=auto_jpg_out, direct_out=out,
+    )
+
+
+def _render_page_sync(
+    src: Path,
+    *,
+    page: int,
+    dpi: int,
+    auto: bool,
+    jpeg: bool,
+    png_out: Path,
+    auto_jpg_out: Path,
+    # Destination for the non-auto modes: `p{n}.jpg` for the board, `p{n}.png`
+    # otherwise. None under `auto`, where the codec is decided after encoding.
+    direct_out: Path | None,
+) -> Path:
+    """The CPU half of `pdf_render_page` — always called on a worker thread.
+
+    Split out rather than inlined in a lambda so the blocking work has a name
+    that shows up in a stack trace, and so the cache-probe / validation half
+    stays cheap enough to run inline on the loop."""
+    import fitz  # PyMuPDF
+
     with fitz.open(src) as pdf:
         if page < 1 or page > pdf.page_count:
             raise ValueError(f"page {page} out of range (1..{pdf.page_count})")
@@ -581,17 +615,16 @@ async def pdf_render_page(
             png_bytes = pix.tobytes("png")
             jpg_bytes = encode_review_jpeg(pixmap_to_image(pix))
             if len(png_bytes) >= len(jpg_bytes) * _AUTO_JPEG_MIN_GAIN:
-                out = auto_jpg_out
-                atomic_write_bytes(out, jpg_bytes)
-            else:
-                out = png_out
-                atomic_write_bytes(out, png_bytes)
-        elif jpeg:
-            atomic_write_bytes(out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
+                atomic_write_bytes(auto_jpg_out, jpg_bytes)
+                return auto_jpg_out
+            atomic_write_bytes(png_out, png_bytes)
+            return png_out
+        assert direct_out is not None
+        if jpeg:
+            atomic_write_bytes(direct_out, pix.tobytes("jpeg", jpg_quality=BOARD_JPEG_QUALITY))
         else:
-            atomic_write_bytes(out, pix.tobytes("png"))
-    assert out is not None
-    return out
+            atomic_write_bytes(direct_out, pix.tobytes("png"))
+        return direct_out
 
 
 async def image_doc_as_jpeg(
