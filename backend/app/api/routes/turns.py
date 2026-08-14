@@ -56,6 +56,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.api.routes._safety import safe_chat_id
 from app.api.routes.chat import SurfaceContext, _get_chat_service
 from app.chat.log import _chat_log_path
+from app.chat.pending import snapshot_pending
 from app.chat.turn_registry import (
     TurnAlreadyActiveError,
     TurnEntry,
@@ -379,6 +380,16 @@ def _attach_and_stream(
                 yield _split_sse_chunk(chunk)
 
         sub_entry, queue = await registry.subscribe(tid)
+        # Replay whatever the turn is *blocked on*. permission_request /
+        # ask_user_request are the only turn events that never reach
+        # events.jsonl (pure SSE), and the turn cannot finish until the user
+        # answers — so without this, a reload or a dropped stream mid-prompt
+        # deadlocked the chat permanently: card gone, future never resolved,
+        # every later message 409 `turn_already_active` (prod, 2026-08-14).
+        # Subscribe-then-snapshot may double-send a prompt raised in between;
+        # the client dedupes on `request_id`.
+        for etype, payload in snapshot_pending(cid):
+            yield _split_sse_chunk(_chunk_for_event(etype, payload))
         try:
             while True:
                 chunk = await queue.get()

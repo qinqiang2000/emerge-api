@@ -146,6 +146,7 @@ const en: Dict = {
   'composer.retryWithError': 'Retry — {error}',
   'composer.uploadFailed': 'upload failed',
   'composer.dropEmpty': "couldn't read any files from the drop",
+  'chat.turn.stillRunning': 'That turn is still running — reattached. Your message is back in the composer.',
   'composer.stopResponse': 'Stop response',
   'composer.stopResponse.title': 'Stop response  Esc',
   'composer.sendMessage': 'Send message',

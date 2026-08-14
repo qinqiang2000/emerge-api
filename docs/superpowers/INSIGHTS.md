@@ -922,6 +922,59 @@ returns the file but does **not** replay the index edit; the tool says so in
 
 ---
 
+## A permission card is the only turn event with no durable copy — losing it deadlocks the turn
+
+**Where:** `backend/app/chat/pending.py` (+ `permissions.py` / `ask_user.py` / `api/routes/turns.py::_attach_and_stream`), `frontend/src/stores/chat.ts::_consumeStream` / `_maybeReattach` / `send`.
+
+**The trap (prod, 2026-08-14, chat `c_4278ac030800`).** The user watched the agent
+run 50 extractions, then it went silent. They asked "还在执行吗?" and got
+`turn_start_failed: … chat already has an active turn`. Three independent bugs
+stacked into one dead chat:
+
+1. **`permission_request` / `ask_user_request` are pure SSE** — deliberately never
+   written to `events.jsonl`. But the turn *cannot finish* until the future is
+   resolved, and the only thing that resolves a stranded future is
+   `cancel_pending`, which runs **at turn end**. That reasoning is circular: lose
+   the card (reload, dropped stream, navigate away) and the turn blocks forever.
+   The old code comment ("a refresh mid-prompt drops the card and the future will
+   resolve via `cancel_pending` at turn end") documented the deadlock as if it
+   were the recovery.
+2. **The FE gated re-attach on `localStorage['turn:{cid}']`** — an entry that the
+   drop path itself cleared. So the one event that most needs a re-attach
+   guaranteed there would never be one. `GET /lab/chats/{cid}/turn_state` already
+   answers "what turn is live" from the server; localStorage was never needed as
+   the gate.
+3. **A dropped SSE was treated as the turn ending.** M11's whole point is that the
+   turn outlives its stream — so the correct response to a drop is to attach
+   again, not to re-enable the composer and let the next send collide with 409.
+
+**The fix.** Pending prompts keep their SSE payload (`chat/pending.py`) and the
+stream route replays them to *every* new subscriber; the FE dedupes on
+`request_id`. Re-attach probes `turn_state` unconditionally. A drop re-attaches
+three times with backoff (which also self-heals "finished while we were away" —
+the route replays the missed jsonl slice and closes with a synthetic
+`turn_end`) before surfacing `stream_disconnected`. A 409 on send is treated as
+"our idle state was stale": rejoin the live turn, hand the typed text back to
+the composer (`emerge:composer-restore`), toast, never dead-end.
+
+**Don't:**
+- add a turn event that gates turn completion without either persisting it or
+  replaying it on attach — those are the only two options;
+- re-introduce "no local turn id → don't ask the server" (any client, incl. a
+  CLI one, can own the live turn; localStorage is a cache of the server's
+  answer);
+- turn a 409 `turn_already_active` back into a terminal error — it is a
+  *reattach* signal. The registry is process-local, so the only other cure is a
+  backend restart, which is how this chat was eventually freed.
+
+**Signature to recognise it:** the chat's last jsonl line is a `tool_call` with no
+`tool_result`, the process has been running for minutes with zero new events, and
+every POST `/turns` answers 409. Compare with the wedge in
+"turn wrapper task: a sync-raising `runner_factory()`" above — same 409 symptom,
+completely different cause (there: no sentinel; here: an unanswerable question).
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

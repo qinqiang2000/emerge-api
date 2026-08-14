@@ -25,16 +25,16 @@ Design notes:
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import shlex
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+
+from app.chat.pending import PendingPrompts
 
 
 # ── Foreign / dangerous tools we always refuse to expose ──────────────────
@@ -389,11 +389,12 @@ def classify(
 
 # ── Async ask-user round-trip ─────────────────────────────────────────────
 
-# Module-level registry. Keys are ``(chat_id, request_id)``; values are the
-# futures the can_use_tool callback awaits. The HTTP route resolves the
-# future via ``resolve_permission`` when the user clicks Approve / Deny.
-_pending: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
-_pending_lock = asyncio.Lock()
+# Module-level registry (see ``chat/pending.py`` for why it lives there and
+# not in this module's own dict). Keys are ``(chat_id, request_id)``; each
+# entry holds the future the can_use_tool callback awaits *plus* the SSE
+# payload, so a client that re-attaches mid-prompt gets the card replayed
+# instead of leaving the turn blocked forever.
+_pending = PendingPrompts("permission_request")
 
 # Per-chat "always allow" patterns. Set of ``tool_name`` strings for now —
 # Step A doesn't try to be clever about scoping by input pattern. Cleared
@@ -423,23 +424,7 @@ async def request_permission(
     If no ``sse_writer`` is bound (e.g. when called outside a chat turn),
     fall back to deny — the agent cannot wait on a UI that isn't watching.
     """
-    request_id = uuid.uuid4().hex[:12]
-    loop = asyncio.get_event_loop()
-    future: asyncio.Future[dict[str, Any]] = loop.create_future()
-    async with _pending_lock:
-        _pending[(chat_id, request_id)] = future
-
-    payload: dict[str, Any] = {
-        "request_id": request_id,
-        "tool_name": tool_name,
-        "tool_input": tool_input,
-        "reason": reason,
-        "suggested_scope": "once",
-    }
-
     if sse_writer is None:
-        async with _pending_lock:
-            _pending.pop((chat_id, request_id), None)
         return PermissionResultDeny(
             message=(
                 f"Tool '{tool_name}' needs user approval but no UI is "
@@ -448,13 +433,25 @@ async def request_permission(
             interrupt=False,
         )
 
+    # The registry holds this payload for the lifetime of the prompt so the
+    # stream route can re-send it verbatim to a late / re-attaching client.
+    request_id, payload, future = await _pending.register(
+        chat_id=chat_id,
+        payload_for=lambda rid: {
+            "request_id": rid,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "reason": reason,
+            "suggested_scope": "once",
+        },
+    )
+
     await sse_writer("permission_request", payload)
 
     try:
         decision = await future
     finally:
-        async with _pending_lock:
-            _pending.pop((chat_id, request_id), None)
+        await _pending.discard(chat_id, request_id)
 
     if decision.get("decision") == "approve":
         if decision.get("scope") == "always":
@@ -479,23 +476,19 @@ async def resolve_permission(
     Returns False if the request_id is unknown or already resolved (idempotent
     no-op so a double-click can't crash the route).
     """
-    async with _pending_lock:
-        future = _pending.get((chat_id, request_id))
-    if future is None or future.done():
-        return False
-    future.set_result({"decision": decision, "scope": scope, "message": message})
-    return True
+    return await _pending.resolve(
+        chat_id,
+        request_id,
+        {"decision": decision, "scope": scope, "message": message},
+    )
 
 
 async def cancel_pending(chat_id: str) -> None:
     """Drop every outstanding request for a chat — used when the chat turn
     ends (success or failure) so dangling futures don't linger forever."""
-    async with _pending_lock:
-        stale = [k for k in _pending if k[0] == chat_id]
-        for key in stale:
-            fut = _pending.pop(key, None)
-            if fut and not fut.done():
-                fut.set_result({"decision": "deny", "message": "Chat turn ended."})
+    await _pending.cancel_chat(
+        chat_id, {"decision": "deny", "message": "Chat turn ended."}
+    )
 
 
 def make_gate(workspace_root: Path, *, chat_id: str, sse_writer_getter):

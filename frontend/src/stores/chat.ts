@@ -12,9 +12,10 @@ import {
   type ChatSummary,
   type UnboundChatSummary,
 } from '../lib/api'
+import { t } from '../i18n'
 import { newChatId } from '../lib/ids'
 import { dispatchUiAction } from '../lib/surfaceRouter'
-import { attachStream, cancelTurn, fetchTurnState, startTurn, type StartTurnBody } from '../lib/turn'
+import { attachStream, cancelTurn, fetchTurnState, startTurn, TurnRequestError, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
 import { useApiKey } from './apiKey'
 import { useBench } from './bench'
@@ -27,6 +28,7 @@ import { useProjects } from './projects'
 import { usePrompts } from './prompts'
 import { useReview } from './review'
 import { useSchema } from './schema'
+import { toast } from './toast'
 
 const ACTIVE_CHAT_ID_KEY_PREFIX = 'emerge.activeChatId.'
 const LEGACY_CHAT_ID_KEY_PREFIX = 'emerge.chatId.'   // pre-M8 single-chat key
@@ -843,6 +845,28 @@ export const useChat = create<State>((set, get) => ({
       // later, the has_active_turn flag is already fresh in the store.
       if (!isUnbound && projectId !== 'p_unset') void useProjects.getState().refresh()
     } catch (e) {
+      // 409 `turn_already_active` is not a failure — it means this client's
+      // view of "idle" was stale (a dropped stream, a second tab, a CLI
+      // client). Dead-ending here is what the user saw as the agent going
+      // mute and then shouting an opaque error at them (prod, 2026-08-14).
+      // Rejoin the turn that IS running instead: drop our optimistic line,
+      // hand the text back to the composer, and attach. The reattach also
+      // pulls back any permission card the turn is blocked on.
+      if (e instanceof TurnRequestError && e.code === 'turn_already_active') {
+        set(s => {
+          const events = [...s.events]
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].type === 'user') { events.splice(i, 1); break }
+          }
+          return { events, busy: false }
+        })
+        window.dispatchEvent(new CustomEvent('emerge:composer-restore', {
+          detail: { text: message },
+        }))
+        toast.info(t('chat.turn.stillRunning'))
+        await _maybeReattach(cid, projectId)
+        return
+      }
       // Couldn't even start the turn — surface as an error event and bail.
       // The optimistic user line stays so the user can retry / edit; matches
       // the legacy posture of treating start-time failures as soft errors.
@@ -935,44 +959,41 @@ export const useChat = create<State>((set, get) => ({
   },
 }))
 
+/** Is this prompt already on the slice? The backend re-sends every
+ *  outstanding `permission_request` / `ask_user_request` to each new
+ *  subscriber (that replay is what keeps a card-blocked turn answerable after
+ *  a reload), so an attach that follows a detach legitimately delivers a
+ *  frame we already rendered. `request_id` is the identity. */
+function _hasPrompt(
+  events: ChatEvent[],
+  type: 'permission_request' | 'ask_user_request',
+  requestId: string,
+): boolean {
+  return events.some(e => e.type === type && e.request_id === requestId)
+}
+
+type PumpOutcome = 'turn_end' | 'abort' | 'drop'
+
 /**
- * Drain the SSE stream for ``turnId`` and dispatch each event into the chat
- * slice. Mirrors the pre-M11 event-dispatch branches verbatim — the only
- * difference is the source of the events (``attachStream`` GET vs. the old
- * ``streamSSE`` POST). Returns ``streamEndedNaturally=true`` iff we saw a
- * ``turn_end`` envelope (or the iterator completed without exception);
- * ``false`` when ``signal.aborted`` is what closed us. Non-abort exceptions
- * propagate so ``send()`` can decide.
+ * One attach: drain the SSE stream for ``turnId`` and dispatch each event into
+ * the chat slice. Mirrors the pre-M11 event-dispatch branches verbatim — the
+ * only difference is the source of the events (``attachStream`` GET vs. the
+ * old ``streamSSE`` POST).
+ *
+ * Reports how the attach ended rather than deciding what it means:
+ * ``'turn_end'`` (the turn is over), ``'abort'`` (we detached — the turn keeps
+ * running), ``'drop'`` (the connection died before ``turn_end``). Only
+ * :func:`_consumeStream` interprets those, because "the stream stopped" and
+ * "the turn stopped" are different facts.
  */
-async function _consumeStream(
+async function _pumpStream(
   cid: string,
   turnId: string,
   afterOffset: number,
   abortCtrl: AbortController,
   projectId: string,
   mintedPidRef: { value: string | null },
-): Promise<{ streamEndedNaturally: boolean }> {
-  // A mid-turn disconnect (clean EOF or a transport error *before* `turn_end`)
-  // means the backend went away while the turn was still live — a crash,
-  // redeploy, or dev hot-reload bouncing the server mid-stream. Surface it as a
-  // visible error instead of silently re-enabling the composer (the old
-  // behaviour looked exactly like the agent "just stopped responding"), and arm
-  // `interrupted` so the next send rewinds the orphaned partial and retries —
-  // identical recovery to the Stop button. Guarded on focus: if the user
-  // navigated away the stream was aborted, not disconnected, so we never reach
-  // here for that chat.
-  const surfaceDisconnect = () => {
-    if (useChat.getState().chatId !== cid) return
-    useChat.setState(s => ({
-      events: [...s.events, {
-        type: 'error',
-        error_code: 'stream_disconnected',
-        error_message_en:
-          'Lost the connection to the agent before this turn finished. Send again to retry.',
-      }],
-      interrupted: true,
-    }))
-  }
+): Promise<PumpOutcome> {
   try {
     for await (const ev of attachStream(cid, turnId, {
       after_offset: afterOffset,
@@ -1031,16 +1052,18 @@ async function _consumeStream(
           request_id: string
           questions: import('../types/chat').AskUserQuestion[]
         }
-        useChat.setState(s => ({
-          events: [
-            ...s.events,
-            {
-              type: 'ask_user_request',
-              request_id: d.request_id,
-              questions: d.questions,
-            },
-          ],
-        }))
+        useChat.setState(s => (
+          _hasPrompt(s.events, 'ask_user_request', d.request_id) ? s : {
+            events: [
+              ...s.events,
+              {
+                type: 'ask_user_request',
+                request_id: d.request_id,
+                questions: d.questions,
+              },
+            ],
+          }
+        ))
         continue
       }
       if (ev.event === 'permission_request') {
@@ -1061,19 +1084,21 @@ async function _consumeStream(
           reason: string
           suggested_scope?: 'once' | 'always'
         }
-        useChat.setState(s => ({
-          events: [
-            ...s.events,
-            {
-              type: 'permission_request',
-              request_id: d.request_id,
-              tool_name: d.tool_name,
-              tool_input: d.tool_input,
-              reason: d.reason,
-              suggested_scope: d.suggested_scope ?? 'once',
-            },
-          ],
-        }))
+        useChat.setState(s => (
+          _hasPrompt(s.events, 'permission_request', d.request_id) ? s : {
+            events: [
+              ...s.events,
+              {
+                type: 'permission_request',
+                request_id: d.request_id,
+                tool_name: d.tool_name,
+                tool_input: d.tool_input,
+                reason: d.reason,
+                suggested_scope: d.suggested_scope ?? 'once',
+              },
+            ],
+          }
+        ))
         continue
       }
       if (ev.event === 'project_renamed') {
@@ -1133,7 +1158,7 @@ async function _consumeStream(
       if (mapped === null) continue   // ignored event (user_acknowledged etc.)
       if (mapped.type === 'turn_end') {
         useChat.setState(s => (s.thinkingLine ? { thinkingLine: '' } : {}))
-        return { streamEndedNaturally: true }
+        return 'turn_end'
       }
       useChat.setState(s => {
         // A completed `agent_text` block finalizes the streaming bubble its
@@ -1155,22 +1180,83 @@ async function _consumeStream(
     }
   } catch (e) {
     // User-initiated abort (`_detachStream` or `cancel`) surfaces as
-    // AbortError — return cleanly so the caller can branch on
-    // `streamEndedNaturally=false`.
+    // AbortError — the caller must not treat it as the turn ending.
     const aborted = abortCtrl.signal.aborted
       || (e instanceof DOMException && e.name === 'AbortError')
       || (e instanceof Error && e.name === 'AbortError')
-    if (aborted) return { streamEndedNaturally: false }
+    if (aborted) return 'abort'
     // Any other error is a transport-level drop before `turn_end` (fetch
     // reject / connection reset) — same class as the clean mid-turn EOF below.
     console.warn('chat stream error before turn_end', e)
-    surfaceDisconnect()
-    return { streamEndedNaturally: true }
+    return 'drop'
   }
   // Iterator exhausted without seeing turn_end. The backend's stream route
   // always closes a finished turn with a `turn_end` sentinel, so reaching here
   // means the connection dropped while the turn was still live.
-  surfaceDisconnect()
+  return 'drop'
+}
+
+/** Backoff schedule for silent re-attach after a mid-turn stream drop. Three
+ *  tries, ~7s total, then we give up and tell the user. */
+const _RECONNECT_DELAYS_MS = [800, 2000, 4000]
+
+/**
+ * Drain a turn's stream, transparently re-attaching if the connection drops
+ * before `turn_end`.
+ *
+ * A drop is NOT the turn ending: the turn is a backend resource that keeps
+ * running (that is the whole point of M11), so the only correct response is to
+ * pick the stream back up where we left off. Re-attaching also self-heals the
+ * two states a drop can land in — still running (we tail the rest) and already
+ * finished (the route replays the missed slice from events.jsonl and closes
+ * with a synthetic `turn_end`) — which is why this loop doesn't bother probing
+ * `turn_state` first.
+ *
+ * Only after the retries are exhausted do we surface `stream_disconnected` and
+ * arm `interrupted`, i.e. the old behaviour. Before this, a single dropped SSE
+ * left the composer enabled while the agent was still working: the next send
+ * hit 409 `turn_already_active` and the chat was unusable (prod, 2026-08-14).
+ */
+async function _consumeStream(
+  cid: string,
+  turnId: string,
+  afterOffset: number,
+  abortCtrl: AbortController,
+  projectId: string,
+  mintedPidRef: { value: string | null },
+): Promise<{ streamEndedNaturally: boolean }> {
+  let offset = afterOffset
+  for (let attempt = 0; ; attempt++) {
+    const outcome = await _pumpStream(
+      cid, turnId, offset, abortCtrl, projectId, mintedPidRef,
+    )
+    if (outcome === 'turn_end') return { streamEndedNaturally: true }
+    if (outcome === 'abort') return { streamEndedNaturally: false }
+    // Dropped. Give up only after the backoff schedule is spent.
+    if (abortCtrl.signal.aborted) return { streamEndedNaturally: false }
+    if (attempt >= _RECONNECT_DELAYS_MS.length) break
+    await new Promise(r => setTimeout(r, _RECONNECT_DELAYS_MS[attempt]))
+    if (abortCtrl.signal.aborted) return { streamEndedNaturally: false }
+    // Re-anchor on what we actually have now — the replay bridge is
+    // offset-based, and a partially-consumed attempt moved us forward.
+    const cur = useChat.getState()
+    if (cur.chatId === cid) offset = cur.events.length
+  }
+  // Out of retries: the backend is unreachable or the turn is gone. Surface it
+  // instead of silently re-enabling the composer (that looked exactly like the
+  // agent "just stopped responding"), and arm `interrupted` so the next send
+  // rewinds the orphaned partial and retries — same recovery as Stop.
+  if (useChat.getState().chatId === cid) {
+    useChat.setState(s => ({
+      events: [...s.events, {
+        type: 'error',
+        error_code: 'stream_disconnected',
+        error_message_en:
+          'Lost the connection to the agent before this turn finished. Send again to retry.',
+      }],
+      interrupted: true,
+    }))
+  }
   return { streamEndedNaturally: true }
 }
 
@@ -1197,9 +1283,6 @@ async function _consumeStream(
  * mint already happened or didn't). A clean ref is the right default.
  */
 async function _maybeReattach(cid: string, projectId: string): Promise<void> {
-  const localTurnId = _readTurnId(cid)
-  if (!localTurnId) return
-
   let state
   try {
     state = await fetchTurnState(cid)
@@ -1216,22 +1299,23 @@ async function _maybeReattach(cid: string, projectId: string): Promise<void> {
     _clearTurnId(cid)
     return
   }
-  // Stale local id — a different turn is live now (could happen if a CLI
-  // client started a new turn while this client was offline). Don't attach;
-  // wipe the stale local so the next re-enter doesn't keep stumbling on it.
-  if (state.active_turn_id !== localTurnId) {
-    _clearTurnId(cid)
-    return
-  }
   // Turn already terminated — jsonl hydrate has the final state; nothing to
   // tail. (Backend keeps a brief window of finished entries in registry for
   // late-attaching clients to read the terminal envelope, but on re-enter we
   // already have the final events on disk.)
-  if (state.status === 'done' || state.status === 'cancelled' || state.status === 'error') {
+  if (state.status !== 'running') {
     _clearTurnId(cid)
     return
   }
-  if (state.status !== 'running') return
+  // The *server* names the live turn, not localStorage. The old code required
+  // a matching `turn:{cid}` entry and bailed without one — which meant the one
+  // event that most needs a re-attach (a mid-turn stream drop, which clears
+  // that entry) permanently orphaned the running turn: the composer went idle,
+  // and every later send came back 409 `turn_already_active` with no way back
+  // in (prod, 2026-08-14). localStorage is now a cache of this answer, never
+  // the gate for asking the question.
+  const turnId = state.active_turn_id
+  _writeTurnId(cid, turnId)
 
   // Race-check: did the user switch chats while fetchTurnState was in flight?
   // The hydrate IIFE has its own guard, but we ran AFTER it, and ours is an
@@ -1249,13 +1333,13 @@ async function _maybeReattach(cid: string, projectId: string): Promise<void> {
 
   const afterOffset = cur.events.length
   const ctrl = new AbortController()
-  useChat.setState({ busy: true, streamAbort: ctrl })
+  useChat.setState({ busy: true, streamAbort: ctrl, inflightTurnId: turnId })
 
   const mintedPidRef: { value: string | null } = { value: null }
   let streamEndedNaturally = false
   try {
     const result = await _consumeStream(
-      cid, localTurnId, afterOffset, ctrl, projectId, mintedPidRef,
+      cid, turnId, afterOffset, ctrl, projectId, mintedPidRef,
     )
     streamEndedNaturally = result.streamEndedNaturally
   } catch (e) {

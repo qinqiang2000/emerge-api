@@ -526,6 +526,22 @@ export default function Composer({ disabled, pending, onAttach, onAttachFailed, 
     else draftStore.delete(draftKey)
   }, [text, draftKey])
 
+  // A send that couldn't start (the chat already had a live turn) hands the
+  // text back rather than swallowing it — the store fires this after it has
+  // rejoined the running turn. Restore only into an empty box so we can never
+  // clobber something the user has already started typing.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ text?: string }>).detail
+      const restored = detail?.text
+      if (!restored) return
+      setText(prev => (prev.trim() ? prev : restored))
+      queueMicrotask(() => taRef.current?.focus())
+    }
+    window.addEventListener('emerge:composer-restore', handler)
+    return () => window.removeEventListener('emerge:composer-restore', handler)
+  }, [])
+
   // Reset active index when slash menu opens/closes
   useEffect(() => { setActiveIdx(0) }, [showSlash])
 

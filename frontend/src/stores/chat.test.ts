@@ -123,6 +123,12 @@ describe('chat store: send() split + lifecycle detach', () => {
       status: 'running',
     }))
     vi.spyOn(turn, 'cancelTurn').mockResolvedValue({ status: 'cancelled' })
+    // Every hydrate now probes turn_state (the server, not localStorage, names
+    // the live turn). Default to "nothing running" so tests that don't care
+    // aren't hitting a relative URL under node fetch.
+    vi.spyOn(turn, 'fetchTurnState').mockResolvedValue({
+      active_turn_id: null, status: null, last_offset: 0,
+    })
     vi.spyOn(turn, 'attachStream').mockImplementation(makeAttachStreamMock())
   })
 
@@ -258,6 +264,88 @@ describe('chat store: send() split + lifecycle detach', () => {
     turnStateSpy.mockRestore()
   })
 
+  it('test_reattach_without_local_turn_id: server names the live turn, localStorage does not gate it', async () => {
+    // The regression this pins: `turn:{cid}` is wiped by exactly the events
+    // that most need a re-attach (a dropped stream, a second device, a CLI
+    // client that started the turn). Gating the probe on it left a running
+    // turn orphaned — composer idle, every send 409 (prod, 2026-08-14).
+    localStorage.setItem('emerge.activeChatId.p_a', 'c_a000000001')
+    expect(localStorage.getItem('turn:c_a000000001')).toBeNull()
+
+    const turnStateSpy = vi.spyOn(turn, 'fetchTurnState').mockResolvedValue({
+      active_turn_id: 't_server',
+      status: 'running',
+      last_offset: 0,
+    })
+    vi.spyOn(api, 'getChatEvents').mockResolvedValue([])
+
+    pushEvent('t_server', { event: 'agent_text', data: { text: 'still working' } })
+    pushEvent('t_server', { event: 'turn_end', data: {} })
+
+    useChat.getState().enterProject('p_a')
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    expect(turn.attachStream).toHaveBeenCalledWith(
+      'c_a000000001', 't_server', expect.objectContaining({ after_offset: 0 }),
+    )
+    expect(useChat.getState().events.some(
+      e => e.type === 'agent_text' && /still working/.test(e.text),
+    )).toBe(true)
+
+    turnStateSpy.mockRestore()
+  })
+
+  it('test_send_409_adopts_running_turn: turn_already_active → rejoin + hand the text back', async () => {
+    // What the user hit in prod: the agent went quiet (stream dropped), they
+    // typed again, and got a raw `turn_start_failed: … already has an active
+    // turn` with no way out. A 409 means our idle state was stale, so the fix
+    // is to rejoin — never to dead-end.
+    useChat.setState({ chatId: 'c_409000001', loadedProjectId: 'p_409' })
+    localStorage.setItem('emerge.activeChatId.p_409', 'c_409000001')
+
+    vi.spyOn(turn, 'startTurn').mockRejectedValue(
+      new turn.TurnRequestError(
+        "startTurn turn_already_active: chat 'c_409000001' already has an active turn 't_live'",
+        'turn_already_active',
+        't_live',
+      ),
+    )
+    const turnStateSpy = vi.spyOn(turn, 'fetchTurnState').mockResolvedValue({
+      active_turn_id: 't_live',
+      status: 'running',
+      last_offset: 0,
+    })
+    const restored: string[] = []
+    window.addEventListener('emerge:composer-restore', (e) => {
+      restored.push((e as CustomEvent<{ text: string }>).detail.text)
+    })
+
+    pushEvent('t_live', { event: 'agent_text', data: { text: 'the turn is alive' } })
+    pushEvent('t_live', { event: 'turn_end', data: {} })
+
+    await useChat.getState().send('p_409', '还在执行吗?')
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    const after = useChat.getState()
+    // No opaque error, and the optimistic user line is withdrawn (the message
+    // was never sent).
+    expect(after.events.some(e => e.type === 'error')).toBe(false)
+    expect(after.events.some(
+      e => e.type === 'user' && e.text === '还在执行吗?',
+    )).toBe(false)
+    // The text is handed back to the composer instead of being swallowed.
+    expect(restored).toEqual(['还在执行吗?'])
+    // …and we are attached to the turn that actually holds the chat.
+    expect(turn.attachStream).toHaveBeenCalledWith(
+      'c_409000001', 't_live', expect.anything(),
+    )
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /the turn is alive/.test(e.text),
+    )).toBe(true)
+
+    turnStateSpy.mockRestore()
+  })
+
   it('test_cancel_calls_server: cancel() POSTs to the cancel endpoint and clears inflight state', async () => {
     useChat.setState({ chatId: 'c_c000000001', loadedProjectId: 'p_c' })
     localStorage.setItem('emerge.activeChatId.p_c', 'c_c000000001')
@@ -291,7 +379,12 @@ describe('chat store: send() split + lifecycle detach', () => {
     startTurnSpy.mockRestore()
   })
 
-  it('test_stream_disconnect_surfaces: mid-turn EOF without turn_end → error event + interrupted, not silent', async () => {
+  it('test_stream_drop_reattaches_silently: EOF without turn_end → re-attach, not a dead turn', async () => {
+    // The turn is a backend resource that outlives its stream, so a dropped
+    // connection must be picked back up — not reported as the turn ending.
+    // Before this, one drop orphaned a running turn: composer went idle and
+    // the next send hit 409 turn_already_active (prod, 2026-08-14).
+    vi.useFakeTimers()
     useChat.setState({ chatId: 'c_d000000001', loadedProjectId: 'p_d' })
     localStorage.setItem('emerge.activeChatId.p_d', 'c_d000000001')
 
@@ -301,13 +394,61 @@ describe('chat store: send() split + lifecycle detach', () => {
     })
 
     const sendP = useChat.getState().send('p_d', 'do a thing')
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    for (let i = 0; i < 5; i++) await Promise.resolve()
 
-    // Agent streams a partial response, then the backend goes away mid-turn:
-    // the stream closes (null sentinel = clean EOF) BEFORE any turn_end.
+    // Agent streams a partial response, then the stream closes (null sentinel
+    // = clean EOF) BEFORE any turn_end. The rest of the turn is queued for
+    // whoever attaches next — which is us, one backoff later.
     pushEvent('t_drop', { event: 'agent_text', data: { text: 'partial work' } })
     pushEvent('t_drop', null)
+    pushEvent('t_drop', { event: 'agent_text', data: { text: 'the rest' } })
+    pushEvent('t_drop', { event: 'turn_end', data: {} })
 
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1000)
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await sendP
+
+    const after = useChat.getState()
+    // Both halves of the turn landed — the re-attach resumed the tail.
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /partial work/.test(e.text),
+    )).toBe(true)
+    expect(after.events.some(
+      e => e.type === 'agent_text' && /the rest/.test(e.text),
+    )).toBe(true)
+    // A recovered drop is a non-event for the user.
+    expect(after.events.some(
+      e => e.type === 'error' && e.error_code === 'stream_disconnected',
+    )).toBe(false)
+    expect(after.busy).toBe(false)
+    expect(after.interrupted).toBe(false)
+
+    startTurnSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it('test_stream_disconnect_surfaces: drop that never comes back → error event + interrupted', async () => {
+    // Retries exhausted (backend really is gone — crash / redeploy). Now it
+    // must be visible, not a silent re-enable of the composer.
+    vi.useFakeTimers()
+    useChat.setState({ chatId: 'c_d000000002', loadedProjectId: 'p_d2' })
+    localStorage.setItem('emerge.activeChatId.p_d2', 'c_d000000002')
+
+    const startTurnSpy = vi.spyOn(turn, 'startTurn').mockResolvedValue({
+      turn_id: 't_dead',
+      status: 'running',
+    })
+
+    const sendP = useChat.getState().send('p_d2', 'do a thing')
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+
+    pushEvent('t_dead', { event: 'agent_text', data: { text: 'partial work' } })
+    // One EOF per attach: the initial one plus every retry in the schedule.
+    for (let i = 0; i < 4; i++) pushEvent('t_dead', null)
+
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(10_000)
     for (let i = 0; i < 10; i++) await Promise.resolve()
     await sendP
 
@@ -326,9 +467,10 @@ describe('chat store: send() split + lifecycle detach', () => {
     expect(after.interrupted).toBe(true)
     // Inflight cleared — the dead turn isn't re-attachable.
     expect(after.inflightTurnId).toBeNull()
-    expect(localStorage.getItem('turn:c_d000000001')).toBeNull()
+    expect(localStorage.getItem('turn:c_d000000002')).toBeNull()
 
     startTurnSpy.mockRestore()
+    vi.useRealTimers()
   })
 
   it('test_token_deltas_accumulate_then_finalize: deltas build one streaming bubble, agent_text replaces it', async () => {

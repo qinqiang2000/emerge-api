@@ -1,7 +1,8 @@
 """Async user-question round-trip for the ``ask_user`` MCP tool.
 
-This mirrors the structure of ``permissions.request_permission`` — same
-``_pending`` futures registry, same chat-id-scoped cleanup — but the semantics
+This mirrors the structure of ``permissions.request_permission`` — both park
+their futures in a ``chat/pending.py`` registry, same chat-id-scoped cleanup —
+but the semantics
 are different: ``ask_user`` is **not** a permission gate, it is a structured
 question with user-chosen answers. The tool body in ``app/tools/ask_user.py``
 emits an SSE ``ask_user_request`` frame, blocks on the registered future, and
@@ -23,17 +24,18 @@ Why split this from ``permissions.py`` rather than overload that module:
 """
 from __future__ import annotations
 
-import asyncio
-import uuid
 from typing import Any
+
+from app.chat.pending import PendingPrompts
 
 
 # Module-level pending registry keyed by ``(chat_id, request_id)``. The tool
 # body awaits its future; the HTTP route resolves it. Lives at module scope
 # because ``ChatService`` is instantiated fresh per request (see
-# permissions.py docstring for the same reasoning).
-_pending: dict[tuple[str, str], asyncio.Future[dict[str, Any]]] = {}
-_pending_lock = asyncio.Lock()
+# permissions.py docstring for the same reasoning). The registry also retains
+# the SSE payload so ``GET .../turns/{tid}/stream`` can replay an unanswered
+# question to a re-attaching client — see ``chat/pending.py``.
+_pending = PendingPrompts("ask_user_request")
 
 
 async def request_user_answer(
@@ -62,23 +64,19 @@ async def request_user_answer(
             },
         }
 
-    request_id = uuid.uuid4().hex[:12]
-    loop = asyncio.get_event_loop()
-    future: asyncio.Future[dict[str, Any]] = loop.create_future()
-    async with _pending_lock:
-        _pending[(chat_id, request_id)] = future
-
-    payload: dict[str, Any] = {
-        "request_id": request_id,
-        "questions": questions,
-    }
+    request_id, payload, future = await _pending.register(
+        chat_id=chat_id,
+        payload_for=lambda rid: {
+            "request_id": rid,
+            "questions": questions,
+        },
+    )
     await sse_writer("ask_user_request", payload)
 
     try:
         result = await future
     finally:
-        async with _pending_lock:
-            _pending.pop((chat_id, request_id), None)
+        await _pending.discard(chat_id, request_id)
 
     # ``cancelled`` short-circuit: the chat turn ended before the user
     # answered. Surface it as a non-fatal error envelope so the tool result
@@ -117,29 +115,19 @@ async def resolve_user_answer(
     Returns False if the request_id is unknown or already resolved (idempotent
     no-op so a double-click can't crash the route).
     """
-    async with _pending_lock:
-        future = _pending.get((chat_id, request_id))
-    if future is None or future.done():
-        return False
     if cancelled:
-        future.set_result({
+        result: dict[str, Any] = {
             "cancelled": True,
             "reason": cancel_reason or "User redirected via composer.",
-        })
+        }
     else:
-        future.set_result({"answers": answers})
-    return True
+        result = {"answers": answers}
+    return await _pending.resolve(chat_id, request_id, result)
 
 
 async def cancel_pending_ask_user(chat_id: str) -> None:
     """Drop every outstanding ask_user request for a chat — used when the
     chat turn ends so dangling futures don't linger forever. Idempotent."""
-    async with _pending_lock:
-        stale = [k for k in _pending if k[0] == chat_id]
-        for key in stale:
-            fut = _pending.pop(key, None)
-            if fut and not fut.done():
-                fut.set_result({
-                    "cancelled": True,
-                    "reason": "Chat turn ended.",
-                })
+    await _pending.cancel_chat(
+        chat_id, {"cancelled": True, "reason": "Chat turn ended."}
+    )

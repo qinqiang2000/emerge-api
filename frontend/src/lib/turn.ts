@@ -68,21 +68,46 @@ function chatTurnsUrl(cid: string): string {
  *  (existing FastAPI HTTPException wrapping) so the helper works against
  *  both surfaces during the cutover. Best-effort: any parse failure
  *  degrades to a status-coded message. */
+export class TurnRequestError extends Error {
+  /** Backend ``error_code`` (e.g. ``turn_already_active``), or ``http_<status>``
+   *  when the body carried no envelope. Callers branch on this rather than
+   *  substring-matching the message. */
+  readonly code: string
+  /** Only set for ``turn_already_active``: the turn that holds the chat. The
+   *  409 is recoverable — attach to this id instead of dead-ending. */
+  readonly activeTurnId: string | null
+
+  constructor(message: string, code: string, activeTurnId: string | null) {
+    super(message)
+    this.name = 'TurnRequestError'
+    this.code = code
+    this.activeTurnId = activeTurnId
+  }
+}
+
 async function throwEnvelope(op: string, r: Response): Promise<never> {
   let code = `http_${r.status}`
   let message = ''
+  let activeTurnId: string | null = null
   try {
     const body = await r.json() as {
       error_code?: string
       error_message_en?: string
-      detail?: { error_code?: string; error_message_en?: string } | string
+      active_turn_id?: string
+      detail?: {
+        error_code?: string
+        error_message_en?: string
+        active_turn_id?: string
+      } | string
     }
     if (typeof body.error_code === 'string') {
       code = body.error_code
       message = body.error_message_en ?? ''
+      if (typeof body.active_turn_id === 'string') activeTurnId = body.active_turn_id
     } else if (body.detail && typeof body.detail === 'object') {
       if (typeof body.detail.error_code === 'string') code = body.detail.error_code
       if (typeof body.detail.error_message_en === 'string') message = body.detail.error_message_en
+      if (typeof body.detail.active_turn_id === 'string') activeTurnId = body.detail.active_turn_id
     } else if (typeof body.detail === 'string') {
       message = body.detail
     }
@@ -90,7 +115,7 @@ async function throwEnvelope(op: string, r: Response): Promise<never> {
     /* swallow — fall through to status-coded error */
   }
   const tail = message ? `: ${message}` : ''
-  throw new Error(`${op} ${code}${tail}`)
+  throw new TurnRequestError(`${op} ${code}${tail}`, code, activeTurnId)
 }
 
 /** Kick off a chat turn. Returns the registry-assigned ``turn_id`` so the
