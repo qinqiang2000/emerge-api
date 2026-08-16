@@ -937,10 +937,7 @@ Expected: FAIL — `set_model` 未注册。
                 f"{', '.join(_MODEL_ROLES)}. agent_brain is system-level and "
                 f"cannot be set per project.",
             )
-        if role == "extract":
-            await models_mod.switch_active_model(workspace, slug, model_id)
-        else:
-            await pre_label_mod.set_role_model(workspace, slug, role, model_id)
+        await _MODEL_SETTERS[role](workspace, slug, model_id)
         return {
             "content": [{
                 "type": "text",
@@ -951,23 +948,25 @@ Expected: FAIL — `set_model` 未注册。
 
 `_error_envelope(...)` 是 Task 2 Step 0 加的通用信封 helper —— 仓库原本没有通用版，别再内联字面量。
 
-`app/tools/pre_label.py` 加一个薄分发（三个既有函数保持原样，HTTP 路由仍直接调它们）：
+**别新建跨模块 helper。** 四个 setter 实测住在**四个不同模块**里，让 `pre_label`
+去 import `jobs.autoresearch` 是坏分层。就在 `build_emerge_mcp` 里放一张调用表，
+和原来四个 tool body 各自做的事逐字一致：
 
 ```python
-async def set_role_model(
-    workspace: Path, slug: str, role: str, model_id: str,
-) -> None:
-    """Dispatch to the per-role setter. The three HTTP routes still call the
-    concrete functions directly — REST expresses the role as the resource, so
-    the HTTP side deliberately does not merge."""
-    fn = {
-        "labeler": set_labeler_model,
-        "proposer": set_proposer_model,
-        "translate": set_translate_model,
-    }[role]
-    await fn(workspace, slug, model_id)
+    from app.jobs.autoresearch import set_proposer_model as _set_proposer
+
+    _MODEL_SETTERS = {
+        "extract": model_mod.switch_active_model,
+        "labeler": pre_label_mod.set_labeler_model,
+        "proposer": _set_proposer,
+        "translate": translate_mod.set_translate_model,
+    }
 ```
-（若 `set_proposer_model` / `set_translate_model` 不在 `pre_label.py`，从它们各自的模块 import 进来再放进这张表。）
+
+四个都是 `async (workspace, slug_or_pid, model_id) -> None`。`model_mod` /
+`pre_label_mod` / `translate_mod` 在文件顶部已经 import 好了；`set_proposer_model`
+原本就是在 tool body 里局部 import 的（`app/jobs/autoresearch.py:177`），保持
+局部 import 避免顶层循环依赖。
 
 - [ ] **Step 4: 更新 `_IDEMPOTENT` 与 `_tools`**
 
@@ -1500,18 +1499,22 @@ Expected: FAIL。
                 f"use_llm_judge applies to kind='extract' only; kind={kind!r} "
                 f"always runs its own judge.",
             )
+        # Module aliases + call signatures: copy each branch VERBATIM from the
+        # t_score / t_score_audit / t_score_match body it replaces. `score_mod`
+        # is imported at the top of the file; the audit/match halves may use a
+        # different alias or a local import — keep whatever they already do.
         if kind == "extract":
-            out = await eval_mod.score(
-                workspace, provider, args["slug"],
-                use_llm_judge=args.get("use_llm_judge", True),
-            )
+            out = await score_mod.score(...)      # ← verbatim from t_score
         elif kind == "audit":
-            out = await audit_mod.score_audit(workspace, provider, args["slug"])
+            out = ...                             # ← verbatim from t_score_audit
         else:
-            out = await match_mod.score_match(workspace, provider, args["slug"])
+            out = ...                             # ← verbatim from t_score_match
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 ```
-（三个分支的调用形式从原三个 `t_*` 原样搬，模块别名照文件里现有的写法。）
+**三个分支必须从原三个 `t_*` body 逐字搬**（含各自的 `await`、参数名、错误处理和
+`_json.dumps` 的 `ensure_ascii` 取值）。已实测顶部 import 有 `score_mod`
+（`app/tools/score.py`）；audit / match 两支的模块别名以文件现状为准，别照上面
+占位符里的 `audit_mod` / `match_mod` 猜。
 
 - [ ] **Step 4: 更新集合**
 
@@ -1578,9 +1581,13 @@ EOF
 - [ ] **Step 1: 写失败的测试**（追加到 `tests/unit/test_tool_jobs.py`）
 
 ```python
-@pytest.mark.parametrize("action", ["pause", "resume", "cancel"])
+@pytest.mark.parametrize(
+    "action,expected_text",
+    [("pause", "paused"), ("resume", "resumed"), ("cancel", "cancelled")],
+)
 async def test_control_job_dispatches_each_action(
-    workspace: Path, stub_provider: AsyncMock, action: str,
+    workspace: Path, stub_provider: AsyncMock, monkeypatch,
+    action: str, expected_text: str,
 ) -> None:
     """The three job-control tools had byte-identical `(job_id)` schemas and
     were all idempotent — same noun, same shape, same policy."""
@@ -1590,21 +1597,29 @@ async def test_control_job_dispatches_each_action(
 
     from app.tools import build_emerge_mcp
 
-    runner = MagicMock()
-    runner.pause = MagicMock(return_value=True)
-    runner.resume = MagicMock(return_value=True)
-    runner.cancel = MagicMock(return_value=True)
+    from unittest.mock import AsyncMock
+
+    from app.tools import build_emerge_mcp
+
+    # JobRunner.pause/resume/cancel are async and return None; the tool goes
+    # through jobs_mod.{action}_job_impl(job_runner, job_id=...). Patch that
+    # layer so the test pins the dispatch, not the runner internals.
+    impl = AsyncMock(return_value=None)
+    monkeypatch.setattr(f"app.tools.jobs.{action}_job_impl", impl)
     server = build_emerge_mcp(
-        workspace=workspace, provider=stub_provider, job_runner=runner,
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     handler = server["instance"].request_handlers[CallToolRequest]
-    await handler(CallToolRequest(
+    res = await handler(CallToolRequest(
         method="tools/call",
         params=CallToolRequestParams(
             name="control_job", arguments={"job_id": "j_1", "action": action},
         ),
     ))
-    getattr(runner, action).assert_called_once_with("j_1")
+    impl.assert_awaited_once()
+    assert impl.await_args.kwargs["job_id"] == "j_1"
+    # Return text must stay byte-identical to the tool it replaced.
+    assert res.root.content[0].text == expected_text
 
 
 def test_old_job_control_names_are_gone() -> None:
@@ -1616,7 +1631,9 @@ def test_old_job_control_names_are_gone() -> None:
     assert "control_job" in live
     assert {"start_job", "get_job"} <= live, "start/get must NOT be folded in"
 ```
-（`runner.pause/resume/cancel` 的真实方法名以 `app/jobs/__init__.py::JobRunner` 为准，先读一眼再落笔。）
+已实测，不用再查：`JobRunner` 在 `app/jobs/runner.py:35`，`pause`/`resume`/`cancel`
+都是 `async` 且返回 `None`；工具侧从不直接调它们，走的是
+`jobs_mod.{pause,resume,cancel}_job_impl(job_runner, job_id=...)`。
 
 - [ ] **Step 2: 跑，确认失败**
 
@@ -1627,8 +1644,6 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
 - [ ] **Step 3: 实现**
 
 ```python
-    _JOB_ACTIONS = ("pause", "resume", "cancel")
-
     @tool(
         "control_job",
         "Change a running job's state. `action='pause'` stops after the "
@@ -1641,7 +1656,7 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
-                "action": {"type": "string", "enum": list(_JOB_ACTIONS)},
+                "action": {"type": "string", "enum": sorted(_JOB_ACTIONS)},
             },
             "required": ["job_id", "action"],
         },
@@ -1652,17 +1667,24 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
             return _error_envelope(
                 "job_action_unknown",
                 f"Unknown action {action!r}. Expected one of "
-                f"{', '.join(_JOB_ACTIONS)}.",
+                f"{', '.join(sorted(_JOB_ACTIONS))}.",
             )
-        ok = getattr(job_runner, action)(args["job_id"])
-        return {
-            "content": [{
-                "type": "text",
-                "text": _json.dumps({"job_id": args["job_id"], "action": action, "ok": bool(ok)}),
-            }]
-        }
+        await getattr(jobs_mod, f"{action}_job_impl")(
+            job_runner, job_id=args["job_id"],
+        )
+        return {"content": [{"type": "text", "text": _JOB_ACTIONS[action]}]}
 ```
-（返回 shape 照原三个 `t_*` 的返回原样对齐；如果原来返回的是 `"ok"` 纯文本，就保持纯文本，别改。）
+
+`_JOB_ACTIONS` 同时当枚举和返回值表，**返回文本与旧工具逐字一致**（纯表面重构，
+返回值也是表面）：
+
+```python
+    _JOB_ACTIONS = {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}
+```
+
+实测：`JobRunner.pause/resume/cancel` 是 **async 且返回 `None`**，工具侧走的是
+`jobs_mod.{pause,resume,cancel}_job_impl(job_runner, job_id=...)`，旧三个工具各自
+返回纯文本 `"paused"` / `"resumed"` / `"cancelled"`。**别把它编成布尔返回。**
 
 - [ ] **Step 4: 集合 + 登记 + 路由 + 别名 + skill**
 
@@ -1745,11 +1767,14 @@ async def test_ui_focus_emits_the_right_side_channel_event(
 
     from app.tools import build_emerge_mcp
 
-    sent: list[dict] = []
-    monkeypatch.setattr(
-        "app.tools.ui.emit_ui_action",
-        lambda **kw: sent.append(kw),
-    )
+    from unittest.mock import AsyncMock
+
+    fn_name = {
+        "page": "ui_goto_page", "field": "ui_set_active_field",
+        "tab": "ui_set_active_tab", "entity": "ui_set_active_entity",
+    }[target]
+    spy = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(f"app.tools.ui_actions.{fn_name}", spy)
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
@@ -1760,9 +1785,11 @@ async def test_ui_focus_emits_the_right_side_channel_event(
             "slug": "p", "filename": "a.pdf", "target": target, "value": value,
         }),
     ))
-    assert sent, "no ui action emitted"
+    spy.assert_awaited_once()
+    kwargs = spy.await_args.kwargs
+    assert kwargs["slug"] == "p" and kwargs["filename"] == "a.pdf"
     for k, v in expect.items():
-        assert sent[-1].get(k) == v or sent[-1].get("payload", {}).get(k) == v
+        assert kwargs[k] == v, f"{target}: expected {k}={v!r}, got {kwargs}"
 
 
 def test_old_ui_names_are_gone_but_open_review_stays() -> None:
@@ -1785,7 +1812,9 @@ def test_ui_focus_is_excluded_from_headless() -> None:
         "ui_set_active_tab", "ui_set_active_entity",
     }), "stale bare names left in _HEADLESS_EXCLUDE"
 ```
-（`emit_ui_action` 的真实名字/签名以 `app/tools/ui.py` 为准，先读一眼；monkeypatch 目标随之调整。）
+已实测：四个函数在 `app/tools/ui_actions.py`（模块别名 `ui_actions_mod`），
+签名 `async (*, slug, filename, <one kwarg>)`。测试 monkeypatch
+`app.tools.ui_actions.ui_goto_page` 这一层，别去 patch 不存在的 `emit_ui_action`。
 
 - [ ] **Step 2: 跑，确认失败**
 
@@ -1796,8 +1825,6 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
 - [ ] **Step 3: 实现**
 
 ```python
-    _UI_TARGETS = {"page": int, "field": str, "tab": str, "entity": int}
-
     @tool(
         "ui_focus",
         "Point the user's review pane at one thing inside a doc. `target`: "
@@ -1835,12 +1862,25 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
                 f"target={target!r} needs a {caster.__name__} value, got "
                 f"{args['value']!r}.",
             )
-        # Same four side-channel payloads as before — the key name per target
-        # is what the review pane's reducer already listens for.
-        key = {"page": "page", "field": "path", "tab": "tab_key", "entity": "idx"}[target]
-        return await _emit_ui(args["slug"], args["filename"], **{key: value})
+        fn, key = _UI_DISPATCH[target]
+        out = await fn(slug=args["slug"], filename=args["filename"], **{key: value})
+        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 ```
-`_emit_ui` 是把原四个 `t_ui_*` 共同的 emit + 返回逻辑抽出来的本地 helper —— 从原实现里原样搬，**side-channel 的事件形状一个字节都不许变**（前端 reducer 在监听它）。
+
+**不要发明新的 emit helper。** 实测四个 side-channel 函数已经在
+`app/tools/ui_actions.py` 里，签名 `async (*, slug, filename, <one kwarg>)`，
+`ui_actions_mod` 顶部已 import。直接派发过去，**事件形状按构造就是逐字不变的**
+（前端 reducer 在监听它）：
+
+```python
+    _UI_DISPATCH = {
+        "page":   (ui_actions_mod.ui_goto_page, "page"),
+        "field":  (ui_actions_mod.ui_set_active_field, "path"),
+        "tab":    (ui_actions_mod.ui_set_active_tab, "tab_key"),
+        "entity": (ui_actions_mod.ui_set_active_entity, "idx"),
+    }
+    _UI_TARGETS = {"page": int, "field": str, "tab": str, "entity": int}
+```
 
 - [ ] **Step 4: 集合更新**
 
