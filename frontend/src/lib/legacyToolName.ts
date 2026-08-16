@@ -31,6 +31,11 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   // policy, compatible input shapes: slug[, use_llm_judge]).
   score_audit: 'score',
   score_match: 'score',
+  // Task 8 — control_job(action=) folds pause/resume/cancel_job (byte-
+  // identical (job_id) schemas, all idempotent).
+  pause_job: 'control_job',
+  resume_job: 'control_job',
+  cancel_job: 'control_job',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'

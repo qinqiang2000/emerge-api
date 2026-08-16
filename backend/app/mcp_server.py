@@ -91,7 +91,7 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "extract", "derive_schema",
     "create_experiment", "run_experiment_eval",
     "promote_experiment", "score",
-    "start_job", "get_job", "cancel_job",
+    "start_job", "get_job", "control_job",
     # audit + match: provider-judge verbs (c) + versioned-rule writes (b).
     # Cut in the first minimal pass "by suite" — wrong taxonomy: within hours
     # a real audit ask (2026-06-10 dogfood) left the agent with no legal path

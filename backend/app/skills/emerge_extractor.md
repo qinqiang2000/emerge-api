@@ -206,7 +206,7 @@ mimic. Each tool's own description has the full args.
 - **Reviewed lifecycle**: `save_reviewed`, `save_reviewed_match`, `save_reviewed_audit`.
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
-- **Jobs (asyncio queue)**: `start_job`, `get_job`, `pause_job`, `resume_job`, `cancel_job`.
+- **Jobs (asyncio queue)**: `start_job`, `get_job`, `control_job(action='pause'|'resume'|'cancel')`.
 - **PDF / vision**: `pdf_render_page`, `read_doc_image`.
 - **Review UI**: `get_surface_state`, `ui_open_review`, `ui_goto_page`, `ui_set_active_{field,tab,entity}`.
 
@@ -275,7 +275,7 @@ or the blast radius isn't obvious from the command literal:
 - `fork_project` (confirm both `src_slug` and new `name`).
 - `promote_experiment` (replaces `predictions/_draft/`, flips active).
 - Accepting an autoresearch candidate (overwrites the active schema).
-- `cancel_job`; pre-labeling > 30 files; `delete_project` (unrecoverable).
+- `control_job(action='cancel')`; pre-labeling > 30 files; `delete_project` (unrecoverable).
 
 Bash `rm`/`mv` of project files triggers a permission prompt automatically —
 no separate chat ask needed, but make the blast radius obvious in the

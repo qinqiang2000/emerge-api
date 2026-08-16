@@ -164,12 +164,15 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     # Publish + keys
     ("freeze_version", None): ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
     ("issue_api_key", None):  ("POST", r"^/lab/keys$"),
-    # Jobs
-    ("start_job", None):  ("POST", r"^/lab/jobs$"),
-    ("get_job", None):    ("GET",  r"^/lab/jobs/\{job_id\}$"),
-    ("pause_job", None):  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
-    ("resume_job", None): ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
-    ("cancel_job", None): ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
+    # Jobs. `control_job` folds pause/resume/cancel_job (P4 Task 8) — same
+    # posture as `extract`/`score`: REST already expresses the op as the
+    # resource, so the HTTP side deliberately does NOT merge. The three
+    # routes are unchanged, only keyed by op instead of by tool name.
+    ("start_job", None):     ("POST", r"^/lab/jobs$"),
+    ("get_job", None):       ("GET",  r"^/lab/jobs/\{job_id\}$"),
+    ("control_job", "pause"):  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
+    ("control_job", "resume"): ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
+    ("control_job", "cancel"): ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
     # Version history (per-team git timeline). `history` folds log/diff (P4
     # Task 11, both read-only); `history_restore` mutates and stays its own
     # tool/route — same posture as `set_model` not merging on the HTTP side.

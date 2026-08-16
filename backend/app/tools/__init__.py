@@ -155,7 +155,7 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "switch_active_prompt", "write_schema",
     "ws_write",  # same content → same file state; binary overwrite refused
     "extract_textlayer", "translate_page",
-    "pause_job", "resume_job", "cancel_job",
+    "control_job",
     "ui_open_review",
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
 })
@@ -1583,50 +1583,34 @@ def build_emerge_mcp(
         info = await jobs_mod.get_job_impl(job_runner, job_id=args["job_id"])
         return {"content": [{"type": "text", "text": str(info)}]}
 
-    @tool(
-        "pause_job",
-        "Pause a running job at the next turn boundary.",
-        {
-            "type": "object",
-            "properties": {
-                "job_id": {"type": "string"},
-            },
-            "required": ["job_id"],
-        },
-    )
-    async def t_pause_job(args: dict[str, Any]) -> dict[str, Any]:
-        await jobs_mod.pause_job_impl(job_runner, job_id=args["job_id"])
-        return {"content": [{"type": "text", "text": "paused"}]}
+    # Byte-identical `(job_id)` schemas, all idempotent. start_job (provider,
+    # different shape) and get_job (read-only) deliberately stay out.
+    _JOB_ACTIONS = {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}
 
     @tool(
-        "resume_job",
-        "Resume a paused job.",
+        "control_job",
+        "Change a running job's state. `action='pause'` stops after the "
+        "in-flight document (resumable); 'resume' continues a paused job; "
+        "'cancel' stops it for good — already-written predictions are kept, "
+        "nothing is rolled back. Idempotent: re-issuing the same action on a "
+        "job already in that state is a no-op. Use get_job to see the current "
+        "state first.",
         {
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
+                "action": {"type": "string", "enum": sorted(_JOB_ACTIONS)},
             },
-            "required": ["job_id"],
+            "required": ["job_id", "action"],
         },
     )
-    async def t_resume_job(args: dict[str, Any]) -> dict[str, Any]:
-        await jobs_mod.resume_job_impl(job_runner, job_id=args["job_id"])
-        return {"content": [{"type": "text", "text": "resumed"}]}
-
-    @tool(
-        "cancel_job",
-        "Cancel a running or paused job. Discards remaining turns.",
-        {
-            "type": "object",
-            "properties": {
-                "job_id": {"type": "string"},
-            },
-            "required": ["job_id"],
-        },
-    )
-    async def t_cancel_job(args: dict[str, Any]) -> dict[str, Any]:
-        await jobs_mod.cancel_job_impl(job_runner, job_id=args["job_id"])
-        return {"content": [{"type": "text", "text": "cancelled"}]}
+    async def t_control_job(args: dict[str, Any]) -> dict[str, Any]:
+        # No unknown-action guard: the schema enum rejects it first.
+        action = args["action"]
+        await getattr(jobs_mod, f"{action}_job_impl")(
+            job_runner, job_id=args["job_id"],
+        )
+        return {"content": [{"type": "text", "text": _JOB_ACTIONS[action]}]}
 
     @tool(
         "get_surface_state",
@@ -2565,9 +2549,7 @@ def build_emerge_mcp(
             t_issue_api_key,
             t_start_job,
             t_get_job,
-            t_pause_job,
-            t_resume_job,
-            t_cancel_job,
+            t_control_job,
             t_get_surface_state,
             t_ui_open_review,
             t_ui_goto_page,
@@ -2627,7 +2609,7 @@ _EMERGE_TOOL_NAMES = (
     "extract",
     "save_reviewed",
     "score",
-    "start_job", "get_job", "pause_job", "resume_job", "cancel_job",
+    "start_job", "get_job", "control_job",
     "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
     "get_surface_state",
     "ui_open_review",

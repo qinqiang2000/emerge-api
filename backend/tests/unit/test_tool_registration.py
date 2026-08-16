@@ -35,9 +35,8 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         # M2C additions
         "start_job",
         "get_job",
-        "pause_job",
-        "resume_job",
-        "cancel_job",
+        # P4 Task 8 folded pause/resume/cancel_job into control_job(action=).
+        "control_job",
     }
     assert expected.issubset(names), (expected - names, names)
 

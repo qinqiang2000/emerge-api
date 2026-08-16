@@ -37,6 +37,9 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
     # (slug[, use_llm_judge]); return shapes differ per kind and that is fine
     # — the merge criteria constrain input shape, not output.
     "score": ("score_audit", "score_match"),
+    # Byte-identical `(job_id)` schemas, all idempotent. start_job (provider,
+    # different shape) and get_job (read-only) deliberately stay out.
+    "control_job": ("pause_job", "resume_job", "cancel_job"),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -49,6 +52,7 @@ MERGED_POLICY: dict[str, frozenset[str]] = {
     "history": frozenset({"read_only"}),
     "extract": frozenset({"touches_provider"}),
     "score": frozenset({"touches_provider"}),
+    "control_job": frozenset({"idempotent"}),
 }
 
 

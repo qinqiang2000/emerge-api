@@ -80,8 +80,8 @@ proposer — the candidate accept gate rejects it.
 
 - `/improve` - entry point handled by this skill.
 - `/pause`, `/resume`, `/cancel` - direct frontend buttons on the job card.
-  If the user types them in chat, call `pause_job` / `resume_job` /
-  `cancel_job` with the most recent `job_id`.
+  If the user types them in chat, call `control_job(job_id, action='pause'|
+  'resume'|'cancel')` with the most recent `job_id`.
 
 ## When the job ends
 
