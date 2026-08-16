@@ -68,6 +68,25 @@ def _chat_not_bound_error(tool_name: str) -> dict[str, Any]:
     }
 
 
+def _error_envelope(code: str, message: str) -> dict[str, Any]:
+    """The house `{ok, error:{error_code, error_message_en}}` shape, as a tool
+    result. Introduced with the P4 merges: a multi-op tool has to reject an
+    unknown or inapplicable op, and inlining that dict at every new call site
+    is how the shape drifts. Existing inline sites are deliberately left alone.
+    """
+    return {
+        "content": [{
+            "type": "text",
+            "text": _json.dumps(
+                {"ok": False, "error": {
+                    "error_code": code, "error_message_en": message,
+                }},
+                ensure_ascii=False,
+            ),
+        }]
+    }
+
+
 def _extract_provider_error(exc: Exception) -> dict[str, Any]:
     """Structured envelope for an extract that died in the provider layer.
 
