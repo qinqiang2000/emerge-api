@@ -42,11 +42,11 @@ _HTTP_EXEMPT: dict[str, str] = {
     # no meaning for a CLI client driving HTTP. The agent emits them; the
     # frontend listens on the SSE bus. A headless caller silently ignores
     # them and the agent's reply still lands.
-    "ui_open_review":       "ui side-channel; agent→UI only, CLI clients ignore",
-    "ui_goto_page":         "ui side-channel; agent→UI only, CLI clients ignore",
-    "ui_set_active_field":  "ui side-channel; agent→UI only, CLI clients ignore",
-    "ui_set_active_tab":    "ui side-channel; agent→UI only, CLI clients ignore",
-    "ui_set_active_entity": "ui side-channel; agent→UI only, CLI clients ignore",
+    "ui_open_review": "ui side-channel; agent→UI only, CLI clients ignore",
+    # `ui_focus` folds ui_goto_page/ui_set_active_field/ui_set_active_tab/
+    # ui_set_active_entity (P4 Task 9) — one browser side-channel tool now,
+    # so one exempt entry replaces the four.
+    "ui_focus": "ui side-channel; agent→UI only, CLI clients ignore",
     # `ask_user` is an agent→client *request* that blocks on a chat-scoped
     # asyncio future. Its HTTP counterpart is the *resolution* side —
     # `POST /lab/chats/{chat_id}/ask_user/{request_id}` — not a symmetric
@@ -324,6 +324,12 @@ def test_merged_tools_map_every_op_to_its_own_route() -> None:
     from app.tools._merged import MERGED_TOOLS
 
     for new, olds in MERGED_TOOLS.items():
+        if new in _HTTP_EXEMPT:
+            # Fully HTTP-exempt merged tool (P4 Task 9: ui_focus) — the whole
+            # family opted out of HTTP via one _HTTP_EXEMPT justification, so
+            # there are zero routes to hit by design, not by omission. The
+            # per-op floor below assumes the tool actually maps routes.
+            continue
         ops = {op for (tool, op) in _TOOL_HTTP_MAP if tool == new}
         assert len(ops) >= len(olds), (
             f"{new!r} swallowed {len(olds)} ops but only maps {len(ops)} "

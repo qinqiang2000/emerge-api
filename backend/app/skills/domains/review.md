@@ -59,36 +59,36 @@ keep the nudge to one short line.
 
 ## Driving the review UI
 
-> **headless** (`interface: headless`): the `ui_*` tools are browser
-> side-channel only — there is no viewer to receive them. **Skip all
-> `ui_*` calls entirely.** Replace with a one-line narration in your
-> text reply, e.g. "→ page 3" / "→ focus field buyer_name" / "→ switch
-> to experiment tab". `get_surface_state` is still useful in headless
-> (it reads disk state, not browser state) — call it when you need
-> review_status / prediction presence.
+> **headless** (`interface: headless`): `ui_open_review` and `ui_focus` are
+> browser side-channel only — there is no viewer to receive them. **Skip
+> both entirely.** Replace with a one-line narration in your text reply,
+> e.g. "→ page 3" / "→ focus field buyer_name" / "→ switch to experiment
+> tab". Never silently skip the move — narrate it every time.
+> `get_surface_state` is still useful in headless (it reads disk state, not
+> browser state) — call it when you need review_status / prediction
+> presence.
 
-When the surface context is `review` (`interface: browser`), five `ui_*`
-tools push navigation commands to the client, and `get_surface_state`
-reads disk truth about the current doc. All six take `slug` + `filename`;
+When the surface context is `review` (`interface: browser`), `ui_open_review`
+and `ui_focus` push navigation commands to the client, and `get_surface_state`
+reads disk truth about the current doc. All three take `slug` + `filename`;
 `slug` is from `## Active context`, `filename` is from `## Surface context`.
 
 - `ui_open_review(slug, filename)` — open review mode on a doc **from the
   chat surface** (the agent-side twin of clicking the doc row in the
-  spine). The only `ui_*` tool that works without an open viewer — this is
-  how `/review` lands on the first un-reviewed doc and how "打开 xxx.pdf"
-  is honored. headless: narrate `→ review <filename>` and give the link
-  `{base}/p/{slug}?review=<filename>` instead.
-- `ui_goto_page(slug, filename, page)` — jump the PDF viewer to page N
-  (1-indexed). "跳到第 5 页" / "go to page 3 of this doc" → call.
-- `ui_set_active_field(slug, filename, path)` — focus a field row.
-  "高亮 buyer_name" / "jump to the amount field" → call. `path` matches
-  the editor's field identifier (`buyer_name`,
-  `line_items[0].amount`).
-- `ui_set_active_tab(slug, filename, tab_key)` — switch tab. `'active'`
-  selects the saved annotation; any other value is treated as an
-  experiment_id.
-- `ui_set_active_entity(slug, filename, idx)` — switch entity tab in a
-  multi-entity doc. `idx` is 0-indexed.
+  spine). The only one of these tools that works without an open viewer —
+  this is how `/review` lands on the first un-reviewed doc and how "打开
+  xxx.pdf" is honored. headless: narrate `→ review <filename>` and give
+  the link `{base}/p/{slug}?review=<filename>` instead.
+- `ui_focus(slug, filename, target, value)` — point the open viewer at one
+  thing. `target='page'` (value = 1-based page number): "跳到第 5 页" /
+  "go to page 3 of this doc" → call, headless narrates "→ page 3".
+  `target='field'` (value = the field path, e.g. `buyer_name` or
+  `line_items[0].amount`): "高亮 buyer_name" / "jump to the amount field"
+  → call, headless narrates "→ focus buyer_name". `target='tab'` (value =
+  the tab key; `'active'` selects the saved annotation, any other value is
+  treated as an experiment_id): switch tab, headless narrates "→ switch to
+  experiment tab". `target='entity'` (value = the 0-based entity index):
+  switch entity tab in a multi-entity doc, headless narrates "→ entity 2".
 - `get_surface_state(surface='review', slug, filename)` — returns
   `review_status` ('unprocessed' | 'pending' | 'reviewed'),
   prediction/reviewed presence, page_count, evidence pages, notes, and

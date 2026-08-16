@@ -40,6 +40,12 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
     # Byte-identical `(job_id)` schemas, all idempotent. start_job (provider,
     # different shape) and get_job (read-only) deliberately stay out.
     "control_job": ("pause_job", "resume_job", "cancel_job"),
+    # Same (slug, filename, <one value>) shape, all idempotent, all browser-only.
+    # Collapses the headless narration contract from four places to one.
+    "ui_focus": (
+        "ui_goto_page", "ui_set_active_field",
+        "ui_set_active_tab", "ui_set_active_entity",
+    ),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -53,6 +59,7 @@ MERGED_POLICY: dict[str, frozenset[str]] = {
     "extract": frozenset({"touches_provider"}),
     "score": frozenset({"touches_provider"}),
     "control_job": frozenset({"idempotent"}),
+    "ui_focus": frozenset({"idempotent"}),
 }
 
 

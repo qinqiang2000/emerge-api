@@ -208,7 +208,7 @@ mimic. Each tool's own description has the full args.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
 - **Jobs (asyncio queue)**: `start_job`, `get_job`, `control_job(action='pause'|'resume'|'cancel')`.
 - **PDF / vision**: `pdf_render_page`, `read_doc_image`.
-- **Review UI**: `get_surface_state`, `ui_open_review`, `ui_goto_page`, `ui_set_active_{field,tab,entity}`.
+- **Review UI**: `get_surface_state`, `ui_open_review`, `ui_focus(target='page'|'field'|'tab'|'entity')`.
 
 ## Discipline (red lines — never violate)
 

@@ -2,7 +2,7 @@
 SSE events back to the active client.
 
 The chat service sets `current_sse_writer` at the top of `chat_turn` and
-clears it in a `finally`. UI-action tools (`ui_goto_page`, etc.) read it via
+clears it in a `finally`. UI-action tools (`ui_focus`, etc.) read it via
 `current_sse_writer.get()` and use the callable to emit an `event: ui_action`
 frame on the still-open SSE stream. Anything outside an active chat turn
 (e.g. the public `/v1/extract` fast-path) sees the `None` sentinel and the

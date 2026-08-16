@@ -77,11 +77,25 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
       const target = fn ?? fns
       return [slug, target].filter(Boolean).join(' · ') || null
     }
-    case 'read_doc_image':
-    case 'ui_goto_page': {
+    case 'read_doc_image': {
       const fn = typeof o.filename === 'string' ? o.filename : null
       const page = typeof o.page === 'number' ? `p${o.page}` : null
       return [slug, fn, page].filter(Boolean).join(' · ') || null
+    }
+    // P4 Task 9: ui_focus(target=) folds ui_goto_page + 3 siblings — the
+    // hint can no longer assume `page`, it has to read `target`/`value`.
+    case 'ui_focus': {
+      const fn = typeof o.filename === 'string' ? o.filename : null
+      const target = typeof o.target === 'string' ? o.target : null
+      const value = o.value
+      const v = typeof value === 'string' || typeof value === 'number' ? String(value) : null
+      const valueLabel = v === null ? null
+        : target === 'page' ? `p${v}`
+        : target === 'field' ? `field ${v}`
+        : target === 'tab' ? `tab ${v}`
+        : target === 'entity' ? `entity ${v}`
+        : v
+      return [slug, fn, valueLabel].filter(Boolean).join(' · ') || null
     }
     case 'switch_active_prompt':
     case 'set_model': {

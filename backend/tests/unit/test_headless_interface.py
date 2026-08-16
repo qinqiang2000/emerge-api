@@ -172,6 +172,7 @@ def test_mcp_server_excludes_ui_tools(tmp_path: Path) -> None:
         result = await handler(ListToolsRequest(method="tools/list"))
         return [t.name for t in result.root.tools]
     tool_names = asyncio.run(get_tools())
-    for excluded in ("ui_goto_page", "ui_set_active_field", "ui_set_active_tab",
-                     "ui_set_active_entity", "ask_user"):
+    # ui_focus folds ui_goto_page/ui_set_active_field/ui_set_active_tab/
+    # ui_set_active_entity (P4 Task 9) — one browser side-channel tool now.
+    for excluded in ("ui_focus", "ask_user"):
         assert excluded not in tool_names, f"{excluded} should be excluded from MCP server"

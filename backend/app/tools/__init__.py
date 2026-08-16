@@ -156,8 +156,7 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "ws_write",  # same content → same file state; binary overwrite refused
     "extract_textlayer", "translate_page",
     "control_job",
-    "ui_open_review",
-    "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
+    "ui_open_review", "ui_focus",
 })
 _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
     "derive_schema", "extract", "extract_textlayer",
@@ -1677,66 +1676,53 @@ def build_emerge_mcp(
         )
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
-    @tool(
-        "ui_goto_page",
-        "Navigate the review viewer to page N (1-indexed). Pure navigation; "
-        "no disk side-effect. Errors if called outside an active chat turn.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "filename": {"type": "string"},
-                "page": {"type": "integer"},
-            },
-            "required": ["slug", "filename", "page"],
-        },
-    )
-    async def t_ui_goto_page(args: dict[str, Any]) -> dict[str, Any]:
-        out = await ui_actions_mod.ui_goto_page(
-            slug=args["slug"], filename=args["filename"], page=args["page"],
-        )
-        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
+    # Same (slug, filename, <one value>) shape, all idempotent, all browser-only.
+    # Collapses the headless narration contract from four places to one.
+    _UI_DISPATCH = {
+        "page":   (ui_actions_mod.ui_goto_page, "page"),
+        "field":  (ui_actions_mod.ui_set_active_field, "path"),
+        "tab":    (ui_actions_mod.ui_set_active_tab, "tab_key"),
+        "entity": (ui_actions_mod.ui_set_active_entity, "idx"),
+    }
+    _UI_TARGETS = {"page": int, "field": str, "tab": str, "entity": int}
 
     @tool(
-        "ui_set_active_field",
-        "Focus a specific field row in the review editor. `path` is the "
-        "field identifier the editor uses (e.g. `buyer_name` or "
-        "`line_items[0].amount`). Pure navigation; no disk side-effect.",
+        "ui_focus",
+        "Point the user's review pane at one thing inside a doc. `target`: "
+        "'page' (value = 1-based page number), 'field' (value = the field path, "
+        "e.g. invoice_no or line_items[2].amount), 'tab' (value = the tab key), "
+        "'entity' (value = the 0-based entity index). Browser only — this is an "
+        "agent→UI side channel with no server state. In a headless interface "
+        "there is no pane to move: NARRATE the move instead of calling this "
+        "('→ page 3', '→ focus invoice_no') and never silently skip it.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
                 "filename": {"type": "string"},
-                "path": {"type": "string"},
+                "target": {"type": "string", "enum": sorted(_UI_TARGETS)},
+                "value": {"type": ["string", "integer"]},
             },
-            "required": ["slug", "filename", "path"],
+            "required": ["slug", "filename", "target", "value"],
         },
     )
-    async def t_ui_set_active_field(args: dict[str, Any]) -> dict[str, Any]:
-        out = await ui_actions_mod.ui_set_active_field(
-            slug=args["slug"], filename=args["filename"], path=args["path"],
-        )
-        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
-
-    @tool(
-        "ui_set_active_tab",
-        "Switch the review tab strip. `tab_key='active'` selects the saved "
-        "annotation; any other value is treated as an experiment_id. Pure "
-        "navigation; no disk side-effect.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "filename": {"type": "string"},
-                "tab_key": {"type": "string"},
-            },
-            "required": ["slug", "filename", "tab_key"],
-        },
-    )
-    async def t_ui_set_active_tab(args: dict[str, Any]) -> dict[str, Any]:
-        out = await ui_actions_mod.ui_set_active_tab(
-            slug=args["slug"], filename=args["filename"], tab_key=args["tab_key"],
-        )
+    async def t_ui_focus(args: dict[str, Any]) -> dict[str, Any]:
+        # No unknown-target guard: the schema enum rejects it first. The value
+        # cast below DOES need one — `value` is declared ["string","integer"]
+        # and which of the two is legal depends on `target`, a cross-argument
+        # constraint jsonschema cannot express.
+        target = args["target"]
+        caster = _UI_TARGETS[target]
+        try:
+            value = caster(args["value"])
+        except (TypeError, ValueError):
+            return _error_envelope(
+                "ui_value_invalid",
+                f"target={target!r} needs a {caster.__name__} value, got "
+                f"{args['value']!r}.",
+            )
+        fn, key = _UI_DISPATCH[target]
+        out = await fn(slug=args["slug"], filename=args["filename"], **{key: value})
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
@@ -1763,26 +1749,6 @@ def build_emerge_mcp(
     async def t_ask_user(args: dict[str, Any]) -> dict[str, Any]:
         out = await ask_user_mod.ask_user(args.get("questions") or [])
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
-
-    @tool(
-        "ui_set_active_entity",
-        "Switch the entity tab in a multi-entity doc. `idx` is 0-indexed. "
-        "Pure navigation; no disk side-effect.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "filename": {"type": "string"},
-                "idx": {"type": "integer"},
-            },
-            "required": ["slug", "filename", "idx"],
-        },
-    )
-    async def t_ui_set_active_entity(args: dict[str, Any]) -> dict[str, Any]:
-        out = await ui_actions_mod.ui_set_active_entity(
-            slug=args["slug"], filename=args["filename"], idx=args["idx"],
-        )
-        return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     # ── headless discovery tools (stdio + remote MCP only) ─────────────────
     # Registered only when `headless=True` — see the build_emerge_mcp docstring
@@ -2552,10 +2518,7 @@ def build_emerge_mcp(
             t_control_job,
             t_get_surface_state,
             t_ui_open_review,
-            t_ui_goto_page,
-            t_ui_set_active_field,
-            t_ui_set_active_tab,
-            t_ui_set_active_entity,
+            t_ui_focus,
             t_ask_user,
             t_read_skill,  # both surfaces — skills live outside the workspace
             # Both surfaces, unlike its inbound twin `request_upload_url`
@@ -2613,7 +2576,7 @@ _EMERGE_TOOL_NAMES = (
     "readiness_check", "contract_diff", "freeze_version", "issue_api_key",
     "get_surface_state",
     "ui_open_review",
-    "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
+    "ui_focus",
     "ask_user",
     "read_skill",
 )

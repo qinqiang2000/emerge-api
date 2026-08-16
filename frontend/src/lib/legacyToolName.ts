@@ -36,6 +36,13 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   pause_job: 'control_job',
   resume_job: 'control_job',
   cancel_job: 'control_job',
+  // Task 9 — ui_focus(target=) folds the four "point the UI at X" actions
+  // (same (slug, filename, <one value>) shape, all idempotent, all browser-
+  // only; ui_open_review is a different verb and stays independent).
+  ui_goto_page: 'ui_focus',
+  ui_set_active_field: 'ui_focus',
+  ui_set_active_tab: 'ui_focus',
+  ui_set_active_entity: 'ui_focus',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'
