@@ -22,6 +22,11 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   // Task 5 — get_project_config absorbed get_labeler_config (already a
   // superset of its return shape, minus env_default — now added).
   get_labeler_config: 'get_project_config',
+  // Task 6 — extract(experiment_id?) folds the two hottest tools in the
+  // system (extract_one 147 calls, extract_with_experiment 53 calls); they
+  // differed by exactly one optional argument.
+  extract_one: 'extract',
+  extract_with_experiment: 'extract',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'

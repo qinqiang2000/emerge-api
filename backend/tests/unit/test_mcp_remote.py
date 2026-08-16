@@ -169,7 +169,7 @@ async def test_minimal_surface_is_default(monkeypatch) -> None:
     names = await _remote_surface_names()
     assert {"emerge_ws_list", "emerge_ws_write", "emerge_ws_move",
             "emerge_request_upload_url",
-            "emerge_add_model", "emerge_write_schema", "emerge_extract_one",
+            "emerge_add_model", "emerge_write_schema", "emerge_extract",
             "emerge_get_project_config",
             # provider-judge verbs are not ws_*-replaceable (2026-06-10
             # dogfood: cutting run_audit made the agent improvise as its own

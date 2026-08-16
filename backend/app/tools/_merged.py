@@ -30,6 +30,9 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
     # Task 1 (2026-08-16) and never appeared in a chat tool_call before this
     # merge landed, so no frontend alias is needed for either old name.
     "history": ("history_log", "history_diff"),
+    # One optional argument apart; both provider-touching. The two hottest
+    # tools in the system (147 + 53 recorded calls).
+    "extract": ("extract_one", "extract_with_experiment"),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -40,6 +43,7 @@ MERGED_POLICY: dict[str, frozenset[str]] = {
     "set_model": frozenset({"idempotent"}),
     "get_project_config": frozenset({"read_only"}),
     "history": frozenset({"read_only"}),
+    "extract": frozenset({"touches_provider"}),
 }
 
 

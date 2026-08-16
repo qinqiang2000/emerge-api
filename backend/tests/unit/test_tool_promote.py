@@ -57,7 +57,7 @@ async def test_promote_attachment_to_docs_moves_with_sidecar_and_dedupe(
 async def test_promote_text_attachment_lands_as_doc(workspace: Path) -> None:
     """A text/JSON attachment (staged kind=note/schema/data) is promotable to
     docs/ exactly like a pdf — the extract pipeline accepts text files. This is
-    the path a user takes to 校验 a dropped JSON: promote → extract_one."""
+    the path a user takes to 校验 a dropped JSON: promote → extract."""
     slug = (await create_project(workspace, name="x"))["slug"]
     chat_id = "c_abc123def456"
     payload = b'{"a": 3, "b": 4, "c": 12}'

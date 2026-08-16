@@ -69,7 +69,7 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
       const parts = [slug, n !== null ? `${n} fields` : null, hasNotes ? '+notes' : null].filter(Boolean)
       return parts.length ? parts.join(' · ') : null
     }
-    case 'extract_one':
+    case 'extract':
     case 'label_docs':
     case 'save_reviewed': {
       const fn = typeof o.filename === 'string' ? o.filename : null

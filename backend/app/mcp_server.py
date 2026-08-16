@@ -88,8 +88,8 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "switch_active_prompt", "set_model", "save_reviewed",
     "freeze_version", "issue_api_key",
     # (c) LLM / job verbs
-    "extract_one", "derive_schema",
-    "create_experiment", "extract_with_experiment", "run_experiment_eval",
+    "extract", "derive_schema",
+    "create_experiment", "run_experiment_eval",
     "promote_experiment", "score",
     "start_job", "get_job", "cancel_job",
     # audit + match: provider-judge verbs (c) + versioned-rule writes (b).

@@ -124,11 +124,16 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("switch_active_prompt", None): ("POST", r"^/lab/projects/\{slug\}/prompts/\{prompt_id\}/activate$"),
     # Experiments
     ("create_experiment", None):       ("POST", r"^/lab/projects/\{slug\}/experiments$"),
-    ("extract_with_experiment", None): ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),
     ("run_experiment_eval", None):     ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/eval$"),
     ("promote_experiment", None):      ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/promote$"),
-    # Extract + score + readiness + contract-diff
-    ("extract_one", None):     ("POST", r"^/lab/projects/\{slug\}/extract$"),
+    # Extract + score + readiness + contract-diff. `extract` folds
+    # extract_one + extract_with_experiment (P4 Task 6) — the two hottest
+    # tools in the system (147 + 53 recorded calls), differing by exactly one
+    # optional argument. REST already expresses the op as the resource, so
+    # the HTTP side deliberately does NOT merge: both pre-existing routes
+    # stay exactly as they were, now keyed by op instead of by tool name.
+    ("extract", "active"):     ("POST", r"^/lab/projects/\{slug\}/extract$"),
+    ("extract", "experiment"): ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),
     ("save_reviewed", None):   ("POST", r"^/lab/projects/\{slug\}/reviewed/\{filename:path\}$"),
     ("score", None):           ("POST", r"^/lab/projects/\{slug\}/score$"),
     ("readiness_check", None): ("GET",  r"^/lab/projects/\{slug\}/readiness$"),
@@ -281,17 +286,34 @@ def test_mapped_routes_actually_exist() -> None:
 
 
 def test_merged_tools_map_every_op_to_its_own_route() -> None:
-    """A merged tool must not lose route coverage: each op it swallowed keeps a
-    distinct route, because REST expresses ops as resource+method and the HTTP
-    side deliberately did not merge.
+    """Coverage floor for a merged tool: it must map at least as many
+    ``(tool, op)`` rows in ``_TOOL_HTTP_MAP`` as the number of old names it
+    swallowed.
 
     ``>=``, not ``==``: ``MERGED_TOOLS`` only names the OTHER tool names a
     merge swallowed, not the survivor's own name — a merge target that already
     existed as its own tool before the merge (``get_project_config`` absorbing
     ``get_labeler_config``) keeps its own pre-existing route as an extra op on
     top of what it swallowed, so its route count legitimately exceeds
-    ``len(olds)``. ``<`` is still the real bug this catches: fewer routes than
-    swallowed names means a route got dropped."""
+    ``len(olds)``.
+
+    What this catches: a swallowed name's route disappearing outright, which
+    is the whole story for a fresh-name merge (e.g. ``set_model``, where
+    ``olds`` accounts for every op the tool has).
+
+    What this does NOT catch: for a survivor merge, the survivor's OWN
+    pre-existing op can be dropped from ``_TOOL_HTTP_MAP`` and this assertion
+    still passes — the swallowed name's row alone already satisfies
+    ``len(ops) >= len(olds)``. (An earlier version of this docstring called
+    the ``<`` case "the real bug this catches", which overclaimed: it is
+    *a* bug this catches, not the only shape of route loss a survivor merge
+    can suffer.)
+
+    Keep the stakes calibrated: ``_TOOL_HTTP_MAP`` is a coverage LEDGER, not a
+    runtime contract — nothing here is wired into request dispatch. A dropped
+    row degrades documented tool↔route symmetry (the AI-native API promise
+    that every tool is also reachable over HTTP); it cannot break the running
+    app the way a bad route or handler would."""
     from app.tools._merged import MERGED_TOOLS
 
     for new, olds in MERGED_TOOLS.items():
@@ -299,6 +321,10 @@ def test_merged_tools_map_every_op_to_its_own_route() -> None:
         assert len(ops) >= len(olds), (
             f"{new!r} swallowed {len(olds)} ops but only maps {len(ops)} "
             f"routes: {sorted(ops)}"
+        )
+        assert None not in ops, (
+            f"{new!r} is a multi-op tool but has a (name, None) row: a None op "
+            f"means two ops were collapsed onto one key, hiding the loss."
         )
 
 

@@ -205,8 +205,9 @@ async def test_extract_one_tool_returns_envelope_on_transient_provider_error(
     stub_provider.extract.side_effect = httpx.ConnectError("")
 
     # extract_one now resolves the provider from the ACTIVE model config (the
-    # closure provider is no longer threaded through — see t_extract_one), so
-    # inject the stub at that resolution point instead of via build_emerge_mcp.
+    # closure provider is no longer threaded through — see t_extract's active
+    # branch), so inject the stub at that resolution point instead of via
+    # build_emerge_mcp.
     import app.provider as _prov_mod
     monkeypatch.setattr(_prov_mod, "get_provider_for_model", lambda *a, **k: stub_provider)
 
@@ -215,7 +216,7 @@ async def test_extract_one_tool_returns_envelope_on_transient_provider_error(
     req = mcp_types.CallToolRequest(
         method="tools/call",
         params=mcp_types.CallToolRequestParams(
-            name="extract_one", arguments={"slug": pid, "filename": did},
+            name="extract", arguments={"slug": pid, "filename": did},
         ),
     )
     result = await call_handler(req)
@@ -501,3 +502,113 @@ def test_legacy_array_object_extracts_to_new_response_schema() -> None:
     assert arr["type"] == "array"
     assert arr["items"]["type"] == "object"
     assert arr["items"]["required"] == ["sku", "qty"]
+
+
+# ── P4 Task 6: extract_one (147 calls) + extract_with_experiment (53 calls)
+# folded into extract(slug, filename, experiment_id?) ─────────────────────
+#
+# These exercise the TOOL surface (build_emerge_mcp + the real CallToolRequest
+# handler), not the bare `extract_one`/`extract_with_experiment` Python
+# functions above — that's the only way to reach `t_extract`'s dispatch on
+# `experiment_id`. Both `extract`'s branches re-resolve their provider via
+# `app.provider.get_provider_for_model` at call time regardless of what
+# `provider=` build_emerge_mcp was built with (see t_extract's comment on the
+# active branch, and extract_with_experiment's docstring on the experiment
+# branch) — so, like test_extract_one_tool_returns_envelope_on_transient_
+# provider_error above, both fixtures below must patch that resolution point
+# to the stub or they will try a real provider call.
+
+async def _call(server, name: str, args: dict) -> dict:
+    from mcp.types import CallToolRequest, CallToolRequestParams
+
+    handler = server["instance"].request_handlers[CallToolRequest]
+    return await handler(
+        CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(name=name, arguments=args),
+        )
+    )
+
+
+@pytest.fixture
+async def seeded_project(
+    workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+) -> tuple[str, str]:
+    """A project with an active schema + one doc — enough for `extract`
+    without `experiment_id` (writes predictions/_draft via the ACTIVE model)."""
+    import app.provider as _prov_mod
+    monkeypatch.setattr(_prov_mod, "get_provider_for_model", lambda *a, **k: stub_provider)
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+    stub_provider.extract.side_effect = [
+        make_provider_result({"entities": [{"invoice_no": "INV-1", "total_amount": 1.0}]}),
+        make_provider_result({"groundings": []}),
+    ]
+    return pid, did
+
+
+@pytest.fixture
+async def seeded_project_with_experiment(
+    workspace: Path, stub_provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+) -> tuple[str, str, str]:
+    """Same seed, plus an experiment minted on the active (prompt, model) pair
+    — enough for `extract(experiment_id=…)`."""
+    from app.tools.experiment import create_experiment
+    import app.provider as _prov_mod
+    monkeypatch.setattr(_prov_mod, "get_provider_for_model", lambda *a, **k: stub_provider)
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    did = (await upload_doc(workspace, pid, _FIXTURE.read_bytes(), "a.pdf"))["filename"]
+    await write_schema(workspace, pid, _basic_schema(), reason="init", allow_structural=True)
+    eid = await create_experiment(workspace, pid)
+    stub_provider.extract.side_effect = [
+        make_provider_result({"entities": [{"invoice_no": "INV-1", "total_amount": 1.0}]}),
+        make_provider_result({"groundings": []}),
+    ]
+    return pid, did, eid
+
+
+async def test_extract_without_experiment_writes_the_draft(
+    workspace: Path, stub_provider: AsyncMock, seeded_project,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from app.tools import build_emerge_mcp
+    from app.workspace.paths import prediction_draft_path
+
+    slug, filename = seeded_project
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    await _call(server, "extract", {"slug": slug, "filename": filename})
+    assert prediction_draft_path(workspace, slug, filename).exists()
+
+
+async def test_extract_with_experiment_writes_that_experiments_prediction(
+    workspace: Path, stub_provider: AsyncMock, seeded_project_with_experiment,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from app.tools import build_emerge_mcp
+    from app.workspace.paths import experiment_prediction_path, prediction_draft_path
+
+    slug, filename, exp_id = seeded_project_with_experiment
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    await _call(server, "extract", {
+        "slug": slug, "filename": filename, "experiment_id": exp_id,
+    })
+    assert experiment_prediction_path(workspace, slug, exp_id, filename).exists()
+    assert not prediction_draft_path(workspace, slug, filename).exists()
+
+
+def test_old_extract_names_are_gone() -> None:
+    from app.tools import registered_tool_names
+
+    live = registered_tool_names(headless=True)
+    assert "extract_one" not in live
+    assert "extract_with_experiment" not in live
+    assert "extract" in live

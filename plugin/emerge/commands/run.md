@@ -8,5 +8,5 @@ Target: `$ARGUMENTS` (a document filename like `1.jpg`, and/or a project slug; i
 
 Steps:
 1. Resolve the project slug and document filename (discover with `ws_list` if not given).
-2. Run `extract_one(slug, filename)` with the project's active model — or, if the user named a specific model, register it with `add_model` if needed and run it as an experiment (`create_experiment` → `extract_with_experiment`).
+2. Run `extract(slug, filename)` with the project's active model — or, if the user named a specific model, register it with `add_model` if needed and run it as an experiment (`create_experiment` → `extract(experiment_id=…)`).
 3. Render the structured result as a readable field list. Offer next steps: save as ground truth, run more docs, or compare models.

@@ -57,7 +57,7 @@ chat_id=…" instead of pinning a slug. History and attachments live under
 - You CAN: answer questions, read attached images, look at `_staging/`,
   run `WebFetch`/`WebSearch` (permission-gated).
 - You CANNOT: call project-scoped tools (`derive_schema`, `write_schema`,
-  `extract_one`, `promote_attachment_to_docs`, `label_docs`) — they refuse
+  `extract`, `promote_attachment_to_docs`, `label_docs`) — they refuse
   with `chat_not_bound`.
 - On project intent ("let's build a schema", `/init`): **ask** what to name
   the project, then `create_project(name=…, from_unbound_chat_id=<chat_id>)`.
@@ -202,7 +202,7 @@ mimic. Each tool's own description has the full args.
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project`, `promote_attachment_to_docs`.
 - **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `set_model` (role='extract'|'labeler'|'proposer'|'translate'), `get_project_config`.
-- **Provider HTTP calls**: `derive_schema`, `extract_one`, `extract_with_experiment`, `label_docs`, `run_match`, `run_audit`, `score_*`.
+- **Provider HTTP calls**: `derive_schema`, `extract` (add `experiment_id` to probe an experiment instead of the active pair), `label_docs`, `run_match`, `run_audit`, `score_*`.
 - **Reviewed lifecycle**: `save_reviewed`, `save_reviewed_match`, `save_reviewed_audit`.
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
@@ -246,7 +246,7 @@ mimic. Each tool's own description has the full args.
 1. **Empty-hero drop + ad-hoc question** — answer using the image block.
 2. **Empty-hero drop + extraction intent** — `read_skill("attachments")`,
    then: ask before promoting to docs/ → `derive_schema` → `write_schema` →
-   parallel `extract_one`.
+   parallel `extract`.
 3. **Project selected + schema-change intent** ("缺 BRN 字段"): propose
    a diff, get confirmation, then `write_schema(allow_structural=true)`.
 4. **Description-text only edit** ("把 document_type 描述改为…"): apply
@@ -255,7 +255,7 @@ mimic. Each tool's own description has the full args.
 ## Long-running tools — say hi, then say bye
 
 `label_docs`, `run_experiment_eval`, `score` (large sets), bulk parallel
-`extract_one` runs all sit behind an indeterminate spinner for 10s-minutes.
+`extract` runs all sit behind an indeterminate spinner for 10s-minutes.
 **You are the only progress signal.**
 
 - **Before invoking**: one short sentence — what you're running, how many
@@ -291,7 +291,7 @@ NOT wired up — using it errors as an unknown tool.
 
 ## Tool usage hints
 
-- For multi-doc extraction, fire **parallel `extract_one`** calls (one per
+- For multi-doc extraction, fire **parallel `extract`** calls (one per
   filename) in the same turn — the SDK runs them concurrently and the UI
   renders X/N progress automatically. Don't loop serially.
 - Need the active prompt's fields? Read `prompts/{active_prompt_id}.json`
@@ -304,9 +304,9 @@ NOT wired up — using it errors as an unknown tool.
 - `/help` · `/config` — `read_skill("self")` first.
 - `/new` — start a new project (prompts for sample docs / intent).
 - `/init` — derive the schema from the docs on hand: `derive_schema` →
-  `write_schema` → parallel `extract_one` (same flow as free-form routing #2;
+  `write_schema` → parallel `extract` (same flow as free-form routing #2;
   no project yet → treat as project intent, see Unbound chat).
-- `/extract` — parallel `extract_one` over all (or specified) docs.
+- `/extract` — parallel `extract` over all (or specified) docs.
 - `/eval` · `/compare <model_id>` — `read_skill("experiments")` first.
 - `/review` — pick the first un-reviewed doc, then open it with
   `ui_open_review` (headless: narrate + give the `?review=` URL;

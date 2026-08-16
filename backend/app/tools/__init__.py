@@ -160,7 +160,7 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
     "ui_goto_page", "ui_set_active_field", "ui_set_active_tab", "ui_set_active_entity",
 })
 _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
-    "derive_schema", "extract_one", "extract_with_experiment", "extract_textlayer",
+    "derive_schema", "extract", "extract_textlayer",
     "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
     "run_match", "score_match",  # L2 judge tie-breaker may call the LLM
     "run_audit",                 # audit judge reads fields + image via the LLM
@@ -1158,42 +1158,6 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": eid}]}
 
     @tool(
-        "extract_with_experiment",
-        "Run an experiment's (prompt, model) pair on a single doc; writes "
-        "experiments/{experiment_id}/predictions/{filename}.json. Returns the payload.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "experiment_id": {"type": "string"},
-                "filename": {"type": "string"},
-            },
-            "required": ["slug", "experiment_id", "filename"],
-        },
-    )
-    async def t_extract_with_experiment(args: dict[str, Any]) -> dict[str, Any]:
-        ex = await experiment_mod.read_experiment(
-            workspace, args["slug"], args["experiment_id"],
-        )
-        model = await model_mod.read_model(
-            workspace, args["slug"], ex.model_id,
-        )
-        from app.provider import get_provider_for_model
-        exp_provider = get_provider_for_model(
-            model.provider_model_id, provider=model.provider,
-            base_url=model.base_url, api_key_env=model.api_key_env,
-        )
-        try:
-            payload = await experiment_mod.extract_with_experiment(
-                workspace, args["slug"], args["experiment_id"], args["filename"],
-                provider=exp_provider,
-            )
-        except Exception as e:  # noqa: BLE001 — provider failure envelope
-            return {"content": [{"type": "text", "text": _json.dumps(
-                _extract_provider_error(e), ensure_ascii=False)}]}
-        return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
-
-    @tool(
         "run_experiment_eval",
         "Loop reviewed/ docs through the experiment's (prompt, model); writes "
         "per-doc extracts and computes overall + per-field + per-doc scores. "
@@ -1300,39 +1264,76 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
     @tool(
-        "extract_one",
-        "Extract from a single document. `filename` is the doc handle (the "
-        "on-disk filename, e.g. `2025VP00413.pdf`).",
+        "extract",
+        "Run extraction on ONE document and persist the prediction. Omit "
+        "`experiment_id` to use the project's ACTIVE prompt + model and write "
+        "predictions/_draft (this is what the review pane reads). Pass "
+        "`experiment_id` to run that experiment's prompt/model instead and "
+        "write under experiments/{id}/predictions/ — the active draft is left "
+        "untouched, which is what makes A/B comparison safe. Costs one provider "
+        "call per document; for a whole folder use start_job.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
                 "filename": {"type": "string"},
+                "experiment_id": {"type": "string"},
             },
             "required": ["slug", "filename"],
         },
     )
-    async def t_extract_one(args: dict[str, Any]) -> dict[str, Any]:
-        if args.get("slug") == _UNBOUND_SLUG:
-            return {"content": [{"type": "text", "text": _json.dumps(
-                _chat_not_bound_error("extract_one")
-            )}]}
+    async def t_extract(args: dict[str, Any]) -> dict[str, Any]:
+        # P4 Task 6: extract_one (147 calls) + extract_with_experiment (53
+        # calls) folded into one entry point. Both branches below are the
+        # UNCHANGED bodies of the two old tools — only this dispatch on
+        # experiment_id is new. Each keeps its own pre-existing error handling
+        # / success serialization (they differed — extract_with_experiment
+        # never had the _UNBOUND_SLUG guard, and the two success payloads are
+        # serialized differently); unifying either would be a semantics change
+        # (see app/tools/_merged.py).
+        exp_id = args.get("experiment_id") or None
+        if exp_id is None:
+            if args.get("slug") == _UNBOUND_SLUG:
+                return {"content": [{"type": "text", "text": _json.dumps(
+                    _chat_not_bound_error("extract")
+                )}]}
+            try:
+                # provider=None so extract_one resolves the provider from the
+                # project's ACTIVE model config (provider + base_url + api_key_env),
+                # NOT the startup default_extract_model closure. Passing the closure
+                # here pinned every chat extract to the boot-time Gemini provider, so
+                # switch_active_model to an anthropic-gateway model (deepseek) was
+                # silently ignored — the call still hit Google's endpoint. The HTTP
+                # twin (extract_lab.py) already calls extract_one without a provider;
+                # this keeps the two forms symmetric.
+                out = await extract_mod.extract_one(
+                    workspace, args["slug"], args["filename"], provider=None
+                )
+            except Exception as e:  # noqa: BLE001 — provider failure envelope
+                return {"content": [{"type": "text", "text": _json.dumps(
+                    _extract_provider_error(e), ensure_ascii=False)}]}
+            return {"content": [{"type": "text", "text": str(out)}]}
+
+        ex = await experiment_mod.read_experiment(
+            workspace, args["slug"], exp_id,
+        )
+        model = await model_mod.read_model(
+            workspace, args["slug"], ex.model_id,
+        )
+        from app.provider import get_provider_for_model
+        exp_provider = get_provider_for_model(
+            model.provider_model_id, provider=model.provider,
+            base_url=model.base_url, api_key_env=model.api_key_env,
+        )
         try:
-            # provider=None so extract_one resolves the provider from the
-            # project's ACTIVE model config (provider + base_url + api_key_env),
-            # NOT the startup default_extract_model closure. Passing the closure
-            # here pinned every chat extract to the boot-time Gemini provider, so
-            # switch_active_model to an anthropic-gateway model (deepseek) was
-            # silently ignored — the call still hit Google's endpoint. The HTTP
-            # twin (extract_lab.py) already calls extract_one without a provider;
-            # this keeps the two forms symmetric.
-            out = await extract_mod.extract_one(
-                workspace, args["slug"], args["filename"], provider=None
+            payload = await experiment_mod.extract_with_experiment(
+                workspace, args["slug"], exp_id, args["filename"],
+                provider=exp_provider,
             )
         except Exception as e:  # noqa: BLE001 — provider failure envelope
             return {"content": [{"type": "text", "text": _json.dumps(
                 _extract_provider_error(e), ensure_ascii=False)}]}
-        return {"content": [{"type": "text", "text": str(out)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(payload)}]}
 
     @tool(
         "save_reviewed",
@@ -1786,7 +1787,7 @@ def build_emerge_mcp(
         "List the documents in a project's docs/ sample set, each with the "
         "state it is in. Returns [{filename, ext, page_count, uploaded_at, "
         "review_status: 'unprocessed'|'pending'|'reviewed', has_prediction, "
-        "has_reviewed}]; `filename` is the doc handle for extract_one / "
+        "has_reviewed}]; `filename` is the doc handle for extract / "
         "read_doc_image / save_reviewed. `unprocessed` means no extraction has "
         "produced a prediction for that doc — so this ONE call answers "
         "\"which docs did the run miss / which are left to review\"; never "
@@ -2546,7 +2547,6 @@ def build_emerge_mcp(
             t_switch_active_prompt,
             t_add_model,
             t_create_experiment,
-            t_extract_with_experiment,
             t_run_experiment_eval,
             t_promote_experiment,
             t_bench_view,
@@ -2563,7 +2563,7 @@ def build_emerge_mcp(
             t_render_review_board,
             t_save_reviewed_audit,
             t_score_audit,
-            t_extract_one,
+            t_extract,
             t_save_reviewed,
             t_score,
             t_readiness_check,
@@ -2627,11 +2627,11 @@ _EMERGE_TOOL_NAMES = (
     "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
     "derive_schema", "write_schema", "import_schema_from_yaml",
     "switch_active_prompt",
-    "create_experiment", "extract_with_experiment", "run_experiment_eval",
+    "create_experiment", "run_experiment_eval",
     "promote_experiment",
     "bench_view",
     "fork_project",
-    "extract_one",
+    "extract",
     "save_reviewed",
     "score",
     "start_job", "get_job", "pause_job", "resume_job", "cancel_job",

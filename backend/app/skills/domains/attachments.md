@@ -75,8 +75,8 @@ highlighting (expected).
 When the user shows that intent on a text/JSON/csv attachment, route it the
 SAME way as a doc: **ask first** ("要把 `<name>` 收进项目样本集（docs/）按
 当前 schema 跑校验/提取吗？"), then on confirm
-`promote_attachment_to_docs(slug, chat_id, filename)` → `extract_one` (or
-`derive_schema` → `write_schema` → `extract_one` if the schema isn't set up
+`promote_attachment_to_docs(slug, chat_id, filename)` → `extract` (or
+`derive_schema` → `write_schema` → `extract` if the schema isn't set up
 yet). Do NOT dead-end a text file as "just a note" when the user clearly
 wants extraction. The schema-import path (kind=schema, above) still wins when
 the file IS a field definition and the intent is "导入 schema/prompt" — the
@@ -96,10 +96,10 @@ disambiguator is the user's intent, not the extension.
   "build a schema", user drops 3+ similar files): ask first —
   "要把这 N 份文件收进项目样本集（docs/）吗？" Only on confirm: call
   `promote_attachment_to_docs` per file, then proceed with
-  `derive_schema` → `write_schema` → parallel `extract_one` per file.
+  `derive_schema` → `write_schema` → parallel `extract` per file.
   Works for **text files (json/txt/csv/md) too**, not just images — see
   "Text files as extract targets" above.
-- **PDFs / text files**: `extract_one` requires the file in `docs/` —
+- **PDFs / text files**: `extract` requires the file in `docs/` —
   promote first (same ack rule). Applies to any non-image doc (pdf and the
   text extensions alike).
 

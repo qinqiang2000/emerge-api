@@ -26,7 +26,7 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
         "create_project",
         "derive_schema",
         "write_schema",
-        "extract_one",
+        "extract",
         "pdf_render_page",
         "read_doc_image",
         # M2A additions
@@ -131,7 +131,9 @@ async def test_experiment_axis_tools_are_registered(
     (Bash mv to a graveyard dir / `Glob experiments/*/meta.json` / `Bash rm -r`
     cover them). The four kept tools each have business semantics SDK
     built-ins can't reproduce: upsert-by-axes pair, provider HTTP, eval loop
-    + score persistence, atomic active flip + draft re-seed."""
+    + score persistence, atomic active flip + draft re-seed. P4 Task 6 folded
+    `extract_with_experiment` into `extract` (role selected by whether
+    `experiment_id` is passed) alongside the baseline `extract_one` path."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
@@ -139,7 +141,7 @@ async def test_experiment_axis_tools_are_registered(
     names = await _extract_tool_names(server)
     assert {
         "create_experiment",
-        "extract_with_experiment",
+        "extract",
         "run_experiment_eval",
         "promote_experiment",
     }.issubset(names), names
@@ -149,7 +151,7 @@ def test_experiment_axis_tools_in_emerge_tool_names() -> None:
     names = _emerge_tool_names()
     for n in (
         "create_experiment",
-        "extract_with_experiment",
+        "extract",
         "run_experiment_eval",
         "promote_experiment",
     ):

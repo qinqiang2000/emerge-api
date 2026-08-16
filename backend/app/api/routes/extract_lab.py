@@ -1,7 +1,8 @@
 """Lab-side HTTP for single-doc extract (M11 Phase B T10).
 
-Mirrors the `extract_one` tool surface so a CLI agent driving HTTP can run
-single extractions without going through chat. Distinct from the prod
+Mirrors the active-draft branch of the `extract` tool (P4 Task 6 folded the
+old `extract_one` name into it) so a CLI agent driving HTTP can run single
+extractions without going through chat. Distinct from the prod
 fast-path `POST /v1/extract` in `publish.py`:
 
 * Prod path takes a `published_id` form field, gates on `X-API-Key`, reads
@@ -20,7 +21,7 @@ provider plumbing.
 
 Batch extraction is intentionally not a dedicated endpoint — callers loop
 this route in parallel (or, from chat, the agent emits parallel
-`extract_one` tool_use blocks). One tool/route per logical op keeps the
+`extract` tool_use blocks). One tool/route per logical op keeps the
 progress surface uniform: every in-flight extraction is its own tool_call
 event the UI can render and the API key can rate-limit individually.
 """
@@ -53,7 +54,8 @@ def _project_or_404(slug: str) -> Path:
 
 
 class _ExtractOneBody(BaseModel):
-    """HTTP mirror of the `extract_one` tool input.
+    """HTTP mirror of the `extract` tool's active-path input (no
+    `experiment_id` here — see experiments.py's route for that branch).
 
     `filename` is the on-disk doc handle (the only doc identifier post slug
     transparency). `prompt_id` / `model_id` are reserved hooks: the tool
@@ -115,7 +117,7 @@ async def post_extract_one(slug: str, body: _ExtractOneBody) -> dict:
             detail={"error_code": "invalid_arg", "error_message_en": str(exc)},
         )
     except Exception as exc:  # noqa: BLE001 — provider failure envelope
-        # Mirror the t_extract_one tool envelope: transient upstream blip
+        # Mirror t_extract's active-branch envelope: transient upstream blip
         # (flaky proxy/gateway) → 503 so the caller knows to re-run the doc.
         from app.provider.retry import is_transient
 

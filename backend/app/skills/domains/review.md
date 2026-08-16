@@ -107,9 +107,9 @@ reads disk truth about the current doc. All six take `slug` + `filename`;
   the question is about labels, descriptions, or schema state, answer
   from JSON tools (`Read` on `predictions/_draft/`, `reviewed/`, the
   active prompt; `get_surface_state`) without calling this one. Do NOT
-  call `extract_one` just to "see" a doc — extract
-  produces structured JSON via a separate LLM call; `read_doc_image`
-  gives you direct vision at no extra LLM cost.
+  call `extract` just to "see" a doc — it produces structured JSON via a
+  separate LLM call; `read_doc_image` gives you direct vision at no extra
+  LLM cost.
 
 `ui_*` actions don't touch disk — they're pure navigation. Execute
 directly without confirming.

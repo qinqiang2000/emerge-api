@@ -225,9 +225,10 @@ async def run_experiment_prediction(
             workspace, slug, experiment_id, filename, provider=provider,
         )
     except Exception as exc:  # noqa: BLE001 — provider failure envelope
-        # Mirror the t_extract_with_experiment tool envelope so a CLI agent
-        # driving HTTP gets the same transient-vs-permanent signal instead of
-        # an opaque 500. Transient = flaky upstream (re-run the doc).
+        # Mirror t_extract's experiment-branch envelope (the `extract` tool's
+        # experiment_id path, P4 Task 6) so a CLI agent driving HTTP gets the
+        # same transient-vs-permanent signal instead of an opaque 500.
+        # Transient = flaky upstream (re-run the doc).
         from app.provider.retry import is_transient
 
         transient = is_transient(exc)

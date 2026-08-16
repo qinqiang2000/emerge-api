@@ -28,7 +28,9 @@ active pair. Use when the user says "试试" / "A/B" / "对比 model X" /
    pair; both default to active. Returns the experiment_id (existing if
    the pair was already minted, freshly minted otherwise). Label is
    auto-derived from prompt + model labels — don't pass a label argument.
-2. `extract_with_experiment(experiment_id, filename)` — single-doc probe.
+2. `extract(filename, experiment_id=<experiment_id>)` — single-doc probe
+   against that pair (leaving `experiment_id` out runs the active pair
+   instead and writes `predictions/_draft`, not this experiment).
 3. (optional) `run_experiment_eval(experiment_id)` — score against the
    full `reviewed/` set; emits per-field + per-doc breakdown. This calls
    the experiment's LLM N times where N = number of reviewed docs.
@@ -123,4 +125,4 @@ say the reviewed examples don't exercise the schema enough; non-empty
 - Single prompt ("试 X 项目的 prompt"): `Bash cp
   {WORKSPACE_ROOT}/src_slug/prompts/{pid}.json
   {WORKSPACE_ROOT}/dst_slug/prompts/`, then `create_experiment` →
-  `extract_with_experiment` → review → `promote_experiment` if it wins.
+  `extract(experiment_id=…)` → review → `promote_experiment` if it wins.

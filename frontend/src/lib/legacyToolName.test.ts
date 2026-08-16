@@ -3,7 +3,7 @@ import { canonicalToolName, LEGACY_TOOL_NAMES } from './legacyToolName'
 
 describe('canonicalToolName', () => {
   it('strips the chat-surface prefix', () => {
-    expect(canonicalToolName('mcp__emerge_tools__extract_one')).toBe('extract_one')
+    expect(canonicalToolName('mcp__emerge_tools__list_docs')).toBe('list_docs')
   })
 
   it('strips the headless service prefix', () => {

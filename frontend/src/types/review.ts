@@ -123,8 +123,8 @@ export interface ExperimentPredictionPayload {
   entities: Record<string, unknown>[]
   _evidence?: Record<string, number | null>[] | null
   _notes?: Record<string, string>
-  /** M14 — `extract_with_experiment` / `run_experiment_eval` both stamp their
-   *  writes (`build_stamp("experiment", …)`). Used to render the blob through
-   *  its OWN prompt's schema when the experiment list hasn't loaded yet. */
+  /** M14 — `extract(experiment_id=…)` / `run_experiment_eval` both stamp
+   *  their writes (`build_stamp("experiment", …)`). Used to render the blob
+   *  through its OWN prompt's schema when the experiment list hasn't loaded yet. */
   _run?: RunStamp | null
 }

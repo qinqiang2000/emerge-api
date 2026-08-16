@@ -1449,6 +1449,19 @@ function handleToolResult(
   // the lab stores need to refetch so the UI doesn't drift from the workspace.
   if (parent?.type === 'tool_call' && d.ok) {
     const t = canonicalToolName(parent.tool_name)
+    // `extract` (P4 Task 6 merge of extract_one + extract_with_experiment)
+    // dispatches on experiment_id at the tool level — same rule the server's
+    // t_extract uses (`args.get("experiment_id") or None`). The cache
+    // invalidation below has to make the same distinction now that the tool
+    // name alone no longer does: computed once, consumed by the doc-list
+    // refresh (active-draft path, below) and the experiment-prediction
+    // eviction (experiment path, further down) respectively.
+    const extractExperimentId = t === 'extract'
+      ? (() => {
+          const input = parent.tool_input as { experiment_id?: unknown } | null
+          return input && typeof input.experiment_id === 'string' ? input.experiment_id : null
+        })()
+      : null
     if (t === 'write_schema') {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
@@ -1501,7 +1514,7 @@ function handleToolResult(
     }
     if (
       t === 'save_reviewed' ||
-      t === 'extract_one' ||
+      (t === 'extract' && !extractExperimentId) ||
       // label_docs writes reviewed/_pending/ drafts. Doc-list badges don't
       // change (pending status is independent of has_prediction/has_reviewed),
       // but if a review tab is open on a freshly pre-labeled doc the banner
@@ -1580,16 +1593,14 @@ function handleToolResult(
       void useModels.getState().load(projectId)
       void useDocs.getState().refresh(projectId)
     }
-    // extract_with_experiment: evict the null (404) cache entry that the
+    // extract(experiment_id=...): evict the null (404) cache entry that the
     // tab strip's eager probe may have written before the prediction existed,
-    // then reload so the tab reappears without a hard refresh.
-    if (t === 'extract_with_experiment') {
-      const input = parent.tool_input as { experiment_id?: unknown } | null
-      const eid = input && typeof input.experiment_id === 'string' ? input.experiment_id : null
-      if (eid) {
-        useReview.getState().evictExperimentPrediction(eid)
-        void useReview.getState().loadExperimentPrediction(eid)
-      }
+    // then reload so the tab reappears without a hard refresh. Omitting
+    // experiment_id takes the active-draft path instead (handled above via
+    // the useDocs refresh), not this one.
+    if (extractExperimentId) {
+      useReview.getState().evictExperimentPrediction(extractExperimentId)
+      void useReview.getState().loadExperimentPrediction(extractExperimentId)
     }
     //
     // T9 — Bench leaderboard cache invalidation. Bench is a project-level
