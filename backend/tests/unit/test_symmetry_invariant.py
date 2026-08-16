@@ -161,9 +161,11 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("pause_job", None):  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
     ("resume_job", None): ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
     ("cancel_job", None): ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
-    # Version history (per-team git timeline)
-    ("history_log", None):     ("GET",  r"^/lab/history$"),
-    ("history_diff", None):    ("GET",  r"^/lab/history/diff$"),
+    # Version history (per-team git timeline). `history` folds log/diff (P4
+    # Task 11, both read-only); `history_restore` mutates and stays its own
+    # tool/route — same posture as `set_model` not merging on the HTTP side.
+    ("history", "log"):        ("GET",  r"^/lab/history$"),
+    ("history", "diff"):       ("GET",  r"^/lab/history/diff$"),
     ("history_restore", None): ("POST", r"^/lab/history/restore$"),
     # Headless discovery tools — registered only on the stdio/remote MCP
     # surface (build_emerge_mcp(headless=True)); the in-session chat agent

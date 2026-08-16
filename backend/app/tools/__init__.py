@@ -138,6 +138,9 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
     "readiness_check", "read_audit_report",
+    # Both halves history(op=) folds — log/diff — are pure reads; restore
+    # mutates and deliberately stays off this list (see MERGED_TOOLS).
+    "history",
     # render_audit_board composes pixels in memory from the latest report +
     # cached page rasters — no durable state change, no provider call (locate
     # is LLM-free; deliberately NOT in _TOUCHES_PROVIDER, plan red line).
@@ -494,49 +497,55 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
-        "history_log",
-        "List the version timeline (git history) of the team workspace, newest "
-        "first. Pass `slug` to scope to one project. Each version has a `ref` "
-        "(short hash), `date`, and `message` (the turn intent that produced it). "
-        "Use this to answer 'what versions exist?' / 'when did X change?', then "
-        "feed a `ref` to history_diff or history_restore. Rendering: in a browser "
-        "give a one-line summary (the UI shows the list); headless, print the "
-        "versions as a dated list.",
+        "history",
+        "Read the version timeline (git history) of the team workspace. `op`: "
+        "'log' lists versions newest-first — pass `slug` to scope to one "
+        "project, `limit` to cap the count (default 30); each version has a "
+        "`ref` (short hash), `date`, and `message` (the turn intent that "
+        "produced it). Use it to answer 'what versions exist?' / 'when did X "
+        "change?', then feed a `ref` into `op='diff'` or `history_restore`. "
+        "'diff' shows what changed between `a` and `b` (or between `a` and "
+        "the current state when `b` is omitted) — `a`/`b` are refs from "
+        "`op='log'`; `a` is required for this op. Returns a unified diff "
+        "(`truncated` signals it was capped). Pass `slug` to scope either op "
+        "to one project; omit for the whole team workspace. `history_restore` "
+        "is a SEPARATE tool — it mutates, unlike this one. Rendering: browser "
+        "→ one-line summary (log) / one-sentence change summary (diff); "
+        "headless → print the dated list (log) / the diff text (diff).",
         {
             "type": "object",
             "properties": {
+                "op": {"type": "string", "enum": ["log", "diff"]},
                 "slug": {"type": "string"},
                 "limit": {"type": "integer"},
-            },
-        },
-    )
-    async def t_history_log(args: dict[str, Any]) -> dict[str, Any]:
-        out = await history_mod.history_log(
-            workspace, slug=args.get("slug") or None, limit=int(args.get("limit") or 30)
-        )
-        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
-
-    @tool(
-        "history_diff",
-        "Show what changed between two versions (or between a version and the "
-        "current state when `b` is omitted). `a`/`b` are refs from history_log. "
-        "Pass `slug` to scope to one project. Returns a unified diff (`truncated` "
-        "signals it was capped). Rendering: browser → summarize the changes in a "
-        "sentence (UI can show the diff); headless → print the diff.",
-        {
-            "type": "object",
-            "properties": {
                 "a": {"type": "string"},
                 "b": {"type": "string"},
-                "slug": {"type": "string"},
             },
-            "required": ["a"],
+            "required": ["op"],
         },
     )
-    async def t_history_diff(args: dict[str, Any]) -> dict[str, Any]:
-        out = await history_mod.history_diff(
-            workspace, ref_a=args["a"], ref_b=args.get("b") or None, slug=args.get("slug") or None
-        )
+    async def t_history(args: dict[str, Any]) -> dict[str, Any]:
+        # No unknown-op guard: the schema enum rejects that before this handler
+        # runs (see "jsonschema 在 handler 之前跑"). `a` being required only for
+        # op='diff' IS a guard worth keeping: that's a cross-parameter
+        # constraint ("a" required conditional on "op"'s value) that a flat
+        # enum/required schema cannot express.
+        op = args["op"]
+        if op == "log":
+            out = await history_mod.history_log(
+                workspace, slug=args.get("slug") or None,
+                limit=int(args.get("limit") or 30),
+            )
+        else:
+            if not args.get("a"):
+                return _error_envelope(
+                    "history_diff_requires_a",
+                    "op='diff' requires `a` (a ref from op='log').",
+                )
+            out = await history_mod.history_diff(
+                workspace, ref_a=args["a"], ref_b=args.get("b") or None,
+                slug=args.get("slug") or None,
+            )
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
@@ -2518,9 +2527,9 @@ def build_emerge_mcp(
             # them `_trash/` is a black hole.
             t_list_trash,
             t_restore_from_trash,
-            # Schema version history (log/diff read-only, restore mutates).
-            t_history_log,
-            t_history_diff,
+            # Schema version history: history(op=) folds log/diff (both
+            # read-only); restore mutates and stays its own tool.
+            t_history,
             t_history_restore,
             t_promote_chat_to_project,
             t_promote_attachment_to_docs,

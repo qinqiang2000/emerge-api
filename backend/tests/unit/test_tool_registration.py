@@ -254,13 +254,16 @@ async def test_filesystem_lookalike_tools_are_reachable() -> None:
     wrappers but aren't (INSIGHTS: filename is the primary key of four sibling
     artifacts; MEMORY.md index and note body must move together). If they leave
     the surface again the agent falls back to Bash rm/mv and silently corrupts
-    the set — the exact failure those tools exist to prevent."""
+    the set — the exact failure those tools exist to prevent.
+
+    `history_log`/`history_diff` folded into `history(op=)` in P4 Task 11;
+    `history_restore` stays separate (mutates) — see `app.tools._merged`."""
     from app.tools import registered_tool_names
 
     names = registered_tool_names(headless=True)
     for n in (
         "delete_doc", "rename_doc", "rename_project", "forget_memory",
         "list_trash", "restore_from_trash",
-        "history_log", "history_diff", "history_restore",
+        "history", "history_restore",
     ):
         assert n in names, f"{n} fell off the registration list again"

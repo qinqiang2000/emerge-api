@@ -7,6 +7,11 @@
  * Keep in sync with `backend/app/tools/_merged.py::MERGED_TOOLS` (one entry per
  * swallowed old name). This map is RENDER-ONLY — never send these names back
  * to the server.
+ *
+ * Exception: Task 11 folded `history_log` + `history_diff` into `history(op=)`
+ * with NO entry here. That family only became reachable in this same P4 pass
+ * (Task 1, 2026-08-16) — no chat transcript has ever recorded either old name,
+ * so there is nothing for this renderer to translate.
  */
 export const LEGACY_TOOL_NAMES: Record<string, string> = {
   // Task 4 — set_model(role=) folded 4 byte-identical (slug, model_id) setters.

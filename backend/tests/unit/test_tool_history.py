@@ -3,14 +3,26 @@
 Confirms the log/diff/restore impls scope by project, shape their returns for
 the agent, and degrade to a clean error when a ref can't be restored. Skipped
 when git is unavailable.
+
+P4 Task 11 adds a second layer below: the MCP *tool* surface, where
+`history_log` + `history_diff` fold into `history(op=)` (both read-only) while
+`history_restore` stays its own tool (it mutates — "same policy" is one of the
+four merge criteria, and folding a mutating op in would let it inherit a
+read-only annotation, exactly what that criterion exists to block). The impls
+above are untouched by that merge — only the `@tool` wrappers in
+`app/tools/__init__.py` changed — so those tests keep calling
+`history_tool.history_log` etc. directly; the new ones below go through the
+actual MCP dispatch to pin the tool-surface contract.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.tools import history as history_tool
+from app.tools import _READ_ONLY, build_emerge_mcp, history as history_tool, registered_tool_names
 from app.workspace import history as history_lib
 
 pytestmark = pytest.mark.skipif(not history_lib.git_available(), reason="git not on PATH")
@@ -72,3 +84,82 @@ async def test_history_restore_unknown_ref_errors_cleanly(workspace: Path) -> No
     out = await history_tool.history_restore(workspace, ref="deadbeef", slug="p")
     assert out["ok"] is False
     assert out["error"]["error_code"] == "restore_failed"
+
+
+# ---------------------------------------------------------------------------
+# MCP tool surface — history(op=) (P4 Task 11)
+# ---------------------------------------------------------------------------
+
+
+async def _call(server, name: str, args: dict):
+    from mcp.types import CallToolRequest, CallToolRequestParams
+
+    handler = server["instance"].request_handlers[CallToolRequest]
+    return await handler(
+        CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(name=name, arguments=args),
+        )
+    )
+
+
+async def test_history_log_lists_versions(workspace: Path, stub_provider) -> None:
+    """Copy of the assertions in test_history_routes.py::
+    test_history_routes_log_diff_restore's `log` section, driven through the
+    tool dispatch instead of HTTP."""
+    history_lib.ensure_repo(workspace)
+    _commit(workspace, "p/global_notes.md", "v1\n", "v1")
+    _commit(workspace, "p/global_notes.md", "v2\n", "v2")
+
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "history", {"op": "log", "slug": "p"})
+    out = json.loads(res.root.content[0].text)
+    msgs = {v["message"] for v in out["versions"]}
+    assert {"v1", "v2"} <= msgs
+
+
+async def test_history_diff_returns_a_field_delta(workspace: Path, stub_provider) -> None:
+    """Copy of the `diff` section of the same route test."""
+    history_lib.ensure_repo(workspace)
+    notes = workspace / "p" / "global_notes.md"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text("old\n", encoding="utf-8")
+    v1 = history_lib.commit_all(workspace, "v1")
+    notes.write_text("new\n", encoding="utf-8")
+    history_lib.commit_all(workspace, "v2")
+
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "history", {"op": "diff", "a": v1, "slug": "p"})
+    out = json.loads(res.root.content[0].text)
+    assert "+new" in out["diff"]
+
+
+async def test_history_diff_without_a_is_a_clean_error(
+    workspace: Path, stub_provider,
+) -> None:
+    """`a` is required only when `op='diff'` — a cross-parameter constraint
+    flat JSON Schema can't express (see "jsonschema 在 handler 之前跑" in the
+    plan doc), so unlike the enum/required guards elsewhere in this P4 pass,
+    this ONE guard is real: it is reachable and this is the test that proves
+    it, not a dead branch."""
+    history_lib.ensure_repo(workspace)
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "history", {"op": "diff", "slug": "p"})
+    text = res.root.content[0].text
+    assert "history_diff_requires_a" in text
+
+
+def test_history_restore_stays_separate() -> None:
+    live = registered_tool_names(headless=True)
+    assert "history" in live
+    assert "history_restore" in live, "restore mutates — must not be folded in"
+    assert "history_log" not in live
+    assert "history_diff" not in live
+    assert "history" in _READ_ONLY
+    assert "history_restore" not in _READ_ONLY

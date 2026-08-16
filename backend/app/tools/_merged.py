@@ -25,6 +25,11 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
     # get_project_config already returned a superset per role; the merge adds
     # the one field it lacked (env_default).
     "get_project_config": ("get_labeler_config",),
+    # Both read-only halves of schema version history. history_restore mutates
+    # and stays out: same noun, different policy. Only reachable since P4
+    # Task 1 (2026-08-16) and never appeared in a chat tool_call before this
+    # merge landed, so no frontend alias is needed for either old name.
+    "history": ("history_log", "history_diff"),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -34,6 +39,7 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
 MERGED_POLICY: dict[str, frozenset[str]] = {
     "set_model": frozenset({"idempotent"}),
     "get_project_config": frozenset({"read_only"}),
+    "history": frozenset({"read_only"}),
 }
 
 
