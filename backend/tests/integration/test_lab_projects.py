@@ -81,6 +81,56 @@ async def test_get_project_docs_with_status(workspace: Path) -> None:
     assert "doc_id" not in by_name[fn2]
 
 
+async def test_get_project_surface_state_table(workspace: Path) -> None:
+    """The set form over HTTP — a headless client must be able to ask "which
+    docs did the run miss" without re-implementing the join (memory:
+    AI-native API symmetry; the tool's old HTTP exemption died with it)."""
+    from app.tools.docs import upload_doc
+
+    pid = (await create_project(workspace, name="x"))["slug"]
+    pdf = b"%PDF-1.4\n%%EOF\n"
+    m1 = await upload_doc(workspace, pid, pdf, "a.pdf")
+    await upload_doc(workspace, pid, pdf, "b.pdf")
+    from app.workspace.atomic import atomic_write_json
+    from app.workspace.paths import predictions_draft_dir
+
+    pdir = predictions_draft_dir(workspace, pid)
+    pdir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(pdir / f"{m1['filename']}.json", {"entities": []})
+
+    client = TestClient(app)
+    r = client.get(f"/lab/projects/{pid}/surface/review")
+    assert r.status_code == 200
+    out = r.json()
+    assert out["counts"] == {
+        "total": 2, "unprocessed": 1, "pending": 1, "reviewed": 0,
+    }
+
+    r = client.get(
+        f"/lab/projects/{pid}/surface/review", params={"status": "unprocessed"},
+    )
+    assert r.status_code == 200
+    assert [d["filename"] for d in r.json()["docs"]] == ["b.pdf"]
+
+    # Per-doc form on the same route.
+    r = client.get(
+        f"/lab/projects/{pid}/surface/review",
+        params={"filename": m1["filename"]},
+    )
+    assert r.status_code == 200
+    assert r.json()["review_status"] == "pending"
+
+
+def test_get_project_surface_state_errors() -> None:
+    client = TestClient(app)
+    r = client.get("/lab/projects/p_nope/surface/review")
+    assert r.status_code == 404
+    assert r.json()["detail"]["error_code"] == "project_not_found"
+    r = client.get("/lab/projects/p_nope/surface/home")
+    assert r.status_code == 400
+    assert r.json()["detail"]["error_code"] == "surface_unsupported"
+
+
 def test_get_project_docs_unknown_slug_returns_empty() -> None:
     """A valid-shape slug that doesn't exist returns 200 with [] (no project
     means no docs). The handler doesn't 404 here — `/docs` is permissive."""

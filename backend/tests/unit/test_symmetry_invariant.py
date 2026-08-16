@@ -49,10 +49,6 @@ _HTTP_EXEMPT: dict[str, str] = {
     "ui_set_active_field":  "ui side-channel; agent→UI only, CLI clients ignore",
     "ui_set_active_tab":    "ui side-channel; agent→UI only, CLI clients ignore",
     "ui_set_active_entity": "ui side-channel; agent→UI only, CLI clients ignore",
-    # `get_surface_state` reads the frontend's current review-mode pointer; a
-    # CLI caller already knows what doc it asked about (it passed the slug
-    # and filename in), so there is no symmetric HTTP form to expose.
-    "get_surface_state":    "introspects in-session UI surface; CLI knows its own pointer",
     # `ask_user` is an agent→client *request* that blocks on a chat-scoped
     # asyncio future. Its HTTP counterpart is the *resolution* side —
     # `POST /lab/chats/{chat_id}/ask_user/{request_id}` — not a symmetric
@@ -77,6 +73,10 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # Recycle bin — workspace-scoped (a deleted project lives here too), so
     # neither form takes a slug.
     "list_trash":                 ("GET",    r"^/lab/trash$"),
+    # Was exempt while it only answered for one doc ("CLI knows its own
+    # pointer"). The set form answers "which docs did the run miss", which a
+    # headless client cannot derive without re-implementing the join.
+    "get_surface_state":          ("GET",    r"^/lab/projects/\{slug\}/surface/\{surface\}$"),
     "restore_from_trash":         ("POST",   r"^/lab/trash/\{entry\}/restore$"),
     # Doc lifecycle — filename is a primary key, so both of these move the
     # doc's whole artifact set (see the tool definitions); they are not rm/mv.

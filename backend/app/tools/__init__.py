@@ -32,6 +32,7 @@ from app.tools import history as history_mod
 from app.tools import model as model_mod
 from app.tools import prompt as prompt_mod
 from app.tools import schema as schema_mod
+from app.tools import doc_status as doc_status_mod
 from app.tools import surface_state as surface_state_mod
 from app.tools import textlayer as textlayer_mod
 from app.tools import translate as translate_mod
@@ -1629,21 +1630,30 @@ def build_emerge_mcp(
 
     @tool(
         "get_surface_state",
-        "Read rich state of a UI surface the user is looking at. Phase 1 "
-        "supports surface='review' (requires `filename`) and returns "
+        "Read rich state of a UI surface from disk truth, for ONE doc or for "
+        "the whole project. surface='review' with `filename` returns "
         "{review_status: 'unprocessed'|'pending'|'reviewed', has_prediction, "
         "has_reviewed, has_pending (Pro-labeler draft awaiting boss verify), "
         "page_count, evidence, notes, entity_count, "
-        "experiments_with_prediction}. Call this when the user asks 'what's "
-        "the status of this doc' / 'pending 是什么意思' / 'which experiments "
-        "have run on this' — it replies from disk truth so you don't have "
-        "to invent.",
+        "experiments_with_prediction} — ask it for 'what's the status of this "
+        "doc' / 'pending 是什么意思' / 'which experiments have run on this'. "
+        "WITHOUT `filename` it returns the whole project: {counts: {total, "
+        "unprocessed, pending, reviewed}, docs: [...]}, optionally narrowed by "
+        "`status`. That set form is the answer to 'did every doc get "
+        "extracted / which ones did the run miss / how many are left to "
+        "review' — one call, `status='unprocessed'`. Never reconstruct it by "
+        "listing predictions/ and docs/ in Bash: the layout is ours to change "
+        "and a concurrent upload or delete will race you.",
         {
             "type": "object",
             "properties": {
                 "surface": {"type": "string"},
                 "slug": {"type": "string"},
                 "filename": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["unprocessed", "pending", "reviewed"],
+                },
             },
             "required": ["surface", "slug"],
         },
@@ -1654,6 +1664,7 @@ def build_emerge_mcp(
             surface=args["surface"],
             slug=args["slug"],
             filename=args.get("filename") or None,
+            status=args.get("status") or None,
         )
         return {
             "content": [
@@ -1810,18 +1821,24 @@ def build_emerge_mcp(
 
     @tool(
         "list_docs",
-        "List the documents in a project's docs/ sample set. Returns "
-        "[{filename, ...}]; `filename` is the doc handle for extract_one / "
-        "read_doc_image / save_reviewed. Pairs with list_projects so a remote "
-        "client can navigate without filesystem access. Rendering: headless → "
-        "print the filenames.",
+        "List the documents in a project's docs/ sample set, each with the "
+        "state it is in. Returns [{filename, ext, page_count, uploaded_at, "
+        "review_status: 'unprocessed'|'pending'|'reviewed', has_prediction, "
+        "has_reviewed}]; `filename` is the doc handle for extract_one / "
+        "read_doc_image / save_reviewed. `unprocessed` means no extraction has "
+        "produced a prediction for that doc — so this ONE call answers "
+        "\"which docs did the run miss / which are left to review\"; never "
+        "reconstruct that by shelling out against predictions/ and docs/. "
+        "Pairs with list_projects so a remote client can navigate without "
+        "filesystem access. Rendering: headless → print the filenames.",
         {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
     )
     async def t_list_docs(args: dict[str, Any]) -> dict[str, Any]:
         if args.get("slug") == _UNBOUND_SLUG:
             return {"content": [{"type": "text", "text": _json.dumps(
                 _chat_not_bound_error("list_docs"))}]}
-        out = await docs_mod.list_docs(workspace, args["slug"])
+        rows = await doc_status_mod.project_doc_status(workspace, args["slug"])
+        out = [doc_status_mod.compact_row(r) for r in rows]
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(

@@ -68,6 +68,16 @@ chat_id=…" instead of pinning a slug. History and attachments live under
 For listing / reading / copying / deleting files, use SDK built-ins
 (Bash / Glob / Grep / Read / Write / Edit) — paths are the API.
 
+**But never derive project STATE by hand.** "Which docs got extracted / which
+did the run miss / how many are left to review" is one call —
+`list_docs(slug)` gives every doc its `review_status`
+(`unprocessed` = no prediction), and `get_surface_state(surface='review',
+slug)` without a filename gives the counts plus the same rows, narrowable with
+`status='unprocessed'`. Reconstructing that by diffing `docs/` against
+`predictions/` in Bash is wrong twice over: the layout is ours to change under
+you, and a second client uploading or deleting mid-scan will race you into a
+confidently wrong answer.
+
 **If the filesystem is NOT shared (remote MCP client — Cowork / Desktop / web):**
 your Bash/Glob/Read run in your own sandbox and `ls {WORKSPACE_ROOT}` returns
 nothing — the project files live on the emerge server. Use the **`ws_*` tools**,

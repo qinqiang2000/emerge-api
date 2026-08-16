@@ -24,6 +24,7 @@ Software 3.0 文档 API 平台。**Slogan**: Documents in. APIs emerge. They get
 - 测试: `cd backend && uv run pytest -v`
 - Schema 真相: `backend/app/schemas/schema_field.py::SchemaField`
 - **UI chrome 任务类型无关**：通用动词（`init/run/tune/review/publish/ingest`），不出现 `extract`/`invoice` 等提取专用词；API 路由已固化部分（`/v1/{pid}/extract`）保持现状
+- **加工具前先问是不是投影**：已有名词的新问法（"哪些还没跑/没审"）→ 扩这个名词的投影（集合形式 + counts + filter），不加工具；引入新名词或新副作用 → 才加 typed tool；只读且形状不可预知 → 交给 `ws_*` / Bash。**只回答单个元素的读模型是不完整的读模型**——它会把 agent 逼去 shell 里手拼目录
 - **Tool ↔ HTTP ↔ MCP 三形对称**：每个 `@tool` 必须配 HTTP route（`test_symmetry_invariant.py` 强制）并自动继承进 `mcp_server.py`；无法对称的写入 `_HTTP_EXEMPT` + `_HEADLESS_EXCLUDE` 并注明理由
 
 ## 五层 LLM（互不交叉，工具体内绝不递归回 SDK）
@@ -73,7 +74,9 @@ backend/app/
   api/       # /lab/* routes + /v1/{pid}/extract (prod fast-path)
   chat/      # claude_agent_sdk 集成层
   skills/    # emerge-extractor / autoresearch / publish skill prompts
-  tools/     # @tool 函数（~35 个）+ mcp_server.py（standalone stdio MCP）
+  tools/     # @tool 函数（78 个）+ mcp_server.py（standalone stdio MCP）
+             # 读状态先问投影：list_docs / get_surface_state(无 filename)
+             # 都走 doc_status.py 这一份 join，别再手拼 docs/ ↔ predictions/
   provider/  # anthropic / openai / gemini adapter
   schemas/   # SchemaField 等 pydantic models
   jobs/      # JobRunner (asyncio queue)

@@ -7,15 +7,14 @@ from pydantic import BaseModel
 
 from app.api.routes._safety import safe_slug
 from app.config import get_settings
-from app.tools.docs import list_docs
+from app.tools.doc_status import project_doc_status
 from app.tools.projects import (
     create_project,
     delete_project,
     list_projects,
     rename_project,
 )
-from app.tools.reviewed import list_reviewed
-from app.workspace.paths import predictions_draft_dir, project_dir, project_json_path
+from app.workspace.paths import project_dir, project_json_path
 
 
 router = APIRouter(dependencies=[Depends(bind_workspace)])
@@ -212,30 +211,13 @@ async def get_project_docs(slug: str) -> list[dict]:
 
     Each item carries `filename` (the doc handle), `ext`, `page_count`,
     `sha256`, `uploaded_at`, and `original_name`. No `doc_id` — filename is
-    the only handle now."""
+    the only handle now.
+
+    The join itself lives in `tools/doc_status.py` so this route, the
+    `list_docs` tool and the `review` surface projection can never disagree
+    about what "still has no prediction" means."""
     safe_slug(slug)
-    settings = get_settings()
-    docs = await list_docs(current_ws(), slug)
-    reviewed_names = {
-        r["filename"] for r in await list_reviewed(current_ws(), slug)
-    }
-    pdir = predictions_draft_dir(current_ws(), slug)
-    # prediction filenames live at `predictions/_draft/<filename>.json`; strip
-    # only the trailing `.json` to recover the doc handle (which itself
-    # already includes the doc's extension).
-    pred_names: set[str] = set()
-    if pdir.exists():
-        for p in pdir.glob("*.json"):
-            pred_names.add(p.name[:-len(".json")])
-    out = []
-    for d in docs:
-        fn = d["filename"]
-        out.append({
-            **d,
-            "has_reviewed": fn in reviewed_names,
-            "has_prediction": fn in pred_names,
-        })
-    return out
+    return await project_doc_status(current_ws(), slug)
 
 
 def _validate_tree_dir(rel: str) -> PurePosixPath:
@@ -287,6 +269,41 @@ def _walk_tree(target: Path, rel: PurePosixPath, out: list[dict]) -> None:
             _walk_tree(child, child_rel, out)
         elif child.is_file():
             out.append({"name": name, "kind": "file", "path": path_str})
+
+
+@router.get("/lab/projects/{slug}/surface/{surface}")
+async def get_project_surface_state(
+    slug: str,
+    surface: str,
+    filename: str | None = None,
+    status: str | None = None,
+) -> dict:
+    """HTTP twin of the `get_surface_state` tool — disk-derived state of a
+    surface, for one doc (`?filename=`) or for the whole project.
+
+    This route exists because the set form made the tool's old
+    "no symmetric HTTP form" exemption false: "which docs did the run miss"
+    is a question a headless client asks about someone else's project, not an
+    introspection of an in-session UI pointer. `/lab/*` capabilities must all
+    be reachable without the browser (memory: AI-native API symmetry).
+
+    Errors come back in the tool's envelope shape (`{ok: false, error}`) with
+    the matching HTTP status so both clients read the same failure."""
+    safe_slug(slug)
+    from app.tools.surface_state import get_surface_state
+
+    out = await get_surface_state(
+        current_ws(), surface=surface, slug=slug,
+        filename=filename or None, status=status or None,
+    )
+    if not out.get("ok"):
+        err = out.get("error", {})
+        code = err.get("error_code")
+        raise HTTPException(
+            status_code=404 if code in ("project_not_found", "doc_not_found") else 400,
+            detail=err,
+        )
+    return out
 
 
 @router.get("/lab/projects/{slug}/tree")

@@ -45,10 +45,87 @@ async def test_surface_state_unsupported_surface(workspace: Path) -> None:
     assert out["error"]["error_code"] == "surface_unsupported"
 
 
-async def test_surface_state_review_missing_filename(workspace: Path) -> None:
+async def test_surface_state_review_unknown_project(workspace: Path) -> None:
+    """No filename is now the SET form, so a bad slug fails as a bad slug."""
     out = await get_surface_state(workspace, surface="review", slug="x")
     assert out["ok"] is False
-    assert out["error"]["error_code"] == "surface_missing_param"
+    assert out["error"]["error_code"] == "project_not_found"
+
+
+async def test_surface_state_review_table_counts_the_whole_project(
+    workspace: Path,
+) -> None:
+    """The set form is the fix for "which docs did the run miss".
+
+    Regression pin for prod 2026-08-14: with only the per-doc form available,
+    the agent answered that question with nine Bash calls against
+    `predictions/` + `docs/` — and got it wrong.
+    """
+    pid = (await create_project(workspace, name="x"))["slug"]
+    for fn in ("a.pdf", "b.pdf", "c.pdf"):
+        await _seed_doc(workspace, pid, fn)
+    # a → prediction only (pending), b → prediction + reviewed, c → nothing.
+    predictions_draft_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    for fn in ("a.pdf", "b.pdf"):
+        atomic_write_json(
+            predictions_draft_dir(workspace, pid) / f"{fn}.json",
+            {"entities": [{"buyer_name": "ACME"}]},
+        )
+    await save_reviewed(
+        workspace, pid, "b.pdf",
+        entities=[{"buyer_name": "ACME"}],
+        source=ReviewedSource.MANUAL,
+    )
+
+    out = await get_surface_state(workspace, surface="review", slug=pid)
+    assert out["ok"] is True
+    assert out["counts"] == {
+        "total": 3, "unprocessed": 1, "pending": 1, "reviewed": 1,
+    }
+    assert [d["filename"] for d in out["docs"]] == ["a.pdf", "b.pdf", "c.pdf"]
+    assert [d["review_status"] for d in out["docs"]] == [
+        "pending", "reviewed", "unprocessed",
+    ]
+    # Rows are trimmed to what an agent needs — `page_sizes` / `sha256` are
+    # most of the bytes and none of the meaning.
+    assert "sha256" not in out["docs"][0]
+    assert "page_sizes" not in out["docs"][0]
+
+
+async def test_surface_state_review_table_filters_but_still_counts_all(
+    workspace: Path,
+) -> None:
+    """`status` narrows the rows; counts stay over the full set — "1 of 3" is
+    the answer, and the denominator is half of it."""
+    pid = (await create_project(workspace, name="x"))["slug"]
+    for fn in ("a.pdf", "b.pdf", "c.pdf"):
+        await _seed_doc(workspace, pid, fn)
+    predictions_draft_dir(workspace, pid).mkdir(parents=True, exist_ok=True)
+    for fn in ("a.pdf", "b.pdf"):
+        atomic_write_json(
+            predictions_draft_dir(workspace, pid) / f"{fn}.json",
+            {"entities": []},
+        )
+
+    out = await get_surface_state(
+        workspace, surface="review", slug=pid, status="unprocessed",
+    )
+    assert out["ok"] is True
+    assert [d["filename"] for d in out["docs"]] == ["c.pdf"]
+    assert out["counts"]["total"] == 3
+    assert out["counts"]["unprocessed"] == 1
+    assert out["status_filter"] == "unprocessed"
+
+
+async def test_surface_state_review_table_rejects_bad_status(
+    workspace: Path,
+) -> None:
+    pid = (await create_project(workspace, name="x"))["slug"]
+    out = await get_surface_state(
+        workspace, surface="review", slug=pid, status="done",
+    )
+    assert out["ok"] is False
+    assert out["error"]["error_code"] == "invalid_status"
 
 
 async def test_surface_state_review_doc_not_found(workspace: Path) -> None:

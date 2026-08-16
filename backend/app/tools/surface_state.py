@@ -1,10 +1,16 @@
 """Aggregator tool: agent-side pull for rich state of a surface.
 
-Phase 1 dispatches only the `review` surface. Returns disk-derived state for
-one doc — review_status, prediction/reviewed presence, notes, evidence pages,
-and which experiments have a prediction for the doc. The frontend's
-`useDocs` store derives the same status from `has_prediction` / `has_reviewed`
-on the `/lab/projects/{slug}/docs` listing, so this is the agent-side mirror.
+Phase 1 dispatches only the `review` surface, in two arities:
+
+* one doc (`filename` given) — review_status, prediction/reviewed presence,
+  notes, evidence pages, which experiments have a prediction for it;
+* the whole project (`filename` omitted) — counts + one row per doc,
+  optionally filtered by `status`.
+
+Both read the same join as `/lab/projects/{slug}/docs` (the listing the
+frontend's `useDocs` store renders), via `tools/doc_status.py` — so the agent
+and the UI can never hold different opinions about which docs still have no
+prediction.
 """
 from __future__ import annotations
 
@@ -13,6 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from app.schemas.extraction import evidence_page
+from app.tools.doc_status import (
+    REVIEW_STATUSES,
+    compact_row,
+    project_doc_status,
+    status_counts,
+)
 from app.tools.predictions import get_prediction
 from app.tools.reviewed import get_reviewed
 from app.workspace.paths import (
@@ -21,6 +33,7 @@ from app.workspace.paths import (
     experiment_prediction_path,
     experiments_dir,
     pending_reviewed_path,
+    project_dir,
 )
 
 
@@ -30,8 +43,22 @@ async def get_surface_state(
     slug: str,
     *,
     filename: str | None = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
-    """Dispatch by `surface`. Phase 1 supports only 'review'."""
+    """Dispatch by `surface`. Phase 1 supports only 'review'.
+
+    Two arities, on purpose:
+
+    * ``filename`` given → state of that one doc (evidence, notes, which
+      experiments ran on it).
+    * ``filename`` omitted → the whole project as a table plus counts,
+      optionally filtered by ``status``.
+
+    The set form is not a convenience. A read model that only ever answers
+    for one item forces every "which docs are still X" question into N calls
+    or into shell archaeology against the storage layout — which is exactly
+    what happened in prod on 2026-08-14. See ``tools/doc_status.py``.
+    """
     if surface != "review":
         return {
             "ok": False,
@@ -44,14 +71,52 @@ async def get_surface_state(
             },
         }
     if not filename:
+        return await _review_table(workspace, slug, status=status)
+    return await _review_state(workspace, slug, filename)
+
+
+async def _review_table(
+    workspace: Path,
+    slug: str,
+    *,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """Project-wide review state: counts over every doc + one row per doc.
+
+    ``counts`` is always over the FULL set even when ``status`` filters the
+    rows — "50 docs, 1 unprocessed" is the answer, and the denominator is
+    half of it.
+    """
+    if not project_dir(workspace, slug).exists():
         return {
             "ok": False,
             "error": {
-                "error_code": "surface_missing_param",
-                "error_message_en": "review surface requires `filename`",
+                "error_code": "project_not_found",
+                "error_message_en": f"no project {slug!r}",
             },
         }
-    return await _review_state(workspace, slug, filename)
+    if status is not None and status not in REVIEW_STATUSES:
+        return {
+            "ok": False,
+            "error": {
+                "error_code": "invalid_status",
+                "error_message_en": (
+                    f"status must be one of {list(REVIEW_STATUSES)}, got {status!r}"
+                ),
+            },
+        }
+
+    rows = await project_doc_status(workspace, slug)
+    counts = status_counts(rows)
+    selected = [r for r in rows if status is None or r["review_status"] == status]
+    return {
+        "ok": True,
+        "surface": "review",
+        "slug": slug,
+        "status_filter": status,
+        "counts": counts,
+        "docs": [compact_row(r) for r in selected],
+    }
 
 
 async def _review_state(

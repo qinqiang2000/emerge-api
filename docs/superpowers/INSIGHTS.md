@@ -975,6 +975,51 @@ completely different cause (there: no sentinel; here: an unanswerable question).
 
 ---
 
+## A per-item read model with no set projection is an incomplete read model
+
+**Where:** `backend/app/tools/doc_status.py` (the join), consumed by
+`GET /lab/projects/{slug}/docs`, the `list_docs` tool, and
+`get_surface_state(surface='review', slug)`.
+
+**The trap.** `get_surface_state` computed exactly the fact the agent needed —
+`review_status: unprocessed` means "no extraction ever produced a prediction
+for this doc" — but only for **one** `filename` at a time. The UI meanwhile got
+the whole table in one request, because `/lab/projects/{slug}/docs` did its own
+inline join and returned `has_prediction` / `has_reviewed` per doc.
+
+So the UI knew which docs the run had missed and the agent structurally could
+not. Asked that question on a 50-doc project (prod, 2026-08-14) the agent called
+the per-doc tool once, learned nothing about the set, and fell back to nine
+`Bash` invocations of `ls | comm | find` against storage layout it has to guess
+at — while a second client was concurrently deleting docs. It never answered the
+question.
+
+**The lesson, which is not "add a tool".** The tempting reads of that incident
+are both wrong: it is not "the agent needs a more generic escape hatch" (it had
+Bash, and `ws_*` exists precisely as the generic remote form — generality was
+never the constraint), and it is not "ship a `find_docs_without_predictions`
+tool" (that is patch #1 of an infinite family: without evidence, without eval,
+missing from experiment X…). Every one of those questions is a **projection of
+one table**. Give the table a set form with counts + a status filter and the
+whole family costs zero new tools.
+
+**Corollaries worth keeping:**
+- One join, three consumers — put it in a module both the route and the tools
+  import. Two copies of "what does `unprocessed` mean" is how the UI and the
+  agent end up disagreeing in front of the user.
+- Existence is the truth for artifact dirs (three `glob`s), so the table never
+  opens a payload. The UI's old inline version loaded every reviewed blob just
+  to read its filename.
+- `counts` covers the FULL set even when `status` filters the rows: "50 docs, 1
+  unprocessed" is the answer, and the denominator is half of it.
+- Trim agent-facing rows (`sha256`, `page_sizes`, `original_name` are storage
+  detail). On a 50-doc project `page_sizes` alone was most of the tokens.
+- A set form kills the "CLI knows its own pointer" argument for tool-only
+  status reads — "which docs did the run miss" is about someone else's project,
+  so `get_surface_state` lost its `_HTTP_EXEMPT` entry and got a real route.
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**
