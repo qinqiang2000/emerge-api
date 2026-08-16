@@ -22,6 +22,9 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
         "set_labeler_model", "set_proposer_model",
         "set_translate_model", "switch_active_model",
     ),
+    # get_project_config already returned a superset per role; the merge adds
+    # the one field it lacked (env_default).
+    "get_project_config": ("get_labeler_config",),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -30,6 +33,7 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
 # vacuously-true check over empty sets. Keys must match MERGED_TOOLS exactly.
 MERGED_POLICY: dict[str, frozenset[str]] = {
     "set_model": frozenset({"idempotent"}),
+    "get_project_config": frozenset({"read_only"}),
 }
 
 

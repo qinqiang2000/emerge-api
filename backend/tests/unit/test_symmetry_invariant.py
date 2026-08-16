@@ -91,9 +91,15 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("promote_attachment_to_docs", None): ("POST",   r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/promote$"),
     # Pro labeler
     ("label_docs", None):         ("POST", r"^/lab/projects/\{slug\}/label_docs$"),
-    ("get_labeler_config", None): ("GET",  r"^/lab/projects/\{slug\}/labeler_config$"),
-    # Project LLM-role config (/config surface)
-    ("get_project_config", None): ("GET",  r"^/lab/projects/\{slug\}/config$"),
+    # Project LLM-role config (/config surface). `get_project_config` folds in
+    # `get_labeler_config` (P4 Task 5) — it already existed as its own tool
+    # with its own route, so the merge carries TWO ops: its own pre-existing
+    # default op (relabeled "config", not None, so it's distinguishable from
+    # the newly absorbed "labeler") plus the absorbed route. See
+    # test_merged_tools_map_every_op_to_its_own_route for why this means 2
+    # ops for only 1 swallowed name.
+    ("get_project_config", "config"):  ("GET", r"^/lab/projects/\{slug\}/config$"),
+    ("get_project_config", "labeler"): ("GET", r"^/lab/projects/\{slug\}/labeler_config$"),
     # `set_model` folds 4 byte-identical (slug, model_id) setters into one
     # tool (P4 Task 4). REST already expresses the op as the resource, so the
     # HTTP side deliberately does NOT merge: one (tool, op) pair per route,
@@ -275,14 +281,22 @@ def test_mapped_routes_actually_exist() -> None:
 def test_merged_tools_map_every_op_to_its_own_route() -> None:
     """A merged tool must not lose route coverage: each op it swallowed keeps a
     distinct route, because REST expresses ops as resource+method and the HTTP
-    side deliberately did not merge."""
+    side deliberately did not merge.
+
+    ``>=``, not ``==``: ``MERGED_TOOLS`` only names the OTHER tool names a
+    merge swallowed, not the survivor's own name — a merge target that already
+    existed as its own tool before the merge (``get_project_config`` absorbing
+    ``get_labeler_config``) keeps its own pre-existing route as an extra op on
+    top of what it swallowed, so its route count legitimately exceeds
+    ``len(olds)``. ``<`` is still the real bug this catches: fewer routes than
+    swallowed names means a route got dropped."""
     from app.tools._merged import MERGED_TOOLS
 
     for new, olds in MERGED_TOOLS.items():
         ops = {op for (tool, op) in _TOOL_HTTP_MAP if tool == new}
-        assert len(ops) == len(olds), (
-            f"{new!r} swallowed {len(olds)} ops but maps {len(ops)} routes: "
-            f"{sorted(ops)}"
+        assert len(ops) >= len(olds), (
+            f"{new!r} swallowed {len(olds)} ops but only maps {len(ops)} "
+            f"routes: {sorted(ops)}"
         )
 
 

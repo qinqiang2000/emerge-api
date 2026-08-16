@@ -201,7 +201,7 @@ These need transactional / provider-HTTP / atomic-flock behavior Bash can't
 mimic. Each tool's own description has the full args.
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project`, `promote_attachment_to_docs`.
-- **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `set_model` (role='extract'|'labeler'|'proposer'|'translate'), `get_labeler_config`.
+- **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `set_model` (role='extract'|'labeler'|'proposer'|'translate'), `get_project_config`.
 - **Provider HTTP calls**: `derive_schema`, `extract_one`, `extract_with_experiment`, `label_docs`, `run_match`, `run_audit`, `score_*`.
 - **Reviewed lifecycle**: `save_reviewed`, `save_reviewed_match`, `save_reviewed_audit`.
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.

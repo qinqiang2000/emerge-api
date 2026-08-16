@@ -14,6 +14,9 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   set_proposer_model: 'set_model',
   set_translate_model: 'set_model',
   switch_active_model: 'set_model',
+  // Task 5 — get_project_config absorbed get_labeler_config (already a
+  // superset of its return shape, minus env_default — now added).
+  get_labeler_config: 'get_project_config',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'

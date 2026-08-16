@@ -134,7 +134,7 @@ Two entry points depending on batch size:
   `Agent(subagent_type="pre_label_runner", prompt="Pre-label these 30 files in project <slug>: [a.pdf, b.pdf, …]")`.
   Always confirm with the user before invoking for >30 files.
 
-- To know which model will run, call `get_labeler_config(slug)`. Do NOT
+- To know which model will run, call `get_project_config(slug)`. Do NOT
   `Read project.json` to pre-check — `labeler_model` is normally null
   and the env fallback (`EMERGE_DEFAULT_LABELER_MODEL`) resolves it.
 - `set_model(slug, role='labeler', model_id=...)` only when user asks to lock a

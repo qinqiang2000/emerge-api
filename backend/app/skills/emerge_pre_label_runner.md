@@ -24,7 +24,7 @@ docs.
 ## Workflow
 
 1. **Plan the batches.** Split `filenames` into chunks of 5-10 each. Call
-   `get_labeler_config(slug)` once up front to know which model will run —
+   `get_project_config(slug)` once up front to know which model will run —
    include that in your first progress line so the user can intercept if it
    is wrong (e.g. unconfigured / wrong env).
 2. **Loop.** For each chunk i of M:
@@ -55,7 +55,7 @@ means:
 
 ## Hard rules (red lines)
 
-- **Only call:** `label_docs`, `get_labeler_config`, `Glob`. Nothing else.
+- **Only call:** `label_docs`, `get_project_config`, `Glob`. Nothing else.
 - **Never call:** `extract_one`, `write_schema`,
   `derive_schema`, `save_reviewed`, `promote_*`, `freeze_version`,
   `issue_api_key`, or any `ui_*` tool. These are out of scope; let the

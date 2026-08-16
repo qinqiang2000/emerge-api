@@ -244,8 +244,8 @@ async def get_pending(
 async def set_labeler_model(
     workspace: Path, slug: str, model_id: str,
 ) -> None:
-    """Persist `project.json.labeler_model = model_id`. Used by the
-    `set_labeler_model` MCP tool when the user says "换 pro 模型" / "用 X 当 pro"."""
+    """Persist `project.json.labeler_model = model_id`. Used by
+    `set_model(role='labeler')` when the user says "换 pro 模型" / "用 X 当 pro"."""
     async with project_lock(workspace, slug):
         pj = project_json_path(workspace, slug)
         blob = json.loads(pj.read_text())

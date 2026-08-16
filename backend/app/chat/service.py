@@ -787,7 +787,7 @@ class ChatService:
                 prompt=self._pre_label_runner_skill,
                 tools=[
                     "mcp__emerge_tools__label_docs",
-                    "mcp__emerge_tools__get_labeler_config",
+                    "mcp__emerge_tools__get_project_config",
                     "Glob",
                 ],
                 maxTurns=30,

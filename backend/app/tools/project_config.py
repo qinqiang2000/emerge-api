@@ -29,9 +29,15 @@ async def get_project_config(workspace: Path, slug: str) -> dict[str, Any]:
 
     Returns a dict with `active_prompt_id`, `extract` (the live active model
     triple, or None if unresolved), `labeler` / `proposer` / `translate`
-    (each a `{override, resolved, source, …}` snapshot from its own reader),
-    and `agent_brain` (locked marker). Secrets / provider keys never appear —
-    this surface is model-selection only.
+    (each a `{override, env_default, resolved, source}` snapshot from its own
+    reader — folded in from `get_labeler_config`, P4 Task 5), and
+    `agent_brain` (locked marker). Secrets / provider keys never appear — this
+    surface is model-selection only.
+
+    `extract` carries `env_default: None` rather than omitting the key:
+    active_model_id is always a project.json pointer, never resolved from an
+    env fallback, so there is no value to report — but a caller iterating all
+    four roles for the field should see it explicitly absent, not KeyError.
     """
     # Lazy import: jobs.autoresearch imports app.tools.* at module load, so a
     # top-level import here can race the tools package __init__.
@@ -53,6 +59,7 @@ async def get_project_config(workspace: Path, slug: str) -> dict[str, Any]:
             "label": mc.label,
             "provider": mc.provider,
             "provider_model_id": mc.provider_model_id,
+            "env_default": None,  # no env-fallback concept for this axis
         }
     except ModelNotFoundError:
         extract = None

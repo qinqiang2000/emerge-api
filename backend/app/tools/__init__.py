@@ -135,7 +135,7 @@ SERVICE_PREFIX = "emerge_"
 _READ_ONLY = frozenset({  # pure read / local compute — no durable state change
     "list_projects", "list_docs", "read_prompt", "read_skill", "list_trash",
     "ws_list", "ws_read", "ws_grep",
-    "get_labeler_config", "get_project_config", "get_job", "get_surface_state",
+    "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
     "readiness_check", "read_audit_report",
     # render_audit_board composes pixels in memory from the latest report +
@@ -712,43 +712,20 @@ def build_emerge_mcp(
         }
 
     @tool(
-        "get_labeler_config",
-        "Inspect the labeler-model resolution for this project. Returns "
-        "{override, env_default, resolved, source}: `override` is "
-        "project.json.labeler_model (usually null = no project-specific "
-        "override), `env_default` is EMERGE_DEFAULT_LABELER_MODEL, `resolved` "
-        "is what label_docs will actually call, and `source` is "
-        "'override'|'env_default'|'unconfigured'. Call this whenever you "
-        "would otherwise inspect project.json directly to decide if the "
-        "labeler is configured — Reading project.json misses the env "
-        "fallback and leads to false \"还没配\" claims.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-            },
-            "required": ["slug"],
-        },
-    )
-    async def t_get_labeler_config(args: dict[str, Any]) -> dict[str, Any]:
-        out = await pre_label_mod.get_labeler_config(workspace, args["slug"])
-        return {
-            "content": [
-                {"type": "text", "text": _json.dumps(out, ensure_ascii=False)}
-            ]
-        }
-
-    @tool(
         "get_project_config",
         "Snapshot this project's tunable LLM-role config — what `/config` "
         "shows. Returns {active_prompt_id, extract, labeler, proposer, "
-        "translate, agent_brain}. `extract` is the live active model triple; "
-        "labeler/proposer/translate each carry {override, resolved, source} "
-        "so you can name the resolved model AND where it came from (project "
-        "override vs env default) without Reading project.json (which misses "
-        "env fallbacks). `agent_brain` is locked (system-level, not "
-        "project-tunable). No secrets/keys are ever included — selection only. "
-        "Call this for any 'what models are you using / 给我看看你的配置' ask.",
+        "translate, agent_brain}. `extract` is the live active model triple "
+        "(env_default always null — active_model_id has no env-fallback "
+        "concept); labeler/proposer/translate each carry {override, "
+        "env_default, resolved, source} so you can name the resolved model "
+        "AND where it came from (project override vs env default) without "
+        "Reading project.json. `agent_brain` is locked (system-level, not "
+        "project-tunable). No secrets/keys are ever included — selection "
+        "only. Call this whenever you would otherwise inspect project.json "
+        "directly to decide if a role is configured — Reading project.json "
+        "misses the env fallback and leads to false \"还没配\" claims — and "
+        "for any 'what models are you using / 给我看看你的配置' ask.",
         {
             "type": "object",
             "properties": {"slug": {"type": "string"}},
@@ -2549,7 +2526,6 @@ def build_emerge_mcp(
             t_promote_attachment_to_docs,
             t_label_docs,
             t_set_model,
-            t_get_labeler_config,
             t_get_project_config,
             t_pdf_render_page,
             t_read_doc_image,
@@ -2637,7 +2613,7 @@ _EMERGE_TOOL_NAMES = (
     "delete_project",
     "promote_chat_to_project",
     "promote_attachment_to_docs",
-    "label_docs", "set_model", "get_labeler_config",
+    "label_docs", "set_model",
     "get_project_config",
     "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
     "derive_schema", "write_schema", "import_schema_from_yaml",
