@@ -1,7 +1,7 @@
 """HTTP routes for project LLM-role config — the `/config` surface.
 
-Thin-delegate mirror of the MCP tools (`get_project_config`,
-`set_translate_model`, `set_proposer_model`) so a CLI agent or non-Claude
+Thin-delegate mirror of the MCP tools (`get_project_config`, `set_model` with
+role='translate'|'proposer') so a CLI agent or non-Claude
 client can inspect and tune the same per-project model roles over plain HTTP
 ([[feedback_ai_native_api_symmetry]]). Selection-only: no secrets/keys cross
 this boundary. extract + labeler already have their own routes

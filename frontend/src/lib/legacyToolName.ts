@@ -9,7 +9,11 @@
  * to the server.
  */
 export const LEGACY_TOOL_NAMES: Record<string, string> = {
-  // filled in per family by P4 Tasks 4-11
+  // Task 4 — set_model(role=) folded 4 byte-identical (slug, model_id) setters.
+  set_labeler_model: 'set_model',
+  set_proposer_model: 'set_model',
+  set_translate_model: 'set_model',
+  switch_active_model: 'set_model',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'

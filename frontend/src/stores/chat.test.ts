@@ -569,9 +569,10 @@ describe('chat store: send() split + lifecycle detach', () => {
 // Bench overlay open re-fetches the aggregator. The plan originally
 // enumerated 9 tools; P4 Task 3 dropped archive_experiment, delete_experiment
 // and write_prompt — dead branches for tools Step B had already removed from
-// the registered surface. The remaining 6:
+// the registered surface. P4 Task 4 then folded switch_active_model into
+// set_model. The remaining 6:
 // promote_experiment, run_experiment_eval, create_experiment,
-// switch_active_prompt, switch_active_model, score.
+// switch_active_prompt, set_model, score.
 //
 // We drive `handleToolResult` (re-exported via _testUtils) directly with a
 // seeded `tool_call` event in the chat slice for each tool — that's the
@@ -630,7 +631,7 @@ describe('chat store: cross-store invalidation → useBench.invalidate', () => {
     'mcp__emerge_tools__run_experiment_eval',
     'mcp__emerge_tools__create_experiment',
     'mcp__emerge_tools__switch_active_prompt',
-    'mcp__emerge_tools__switch_active_model',
+    'mcp__emerge_tools__set_model',
     'mcp__emerge_tools__score',
   ] as const
 

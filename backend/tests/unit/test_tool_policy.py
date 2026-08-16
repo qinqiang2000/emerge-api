@@ -104,3 +104,15 @@ def test_merged_targets_are_registered() -> None:
     live = registered_tool_names(headless=True)
     missing = sorted(set(MERGED_TOOLS) - live)
     assert not missing, f"MERGED_TOOLS names a tool nobody registered: {missing}"
+
+
+def test_no_old_name_is_claimed_by_two_families() -> None:
+    """legacy_alias() flattens {new: (olds,)} into {old: new}. A name claimed by
+    two families would silently collapse — the second write wins and the first
+    family's historical tool_calls stop resolving, with no error anywhere."""
+    from collections import Counter
+
+    claimed = Counter(old for olds in MERGED_TOOLS.values() for old in olds)
+    dupes = sorted(n for n, c in claimed.items() if c > 1)
+    assert not dupes, f"old tool name(s) claimed by more than one family: {dupes}"
+    assert len(legacy_alias()) == sum(len(o) for o in MERGED_TOOLS.values())

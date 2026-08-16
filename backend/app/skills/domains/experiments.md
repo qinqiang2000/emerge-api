@@ -10,7 +10,7 @@
 | **Edit active variant's schema or global_notes** | `write_schema(schema=[...], global_notes="...")` — red line; both fields optional but at least one must differ |
 | Edit a non-active variant | `Edit {CURRENT_PROJECT_DIR}/prompts/{pid}.json` — remote: `ws_edit` |
 | Create a new variant (A/B fork) | `Bash cp prompts/{src}.json prompts/{new}.json` then `Edit` for the diff — remote: `ws_move(copy=true)` + `ws_edit` |
-| Switch active | `switch_active_prompt(pid)` / `switch_active_model(mid)` (ask first — affects every later extract) |
+| Switch active | `switch_active_prompt(pid)` / `set_model(role='extract', model_id=mid)` (ask first — affects every later extract) |
 | Delete a variant | `Bash rm prompts/{pid}.json` (permission asks). Refuse if it's the active one — switch first. |
 | Cross-project clone | `Bash cp {WORKSPACE_ROOT}/src_slug/prompts/{pid}.json {WORKSPACE_ROOT}/dst_slug/prompts/` |
 
@@ -69,7 +69,7 @@ Sequence (all steps mandatory; never skip the pre-check):
 6. **Markdown delta table** in chat: per-field accuracy deltas sorted by
    `|Δ|`, doc_accuracy A→B, field_accuracy_macro A→B. End with a link:
    `/projects/<slug>/eval/compare?a=<ts_baseline>&b=<summary_ts>`.
-7. **Never** auto-`switch_active_model`. Only suggest the command if B
+7. **Never** auto-`set_model(role='extract')`. Only suggest the command if B
    wins decisively.
 8. If `doc_accuracy < 0.5` for either side, prepend "low ground-truth
    coverage — interpret cautiously" to the delta table.

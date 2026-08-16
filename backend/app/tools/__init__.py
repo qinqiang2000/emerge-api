@@ -148,8 +148,8 @@ _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should ga
     "freeze_version", "issue_api_key", "promote_experiment",
 })
 _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
-    "set_labeler_model", "set_translate_model", "set_proposer_model",
-    "switch_active_prompt", "switch_active_model", "write_schema",
+    "set_model",
+    "switch_active_prompt", "write_schema",
     "ws_write",  # same content → same file state; binary overwrite refused
     "extract_textlayer", "translate_page",
     "pause_job", "resume_job", "cancel_job",
@@ -662,30 +662,54 @@ def build_emerge_mcp(
             }
         return {"content": [{"type": "text", "text": _json.dumps(out)}]}
 
+    _MODEL_ROLES = ("extract", "labeler", "proposer", "translate")
+
+    from app.jobs.autoresearch import set_proposer_model as _set_proposer
+
+    _MODEL_SETTERS = {
+        "extract": model_mod.switch_active_model,
+        "labeler": pre_label_mod.set_labeler_model,
+        "proposer": _set_proposer,
+        "translate": translate_mod.set_translate_model,
+    }
+
     @tool(
-        "set_labeler_model",
-        "Set a project-specific labeler override (writes "
-        "project.json.labeler_model). Use ONLY when the user explicitly "
-        "names a model for this project (\"换 pro 模型\" / \"this project "
-        "should use X as labeler\"). DO NOT call this just because "
-        "project.json.labeler_model is null — that's the normal state and "
-        "means label_docs falls through to EMERGE_DEFAULT_LABELER_MODEL. To "
-        "check what label_docs would actually run, call `get_labeler_config` "
-        "first. No risk gate; the override is recoverable.",
+        "set_model",
+        "Point one of this project's four tunable LLM roles at a model. "
+        "`role`: 'extract' (the model that produces predictions — writes "
+        "active_model_id), 'labeler' (label_docs), 'proposer' (AutoResearch), "
+        "'translate' (review-pane translation). The last three write a "
+        "project.json override; null there is the NORMAL state and means the "
+        "role falls through to its env default. DO NOT call this just because "
+        "an override is null — call `get_project_config` to see what each role "
+        "actually resolves to. `agent_brain` is system-level and NOT settable. "
+        "No risk gate; every role is recoverable by setting it again.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
+                "role": {"type": "string", "enum": list(_MODEL_ROLES)},
                 "model_id": {"type": "string"},
             },
-            "required": ["slug", "model_id"],
+            "required": ["slug", "role", "model_id"],
         },
     )
-    async def t_set_labeler_model(args: dict[str, Any]) -> dict[str, Any]:
-        await pre_label_mod.set_labeler_model(
-            workspace, args["slug"], args["model_id"],
-        )
-        return {"content": [{"type": "text", "text": "ok"}]}
+    async def t_set_model(args: dict[str, Any]) -> dict[str, Any]:
+        role, slug, model_id = args["role"], args["slug"], args["model_id"]
+        if role not in _MODEL_ROLES:
+            return _error_envelope(
+                "model_role_unknown",
+                f"Unknown role {role!r}. Expected one of "
+                f"{', '.join(_MODEL_ROLES)}. agent_brain is system-level and "
+                f"cannot be set per project.",
+            )
+        await _MODEL_SETTERS[role](workspace, slug, model_id)
+        return {
+            "content": [{
+                "type": "text",
+                "text": _json.dumps({"role": role, "model_id": model_id}),
+            }]
+        }
 
     @tool(
         "get_labeler_config",
@@ -738,54 +762,6 @@ def build_emerge_mcp(
                 {"type": "text", "text": _json.dumps(out, ensure_ascii=False)}
             ]
         }
-
-    @tool(
-        "set_translate_model",
-        "Pin the review-mode translator model for this project (writes "
-        "project.json.translate_model). Use when the user names a translator "
-        "(\"翻译用 X\" / \"把翻译模型换成 X\"). Translate is review-UX only — it "
-        "never feeds the extract/labeler/proposer prompt — so there is no risk "
-        "gate; the override is recoverable. To see the current resolution call "
-        "`get_project_config` (the `translate` block).",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "model_id": {"type": "string"},
-            },
-            "required": ["slug", "model_id"],
-        },
-    )
-    async def t_set_translate_model(args: dict[str, Any]) -> dict[str, Any]:
-        await translate_mod.set_translate_model(
-            workspace, args["slug"], args["model_id"],
-        )
-        return {"content": [{"type": "text", "text": "ok"}]}
-
-    @tool(
-        "set_proposer_model",
-        "Pin the AutoResearch proposer model for this project (writes "
-        "project.json.autoresearch_proposer_model). Use when the user names a "
-        "proposer for `/improve` (\"用 X 来调 prompt\" / \"proposer 换成 X\"). "
-        "DO NOT call this just because it's null — null means `/improve` falls "
-        "through to the project's active extract model, which is the normal "
-        "default. Takes effect on the next `/improve` job. Recoverable, no "
-        "risk gate. To see the current resolution call `get_project_config` "
-        "(the `proposer` block).",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "model_id": {"type": "string"},
-            },
-            "required": ["slug", "model_id"],
-        },
-    )
-    async def t_set_proposer_model(args: dict[str, Any]) -> dict[str, Any]:
-        from app.jobs.autoresearch import set_proposer_model
-
-        await set_proposer_model(workspace, args["slug"], args["model_id"])
-        return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "pdf_render_page",
@@ -1142,8 +1118,8 @@ def build_emerge_mcp(
         "key (e.g. \"DEEPSEEK_API_KEY\") — never the plaintext key. To copy "
         "another project's model, ws_read its models/{id}.json for the provider + "
         "provider_model_id first. Returns {model_id}. Follow with "
-        "switch_active_model or create_experiment to use it. Rendering: browser → "
-        "one-line confirm; headless → state the new model_id + label.",
+        "set_model(role='extract') or create_experiment to use it. Rendering: "
+        "browser → one-line confirm; headless → state the new model_id + label.",
         {
             "type": "object",
             "properties": {
@@ -1170,25 +1146,6 @@ def build_emerge_mcp(
         )
         return {"content": [{"type": "text", "text": _json.dumps(
             {"model_id": mid}, ensure_ascii=False)}]}
-
-    @tool(
-        "switch_active_model",
-        "Set the project's active model to the given model_id. Affects all "
-        "subsequent extract calls when model_id arg is not explicitly provided.",
-        {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "model_id": {"type": "string"},
-            },
-            "required": ["slug", "model_id"],
-        },
-    )
-    async def t_switch_active_model(args: dict[str, Any]) -> dict[str, Any]:
-        await model_mod.switch_active_model(
-            workspace, args["slug"], args["model_id"],
-        )
-        return {"content": [{"type": "text", "text": "ok"}]}
 
     @tool(
         "create_experiment",
@@ -2591,11 +2548,9 @@ def build_emerge_mcp(
             t_promote_chat_to_project,
             t_promote_attachment_to_docs,
             t_label_docs,
-            t_set_labeler_model,
+            t_set_model,
             t_get_labeler_config,
             t_get_project_config,
-            t_set_translate_model,
-            t_set_proposer_model,
             t_pdf_render_page,
             t_read_doc_image,
             t_extract_textlayer,
@@ -2605,7 +2560,6 @@ def build_emerge_mcp(
             t_import_schema_from_yaml,
             t_switch_active_prompt,
             t_add_model,
-            t_switch_active_model,
             t_create_experiment,
             t_extract_with_experiment,
             t_run_experiment_eval,
@@ -2683,11 +2637,11 @@ _EMERGE_TOOL_NAMES = (
     "delete_project",
     "promote_chat_to_project",
     "promote_attachment_to_docs",
-    "label_docs", "set_labeler_model", "get_labeler_config",
-    "get_project_config", "set_translate_model", "set_proposer_model",
+    "label_docs", "set_model", "get_labeler_config",
+    "get_project_config",
     "pdf_render_page", "read_doc_image", "extract_textlayer", "translate_page",
     "derive_schema", "write_schema", "import_schema_from_yaml",
-    "switch_active_prompt", "switch_active_model",
+    "switch_active_prompt",
     "create_experiment", "extract_with_experiment", "run_experiment_eval",
     "promote_experiment",
     "bench_view",

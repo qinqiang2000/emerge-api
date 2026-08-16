@@ -137,7 +137,7 @@ Two entry points depending on batch size:
 - To know which model will run, call `get_labeler_config(slug)`. Do NOT
   `Read project.json` to pre-check — `labeler_model` is normally null
   and the env fallback (`EMERGE_DEFAULT_LABELER_MODEL`) resolves it.
-- `set_labeler_model(slug, model_id)` only when user asks to lock a
+- `set_model(slug, role='labeler', model_id=...)` only when user asks to lock a
   project to a model, or `label_docs` returned `labeler_model_not_configured`.
 
 Hard rules: `label_docs` output never lands in `predictions/_draft/` or

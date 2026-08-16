@@ -85,7 +85,7 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "read_doc_image", "pdf_render_page",
     # (b) invariant writes
     "create_project", "delete_project", "add_model", "write_schema",
-    "switch_active_prompt", "switch_active_model", "save_reviewed",
+    "switch_active_prompt", "set_model", "save_reviewed",
     "freeze_version", "issue_api_key",
     # (c) LLM / job verbs
     "extract_one", "derive_schema",

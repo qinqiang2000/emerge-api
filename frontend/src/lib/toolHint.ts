@@ -84,8 +84,7 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
       return [slug, fn, page].filter(Boolean).join(' · ') || null
     }
     case 'switch_active_prompt':
-    case 'switch_active_model':
-    case 'set_labeler_model': {
+    case 'set_model': {
       const v = typeof o.prompt_id === 'string' ? o.prompt_id
         : typeof o.model_id === 'string' ? o.model_id
         : null

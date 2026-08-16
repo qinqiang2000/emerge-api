@@ -1459,13 +1459,17 @@ function handleToolResult(
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
     }
-    // `switch_active_model` flips the pointer; `add_model` mints a brand-new
-    // models/{id}.json (the typed tool the skill mandates over hand-writing
-    // the file). Both change the list the review tab strip resolves labels
-    // from — without the `add_model` arm a model registered mid-session left
-    // the store cached and its tab rendered the raw `m_xxxxxxxx` id.
+    // `set_model` (role='extract') flips the active-model pointer; `add_model`
+    // mints a brand-new models/{id}.json (the typed tool the skill mandates
+    // over hand-writing the file). Both change the list the review tab strip
+    // resolves labels from — without the `add_model` arm a model registered
+    // mid-session left the store cached and its tab rendered the raw
+    // `m_xxxxxxxx` id. `set_model` also covers labeler/proposer/translate
+    // (P4 Task 4 folded all four setters into one tool) — those roles don't
+    // touch the models list, so invalidating on every role is a harmless
+    // extra refetch rather than a missed one.
     if (
-      t === 'switch_active_model' ||
+      t === 'set_model' ||
       t === 'add_model'
     ) {
       useModels.getState().invalidate(projectId)
@@ -1622,7 +1626,10 @@ const BENCH_INVALIDATING_TOOLS: ReadonlySet<string> = new Set([
   'run_experiment_eval',
   'create_experiment',
   'switch_active_prompt',
-  'switch_active_model',
+  // set_model folds switch_active_model (P4 Task 4) — bench axis is
+  // prompt × active-extract-model, but the other 3 roles firing this too is
+  // a harmless extra refetch (see the useModels invalidation above).
+  'set_model',
   'score',
 ])
 

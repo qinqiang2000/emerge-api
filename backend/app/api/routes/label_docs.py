@@ -1,8 +1,8 @@
 """HTTP routes for the Pro Labeler.
 
-Thin-delegate mirror of the MCP tools (`label_docs`, `set_labeler_model`,
-`get_labeler_config`) so a CLI agent or non-Claude client can drive the same
-pre-label flow over plain HTTP.
+Thin-delegate mirror of the MCP tools (`label_docs`, `set_model` with
+role='labeler', `get_labeler_config`) so a CLI agent or non-Claude client can
+drive the same pre-label flow over plain HTTP.
 """
 from __future__ import annotations
 

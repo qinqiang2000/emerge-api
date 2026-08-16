@@ -63,19 +63,19 @@ _HTTP_EXEMPT: dict[str, str] = {
 # that uniquely identifies the route.
 # ---------------------------------------------------------------------------
 
-_TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
+_TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     # Project lifecycle
-    "create_project":             ("POST",   r"^/lab/projects$"),
-    "delete_project":             ("DELETE", r"^/lab/projects/\{slug\}$"),
-    "rename_project":             ("POST",   r"^/lab/projects/\{slug\}/rename$"),
+    ("create_project", None):             ("POST",   r"^/lab/projects$"),
+    ("delete_project", None):             ("DELETE", r"^/lab/projects/\{slug\}$"),
+    ("rename_project", None):             ("POST",   r"^/lab/projects/\{slug\}/rename$"),
     # Recycle bin — workspace-scoped (a deleted project lives here too), so
     # neither form takes a slug.
-    "list_trash":                 ("GET",    r"^/lab/trash$"),
+    ("list_trash", None):                 ("GET",    r"^/lab/trash$"),
     # Was exempt while it only answered for one doc ("CLI knows its own
     # pointer"). The set form answers "which docs did the run miss", which a
     # headless client cannot derive without re-implementing the join.
-    "get_surface_state":          ("GET",    r"^/lab/projects/\{slug\}/surface/\{surface\}$"),
-    "restore_from_trash":         ("POST",   r"^/lab/trash/\{entry\}/restore$"),
+    ("get_surface_state", None):          ("GET",    r"^/lab/projects/\{slug\}/surface/\{surface\}$"),
+    ("restore_from_trash", None):         ("POST",   r"^/lab/trash/\{entry\}/restore$"),
     # Doc lifecycle — filename is a primary key, so both of these move the
     # doc's whole artifact set (see the tool definitions); they are not rm/mv.
     # Retiring a memory note is more than a file op (body → _trash/, index line
@@ -83,104 +83,108 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
     # because ws_read/ws_write already cover plain files. The project-scoped
     # form is the one mapped here — the team-scoped twin is the same tool with
     # `slug` omitted.
-    "forget_memory":              ("DELETE", r"^/lab/projects/\{slug\}/memory/\{note\}$"),
-    "delete_doc":                 ("DELETE", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}$"),
-    "rename_doc":                 ("POST",   r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/rename$"),
-    "fork_project":               ("POST",   r"^/lab/projects/fork$"),
-    "promote_chat_to_project":    ("POST",   r"^/lab/chats/\{chat_id\}/promote$"),
-    "promote_attachment_to_docs": ("POST",   r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/promote$"),
+    ("forget_memory", None):              ("DELETE", r"^/lab/projects/\{slug\}/memory/\{note\}$"),
+    ("delete_doc", None):                 ("DELETE", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}$"),
+    ("rename_doc", None):                 ("POST",   r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/rename$"),
+    ("fork_project", None):               ("POST",   r"^/lab/projects/fork$"),
+    ("promote_chat_to_project", None):    ("POST",   r"^/lab/chats/\{chat_id\}/promote$"),
+    ("promote_attachment_to_docs", None): ("POST",   r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/promote$"),
     # Pro labeler
-    "label_docs":         ("POST", r"^/lab/projects/\{slug\}/label_docs$"),
-    "set_labeler_model":  ("POST", r"^/lab/projects/\{slug\}/labeler_model$"),
-    "get_labeler_config": ("GET",  r"^/lab/projects/\{slug\}/labeler_config$"),
+    ("label_docs", None):         ("POST", r"^/lab/projects/\{slug\}/label_docs$"),
+    ("get_labeler_config", None): ("GET",  r"^/lab/projects/\{slug\}/labeler_config$"),
     # Project LLM-role config (/config surface)
-    "get_project_config": ("GET",  r"^/lab/projects/\{slug\}/config$"),
-    "set_translate_model": ("PUT", r"^/lab/projects/\{slug\}/translate_model$"),
-    "set_proposer_model":  ("PUT", r"^/lab/projects/\{slug\}/proposer_model$"),
+    ("get_project_config", None): ("GET",  r"^/lab/projects/\{slug\}/config$"),
+    # `set_model` folds 4 byte-identical (slug, model_id) setters into one
+    # tool (P4 Task 4). REST already expresses the op as the resource, so the
+    # HTTP side deliberately does NOT merge: one (tool, op) pair per route,
+    # never an `op` query parameter. The four routes are unchanged.
+    ("set_model", "labeler"):   ("POST", r"^/lab/projects/\{slug\}/labeler_model$"),
+    ("set_model", "translate"): ("PUT",  r"^/lab/projects/\{slug\}/translate_model$"),
+    ("set_model", "proposer"):  ("PUT",  r"^/lab/projects/\{slug\}/proposer_model$"),
+    ("set_model", "extract"):   ("PUT",  r"^/lab/projects/\{slug\}/models/active$"),
     # Doc vision — both tools surface through the shared docs by-name page
     # render route (PDF→PNG / image bytes). The route doesn't take a
     # ``page`` body arg by name (it's part of the URL), but the byte-on-the-
     # wire output is what `read_doc_image` ships inline as base64.
-    "pdf_render_page": ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
-    "read_doc_image":  ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
-    "extract_textlayer": ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/textlayer$"),
-    "translate_page":    ("POST", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/translate$"),
+    ("pdf_render_page", None): ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
+    ("read_doc_image", None):  ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/pages/\{page\}$"),
+    ("extract_textlayer", None): ("GET", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/textlayer$"),
+    ("translate_page", None):    ("POST", r"^/lab/projects/\{slug\}/docs/by-name/\{filename:path\}/translate$"),
     # Schema axes
-    "derive_schema":      ("POST", r"^/lab/projects/\{slug\}/schema/derive$"),
-    "write_schema":       ("POST", r"^/lab/projects/\{slug\}/schema$"),
-    "import_schema_from_yaml": ("POST", r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/import-schema$"),
-    "add_model":            ("POST", r"^/lab/projects/\{slug\}/models$"),
-    "switch_active_model":  ("PUT",  r"^/lab/projects/\{slug\}/models/active$"),
-    "switch_active_prompt": ("POST", r"^/lab/projects/\{slug\}/prompts/\{prompt_id\}/activate$"),
+    ("derive_schema", None):      ("POST", r"^/lab/projects/\{slug\}/schema/derive$"),
+    ("write_schema", None):       ("POST", r"^/lab/projects/\{slug\}/schema$"),
+    ("import_schema_from_yaml", None): ("POST", r"^/lab/projects/\{slug\}/chats/\{chat_id\}/attachments/\{filename:path\}/import-schema$"),
+    ("add_model", None):            ("POST", r"^/lab/projects/\{slug\}/models$"),
+    ("switch_active_prompt", None): ("POST", r"^/lab/projects/\{slug\}/prompts/\{prompt_id\}/activate$"),
     # Experiments
-    "create_experiment":       ("POST", r"^/lab/projects/\{slug\}/experiments$"),
-    "extract_with_experiment": ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),
-    "run_experiment_eval":     ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/eval$"),
-    "promote_experiment":      ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/promote$"),
+    ("create_experiment", None):       ("POST", r"^/lab/projects/\{slug\}/experiments$"),
+    ("extract_with_experiment", None): ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),
+    ("run_experiment_eval", None):     ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/eval$"),
+    ("promote_experiment", None):      ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/promote$"),
     # Extract + score + readiness + contract-diff
-    "extract_one":     ("POST", r"^/lab/projects/\{slug\}/extract$"),
-    "save_reviewed":   ("POST", r"^/lab/projects/\{slug\}/reviewed/\{filename:path\}$"),
-    "score":           ("POST", r"^/lab/projects/\{slug\}/score$"),
-    "readiness_check": ("GET",  r"^/lab/projects/\{slug\}/readiness$"),
-    "contract_diff":   ("GET",  r"^/lab/projects/\{slug\}/contract-diff$"),
+    ("extract_one", None):     ("POST", r"^/lab/projects/\{slug\}/extract$"),
+    ("save_reviewed", None):   ("POST", r"^/lab/projects/\{slug\}/reviewed/\{filename:path\}$"),
+    ("score", None):           ("POST", r"^/lab/projects/\{slug\}/score$"),
+    ("readiness_check", None): ("GET",  r"^/lab/projects/\{slug\}/readiness$"),
+    ("contract_diff", None):   ("GET",  r"^/lab/projects/\{slug\}/contract-diff$"),
     # Bench leaderboard (project-level horizontal view of prompt × model evals).
     # Both forms thin-delegate to `app.services.bench.compute_bench`.
-    "bench_view":      ("GET",  r"^/lab/projects/\{slug\}/bench$"),
+    ("bench_view", None):      ("GET",  r"^/lab/projects/\{slug\}/bench$"),
     # Document matching (reconciliation) — app/api/routes/match.py.
-    "create_match_project": ("POST", r"^/lab/match/projects$"),
-    "write_match_prompt":   ("PUT",  r"^/lab/match/projects/\{slug\}/prompt$"),
-    "run_match":            ("POST", r"^/lab/match/projects/\{slug\}/run$"),
-    "save_reviewed_match":  ("POST", r"^/lab/match/projects/\{slug\}/reviewed$"),
-    "score_match":          ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
-    "write_audit_rules":    ("PUT",  r"^/lab/projects/\{slug\}/audit-rules$"),
-    "run_audit":            ("POST", r"^/lab/projects/\{slug\}/audit$"),
-    "read_audit_report":    ("GET",  r"^/lab/projects/\{slug\}/audit/latest$"),
+    ("create_match_project", None): ("POST", r"^/lab/match/projects$"),
+    ("write_match_prompt", None):   ("PUT",  r"^/lab/match/projects/\{slug\}/prompt$"),
+    ("run_match", None):            ("POST", r"^/lab/match/projects/\{slug\}/run$"),
+    ("save_reviewed_match", None):  ("POST", r"^/lab/match/projects/\{slug\}/reviewed$"),
+    ("score_match", None):          ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
+    ("write_audit_rules", None):    ("PUT",  r"^/lab/projects/\{slug\}/audit-rules$"),
+    ("run_audit", None):            ("POST", r"^/lab/projects/\{slug\}/audit$"),
+    ("read_audit_report", None):    ("GET",  r"^/lab/projects/\{slug\}/audit/latest$"),
     # B4 board render — annotated evidence images (pixels + rule text only;
     # the board-notes GET/PUT siblings are render-layer persistence and stay
     # route-without-tool, same as locate / locate-quotes).
-    "render_audit_board":   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
-    "render_review_board":  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
-    "save_reviewed_audit":  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
-    "score_audit":          ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
+    ("render_audit_board", None):   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
+    ("render_review_board", None):  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
+    ("save_reviewed_audit", None):  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
+    ("score_audit", None):          ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
     # Publish + keys
-    "freeze_version": ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
-    "issue_api_key":  ("POST", r"^/lab/keys$"),
+    ("freeze_version", None): ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
+    ("issue_api_key", None):  ("POST", r"^/lab/keys$"),
     # Jobs
-    "start_job":  ("POST", r"^/lab/jobs$"),
-    "get_job":    ("GET",  r"^/lab/jobs/\{job_id\}$"),
-    "pause_job":  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
-    "resume_job": ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
-    "cancel_job": ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
+    ("start_job", None):  ("POST", r"^/lab/jobs$"),
+    ("get_job", None):    ("GET",  r"^/lab/jobs/\{job_id\}$"),
+    ("pause_job", None):  ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
+    ("resume_job", None): ("POST", r"^/lab/jobs/\{job_id\}/resume$"),
+    ("cancel_job", None): ("POST", r"^/lab/jobs/\{job_id\}/cancel$"),
     # Version history (per-team git timeline)
-    "history_log":     ("GET",  r"^/lab/history$"),
-    "history_diff":    ("GET",  r"^/lab/history/diff$"),
-    "history_restore": ("POST", r"^/lab/history/restore$"),
+    ("history_log", None):     ("GET",  r"^/lab/history$"),
+    ("history_diff", None):    ("GET",  r"^/lab/history/diff$"),
+    ("history_restore", None): ("POST", r"^/lab/history/restore$"),
     # Headless discovery tools — registered only on the stdio/remote MCP
     # surface (build_emerge_mcp(headless=True)); the in-session chat agent
     # discovers via built-in Bash/Read instead. Their HTTP twins predate the
     # Step B wrapper cut and are still live, so the dual-form contract holds.
-    "list_projects": ("GET", r"^/lab/projects$"),
-    "list_docs":     ("GET", r"^/lab/projects/\{slug\}/docs$"),
+    ("list_projects", None): ("GET", r"^/lab/projects$"),
+    ("list_docs", None):     ("GET", r"^/lab/projects/\{slug\}/docs$"),
     # read_prompt returns the active prompt (schema + global_notes) — its twin is
     # the active-prompt route, NOT schema/raw (which is fields-only YAML).
-    "read_prompt":   ("GET", r"^/lab/projects/\{slug\}/prompts/active$"),
+    ("read_prompt", None):   ("GET", r"^/lab/projects/\{slug\}/prompts/active$"),
     # Workspace filesystem bus (headless): generic ws_* tools share their pure
     # logic with these team-scoped twins (app/api/routes/ws.py).
-    "ws_list":       ("GET", r"^/lab/ws/list$"),
-    "ws_read":       ("GET", r"^/lab/ws/read$"),
-    "ws_grep":       ("GET", r"^/lab/ws/grep$"),
-    "ws_write":      ("POST", r"^/lab/ws/write$"),
-    "ws_edit":       ("POST", r"^/lab/ws/edit$"),
-    "ws_move":       ("POST", r"^/lab/ws/move$"),
+    ("ws_list", None):       ("GET", r"^/lab/ws/list$"),
+    ("ws_read", None):       ("GET", r"^/lab/ws/read$"),
+    ("ws_grep", None):       ("GET", r"^/lab/ws/grep$"),
+    ("ws_write", None):      ("POST", r"^/lab/ws/write$"),
+    ("ws_edit", None):       ("POST", r"^/lab/ws/edit$"),
+    ("ws_move", None):       ("POST", r"^/lab/ws/move$"),
     # Binary data plane: the tool mints capability URLs; its twin is the authed
     # mint route. The unauthed redemption endpoint (/lab/upload/{token}) is the
     # data plane itself, not a tool twin.
-    "request_upload_url": ("POST", r"^/lab/upload-urls$"),
+    ("request_upload_url", None): ("POST", r"^/lab/upload-urls$"),
     # Outbound half of the same data plane (/lab/download/{token} is likewise
     # the unauthed data plane, not a twin).
-    "offer_download": ("POST", r"^/lab/download-urls$"),
+    ("offer_download", None): ("POST", r"^/lab/download-urls$"),
     # Progressive disclosure: domain playbooks pulled on demand.
-    "read_skill":    ("GET", r"^/lab/skills/\{domain\}$"),
+    ("read_skill", None):    ("GET", r"^/lab/skills/\{domain\}$"),
 }
 
 
@@ -223,7 +227,7 @@ def test_every_tool_has_http_or_is_exempt() -> None:
     ``_HTTP_EXEMPT`` with a justification comment. Adding a new tool without
     thinking about its HTTP twin is the trap this guards against."""
     discovered = _discover_tools()
-    mapped = set(_TOOL_HTTP_MAP)
+    mapped = {tool_name for tool_name, _op in _TOOL_HTTP_MAP}
     exempt = set(_HTTP_EXEMPT)
 
     unmapped = discovered - mapped - exempt
@@ -253,18 +257,33 @@ def test_mapped_routes_actually_exist() -> None:
     still ships."""
     sigs = _route_signatures()
     missing: list[str] = []
-    for tool_name, (expected_method, expected_pattern) in _TOOL_HTTP_MAP.items():
+    for (tool_name, op), (expected_method, expected_pattern) in _TOOL_HTTP_MAP.items():
         pat = re.compile(expected_pattern)
         match = any(
             method == expected_method and pat.search(path)
             for method, path in sigs
         )
         if not match:
-            missing.append(f"{tool_name}: expected {expected_method} {expected_pattern}")
+            label = tool_name if op is None else f"{tool_name}[{op}]"
+            missing.append(f"{label}: expected {expected_method} {expected_pattern}")
     assert not missing, (
         "Tools declared in _TOOL_HTTP_MAP have no matching live route:\n  "
         + "\n  ".join(missing)
     )
+
+
+def test_merged_tools_map_every_op_to_its_own_route() -> None:
+    """A merged tool must not lose route coverage: each op it swallowed keeps a
+    distinct route, because REST expresses ops as resource+method and the HTTP
+    side deliberately did not merge."""
+    from app.tools._merged import MERGED_TOOLS
+
+    for new, olds in MERGED_TOOLS.items():
+        ops = {op for (tool, op) in _TOOL_HTTP_MAP if tool == new}
+        assert len(ops) == len(olds), (
+            f"{new!r} swallowed {len(olds)} ops but maps {len(ops)} routes: "
+            f"{sorted(ops)}"
+        )
 
 
 def test_exempt_entries_carry_justification() -> None:

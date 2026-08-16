@@ -92,10 +92,12 @@ describe('handleToolResult side effects', () => {
   })
 
   // Step B removed create_model/write_model/delete_model — only
-  // switch_active_model survives as a business tool. Create/write/delete now
-  // go through the built-in Write/Edit path (covered in stores/chat.test.ts).
+  // set_model (role='extract') survives as a business tool (P4 Task 4 folded
+  // the old switch_active_model into it, alongside the labeler/proposer/
+  // translate setters). Create/write/delete now go through the built-in
+  // Write/Edit path (covered in stores/chat.test.ts).
   it.each([
-    'mcp__emerge_tools__switch_active_model',
+    'mcp__emerge_tools__set_model',
   ])('invalidates useModels when %s completes', (toolName) => {
     useChat.setState({ events: [{
       type: 'tool_call', tool_use_id: 'tm', tool_name: toolName,

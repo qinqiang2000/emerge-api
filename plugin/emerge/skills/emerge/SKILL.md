@@ -53,7 +53,7 @@ Never base64 file content through a tool argument.
 
 ## Core verbs (typed tools — these enforce invariants, so don't hand-write the JSON)
 
-- **Register a model**: `add_model(slug, provider, provider_model_id)` — mints the id + validates. `provider` ∈ `anthropic|openai|google|codex` (Gemini → **google**). Unknown `provider_model_id`? `ws_read` another project's model file. Then `switch_active_model`.
+- **Register a model**: `add_model(slug, provider, provider_model_id)` — mints the id + validates. `provider` ∈ `anthropic|openai|google|codex` (Gemini → **google**). Unknown `provider_model_id`? `ws_read` another project's model file. Then `set_model(role='extract')`.
 - **Extract one doc**: `extract_one(slug, filename)`, or isolate a variant: `create_experiment(slug, model_id=…)` → `extract_with_experiment(experiment_id, filename)`.
 - **Audit a doc group**: `write_audit_rules(slug, audit_rules)` → `run_audit(slug)` → state the overall verdict in one sentence + per-rule list. Long audits may hit a client tool-timeout — just call `run_audit` again: a fresh identical re-run returns the finished report from cache (`cached: true`).
 - **Save a correction as ground truth**: `save_reviewed(slug, filename, entities, …)` — this is how emerge "gets better as you correct it."

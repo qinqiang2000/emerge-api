@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # `project.json.active_model_id → models/{mid}.json` (see
     # `tools/extract.py`'s `read_active_model`), which never re-reads this
     # setting. To change the model an existing project uses, edit
-    # `models/{mid}.json` or run `switch_active_model` / `/compare`.
+    # `models/{mid}.json` or run `set_model(role='extract')` / `/compare`.
     default_extract_model: str = "gemini-2.5-flash"
     default_agent_model: str = "claude-sonnet-5"
     # Pro-labeler model. None = label_docs refuses with `labeler_model_not_configured`

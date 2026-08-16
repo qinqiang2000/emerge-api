@@ -107,19 +107,21 @@ def test_prompt_axis_tools_in_emerge_tool_names() -> None:
 async def test_model_axis_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock
 ) -> None:
-    """Mirror of the prompt-axis story: only `switch_active_model` survives;
-    CRUD of models/*.json is Write/Edit/Glob/Bash."""
+    """Mirror of the prompt-axis story: only `set_model` (role='extract')
+    survives; CRUD of models/*.json is Write/Edit/Glob/Bash. P4 Task 4 folded
+    `switch_active_model` into `set_model` alongside the labeler/proposer/
+    translate setters — same tool, selected by `role`."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert "switch_active_model" in names
+    assert "set_model" in names
 
 
 def test_model_axis_tools_in_emerge_tool_names() -> None:
     names = _emerge_tool_names()
-    assert "switch_active_model" in names
+    assert "set_model" in names
 
 
 async def test_experiment_axis_tools_are_registered(
@@ -167,19 +169,20 @@ async def test_label_docs_tools_are_registered(
     workspace: Path, stub_provider: AsyncMock,
 ) -> None:
     """Pro Labeler ships `label_docs` (atomic small-batch — what
-    `pre_label_runner` subagent loops over) + `set_labeler_model` (provider
-    HTTP + project.json mutation). `get_pending` was cut — `Read
+    `pre_label_runner` subagent loops over) + `set_model` (role='labeler';
+    provider HTTP + project.json mutation — P4 Task 4 folded the old
+    `set_labeler_model` into it). `get_pending` was cut — `Read
     reviewed/_pending/<f>.json` via SDK Read covers it."""
     from unittest.mock import MagicMock
     server = build_emerge_mcp(
         workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
     )
     names = await _extract_tool_names(server)
-    assert {"label_docs", "set_labeler_model"}.issubset(names), names
+    assert {"label_docs", "set_model"}.issubset(names), names
     # Legacy `pre_label` must be gone — no deprecated alias.
     assert "pre_label" not in names, names
     canonical = _emerge_tool_names()
-    for n in ("label_docs", "set_labeler_model"):
+    for n in ("label_docs", "set_model"):
         assert n in canonical, f"missing {n!r} in _EMERGE_TOOL_NAMES"
     assert "pre_label" not in canonical
 

@@ -60,7 +60,7 @@ means:
   `derive_schema`, `save_reviewed`, `promote_*`, `freeze_version`,
   `issue_api_key`, or any `ui_*` tool. These are out of scope; let the
   parent agent handle them.
-- **Never modify `project.json`** (no `set_labeler_model`). If the user
+- **Never modify `project.json`** (no `set_model(role='labeler')`). If the user
   wants a different labeler, that is a parent-agent conversation.
 - **Never re-run `label_docs` on a chunk that already came back with
   errors.** Errors stay in the final summary; the human boss + parent agent

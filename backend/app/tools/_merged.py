@@ -15,13 +15,22 @@ The server does NOT accept old names (no deprecated alias — same posture as
 """
 from __future__ import annotations
 
-MERGED_TOOLS: dict[str, tuple[str, ...]] = {}
+MERGED_TOOLS: dict[str, tuple[str, ...]] = {
+    # Byte-identical `(slug, model_id)` schemas, all idempotent, zero calls
+    # across 764 chat tool_calls + 145 remote MCP calls.
+    "set_model": (
+        "set_labeler_model", "set_proposer_model",
+        "set_translate_model", "switch_active_model",
+    ),
+}
 
 # The policy profile the whole family shared, declared per merged tool.
 # Declared rather than derived: once a merge lands, the old names are gone from
 # the four frozensets, so deriving "did the members agree?" from them would be a
 # vacuously-true check over empty sets. Keys must match MERGED_TOOLS exactly.
-MERGED_POLICY: dict[str, frozenset[str]] = {}
+MERGED_POLICY: dict[str, frozenset[str]] = {
+    "set_model": frozenset({"idempotent"}),
+}
 
 
 def legacy_alias() -> dict[str, str]:

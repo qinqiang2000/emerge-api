@@ -62,14 +62,14 @@ keys.
 **Change a role** ("把抽取模型换成 X", "翻译用 gemini-flash-lite", "proposer 换成
 pro"):
 
-- extract → `switch_active_model(slug, model_id)`; for an A/B trial prefer
-  `/compare <model_id>` (keeps a known-good baseline). Switching affects every
-  later extract AND prod — confirm first (existing risk gate). Target must be an
-  existing `models/{mid}.json` (`Glob models/*.json`; mint one first if needed —
-  see the experiments domain's Compare flow).
-- labeler → `set_labeler_model(slug, model_id)`.
-- translate → `set_translate_model(slug, model_id)`.
-- proposer → `set_proposer_model(slug, model_id)`.
+- extract → `set_model(slug, role='extract', model_id=...)`; for an A/B trial
+  prefer `/compare <model_id>` (keeps a known-good baseline). Switching affects
+  every later extract AND prod — confirm first (existing risk gate). Target
+  must be an existing `models/{mid}.json` (`Glob models/*.json`; mint one first
+  if needed — see the experiments domain's Compare flow).
+- labeler → `set_model(slug, role='labeler', model_id=...)`.
+- translate → `set_model(slug, role='translate', model_id=...)`.
+- proposer → `set_model(slug, role='proposer', model_id=...)`.
 
 labeler / translate / proposer accept a raw provider id (`gemini-2.5-flash`)
 directly; no `models/{mid}.json` needed.

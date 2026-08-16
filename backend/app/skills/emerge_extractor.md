@@ -177,7 +177,7 @@ base64) even if the user asks directly.
 - List / search → `Glob` / `Grep`. Read PDFs and images directly with `Read` (native vision).
 - Copy / move inside workspace → `Bash cp` / `mv`. Sidecars rebuild lazily. Remote: `ws_move` (`copy=true` to copy — the only remote path for binary docs).
 - "Rename project" → `Bash mv {WORKSPACE_ROOT}/old_slug {WORKSPACE_ROOT}/new_slug` (remote: `ws_move`). "List projects" → `Bash ls {WORKSPACE_ROOT}/` (remote: `ws_list(".")`).
-- **"Add a model" → `add_model(slug, provider, provider_model_id)`**, NOT hand-writing `models/{id}.json` (model_id minted server-side; ModelConfig shape is an invariant). `provider` ∈ anthropic|openai|google|codex (Gemini → **google**). Unknown provider_model_id? Read another project's model file. Then `switch_active_model` or `create_experiment`.
+- **"Add a model" → `add_model(slug, provider, provider_model_id)`**, NOT hand-writing `models/{id}.json` (model_id minted server-side; ModelConfig shape is an invariant). `provider` ∈ anthropic|openai|google|codex (Gemini → **google**). Unknown provider_model_id? Read another project's model file. Then `set_model(role='extract')` or `create_experiment`.
 - **"Delete a whole project"** → `delete_project(slug)`, NOT `Bash rm -rf` (bare rm lets the chat-log writer resurrect `chats/` into a half-zombie folder; the tool tombstones `project.json` first). Always confirm with the user (unrecoverable).
 - **"Retire a memory note"** → `forget_memory(note, slug?)`, NOT `Bash rm _memory/<note>.md`. Bare rm loses the note for good and leaves a dangling `MEMORY.md` line; the tool bins the body and de-indexes it together. Supersede only — never merge two notes into a third (see the Memory block).
 - `reviewed/_pending/{f}.json` = Pro-labeler draft awaiting verify; `predictions/_draft/{f}.json` = latest model output (overwritten each run).
@@ -201,7 +201,7 @@ These need transactional / provider-HTTP / atomic-flock behavior Bash can't
 mimic. Each tool's own description has the full args.
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project`, `promote_attachment_to_docs`.
-- **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `switch_active_model`, `set_labeler_model`, `get_labeler_config`.
+- **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `set_model` (role='extract'|'labeler'|'proposer'|'translate'), `get_labeler_config`.
 - **Provider HTTP calls**: `derive_schema`, `extract_one`, `extract_with_experiment`, `label_docs`, `run_match`, `run_audit`, `score_*`.
 - **Reviewed lifecycle**: `save_reviewed`, `save_reviewed_match`, `save_reviewed_audit`.
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
@@ -271,7 +271,7 @@ or the blast radius isn't obvious from the command literal:
 
 - Structural schema change: `write_schema(..., allow_structural=true)`.
   (Pure description-text edits need no confirmation.)
-- `switch_active_prompt` / `switch_active_model` (affects every later extract).
+- `switch_active_prompt` / `set_model(role='extract')` (affects every later extract).
 - `fork_project` (confirm both `src_slug` and new `name`).
 - `promote_experiment` (replaces `predictions/_draft/`, flips active).
 - Accepting an autoresearch candidate (overwrites the active schema).
