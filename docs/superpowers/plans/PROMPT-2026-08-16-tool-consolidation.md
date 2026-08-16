@@ -1,8 +1,11 @@
 # Plan-input prompt — 工具收敛（Cowork remote MCP P4）
 
 > **这个文件是什么。** 喂给新会话的 **briefing**，由它先产出正式 plan
-> (`docs/superpowers/plans/2026-08-16-tool-consolidation.md`)，用户签字后再按
+> (`docs/superpowers/plans/2026-08-16-tool-consolidation.md`)，然后按
 > `feedback_default_execution_mode`（subagent-driven）执行。
+>
+> **只有一件事需要用户拍板：第 5 节那张分组决策表。** 其余（alias 层、policy
+> 表、测试策略、切分顺序、发版）自己定，别拿去问——问了是把该你做的判断推回去。
 >
 > **不要照着这个文件直接改代码。** 里面有结论，也有需要你自己量的数——写
 > plan 的第一步是量数据，不是抄这里的分组。
@@ -95,7 +98,25 @@ policy)」** 就是这件事——但那个 38 和 ~10 都是 6 月的数字，*
    tool ↔ HTTP ↔ MCP 三形齐全，headless 可达。
 8. **`_HEADLESS_EXCLUDE` + `_MINIMAL_SURFACE` 都按 bare name**，跟着改。
 
-## 5. 交付物
+## 5. 唯一需要用户拍板的东西：一张表
+
+不是"审阅 plan"，是**一屏的分组决策表**：每行 `旧工具 → 新 (noun, op)`，外加
+一列「不并的理由」和一份**砍掉/不再 list 的清单**，最后一行是目标数（78 → N）。
+
+为什么偏偏是这张表，别的都不是：
+
+- 工具名是**别人**要住进去的界面——用户的客户在 Cowork/Desktop 里用它，团队成员
+  照着 skill 文本说话。哪个名词自然，锚在你看不见的业务语言上。
+- 78 → 50 还是 78 → 15，是拿"远程客户端的 context 税"换"能力可发现性"的取舍。
+  两边的代价都落在用户身上（支持负担、客户端配置），不落在你身上。
+- **这一类判断，我们这一类 agent 已经错过一次**（见第 4 节第 6 条：按 suite 砍，
+  几小时后 agent 无合法路径可走，自己当了裁判）。错的不是执行，是 taxonomy。
+
+其余部分不要求签字：alias 映射怎么做、policy 表什么形状、每族怎么切 commit、
+测试钉在哪儿、什么时候 `./deploy.sh` —— 这些有唯一正确答案或有测试兜底，属于
+你的活。**把它们也拿去问，等于用礼节掩盖判断。**
+
+## 6. 交付物
 
 - `docs/superpowers/plans/2026-08-16-tool-consolidation.md`（正式 plan，含上面的
   数据、分组决策表、alias 策略、policy 表设计、分阶段切分）。
@@ -108,12 +129,13 @@ policy)」** 就是这件事——但那个 38 和 ~10 都是 6 月的数字，*
   1798 passed）；前端 `npx tsc -b --noEmit` + `npx vitest run`（`FSSpine-*` 的
   11 个失败是既有的，与本次无关）。
 
-## 6. 开工顺序
+## 7. 开工顺序
 
 1. 读 `CLAUDE.md`、`docs/superpowers/INSIGHTS.md`（尤其末尾两条 2026-08 的）、
    `docs/superpowers/plans/ROADMAP.md`、`2026-06-08-cowork-remote-mcp.md` §P4。
 2. 量第 3 节的三个数。
-3. 用 `superpowers:writing-plans` 产出 plan，**给用户签字**。
-4. 签字后按 `superpowers:subagent-driven-development` 执行（用户默认，不用问）。
+3. 用 `superpowers:writing-plans` 产出 plan；**只把第 5 节那张分组决策表拿给
+   用户拍板**（一屏，别附整篇 plan 让人通读）。
+4. 表定了就按 `superpowers:subagent-driven-development` 执行，中间不要再问。
 5. 发版走 `./deploy.sh`；停在 live browser smoke 之前交回人手 dogfood
    （memory `feedback_milestone_dogfood_handoff`）。
