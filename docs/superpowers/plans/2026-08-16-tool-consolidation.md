@@ -99,6 +99,37 @@ write_schema 24 · create_experiment 15 · write_audit_rules 15 · create_projec
 
 ---
 
+## 实测约束：jsonschema 在 handler 之前跑（Task 4 暴露，约束 T7–T10）
+
+MCP SDK 在把参数交给 handler **之前**就按声明的 inputSchema 校验一遍。实测：
+
+```
+set_model(role="agent_brain")
+→ "Input validation error: 'agent_brain' is not one of ['extract','labeler','proposer','translate']"
+```
+
+handler 里那句 `if role not in _MODEL_ROLES: return _error_envelope("model_role_unknown", …)`
+**永远走不到**，测它的用例也必然失败。两个选择，本 plan 选后者：
+
+- ❌ schema 去掉 `enum`，留 handler 守卫 —— 为了一条更好看的错误信息，把**模型能看见的
+  合法取值**从 `tools/list` 里删掉。schema 里的 enum 是**预防**（模型压根不会发错），
+  handler 守卫只是**事后报告**。拿预防换报告是坏交易。
+- ✅ **留 enum，删掉不可达的守卫，测试改为断言 schema 层的拒绝。**
+
+**因此 T7/T8/T9/T10 一律遵守：**
+
+| 守卫 | 可达? | 怎么办 |
+|---|---|---|
+| `score_kind_unknown`、`job_action_unknown`、`ui_target_unknown` | ❌ enum 已挡 | 不要写；测试断言 `Input validation error` |
+| `board_kind_required` | ❌ `required` 已挡 | 同上 |
+| `score_kind_arg_unsupported`（`use_llm_judge` 配非 extract kind） | ✅ | 保留 —— 「两个参数的组合非法」schema 表达不了 |
+| `ui_value_invalid`（`value` 类型与 `target` 不匹配） | ✅ | 保留 —— 同上，`value` 声明成 `["string","integer"]`，按 target 的转型只能在代码里 |
+
+判据一句话：**单个参数的取值能被 schema 表达 → 交给 schema，别写守卫；跨参数的组合约束
+schema 表达不了 → 才写守卫。**
+
+---
+
 ## Policy 设计（我的判断，不拿去签字）
 
 briefing 假设「policy 必须能按 `(noun, op)` 表达」。**量完之后这个假设不成立，而且按它做会更差。** 理由：
@@ -855,7 +886,7 @@ async def test_set_model_writes_the_role(
 ) -> None:
     import json
 
-    from app.tools.config import get_project_config
+    from app.tools.project_config import get_project_config
 
     slug = (await create_project(workspace, name="p"))["slug"]
     server = build_emerge_mcp(
@@ -879,7 +910,7 @@ async def test_set_model_rejects_unknown_role(
         "slug": slug, "role": "agent_brain", "model_id": "m",
     })
     text = res.root.content[0].text
-    assert "error_code" in text and "agent_brain" in text
+    assert "Input validation error" in text and "agent_brain" in text
 
 
 def test_the_four_old_setters_are_gone() -> None:
@@ -1079,7 +1110,7 @@ EOF
 
 **Files:**
 - Modify: `backend/app/tools/__init__.py:671-696`（删 `t_get_labeler_config`）
-- Modify: `backend/app/tools/config.py`（每个角色补 `env_default`）
+- Modify: `backend/app/tools/project_config.py`（每个角色补 `env_default`）
 - Modify: `backend/app/tools/_merged.py`, `backend/tests/unit/test_symmetry_invariant.py`
 - Modify: `backend/app/skills/emerge_pre_label_runner.md`, `emerge_extractor.md`
 - Modify: `frontend/src/lib/legacyToolName.ts`
@@ -1100,7 +1131,7 @@ async def test_project_config_carries_env_default_per_role(
     {override, resolved, source} — a superset of the labeler view MINUS
     env_default. Dropping that field would turn a surface merge into an
     information loss, so the merge adds it for all four roles."""
-    from app.tools.config import get_project_config
+    from app.tools.project_config import get_project_config
     from app.tools.projects import create_project
 
     monkeypatch.setenv("EMERGE_DEFAULT_LABELER_MODEL", "m_env_labeler")
@@ -1125,7 +1156,7 @@ cd backend && uv run pytest tests/unit/test_tool_config.py -v -k "env_default or
 
 Expected: FAIL。
 
-- [ ] **Step 3: `config.py` 补 `env_default`**
+- [ ] **Step 3: `project_config.py` 补 `env_default`**
 
 在组装每个 role 字典的地方（`get_project_config` 内），把已经算出来的 env 默认值一并放进返回值：
 
@@ -1441,6 +1472,19 @@ async def test_score_rejects_llm_judge_flag_for_non_extract_kinds(
     assert "score_kind_arg_unsupported" in text
 
 
+async def test_score_rejects_an_unknown_kind_at_the_schema_layer(
+    workspace: Path, stub_provider: AsyncMock, scored_project,
+) -> None:
+    """The enum is the guard. Asserted here so that deleting it from the schema
+    to "simplify" the tool shows up as a failure rather than as a silently
+    wider surface."""
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "score", {"slug": scored_project, "kind": "audti"})
+    assert "Input validation error" in res.root.content[0].text
+
+
 def test_old_score_names_are_gone() -> None:
     live = registered_tool_names(headless=True)
     assert "score_audit" not in live
@@ -1487,12 +1531,9 @@ Expected: FAIL。
         },
     )
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
+        # No `kind not in _SCORE_KINDS` guard: the schema enum already rejects
+        # that before this handler runs (see "jsonschema 在 handler 之前跑").
         kind = args.get("kind") or "extract"
-        if kind not in _SCORE_KINDS:
-            return _error_envelope(
-                "score_kind_unknown",
-                f"Unknown kind {kind!r}. Expected one of {', '.join(_SCORE_KINDS)}.",
-            )
         if kind != "extract" and "use_llm_judge" in args:
             return _error_envelope(
                 "score_kind_arg_unsupported",
@@ -1662,13 +1703,8 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
         },
     )
     async def t_control_job(args: dict[str, Any]) -> dict[str, Any]:
+        # No unknown-action guard: the schema enum rejects it first.
         action = args["action"]
-        if action not in _JOB_ACTIONS:
-            return _error_envelope(
-                "job_action_unknown",
-                f"Unknown action {action!r}. Expected one of "
-                f"{', '.join(sorted(_JOB_ACTIONS))}.",
-            )
         await getattr(jobs_mod, f"{action}_job_impl")(
             job_runner, job_id=args["job_id"],
         )
@@ -1846,14 +1882,12 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
         },
     )
     async def t_ui_focus(args: dict[str, Any]) -> dict[str, Any]:
+        # No unknown-target guard: the schema enum rejects it first. The value
+        # cast below DOES need one — `value` is declared ["string","integer"]
+        # and which of the two is legal depends on `target`, a cross-argument
+        # constraint jsonschema cannot express.
         target = args["target"]
-        caster = _UI_TARGETS.get(target)
-        if caster is None:
-            return _error_envelope(
-                "ui_target_unknown",
-                f"Unknown target {target!r}. Expected one of "
-                f"{', '.join(sorted(_UI_TARGETS))}.",
-            )
+        caster = _UI_TARGETS[target]
         try:
             value = caster(args["value"])
         except (TypeError, ValueError):
@@ -1965,8 +1999,11 @@ async def test_render_board_review_returns_the_text_legend(
 
 
 async def test_render_board_requires_kind(workspace, stub_provider) -> None:
-    """No auto-dispatch on project type — that would change behaviour."""
-    ...  # calling without kind returns error_code board_kind_required
+    """No auto-dispatch on project type — that would change behaviour. `kind` is
+    in the schema's `required`, so the rejection comes from the validation layer
+    before the handler; assert that text, not a handler-side error envelope."""
+    ...  # call render_board with {"slug": …} only; assert the result text
+         # contains "Input validation error"
 
 
 def test_old_board_names_are_gone() -> None:
