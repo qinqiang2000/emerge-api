@@ -170,7 +170,15 @@ briefing 假设「policy 必须能按 `(noun, op)` 表达」。**量完之后这
 | **实际可达** | **69** | **78** | **64** |
 | 浏览器 chat listed | 59 | 68 | **54** |
 | headless full listed | 63 | 72 | **61** |
-| **headless minimal listed（Cowork 实际看见）** | **41** | 44 | **35** |
+| **headless minimal listed（Cowork 实际看见）** | **41** | 44 | **41** |
+
+> minimal 面**净不变**，这不是算错：8 族里只有 3 族的成员真的同时躺在 minimal 里
+> （`extract_one`+`extract_with_experiment` −1、`score`+`score_audit`+`score_match`
+> −2），其余族的成员大多本来就没 list；再加上 Task 1 复活的三件红线工具
+> （`delete_doc`/`rename_doc`/`forget_memory`）+3。**41 − 3 + 3 = 41。**
+> 这恰恰是本 plan 的论点本身：**归并省的是 chat 面和 full 面的表面，remote 面
+> 的 context 税早就被 listing 收走了。** 想再压 remote 面只有继续 cut 一条路，
+> 而那条路上站着 6 月的墓碑。
 
 > **必须坦白的一句：这不是 6 月写的「38 → ~10」。** 那个目标当时就基于错的数（38 是彼时的 listed 数），而且量完之后它是**错的目标**：Bash 260 次已经在扛长尾，remote 面早被 listing 压到 41，唯一一次照「~10」的方向硬砍（按 suite）几小时内就砍没了唯一合法路径。真实可收的表面重复只有 14 个，其余「多」出来的是罕见但正确的动词。**本 milestone 的大头其实是那 9 个不可达工具和那条量错东西的不变量，归并是小头。** ROADMAP 的 P4 描述要跟着改（Task 12）。
 
@@ -412,7 +420,33 @@ EOF
 
 **Interfaces:**
 - Produces: `app.tools._merged.MERGED_TOOLS: dict[str, tuple[str, ...]]` —— `{新名: (被吃掉的旧名, ...)}`，Task 4–11 每族加一行。被 policy 不变量、`_TOOL_HTTP_MAP` 形状测试、前端别名表三方消费，是「哪些名字并去了哪」的唯一真相。
+- Produces: `app.tools._merged.MERGED_POLICY: dict[str, frozenset[str]]` —— `{新名: 该族共有的 policy profile}`，取值是 `{"read_only","destructive","idempotent","touches_provider"}` 的子集。**必须有这张表**：合并落地后旧名已从四个 frozenset 里删掉了，`_profile("set_labeler_model")` 会返回空集，「成员同桶」变成永远真的空断言。把共有 profile 显式声明出来，「同 policy」这条准则才是永久可查的。
 - Produces: `app.tools._merged.legacy_alias() -> dict[str, str]` —— 反向展开 `{旧名: 新名}`。
+- Produces: `app.tools._error_envelope(code: str, message: str) -> dict[str, Any]` —— 仓库里**没有**通用错误信封 helper（只有 `_chat_not_bound_error` / `_extract_provider_error` 两个专用的，其余 ~15 处是内联字面量）。Task 4–11 的新工具都要报 `*_unknown` / `*_unsupported`，统一走它。**只给新工具用，不回头改那 15 处内联** —— 那是另一件事。
+
+- [ ] **Step 0: 加通用错误信封 helper**
+
+`backend/app/tools/__init__.py`，紧跟 `_chat_not_bound_error` 之后：
+
+```python
+def _error_envelope(code: str, message: str) -> dict[str, Any]:
+    """The house `{ok, error:{error_code, error_message_en}}` shape, as a tool
+    result. Introduced with the P4 merges: a multi-op tool has to reject an
+    unknown or inapplicable op, and inlining that dict at every new call site
+    is how the shape drifts. Existing inline sites are deliberately left alone.
+    """
+    return {
+        "content": [{
+            "type": "text",
+            "text": _json.dumps(
+                {"ok": False, "error": {
+                    "error_code": code, "error_message_en": message,
+                }},
+                ensure_ascii=False,
+            ),
+        }]
+    }
+```
 
 - [ ] **Step 1: 建 `_merged.py`（先只放空表 + 两个函数）**
 
@@ -435,6 +469,12 @@ The server does NOT accept old names (no deprecated alias — same posture as
 from __future__ import annotations
 
 MERGED_TOOLS: dict[str, tuple[str, ...]] = {}
+
+# The policy profile the whole family shared, declared per merged tool.
+# Declared rather than derived: once a merge lands, the old names are gone from
+# the four frozensets, so deriving "did the members agree?" from them would be a
+# vacuously-true check over empty sets. Keys must match MERGED_TOOLS exactly.
+MERGED_POLICY: dict[str, frozenset[str]] = {}
 
 
 def legacy_alias() -> dict[str, str]:
@@ -470,7 +510,7 @@ from app.tools import (
     _TOUCHES_PROVIDER,
     registered_tool_names,
 )
-from app.tools._merged import MERGED_TOOLS, legacy_alias
+from app.tools._merged import MERGED_POLICY, MERGED_TOOLS, legacy_alias
 
 _BUCKETS = {
     "read_only": _READ_ONLY,
@@ -479,39 +519,65 @@ _BUCKETS = {
     "touches_provider": _TOUCHES_PROVIDER,
 }
 
+# The five irreversible / outward-facing verbs. Each must keep a standalone
+# name: an MCP client's destructive-gate keys on the tool name, so any of these
+# folded into a multi-op tool becomes un-gateable from the client side.
+_MUST_STAY_STANDALONE = frozenset({
+    "delete_project", "delete_doc",
+    "freeze_version", "issue_api_key", "promote_experiment",
+})
+
 
 def _profile(name: str) -> frozenset[str]:
     return frozenset(b for b, s in _BUCKETS.items() if name in s)
 
 
-def test_no_merged_tool_swallows_a_destructive_op() -> None:
+def test_destructive_tools_stay_standalone() -> None:
     """A client gates on the tool NAME. Folding delete_* into a multi-op tool
     silently un-gates it — a safety regression, not a refactoring detail."""
-    for new, olds in MERGED_TOOLS.items():
-        swallowed = sorted(set(olds) & _DESTRUCTIVE)
-        assert not swallowed, (
-            f"{new!r} would swallow destructive op(s) {swallowed}. Destructive "
-            f"tools keep standalone names so a client can gate them."
-        )
+    assert _MUST_STAY_STANDALONE <= _DESTRUCTIVE, (
+        "a verb left _DESTRUCTIVE without this list being revisited: "
+        f"{sorted(_MUST_STAY_STANDALONE - _DESTRUCTIVE)}"
+    )
+    live = registered_tool_names(headless=True)
+    assert _MUST_STAY_STANDALONE <= live, (
+        f"destructive verb missing from the surface: "
+        f"{sorted(_MUST_STAY_STANDALONE - live)}"
+    )
+    swallowed = sorted(
+        old for olds in MERGED_TOOLS.values() for old in olds
+        if old in _MUST_STAY_STANDALONE
+    )
+    assert not swallowed, (
+        f"destructive op(s) folded into a multi-op tool: {swallowed}"
+    )
+
+
+def test_no_merged_tool_is_destructive() -> None:
+    for new in MERGED_TOOLS:
         assert new not in _DESTRUCTIVE, (
-            f"{new!r} is a merged multi-op tool and must not be destructive."
+            f"{new!r} is a merged multi-op tool and must not be destructive: a "
+            f"client can only allow or block the whole name."
         )
+        assert "destructive" not in MERGED_POLICY.get(new, frozenset())
 
 
-def test_merged_tool_ops_share_one_policy_profile() -> None:
-    """'Same policy' is one of the four merge criteria. If the members disagree,
-    the merged annotation has to lie about at least one of them."""
-    for new, olds in MERGED_TOOLS.items():
-        profiles = {old: _profile(old) for old in olds}
-        distinct = set(profiles.values())
-        assert len(distinct) <= 1, (
-            f"{new!r} merges ops with different policy profiles: {profiles}. "
-            f"Split the family or fix the buckets."
+def test_merged_tool_matches_its_declared_policy_profile() -> None:
+    """'Same policy' is one of the four merge criteria. Declared, not derived:
+    after a merge the old names are gone from the four frozensets, so deriving
+    "did the members agree?" would be a vacuous check over empty sets."""
+    assert set(MERGED_POLICY) == set(MERGED_TOOLS), (
+        f"MERGED_POLICY and MERGED_TOOLS disagree on which tools are merged: "
+        f"only in MERGED_TOOLS {sorted(set(MERGED_TOOLS) - set(MERGED_POLICY))}, "
+        f"only in MERGED_POLICY {sorted(set(MERGED_POLICY) - set(MERGED_TOOLS))}"
+    )
+    for new, declared in MERGED_POLICY.items():
+        unknown = declared - set(_BUCKETS)
+        assert not unknown, f"{new!r} declares unknown bucket(s) {sorted(unknown)}"
+        assert _profile(new) == declared, (
+            f"{new!r} is annotated {sorted(_profile(new))} but its family's "
+            f"declared shared profile is {sorted(declared)}."
         )
-        if distinct:
-            assert _profile(new) == distinct.pop(), (
-                f"{new!r} must inherit its members' policy profile."
-            )
 
 
 def test_old_names_are_gone_from_the_server() -> None:
@@ -531,15 +597,20 @@ def test_merged_targets_are_registered() -> None:
     assert not missing, f"MERGED_TOOLS names a tool nobody registered: {missing}"
 ```
 
-- [ ] **Step 3: 用一条假数据验证不变量会失败**
+- [ ] **Step 3: 用一条假数据验证不变量真的会失败**
 
-临时把 `MERGED_TOOLS` 改成 `{"project": ("create_project", "delete_project")}`，跑：
+一个不变量在空表下通过什么都没证明。临时改成：
+
+```python
+MERGED_TOOLS = {"project": ("create_project", "delete_project")}
+MERGED_POLICY = {"project": frozenset({"idempotent"})}
+```
 
 ```bash
 cd backend && uv run pytest tests/unit/test_tool_policy.py -v
 ```
 
-Expected: `test_no_merged_tool_swallows_a_destructive_op` FAIL（`would swallow destructive op(s) ['delete_project']`）、`test_merged_tool_ops_share_one_policy_profile` FAIL、`test_merged_targets_are_registered` FAIL。确认后把 `MERGED_TOOLS` 改回 `{}`。
+Expected: `test_destructive_tools_stay_standalone` FAIL（`destructive op(s) folded into a multi-op tool: ['delete_project']`）、`test_merged_tool_matches_its_declared_policy_profile` FAIL（`project` 没被注册所以 profile 是空集 ≠ `{idempotent}`）、`test_merged_targets_are_registered` FAIL、`test_old_names_are_gone_from_the_server` FAIL。**四个都失败才算这层网是活的**；只要有一个意外通过，先查那个测试是不是写空了。确认后把两张表都改回 `{}`。
 
 - [ ] **Step 4: 跑，确认空表下全绿**
 
@@ -547,12 +618,12 @@ Expected: `test_no_merged_tool_swallows_a_destructive_op` FAIL（`would swallow 
 cd backend && uv run pytest tests/unit/test_tool_policy.py -v
 ```
 
-Expected: 4 passed。
+Expected: 5 passed。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/tools/_merged.py backend/tests/unit/test_tool_policy.py
+git add backend/app/tools/_merged.py backend/app/tools/__init__.py backend/tests/unit/test_tool_policy.py
 git commit -m "$(cat <<'EOF'
 chore(tools): 合并声明表 + policy 不变量 —— 破坏性 op 永不并进多 op 工具
 
@@ -860,7 +931,7 @@ Expected: FAIL — `set_model` 未注册。
     async def t_set_model(args: dict[str, Any]) -> dict[str, Any]:
         role, slug, model_id = args["role"], args["slug"], args["model_id"]
         if role not in _MODEL_ROLES:
-            return _error(
+            return _error_envelope(
                 "model_role_unknown",
                 f"Unknown role {role!r}. Expected one of "
                 f"{', '.join(_MODEL_ROLES)}. agent_brain is system-level and "
@@ -878,7 +949,7 @@ Expected: FAIL — `set_model` 未注册。
         }
 ```
 
-`_error(...)` 用文件里现有的错误信封 helper（见 `_chat_not_bound_error` / `_extract_provider_error` 附近；若名字不同，照现有调用点抄）。
+`_error_envelope(...)` 是 Task 2 Step 0 加的通用信封 helper —— 仓库原本没有通用版，别再内联字面量。
 
 `app/tools/pre_label.py` 加一个薄分发（三个既有函数保持原样，HTTP 路由仍直接调它们）：
 
@@ -912,6 +983,9 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
         "set_translate_model", "switch_active_model",
     ),
 }
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "set_model": frozenset({"idempotent"}),
 ```
 
 - [ ] **Step 6: 改 `_TOOL_HTTP_MAP` 的键形状**
@@ -1076,6 +1150,10 @@ Expected: FAIL。
     # get_project_config already returned a superset per role; the merge adds
     # the one field it lacked (env_default).
     "get_project_config": ("get_labeler_config",),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "get_project_config": frozenset({"read_only"}),
 ```
 `_TOOL_HTTP_MAP`：
 ```python
@@ -1246,6 +1324,10 @@ Expected: FAIL — `extract` 未注册。
     # One optional argument apart; both provider-touching. The two hottest
     # tools in the system (147 + 53 recorded calls).
     "extract": ("extract_one", "extract_with_experiment"),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "extract": frozenset({"touches_provider"}),
 ```
 ```python
     ("extract", "active"): ("POST", r"^/lab/projects/\{slug\}/extract$"),
@@ -1408,12 +1490,12 @@ Expected: FAIL。
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
         kind = args.get("kind") or "extract"
         if kind not in _SCORE_KINDS:
-            return _error(
+            return _error_envelope(
                 "score_kind_unknown",
                 f"Unknown kind {kind!r}. Expected one of {', '.join(_SCORE_KINDS)}.",
             )
         if kind != "extract" and "use_llm_judge" in args:
-            return _error(
+            return _error_envelope(
                 "score_kind_arg_unsupported",
                 f"use_llm_judge applies to kind='extract' only; kind={kind!r} "
                 f"always runs its own judge.",
@@ -1441,6 +1523,10 @@ Expected: FAIL。
     # Same noun, same policy, compatible input shapes; return shapes differ,
     # which the criteria do not constrain.
     "score": ("score_audit", "score_match"),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "score": frozenset({"touches_provider"}),
 ```
 ```python
     ("score", "extract"): ("POST", r"^/lab/projects/\{slug\}/score$"),
@@ -1563,7 +1649,7 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
     async def t_control_job(args: dict[str, Any]) -> dict[str, Any]:
         action = args["action"]
         if action not in _JOB_ACTIONS:
-            return _error(
+            return _error_envelope(
                 "job_action_unknown",
                 f"Unknown action {action!r}. Expected one of "
                 f"{', '.join(_JOB_ACTIONS)}.",
@@ -1585,6 +1671,10 @@ cd backend && uv run pytest tests/unit/test_tool_jobs.py -v -k "control_job or j
     # Byte-identical `(job_id)` schemas, all idempotent. start_job (provider,
     # different shape) and get_job (read-only) deliberately stay out.
     "control_job": ("pause_job", "resume_job", "cancel_job"),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "control_job": frozenset({"idempotent"}),
 ```
 ```python
     ("control_job", "pause"): ("POST", r"^/lab/jobs/\{job_id\}/pause$"),
@@ -1732,7 +1822,7 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
         target = args["target"]
         caster = _UI_TARGETS.get(target)
         if caster is None:
-            return _error(
+            return _error_envelope(
                 "ui_target_unknown",
                 f"Unknown target {target!r}. Expected one of "
                 f"{', '.join(sorted(_UI_TARGETS))}.",
@@ -1740,7 +1830,7 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
         try:
             value = caster(args["value"])
         except (TypeError, ValueError):
-            return _error(
+            return _error_envelope(
                 "ui_value_invalid",
                 f"target={target!r} needs a {caster.__name__} value, got "
                 f"{args['value']!r}.",
@@ -1765,6 +1855,10 @@ cd backend && uv run pytest tests/unit/test_tool_ui.py -v
         "ui_goto_page", "ui_set_active_field",
         "ui_set_active_tab", "ui_set_active_entity",
     ),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "ui_focus": frozenset({"idempotent"}),
 ```
 `LEGACY_TOOL_NAMES` 加四行。`toolHint.ts` 的 `case 'ui_goto_page':` 改 `case 'ui_focus':`，hint 文案改成读 `target` + `value`。`stores/chat.ts` 里四个 `ui_*` 常量的失效分支合并成一个。
 
@@ -1860,6 +1954,10 @@ cd backend && uv run pytest tests/unit/test_tool_render_board.py -v
     # render_review_board's own description: "the structured-data twin of
     # render_audit_board's page-image circling". One noun, two media.
     "render_board": ("render_audit_board", "render_review_board"),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "render_board": frozenset({"read_only"}),
 ```
 ```python
     ("render_board", "audit"): ("GET", r"^/lab/projects/\{slug\}/audit/board-render$"),
@@ -1940,6 +2038,10 @@ cd backend && uv run pytest tests/unit/test_tool_history.py -v
     # Both read-only halves of schema version history. history_restore mutates
     # and stays out: same noun, different policy.
     "history": ("history_log", "history_diff"),
+
+
+# …and the same key in MERGED_POLICY — the family's shared profile:
+    "history": frozenset({"read_only"}),
 ```
 ```python
     ("history", "log"): ("GET", r"^/lab/history$"),
@@ -2050,7 +2152,9 @@ def test_surface_sizes_are_what_the_plan_says() -> None:
     assert len(headless) == 64, sorted(headless)
     assert len(chat) == 54, sorted(chat)
     assert len(listed) == 61, sorted(listed)
-    assert len(listed & _MINIMAL_SURFACE) == 35, sorted(listed & _MINIMAL_SURFACE)
+    # Net-unchanged on purpose: merging cost minimal 3 slots and Task 1's three
+    # red-line revivals (delete_doc / rename_doc / forget_memory) added 3 back.
+    assert len(listed & _MINIMAL_SURFACE) == 41, sorted(listed & _MINIMAL_SURFACE)
     stale = _MINIMAL_SURFACE - headless
     assert not stale, f"_MINIMAL_SURFACE names tools that no longer exist: {sorted(stale)}"
 ```
