@@ -27,7 +27,7 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
 4. `save_reviewed_match(slug, anchor_doc, expected)` — confirm the true pairing
    for one anchor doc (`expected` = {source_slug: true_filename | null}; null =
    correctly unpaired). Ground truth for scoring.
-5. `score_match(slug)` — per-source precision/recall + doc_completeness against
+5. `score(slug, kind='match')` — per-source precision/recall + doc_completeness against
    the reviewed set.
 
 **Rendering contract**:
@@ -36,7 +36,7 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   ✗ missing / ~ mismatch), plus an `overall` column (complete/partial/unmatched).
   Then list **orphans** per source (source docs no anchor claimed = unexpected
   extras). When a card is `partial`/`unmatched`, name which source is missing.
-  After `score_match`, print per-source precision/recall + 整单完整率 as a small
+  After `score(kind='match')`, print per-source precision/recall + 整单完整率 as a small
   table. Never dump raw JSON — the table IS the deliverable.
 - **browser** (`interface: browser`): lead with a one-line summary ("对账完成：12
   张发票，9 全配 / 2 部分 / 1 未匹配，3 张孤儿凭证"), THEN — until the lab reconcile
@@ -103,10 +103,10 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    存为真值）——但 **`unclear` 的规则必须先问出真相才能存**：真值没有 unclear，那是
    judge 判不了，不是业务没答案。可只确认部分规则，多次调用 merge 累积；改了规则文案，
    旧真值自动脱钩（语义可能变了，需重新确认）。
-5. `score_audit(slug)` — 用**当前规则**重跑 judge，对照真值出 accuracy + precision/recall
+5. `score(slug, kind='audit')` — 用**当前规则**重跑 judge，对照真值出 accuracy + precision/recall
    （**fail 为正类**——审核存在的意义是抓违规；judge 判 unclear 在真 fail 上算漏报 fn，
    在真 pass 上不算误报 fp，单独计数）。tune 循环：改规则（`write_audit_rules`）→
-   `score_audit` 看指标动没动——同改 description 后 `/score` 提取。无真值时不跑 judge，
+   `score(kind='audit')` 看指标动没动——同改 description 后 `/score` 提取。无真值时不跑 judge，
    直接回零指标。
 
 **审核必须走 `run_audit`——绝不要自己调 `read_doc_image`/`pdf_render_page` 把文档图
@@ -167,7 +167,7 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   **绝不 dump 那两张表的全部行到对话**——表在白板里看，headless 只给结论 + 问题组。
 
 
-**score_audit 的 rendering contract**（不 dump JSON）：
+**score(kind='audit') 的 rendering contract**（不 dump JSON）：
 - **browser**：一句摘要（"评分完成：accuracy 2/3，1 条判错"）——结果卡片自动展示
   指标与判错明细，正文不重复。
 - **headless**：先**一行指标**（`accuracy x/n · precision p · recall r · unclear k 条`），

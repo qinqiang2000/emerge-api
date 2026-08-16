@@ -1,5 +1,5 @@
 import type { ChatEvent, RenderItem } from '../types/chat'
-import { canonicalToolName } from './legacyToolName'
+import { canonicalToolName, scoreKindOf } from './legacyToolName'
 
 // Tools that render as standalone "rich cards" (EvalCard, PublishStage, JobProgressCard).
 // They stay outside the ToolStack collapse so their primary artifact (score
@@ -15,15 +15,28 @@ const HOISTED_TOOL_NAMES = new Set([
   // beneath the tool card after a review-mode feedback turn.
   'save_reviewed',
   // A3: audit results render as rich cards (AuditCard) — the per-rule
-  // checklist / score strip is the user's primary artifact.
-  // score_audit was originally listed separately; Task 7 merges it into
-  // `score`, at which point canonicalToolName maps it there automatically —
-  // kept here explicitly for now so behaviour stays equivalent pre-merge.
-  'run_audit', 'score_audit',
+  // checklist / score strip is the user's primary artifact. `run_audit` is
+  // its own tool (unaffected by Task 7); `score`'s kind='audit' calls are
+  // handled below by name alone (canonicalToolName already maps the legacy
+  // `score_audit` transcripts onto `score`, so one entry suffices).
+  'run_audit',
   // 审单核对白板: render_review_board hoists so its ReviewBoardCard (doc list +
   // "打开白板 ↗") renders inline instead of collapsing into the tool stack.
   'render_review_board',
 ])
+
+// `score` folds score_audit/score_match (P4 Task 7): kind='extract'/'audit'
+// hoist same as before (they were their own hoisted tools pre-merge);
+// kind='match' must NOT hoist — score_match was never in HOISTED_TOOL_NAMES,
+// it always fell through to the collapsed ToolStack, and the merge must not
+// silently change that. scoreKindOf is the single place both this grouping
+// decision and MessageList's card dispatch read the kind from, so the two
+// cannot drift apart from each other.
+function isHoisted(e: Extract<ChatEvent, { type: 'tool_call' }>): boolean {
+  const kind = scoreKindOf(e.tool_name, e.tool_input)
+  if (kind !== null) return kind !== 'match'
+  return HOISTED_TOOL_NAMES.has(canonicalToolName(e.tool_name))
+}
 
 export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
   const out: RenderItem[] = []
@@ -42,7 +55,7 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
   let toolBufParent: string | undefined
   for (const e of events) {
     if (e.type === 'tool_call') {
-      if (HOISTED_TOOL_NAMES.has(canonicalToolName(e.tool_name))) {
+      if (isHoisted(e)) {
         flushTools()
         out.push({ kind: 'hoisted_tool', call: e })
       } else {

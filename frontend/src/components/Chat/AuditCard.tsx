@@ -2,10 +2,14 @@
 //
 // A3 — audit report + audit score cards (adapter pattern, mirrors EvalCard).
 // `run_audit` results render as a per-rule ✓/✗/? checklist with a tri-state
-// overall badge (pass=moss / warn=ochre / fail=rose, soft fills); `score_audit`
-// results render a one-line metric strip + the wrongly-judged rules only.
+// overall badge (pass=moss / warn=ochre / fail=rose, soft fills); `score(kind=
+// 'audit')` (score_audit pre-P4-Task-7) results render a one-line metric strip
+// + the wrongly-judged rules only.
 // Adapters are strict: JSON they don't positively recognize returns null so the
-// generic ToolCall rendering is never hijacked.
+// generic ToolCall rendering is never hijacked. Recognition is shape-based
+// (per_rule/reviewed/accuracy/unclear), not tool_name-based, so it keeps
+// working unchanged whether the caller is the standalone legacy score_audit
+// tool_name or the merged score(kind='audit').
 import type { ChatEvent } from '../../types/chat'
 import ToolCall from './ToolCall'
 import ToolRow from './ToolRow'
@@ -130,7 +134,7 @@ export function adaptAuditReport(raw: unknown): AuditReportData | null {
   }
 }
 
-/** score_audit result → card data; null when the JSON isn't an audit score. */
+/** score(kind='audit') result → card data; null when the JSON isn't an audit score. */
 export function adaptAuditScore(raw: unknown): AuditScoreData | null {
   const o = asObject(raw)
   if (!o) return null

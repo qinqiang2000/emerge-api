@@ -1,6 +1,6 @@
 """Pydantic models for extraction tool I/O.
 
-`ExtractionOutput` is the wire format for extract_one tool output. Field name
+`ExtractionOutput` is the wire format for extract tool output. Field name
 `evidence` serializes as `_evidence` on the wire (LLM contract).
 
 Evidence shape (field-source-grounding, 2026-05-29): each per-field evidence
@@ -58,7 +58,7 @@ def _coerce_entry(entry: dict) -> dict[str, FieldEvidence]:
 
 
 class ExtractionOutput(BaseModel):
-    """Wire format for extract_one tool output.
+    """Wire format for extract tool output.
 
     ``entities`` is the list of extracted records. ``evidence`` is an optional
     parallel list: for each entity, a map from field path → :class:`FieldEvidence`.

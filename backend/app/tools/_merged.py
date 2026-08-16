@@ -33,6 +33,10 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
     # One optional argument apart; both provider-touching. The two hottest
     # tools in the system (147 + 53 recorded calls).
     "extract": ("extract_one", "extract_with_experiment"),
+    # Same noun, same policy (all provider-touching), compatible input shapes
+    # (slug[, use_llm_judge]); return shapes differ per kind and that is fine
+    # — the merge criteria constrain input shape, not output.
+    "score": ("score_audit", "score_match"),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -44,6 +48,7 @@ MERGED_POLICY: dict[str, frozenset[str]] = {
     "get_project_config": frozenset({"read_only"}),
     "history": frozenset({"read_only"}),
     "extract": frozenset({"touches_provider"}),
+    "score": frozenset({"touches_provider"}),
 }
 
 

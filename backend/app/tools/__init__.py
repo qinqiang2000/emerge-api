@@ -161,10 +161,10 @@ _IDEMPOTENT = frozenset({  # mutates, but re-applying the same args is a no-op
 })
 _TOUCHES_PROVIDER = frozenset({  # calls an external LLM/OCR → openWorldHint stays true
     "derive_schema", "extract", "extract_textlayer",
-    "translate_page", "label_docs", "score", "run_experiment_eval", "start_job",
-    "run_match", "score_match",  # L2 judge tie-breaker may call the LLM
+    "translate_page", "label_docs", "run_experiment_eval", "start_job",
+    "run_match",                 # match tie-breaker may call the LLM
     "run_audit",                 # audit judge reads fields + image via the LLM
-    "score_audit",               # re-runs the audit judge against ground truth
+    "score",  # extract/audit/match — the L2 judge may call the LLM in all three
 })
 
 
@@ -1386,30 +1386,67 @@ def build_emerge_mcp(
         )
         return {"content": [{"type": "text", "text": "ok"}]}
 
+    _SCORE_KINDS = ("extract", "audit", "match")
+
     @tool(
         "score",
-        "Compute field accuracy + doc accuracy by comparing draft "
-        "predictions against reviewed examples via the L1 normalize + "
-        "(optional) L2 LLM-judge + L3 presence pipeline. Persists a "
-        "directory artifact under metrics/eval_{ts}/ "
-        "(summary.json + cells.jsonl + matrix.csv + meta.json). Returns "
-        "the summary. Pass use_llm_judge=false to skip the L2 LLM-as-judge "
-        "layer (on by default).",
+        "Score this project against its human-confirmed ground truth. "
+        "`kind='extract'` (default): field + doc accuracy of predictions/_draft "
+        "vs reviewed examples via L1 normalize + optional L2 LLM-judge + L3 "
+        "presence; persists metrics/eval_{ts}/ and returns the summary. "
+        "`kind='audit'`: re-runs the audit with the CURRENT rules and reports "
+        "accuracy + precision/recall with 'fail' as the positive class (a judge "
+        "'unclear' on a true fail counts as a miss, never a false alarm); the "
+        "tune loop is write_audit_rules → score(kind='audit'). `kind='match'`: "
+        "re-runs the match and reports per-source precision/recall over "
+        "reviewed anchors plus doc_completeness. `use_llm_judge` applies to "
+        "kind='extract' only.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
-                "use_llm_judge": {"type": "boolean", "default": True},
+                "kind": {"type": "string", "enum": list(_SCORE_KINDS)},
+                "use_llm_judge": {"type": "boolean"},
             },
             "required": ["slug"],
         },
     )
     async def t_score(args: dict[str, Any]) -> dict[str, Any]:
-        result = await score_mod.run_eval(
-            workspace, args["slug"],
-            use_llm_judge=bool(args.get("use_llm_judge", True)),
-        )
-        return {"content": [{"type": "text", "text": _json.dumps(result.model_dump(mode='json'))}]}
+        # No `kind not in _SCORE_KINDS` guard here: the schema `enum` above is
+        # validated by the MCP SDK before this handler ever runs, so an
+        # unknown kind never reaches this body (see test_symmetry_invariant's
+        # sibling test asserting the schema layer, not a handler branch,
+        # rejects it).
+        kind = args.get("kind") or "extract"
+        if kind != "extract" and "use_llm_judge" in args:
+            return _error_envelope(
+                "score_kind_arg_unsupported",
+                f"use_llm_judge applies to kind='extract' only; kind={kind!r} "
+                f"always runs its own judge.",
+            )
+        if kind == "extract":
+            # ← verbatim from the old t_score body
+            result = await score_mod.run_eval(
+                workspace, args["slug"],
+                use_llm_judge=bool(args.get("use_llm_judge", True)),
+            )
+            return {"content": [{"type": "text", "text": _json.dumps(result.model_dump(mode='json'))}]}
+        elif kind == "audit":
+            # ← verbatim from the old t_score_audit body
+            from app.tools.audit_review import score_audit
+            from app.tools.audit_run import AuditError
+            try:
+                out = await score_audit(workspace, args["slug"])
+            except AuditError as e:
+                return {"content": [{"type": "text", "text": _json.dumps(
+                    {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                    ensure_ascii=False)}]}
+            return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+        else:
+            # kind == "match" ← verbatim from the old t_score_match body
+            from app.tools.match_review import score_match
+            out = await score_match(workspace, args["slug"])
+            return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
         "readiness_check",
@@ -2168,21 +2205,6 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
-        "score_match",
-        "Score a match project against its reviewed ground truth: re-runs the "
-        "match, then reports per-source precision/recall (over reviewed anchors "
-        "only) + doc_completeness (fraction of reviewed anchors whose full "
-        "pairing was exactly right). Returns {reviewed, per_source, "
-        "doc_completeness}.",
-        {"type": "object", "properties": {"slug": {"type": "string"}},
-         "required": ["slug"]},
-    )
-    async def t_score_match(args: dict[str, Any]) -> dict[str, Any]:
-        from app.tools.match_review import score_match
-        out = await score_match(workspace, args["slug"])
-        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
-
-    @tool(
         "write_audit_rules",
         "Set a project's AUDIT rules — the compliance checks `run_audit` "
         "evaluates over the documents in that project. Each item is a "
@@ -2363,33 +2385,6 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
-        "score_audit",
-        "Score a project's audit rules against the human-confirmed ground "
-        "truth: re-runs the audit with the CURRENT rules, then compares each "
-        "reviewed rule's verdict to its truth. Reports accuracy + "
-        "precision/recall with 'fail' as the positive class (auditing exists "
-        "to catch violations); a judge 'unclear' on a true fail counts as a "
-        "miss, never as a false alarm. Rules without a confirmed truth are "
-        "skipped and listed in unreviewed_rules; with no truth at all the "
-        "judge is not called. The tune loop: edit rules via write_audit_rules, "
-        "then score_audit to see the metrics move. Returns {run_id, reviewed, "
-        "accuracy, precision, recall, tp, fp, fn, unclear, per_rule, "
-        "unreviewed_rules}.",
-        {"type": "object", "properties": {"slug": {"type": "string"}},
-         "required": ["slug"]},
-    )
-    async def t_score_audit(args: dict[str, Any]) -> dict[str, Any]:
-        from app.tools.audit_review import score_audit
-        from app.tools.audit_run import AuditError
-        try:
-            out = await score_audit(workspace, args["slug"])
-        except AuditError as e:
-            return {"content": [{"type": "text", "text": _json.dumps(
-                {"error_code": e.error_code, "error_message_en": e.error_message_en},
-                ensure_ascii=False)}]}
-        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
-
-    @tool(
         "render_audit_board",
         "Render the project's LATEST audit report as annotated document images "
         "— one composite image per audited doc, every rule's evidence circled "
@@ -2555,14 +2550,12 @@ def build_emerge_mcp(
             t_write_match_prompt,
             t_run_match,
             t_save_reviewed_match,
-            t_score_match,
             t_write_audit_rules,
             t_run_audit,
             t_read_audit_report,
             t_render_audit_board,
             t_render_review_board,
             t_save_reviewed_audit,
-            t_score_audit,
             t_extract,
             t_save_reviewed,
             t_score,

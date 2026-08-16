@@ -143,6 +143,12 @@ function unsafeToolShortHint(toolName: string, result: unknown): string | null {
       const o = asObj(result)
       // M12.x — prefer the accuracy headline; fall back to legacy `macro_f1`
       // so old `score` tool calls in transcripts still render.
+      // P4 Task 7: `score` now also carries kind='audit'/'match' results
+      // (only reached here for kind='match' — kind='audit' is hoisted to
+      // AuditCard before this hint is used for the args string, kind='match'
+      // falls through to the generic ToolCall). Neither shape has
+      // field_accuracy_macro/macro_f1, so this degrades to `null` (no hint
+      // text) rather than a wrong/misleading number — verified, not a hijack.
       if (typeof o?.field_accuracy_macro === 'number') {
         return `field_acc=${o.field_accuracy_macro.toFixed(2)}`
       }

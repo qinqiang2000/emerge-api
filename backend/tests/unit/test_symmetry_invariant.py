@@ -135,7 +135,13 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("extract", "active"):     ("POST", r"^/lab/projects/\{slug\}/extract$"),
     ("extract", "experiment"): ("POST", r"^/lab/projects/\{slug\}/experiments/\{experiment_id\}/predictions/\{filename:path\}$"),
     ("save_reviewed", None):   ("POST", r"^/lab/projects/\{slug\}/reviewed/\{filename:path\}$"),
-    ("score", None):           ("POST", r"^/lab/projects/\{slug\}/score$"),
+    # `score` folds score_audit + score_match (P4 Task 7) — same posture as
+    # `extract`: REST already expresses the op as the resource, so the HTTP
+    # side deliberately does NOT merge (note the GET/POST asymmetry across the
+    # three routes stays — that predates the tool merge and is correct).
+    ("score", "extract"):      ("POST", r"^/lab/projects/\{slug\}/score$"),
+    ("score", "audit"):        ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
+    ("score", "match"):        ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
     ("readiness_check", None): ("GET",  r"^/lab/projects/\{slug\}/readiness$"),
     ("contract_diff", None):   ("GET",  r"^/lab/projects/\{slug\}/contract-diff$"),
     # Bench leaderboard (project-level horizontal view of prompt × model evals).
@@ -146,7 +152,6 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("write_match_prompt", None):   ("PUT",  r"^/lab/match/projects/\{slug\}/prompt$"),
     ("run_match", None):            ("POST", r"^/lab/match/projects/\{slug\}/run$"),
     ("save_reviewed_match", None):  ("POST", r"^/lab/match/projects/\{slug\}/reviewed$"),
-    ("score_match", None):          ("GET",  r"^/lab/match/projects/\{slug\}/score$"),
     ("write_audit_rules", None):    ("PUT",  r"^/lab/projects/\{slug\}/audit-rules$"),
     ("run_audit", None):            ("POST", r"^/lab/projects/\{slug\}/audit$"),
     ("read_audit_report", None):    ("GET",  r"^/lab/projects/\{slug\}/audit/latest$"),
@@ -156,7 +161,6 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("render_audit_board", None):   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
     ("render_review_board", None):  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
     ("save_reviewed_audit", None):  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
-    ("score_audit", None):          ("POST", r"^/lab/projects/\{slug\}/audit-score$"),
     # Publish + keys
     ("freeze_version", None): ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
     ("issue_api_key", None):  ("POST", r"^/lab/keys$"),

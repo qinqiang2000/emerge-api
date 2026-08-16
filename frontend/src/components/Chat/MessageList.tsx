@@ -2,6 +2,7 @@ import { KeyRound } from 'lucide-react'
 
 import type { ChatEvent } from '../../types/chat'
 import { groupChatEvents } from '../../lib/groupChatEvents'
+import { scoreKindOf } from '../../lib/legacyToolName'
 import { toolInputHint, toolShortHint } from '../../lib/toolHint'
 import PublishStage, { adaptReadiness } from '../Publish/PublishStage'
 import { sampleCurl } from '../../lib/api'
@@ -200,7 +201,7 @@ function PublishStageKeyAdapter({ event }: { event: ToolCallEvent }) {
 // focus and must stay immediately visible. Hoist routing happens at the
 // grouping layer (lib/groupChatEvents.ts); this is the render-time dispatch.
 
-function HoistedToolCard({ call }: { call: ToolCallEvent }) {
+export function HoistedToolCard({ call }: { call: ToolCallEvent }) {
   if (
     call.tool_name === 'mcp__emerge_tools__start_job' &&
     typeof call.tool_result === 'string' &&
@@ -214,15 +215,28 @@ function HoistedToolCard({ call }: { call: ToolCallEvent }) {
   if (call.tool_name === 'mcp__emerge_tools__issue_api_key') {
     return <PublishStageKeyAdapter event={call} />
   }
-  if (call.tool_name === 'mcp__emerge_tools__score') {
+  if (call.tool_name === 'mcp__emerge_tools__run_audit') {
+    return <AuditCardAdapter call={call} />
+  }
+  // `score` folds score_audit/score_match (P4 Task 7) — name alone can no
+  // longer pick the card, so dispatch on `kind`. scoreKindOf mirrors the
+  // server's default exactly (`args.get("kind") or "extract"`, t_score in
+  // app/tools/__init__.py) and also resolves the legacy pre-merge transcript
+  // names (score_audit/score_match), so this one block replaces both the old
+  // bare `score` check and the old `score_audit` half of the audit check.
+  const scoreKind = scoreKindOf(call.tool_name, call.tool_input)
+  if (scoreKind === 'audit') {
+    return <AuditCardAdapter call={call} />
+  }
+  if (scoreKind === 'match') {
+    // score_match was never hoisted pre-merge — its result fell straight
+    // through to the generic tool card. Render the same thing here so
+    // behaviour is unchanged now that `score` shares one name across kinds.
+    return <PlumbingToolCard call={call} />
+  }
+  if (scoreKind === 'extract') {
     const slug = useProjects.getState().selectedSlug
     return <EvalCardAdapter call={call} slug={slug} />
-  }
-  if (
-    call.tool_name === 'mcp__emerge_tools__run_audit' ||
-    call.tool_name === 'mcp__emerge_tools__score_audit'
-  ) {
-    return <AuditCardAdapter call={call} />
   }
   if (call.tool_name === 'mcp__emerge_tools__render_review_board') {
     return <ReviewBoardCardAdapter call={call} />

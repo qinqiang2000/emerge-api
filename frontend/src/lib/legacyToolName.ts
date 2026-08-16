@@ -27,15 +27,51 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   // differed by exactly one optional argument.
   extract_one: 'extract',
   extract_with_experiment: 'extract',
+  // Task 7 — score(kind=) folds the three scoring verbs (same noun, same
+  // policy, compatible input shapes: slug[, use_llm_judge]).
+  score_audit: 'score',
+  score_match: 'score',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'
 const SERVICE_PREFIX = 'emerge_'
 
+function bareToolName(toolName: string): string {
+  if (toolName.startsWith(CHAT_PREFIX)) return toolName.slice(CHAT_PREFIX.length)
+  if (toolName.startsWith(SERVICE_PREFIX)) return toolName.slice(SERVICE_PREFIX.length)
+  return toolName
+}
+
 /** Bare, current-generation tool name for any recorded tool_name. */
 export function canonicalToolName(toolName: string): string {
-  let bare = toolName
-  if (bare.startsWith(CHAT_PREFIX)) bare = bare.slice(CHAT_PREFIX.length)
-  else if (bare.startsWith(SERVICE_PREFIX)) bare = bare.slice(SERVICE_PREFIX.length)
+  const bare = bareToolName(toolName)
   return LEGACY_TOOL_NAMES[bare] ?? bare
+}
+
+export type ScoreKind = 'extract' | 'audit' | 'match'
+
+/**
+ * Which score kind a tool_call represents, for card-selection AND hoist
+ * dispatch (P4 Task 7 folded score_audit/score_match into `score(kind=)`).
+ * Mirrors the server's own default exactly — `args.get("kind") or "extract"`
+ * in `backend/app/tools/__init__.py::t_score` — so the frontend and backend
+ * cannot drift (same posture as the `extract(experiment_id?)` merge, Task 6).
+ *
+ * Two frontend layers need this same answer — groupChatEvents.ts (hoist vs.
+ * collapse into the ToolStack) and MessageList.tsx (which card component) —
+ * so it lives here once rather than being recomputed twice and risking the
+ * two go out of sync with each other.
+ *
+ * Legacy transcripts recorded the OLD standalone names before `kind` existed
+ * as an argument at all, so for those the NAME itself is the kind signal —
+ * old recorded tool_input never carries `kind`. Returns null for any
+ * non-score tool call.
+ */
+export function scoreKindOf(toolName: string, toolInput: unknown): ScoreKind | null {
+  const bare = bareToolName(toolName)
+  if (bare === 'score_audit') return 'audit'
+  if (bare === 'score_match') return 'match'
+  if (bare !== 'score') return null
+  const kind = (toolInput as { kind?: unknown } | null | undefined)?.kind
+  return kind === 'audit' || kind === 'match' ? kind : 'extract'
 }

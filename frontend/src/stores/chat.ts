@@ -14,7 +14,7 @@ import {
 } from '../lib/api'
 import { t } from '../i18n'
 import { newChatId } from '../lib/ids'
-import { canonicalToolName } from '../lib/legacyToolName'
+import { canonicalToolName, scoreKindOf } from '../lib/legacyToolName'
 import { dispatchUiAction } from '../lib/surfaceRouter'
 import { attachStream, cancelTurn, fetchTurnState, startTurn, TurnRequestError, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
@@ -1462,6 +1462,13 @@ function handleToolResult(
           return input && typeof input.experiment_id === 'string' ? input.experiment_id : null
         })()
       : null
+    // `score` (P4 Task 7 merge of score_audit + score_match into score(kind=))
+    // dispatches on kind at the tool level — same rule the server's t_score
+    // uses (`args.get("kind") or "extract"`). Only kind='extract' writes a
+    // fresh metrics/eval_{ts}/ row; audit/match write their own separate
+    // ground truth, so they must not trigger the eval-cache refresh or Bench
+    // invalidation below — score_audit/score_match never did, pre-merge.
+    const scoreKind = t === 'score' ? scoreKindOf(parent.tool_name, parent.tool_input) : null
     if (t === 'write_schema') {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
@@ -1566,7 +1573,7 @@ function handleToolResult(
         }
       }
     }
-    if (t === 'score') {
+    if (scoreKind === 'extract') {
       void useEval.getState().refresh(projectId)
     }
     if (t === 'run_audit') {
@@ -1612,7 +1619,9 @@ function handleToolResult(
     // eager-`load(projectId)` here: Bench is only consumed when the
     // overlay is open, and the next open triggers `load` itself. This
     // mirrors `useExperiments` invalidate semantics with no autoload.
-    if (BENCH_INVALIDATING_TOOLS.has(t)) {
+    // `score` is only a Bench ingredient for kind='extract' (the leaderboard's
+    // score column) — same "audit/match must not piggyback" rule as above.
+    if (BENCH_INVALIDATING_TOOLS.has(t) && (t !== 'score' || scoreKind === 'extract')) {
       useBench.getState().invalidate(projectId)
     }
   }
