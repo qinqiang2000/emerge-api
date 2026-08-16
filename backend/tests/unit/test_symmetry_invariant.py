@@ -26,11 +26,9 @@ audit that produced the Phase B route fillers.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from fastapi.routing import APIRoute
 
-import app.tools as _tools_pkg
 from app.main import app
 
 
@@ -192,20 +190,17 @@ _TOOL_HTTP_MAP: dict[str, tuple[str, str]] = {
 
 
 def _discover_tools() -> set[str]:
-    """Parse the ``@tool("name", ...)`` registrations out of
-    ``app/tools/__init__.py``. Using the source text (not importing) keeps
-    this test cheap and avoids spinning up the full SDK MCP server during the
-    unit suite — and catches dead-but-decorated tools the same way it catches
-    live ones, which is the contract we want.
+    """Tools ACTUALLY registered on the MCP server.
 
-    Resolves the source path via the imported ``app.tools`` package's
-    ``__file__`` so the assertion holds regardless of the test's cwd (the
-    project conftest ``chdir``'s into a per-test workspace; a relative path
-    would miss)."""
-    tools_init = Path(_tools_pkg.__file__).resolve()
-    src = tools_init.read_text(encoding="utf-8")
-    # First positional argument of `@tool(...)` is the quoted tool name.
-    return set(re.findall(r'@tool\(\s*"([a-z_][a-z0-9_]*)"', src))
+    Was: a regex over `__init__.py` source text. That measured the wrong thing —
+    nine tools kept their `@tool` decorator (so the regex matched) while never
+    reaching the `tools=[...]` list, so they had HTTP twins mapped here for
+    functions no agent could call. Registration is the contract; source text is
+    not. See test_tool_registration::test_every_decorated_tool_is_actually_registered.
+    """
+    from app.tools import registered_tool_names
+
+    return set(registered_tool_names(headless=True))
 
 
 def _route_signatures() -> set[tuple[str, str]]:

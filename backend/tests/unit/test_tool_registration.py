@@ -9,12 +9,15 @@ from app.tools import _emerge_tool_names
 
 async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: AsyncMock) -> None:
     """Step B trimmed the filesystem-wrapper tools (`list_*`, `get_*`, `read_*`,
-    `upload_doc`, `delete_*`, `ingest_local_path`, `rename_project`,
+    `upload_doc`, `delete_prompt|model|experiment`, `ingest_local_path`,
     `import_prompt`, `create_prompt|model`, `write_prompt|model`,
     `archive_experiment`) — SDK built-in Bash/Glob/Grep/Read/Write/Edit covers
     them under `_workspace_safety_gate`. What stays registered is the
     business moat: provider-bound extract/label, schema atomicity, doc
-    vision, lifecycle ops, UI bridge."""
+    vision, lifecycle ops, UI bridge. `delete_doc` / `rename_project` later
+    came back (P4 Task 1) — filename/slug is a primary key shared with
+    sibling artifacts, so Bash rm/mv silently orphans them; see
+    `build_emerge_mcp`'s docstring."""
     from app.jobs.runner import JobRunner
     runner = JobRunner(workspace=workspace, provider=stub_provider)
     server = build_emerge_mcp(workspace=workspace, provider=stub_provider, job_runner=runner)
@@ -40,9 +43,12 @@ async def test_build_emerge_mcp_lists_tools(workspace: Path, stub_provider: Asyn
 
     # Step B negative assertion — cut tools must NOT be registered. Catches
     # regressions where someone re-adds a wrapper tool by reflex.
+    # `rename_project` / `delete_doc` are deliberately absent here — P4 Task 1
+    # (2026-08-16) restored their registration (see `build_emerge_mcp`'s
+    # docstring); they are no longer cut tools.
     cut = {
-        "rename_project", "list_projects", "upload_doc", "ingest_local_path",
-        "list_docs", "delete_doc", "read_schema", "get_pending",
+        "list_projects", "upload_doc", "ingest_local_path",
+        "list_docs", "read_schema", "get_pending",
         "create_prompt", "write_prompt", "list_prompts", "delete_prompt",
         "create_model", "write_model", "list_models", "delete_model",
         "archive_experiment", "list_experiments", "delete_experiment",
@@ -213,3 +219,45 @@ async def test_delete_project_registered(
     names = await _extract_tool_names(server)
     assert "delete_project" in names
     assert "delete_project" in _emerge_tool_names()
+
+
+async def test_every_decorated_tool_is_actually_registered() -> None:
+    """A `@tool` decorator that never lands in the `tools=[...]` list passed to
+    `create_sdk_mcp_server` is invisible to EVERY surface — chat, stdio, remote —
+    while still satisfying the symmetry invariant (which used to scan source
+    text). That is how nine tools with live HTTP routes, unit tests and skill
+    prose ended up unreachable. `test_delete_project_registered` pinned exactly
+    one name against this; this is the general form."""
+    import re
+    from pathlib import Path
+
+    import app.tools as tools_pkg
+    from app.tools import registered_tool_names
+
+    src = Path(tools_pkg.__file__).resolve().read_text(encoding="utf-8")
+    decorated = set(re.findall(r'@tool\(\s*"([a-z_][a-z0-9_]*)"', src))
+    registered = registered_tool_names(headless=True)
+
+    missing = decorated - registered
+    assert not missing, (
+        f"@tool decorated but never registered (invisible to every agent): "
+        f"{sorted(missing)}. Append the t_* function to the `_tools` list in "
+        f"build_emerge_mcp."
+    )
+
+
+async def test_filesystem_lookalike_tools_are_reachable() -> None:
+    """delete_doc / rename_doc / rename_project / forget_memory read like rm/mv
+    wrappers but aren't (INSIGHTS: filename is the primary key of four sibling
+    artifacts; MEMORY.md index and note body must move together). If they leave
+    the surface again the agent falls back to Bash rm/mv and silently corrupts
+    the set — the exact failure those tools exist to prevent."""
+    from app.tools import registered_tool_names
+
+    names = registered_tool_names(headless=True)
+    for n in (
+        "delete_doc", "rename_doc", "rename_project", "forget_memory",
+        "list_trash", "restore_from_trash",
+        "history_log", "history_diff", "history_restore",
+    ):
+        assert n in names, f"{n} fell off the registration list again"

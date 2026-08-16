@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64 as _base64
 import json as _json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from claude_agent_sdk import (
     McpSdkServerConfig,
@@ -2549,6 +2549,26 @@ def build_emerge_mcp(
     _tools = [
             t_create_project,
             t_delete_project,
+            # Reachability restored 2026-08-16 (P4 Task 1). These nine carried
+            # `@tool`, a live HTTP route and unit tests, but never reached this
+            # list — invisible to chat, stdio and remote alike. The first four
+            # are the "reads like an rm/mv wrapper but isn't" family INSIGHTS
+            # warns about: a doc's filename is the primary key of four other
+            # artifacts, a project's folder name is mirrored in project.json +
+            # the pid index, and retiring a memory must trash the body AND drop
+            # its MEMORY.md line in one step — Bash gets all four wrong.
+            t_delete_doc,
+            t_rename_doc,
+            t_rename_project,
+            t_forget_memory,
+            # Recovery half of the never-physically-delete red line; without
+            # them `_trash/` is a black hole.
+            t_list_trash,
+            t_restore_from_trash,
+            # Schema version history (log/diff read-only, restore mutates).
+            t_history_log,
+            t_history_diff,
+            t_history_restore,
             t_promote_chat_to_project,
             t_promote_attachment_to_docs,
             t_label_docs,
@@ -2668,3 +2688,48 @@ _EMERGE_TOOL_NAMES = (
 
 def _emerge_tool_names() -> tuple[str, ...]:
     return _EMERGE_TOOL_NAMES
+
+
+def registered_tool_names(*, headless: bool = True) -> frozenset[str]:
+    """Bare names of the tools ACTUALLY handed to ``create_sdk_mcp_server``.
+
+    The contract-checking tests must measure registration, not source text: a
+    `@tool` decorator that never reaches the `tools=[...]` list is invisible to
+    every agent while still matching a source-scanning regex. Builds a throwaway
+    server with dummy collaborators — no tool body runs, so the stubs are never
+    touched.
+
+    Callable from both sync and async call sites. Callers include `async def`
+    tests under pytest-asyncio, which already have a loop running on the
+    calling thread — a plain `asyncio.run()` would raise "cannot be called
+    from a running event loop" there, so when one is detected the coroutine
+    runs to completion on a fresh loop in a worker thread instead of nesting.
+    """
+    import asyncio
+    import tempfile
+
+    from mcp.types import ListToolsRequest
+
+    cfg = build_emerge_mcp(
+        workspace=Path(tempfile.gettempdir()),
+        provider=cast(Any, object()),
+        job_runner=cast(Any, object()),
+        headless=headless,
+    )
+    handler = cfg["instance"].request_handlers[ListToolsRequest]
+
+    async def _list_names() -> frozenset[str]:
+        result = await handler(ListToolsRequest(method="tools/list"))
+        return frozenset(
+            t.name.removeprefix(SERVICE_PREFIX) for t in result.root.tools
+        )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_list_names())
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _list_names()).result()
