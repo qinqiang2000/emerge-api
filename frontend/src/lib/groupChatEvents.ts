@@ -1,26 +1,28 @@
 import type { ChatEvent, RenderItem } from '../types/chat'
+import { canonicalToolName } from './legacyToolName'
 
 // Tools that render as standalone "rich cards" (EvalCard, PublishStage, JobProgressCard).
 // They stay outside the ToolStack collapse so their primary artifact (score
 // numbers, readiness checklist, one-time key reveal, job progress) is always
 // immediately visible. Plumbing tools (read_documents, derive_schema, …)
 // collapse into the ToolStack. See docs/design-decisions.md 2026-05-11.
+// Bare (post-canonicalToolName) names — compared via canonicalToolName below
+// so both current and legacy (pre-P4-merge) recorded tool_names hoist alike.
 const HOISTED_TOOL_NAMES = new Set([
-  'mcp__emerge_tools__start_job',
-  'mcp__emerge_tools__readiness_check',
-  'mcp__emerge_tools__issue_api_key',
-  'mcp__emerge_tools__score',
+  'start_job', 'readiness_check', 'issue_api_key', 'score',
   // Phase B: save_reviewed is hoisted so its SaveReviewedAdapter (the
   // "升级到 description / global_notes / 忽略" chip row) renders inline
   // beneath the tool card after a review-mode feedback turn.
-  'mcp__emerge_tools__save_reviewed',
+  'save_reviewed',
   // A3: audit results render as rich cards (AuditCard) — the per-rule
   // checklist / score strip is the user's primary artifact.
-  'mcp__emerge_tools__run_audit',
-  'mcp__emerge_tools__score_audit',
+  // score_audit was originally listed separately; Task 7 merges it into
+  // `score`, at which point canonicalToolName maps it there automatically —
+  // kept here explicitly for now so behaviour stays equivalent pre-merge.
+  'run_audit', 'score_audit',
   // 审单核对白板: render_review_board hoists so its ReviewBoardCard (doc list +
   // "打开白板 ↗") renders inline instead of collapsing into the tool stack.
-  'mcp__emerge_tools__render_review_board',
+  'render_review_board',
 ])
 
 export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
@@ -40,7 +42,7 @@ export function groupChatEvents(events: ChatEvent[]): RenderItem[] {
   let toolBufParent: string | undefined
   for (const e of events) {
     if (e.type === 'tool_call') {
-      if (HOISTED_TOOL_NAMES.has(e.tool_name)) {
+      if (HOISTED_TOOL_NAMES.has(canonicalToolName(e.tool_name))) {
         flushTools()
         out.push({ kind: 'hoisted_tool', call: e })
       } else {

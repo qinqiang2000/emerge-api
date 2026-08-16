@@ -566,9 +566,11 @@ describe('chat store: send() split + lifecycle detach', () => {
 
 // T9 — cross-store invalidation: when a Bench-mutating tool succeeds, the
 // chat slice must call `useBench.getState().invalidate(slug)` so the next
-// Bench overlay open re-fetches the aggregator. The plan enumerates 9 tools:
+// Bench overlay open re-fetches the aggregator. The plan originally
+// enumerated 9 tools; P4 Task 3 dropped archive_experiment, delete_experiment
+// and write_prompt — dead branches for tools Step B had already removed from
+// the registered surface. The remaining 6:
 // promote_experiment, run_experiment_eval, create_experiment,
-// archive_experiment, delete_experiment, write_prompt,
 // switch_active_prompt, switch_active_model, score.
 //
 // We drive `handleToolResult` (re-exported via _testUtils) directly with a
@@ -627,9 +629,6 @@ describe('chat store: cross-store invalidation → useBench.invalidate', () => {
     'mcp__emerge_tools__promote_experiment',
     'mcp__emerge_tools__run_experiment_eval',
     'mcp__emerge_tools__create_experiment',
-    'mcp__emerge_tools__archive_experiment',
-    'mcp__emerge_tools__delete_experiment',
-    'mcp__emerge_tools__write_prompt',
     'mcp__emerge_tools__switch_active_prompt',
     'mcp__emerge_tools__switch_active_model',
     'mcp__emerge_tools__score',

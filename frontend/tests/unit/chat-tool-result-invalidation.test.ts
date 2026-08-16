@@ -29,17 +29,10 @@ describe('handleToolResult side effects', () => {
     expect(useSchema.getState().byProject['p_a']).toBeUndefined()
   })
 
-  it('refreshes useDocs when upload_doc completes', () => {
-    const refresh = vi.spyOn(useDocs.getState(), 'refresh').mockResolvedValue()
-    useChat.setState({ events: [{
-      type: 'tool_call', tool_use_id: 't2', tool_name: 'mcp__emerge_tools__upload_doc',
-      tool_input: {}, tool_result: null, ok: true,
-    }]})
-    _testUtils.handleToolResult({ tool_use_id: 't2', result_text: '{"filename":"a.pdf"}', ok: true }, 'p_a', null)
-    expect(refresh).toHaveBeenCalledWith('p_a')
-    refresh.mockRestore()
-  })
-
+  // upload_doc was a Step B casualty (never made it into the registered
+  // surface) — P4 Task 3 dropped this test along with the dead dispatch
+  // branch. save_reviewed/extract_one/label_docs (below and in
+  // stores/chat.ts) remain the real useDocs-refresh triggers.
   it('refreshes useDocs when extract_one completes', () => {
     const refresh = vi.spyOn(useDocs.getState(), 'refresh').mockResolvedValue()
     useChat.setState({ events: [{

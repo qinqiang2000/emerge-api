@@ -1,3 +1,5 @@
+import { canonicalToolName } from './legacyToolName'
+
 export function toolShortHint(toolName: string, result: unknown): string | null {
   try {
     return unsafeToolShortHint(toolName, result)
@@ -27,7 +29,7 @@ function tailPath(p: string, segs = 2): string {
 function unsafeToolInputHint(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null
   const o = input as Record<string, unknown>
-  const bare = toolName.replace(/^mcp__emerge_tools__/, '')
+  const bare = canonicalToolName(toolName)
 
   // SDK built-ins
   if (toolName === 'Read' || toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
@@ -96,7 +98,7 @@ function unsafeToolInputHint(toolName: string, input: unknown): string | null {
 
 function unsafeToolShortHint(toolName: string, result: unknown): string | null {
   if (result === null || result === undefined) return null
-  const bare = toolName.replace(/^mcp__emerge_tools__/, '')
+  const bare = canonicalToolName(toolName)
 
   const asObj = (r: unknown): Record<string, unknown> | null => {
     if (typeof r === 'object' && r !== null) return r as Record<string, unknown>

@@ -14,6 +14,7 @@ import {
 } from '../lib/api'
 import { t } from '../i18n'
 import { newChatId } from '../lib/ids'
+import { canonicalToolName } from '../lib/legacyToolName'
 import { dispatchUiAction } from '../lib/surfaceRouter'
 import { attachStream, cancelTurn, fetchTurnState, startTurn, TurnRequestError, type StartTurnBody } from '../lib/turn'
 import type { ChatEvent } from '../types/chat'
@@ -1371,7 +1372,7 @@ function _findRecentVersionId(): string | null {
   const events = useChat.getState().events
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]
-    if (e.type !== 'tool_call' || e.tool_name !== 'mcp__emerge_tools__freeze_version') continue
+    if (e.type !== 'tool_call' || canonicalToolName(e.tool_name) !== 'freeze_version') continue
     if (typeof e.tool_result === 'string') {
       try {
         return (JSON.parse(e.tool_result) as { version_id?: string }).version_id ?? null
@@ -1396,7 +1397,7 @@ function handleToolResult(
   const parent = events.find(e => e.type === 'tool_call' && e.tool_use_id === d.tool_use_id)
   let resultPayload: unknown = d.result_text
 
-  if (parent?.type === 'tool_call' && parent.tool_name === 'mcp__emerge_tools__issue_api_key') {
+  if (parent?.type === 'tool_call' && canonicalToolName(parent.tool_name) === 'issue_api_key') {
     try {
       const parsed = JSON.parse(d.result_text) as {
         key_plaintext?: string
@@ -1447,13 +1448,13 @@ function handleToolResult(
   // Cross-store invalidation: when a schema-mutating or fs-mutating tool succeeds,
   // the lab stores need to refetch so the UI doesn't drift from the workspace.
   if (parent?.type === 'tool_call' && d.ok) {
-    const t = parent.tool_name
-    if (t === 'mcp__emerge_tools__write_schema' || t === 'mcp__emerge_tools__accept_candidate') {
+    const t = canonicalToolName(parent.tool_name)
+    if (t === 'write_schema') {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
     }
-    if (t === 'mcp__emerge_tools__switch_active_prompt') {
+    if (t === 'switch_active_prompt') {
       useSchema.getState().invalidate(projectId)
       usePrompts.getState().invalidate(projectId)
       void usePrompts.getState().load(projectId)
@@ -1464,8 +1465,8 @@ function handleToolResult(
     // from — without the `add_model` arm a model registered mid-session left
     // the store cached and its tab rendered the raw `m_xxxxxxxx` id.
     if (
-      t === 'mcp__emerge_tools__switch_active_model' ||
-      t === 'mcp__emerge_tools__add_model'
+      t === 'switch_active_model' ||
+      t === 'add_model'
     ) {
       useModels.getState().invalidate(projectId)
       void useModels.getState().load(projectId)
@@ -1495,24 +1496,23 @@ function handleToolResult(
       }
     }
     if (
-      t === 'mcp__emerge_tools__upload_doc' ||
-      t === 'mcp__emerge_tools__save_reviewed' ||
-      t === 'mcp__emerge_tools__extract_one' ||
+      t === 'save_reviewed' ||
+      t === 'extract_one' ||
       // label_docs writes reviewed/_pending/ drafts. Doc-list badges don't
       // change (pending status is independent of has_prediction/has_reviewed),
       // but if a review tab is open on a freshly pre-labeled doc the banner
       // needs the pending payload — re-fetching docs is the simplest cache
       // bump that propagates to the FSSpine list. The banner itself loads
       // lazily on useReview.open().
-      t === 'mcp__emerge_tools__label_docs'
+      t === 'label_docs'
     ) {
       void useDocs.getState().refresh(projectId)
     }
     if (
-      t === 'mcp__emerge_tools__create_project' ||
-      t === 'mcp__emerge_tools__rename_project' ||
-      t === 'mcp__emerge_tools__freeze_version' ||
-      t === 'mcp__emerge_tools__fork_project'
+      t === 'create_project' ||
+      t === 'rename_project' ||
+      t === 'freeze_version' ||
+      t === 'fork_project'
     ) {
       void useProjects.getState().refresh()
       // Agent-side promote: when `create_project` was invoked from inside an
@@ -1522,7 +1522,7 @@ function handleToolResult(
       // the per-project path and the URL bar updates to `/p/<slug>`. The
       // input shape is `{name, from_unbound_chat_id, ...}` — if the latter
       // matches our active unbound chat, adopt.
-      if (t === 'mcp__emerge_tools__create_project'
+      if (t === 'create_project'
           && useChat.getState().loadedUnboundChatId
       ) {
         const input = parent.tool_input as { from_unbound_chat_id?: unknown } | null
@@ -1549,25 +1549,23 @@ function handleToolResult(
         }
       }
     }
-    if (t === 'mcp__emerge_tools__score') {
+    if (t === 'score') {
       void useEval.getState().refresh(projectId)
     }
-    if (t === 'mcp__emerge_tools__run_audit') {
+    if (t === 'run_audit') {
       // The board is cache-first per slug — a fresh report (new run_id, new
       // evidence) must evict the cached report+locations or `?board=1` keeps
       // rendering the previous run.
       useBoard.getState().invalidate(projectId)
     }
     if (
-      t === 'mcp__emerge_tools__create_experiment' ||
-      t === 'mcp__emerge_tools__archive_experiment' ||
-      t === 'mcp__emerge_tools__delete_experiment' ||
-      t === 'mcp__emerge_tools__run_experiment_eval'
+      t === 'create_experiment' ||
+      t === 'run_experiment_eval'
     ) {
       useExperiments.getState().invalidate(projectId)
       void useExperiments.getState().load(projectId)
     }
-    if (t === 'mcp__emerge_tools__promote_experiment') {
+    if (t === 'promote_experiment') {
       // promote_experiment flips active prompt+model AND re-seeds predictions/_draft
       useExperiments.getState().invalidate(projectId)
       void useExperiments.getState().load(projectId)
@@ -1581,7 +1579,7 @@ function handleToolResult(
     // extract_with_experiment: evict the null (404) cache entry that the
     // tab strip's eager probe may have written before the prediction existed,
     // then reload so the tab reappears without a hard refresh.
-    if (t === 'mcp__emerge_tools__extract_with_experiment') {
+    if (t === 'extract_with_experiment') {
       const input = parent.tool_input as { experiment_id?: unknown } | null
       const eid = input && typeof input.experiment_id === 'string' ? input.experiment_id : null
       if (eid) {
@@ -1613,22 +1611,19 @@ function handleToolResult(
  *  exactly, so one path-based check serves both branches. */
 const FS_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'Write', 'Edit', 'MultiEdit',
-  'mcp__emerge_tools__ws_write', 'mcp__emerge_tools__ws_edit',
+  'ws_write', 'ws_edit',
 ])
 
 /** Tools whose successful completion can change Bench leaderboard rows
  *  (score, axis activeness, axis label, experiment status) or per-doc strip
  *  cells. See T9 of 2026-05-28-bench-leaderboard.md. */
 const BENCH_INVALIDATING_TOOLS: ReadonlySet<string> = new Set([
-  'mcp__emerge_tools__promote_experiment',
-  'mcp__emerge_tools__run_experiment_eval',
-  'mcp__emerge_tools__create_experiment',
-  'mcp__emerge_tools__archive_experiment',
-  'mcp__emerge_tools__delete_experiment',
-  'mcp__emerge_tools__write_prompt',
-  'mcp__emerge_tools__switch_active_prompt',
-  'mcp__emerge_tools__switch_active_model',
-  'mcp__emerge_tools__score',
+  'promote_experiment',
+  'run_experiment_eval',
+  'create_experiment',
+  'switch_active_prompt',
+  'switch_active_model',
+  'score',
 ])
 
 /**
@@ -1734,7 +1729,7 @@ export function reduceEvents(raw: unknown[]): ChatEvent[] {
             // same {redacted, key_prefix, key_hash_short, created_at} trail
             // SSE handleToolResult emits — so PublishStageKeyAdapter sees one
             // object shape across both code paths. Pure (no useApiKey reveal).
-            e.tool_result = e.tool_name === 'mcp__emerge_tools__issue_api_key'
+            e.tool_result = canonicalToolName(e.tool_name) === 'issue_api_key'
               ? _hydrateIssueApiKeyResult(o.result_text)
               : (o.result_text ?? null)
             e.ok = typeof o.ok === 'boolean' ? o.ok : true
