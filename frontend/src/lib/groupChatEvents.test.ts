@@ -60,3 +60,31 @@ describe('groupChatEvents — score(kind=) hoisting', () => {
     expect(isHoisted(`${CALL}derive_schema`, { slug: 'p_x' })).toBe(false)
   })
 })
+
+// P4 Task 10 — render_board(kind=) folds render_audit_board/render_review_
+// board into one tool name. render_review_board was ALWAYS hoisted (its
+// ReviewBoardCard is the primary artifact); render_audit_board was NEVER
+// hoisted (no card — legend text + page images only). This pins that the
+// merge did not silently change either outcome now that the Set can only key
+// on the single shared name `render_board`.
+describe('groupChatEvents — render_board(kind=) hoisting', () => {
+  it("render_board kind='review' hoists — render_review_board always did", () => {
+    expect(isHoisted(`${CALL}render_board`, { slug: 'p_x', kind: 'review' })).toBe(true)
+  })
+
+  it("render_board kind='audit' does NOT hoist — render_audit_board never did", () => {
+    expect(isHoisted(`${CALL}render_board`, { slug: 'p_x', kind: 'audit' })).toBe(false)
+  })
+
+  it('legacy transcript name render_review_board still hoists', () => {
+    expect(isHoisted(`${CALL}render_review_board`, { slug: 'p_x' })).toBe(true)
+  })
+
+  it('legacy transcript name render_audit_board still does not hoist', () => {
+    expect(isHoisted(`${CALL}render_audit_board`, { slug: 'p_x' })).toBe(false)
+  })
+
+  it('render_board with no kind (validation-error transcript) does not hoist', () => {
+    expect(isHoisted(`${CALL}render_board`, { slug: 'p_x' })).toBe(false)
+  })
+})

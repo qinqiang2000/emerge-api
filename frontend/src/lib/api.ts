@@ -1013,10 +1013,12 @@ export async function putBoardNotes(slug: string, body: BoardNotesPayload): Prom
 }
 
 // ── Review board (审单核对白板) ──────────────────────────────────────────────
-// `render_review_board` tool's HTTP twin. Each `html_by_id[id]` is a complete
-// self-contained HTML doc (inlined CSS + prefers-color-scheme) — the frontend
-// never parses it, it drops straight into an `<iframe srcDoc>`. Docs without a
-// prediction draft are omitted; an empty project → `docs: []`.
+// `render_board(kind='review')` tool's HTTP twin (render_review_board pre-P4-
+// Task-10 — HTTP does not merge, so this route is unchanged). Each
+// `html_by_id[id]` is a complete self-contained HTML doc (inlined CSS +
+// prefers-color-scheme) — the frontend never parses it, it drops straight
+// into an `<iframe srcDoc>`. Docs without a prediction draft are omitted; an
+// empty project → `docs: []`.
 
 export interface ReviewBoardDoc {
   id: string

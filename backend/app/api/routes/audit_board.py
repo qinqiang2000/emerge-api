@@ -1,7 +1,9 @@
 """Audit-board render + notes routes (B4, 2026-06-11 audit-board plan).
 
 GET /lab/projects/{slug}/audit/board-render
-HTTP twin of the ``render_audit_board`` @tool (tool↔HTTP symmetry, CLAUDE.md):
+HTTP twin of the ``render_board(kind='audit')`` @tool (render_audit_board
+pre-P4-Task-10; tool↔HTTP symmetry, CLAUDE.md — HTTP does not merge, so this
+route is unchanged by that rename):
 the latest audit report composed into annotated per-doc images —
 ``{legend, images:[{doc, media_type, data_b64}], truncated}``. Coordinates die
 inside the render layer; the payload is pixels + rule text only.

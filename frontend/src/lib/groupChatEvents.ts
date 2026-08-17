@@ -1,5 +1,5 @@
 import type { ChatEvent, RenderItem } from '../types/chat'
-import { canonicalToolName, scoreKindOf } from './legacyToolName'
+import { boardKindOf, canonicalToolName, scoreKindOf } from './legacyToolName'
 
 // Tools that render as standalone "rich cards" (EvalCard, PublishStage, JobProgressCard).
 // They stay outside the ToolStack collapse so their primary artifact (score
@@ -20,9 +20,12 @@ const HOISTED_TOOL_NAMES = new Set([
   // handled below by name alone (canonicalToolName already maps the legacy
   // `score_audit` transcripts onto `score`, so one entry suffices).
   'run_audit',
-  // 审单核对白板: render_review_board hoists so its ReviewBoardCard (doc list +
-  // "打开白板 ↗") renders inline instead of collapsing into the tool stack.
-  'render_review_board',
+  // render_board's kind='review' hoists so its ReviewBoardCard (doc list +
+  // "打开白板 ↗") renders inline instead of collapsing into the tool stack;
+  // kind='audit' must NOT (render_audit_board never hoisted — no card shape
+  // for pixels + legend text). A bare 'render_board' entry here can't express
+  // that split, so — same as `score` below — the kind-aware check in
+  // isHoisted() owns this decision and no bare name is listed for either.
 ])
 
 // `score` folds score_audit/score_match (P4 Task 7): kind='extract'/'audit'
@@ -32,9 +35,17 @@ const HOISTED_TOOL_NAMES = new Set([
 // silently change that. scoreKindOf is the single place both this grouping
 // decision and MessageList's card dispatch read the kind from, so the two
 // cannot drift apart from each other.
+//
+// `render_board` folds render_audit_board/render_review_board (P4 Task 10):
+// kind='review' hoists (render_review_board always did); kind='audit' does
+// NOT (render_audit_board never did — its payload is legend text + page
+// images, no card). boardKindOf resolves both the live `kind` argument and
+// the legacy pre-merge transcript names, same posture as scoreKindOf.
 function isHoisted(e: Extract<ChatEvent, { type: 'tool_call' }>): boolean {
   const kind = scoreKindOf(e.tool_name, e.tool_input)
   if (kind !== null) return kind !== 'match'
+  const board = boardKindOf(e.tool_name, e.tool_input)
+  if (board !== null) return board === 'review'
   return HOISTED_TOOL_NAMES.has(canonicalToolName(e.tool_name))
 }
 

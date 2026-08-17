@@ -43,6 +43,10 @@ export const LEGACY_TOOL_NAMES: Record<string, string> = {
   ui_set_active_field: 'ui_focus',
   ui_set_active_tab: 'ui_focus',
   ui_set_active_entity: 'ui_focus',
+  // Task 10 — render_board(kind=) folds the two board renderers (same noun,
+  // two media: page-image circling vs. structured-table highlighting).
+  render_audit_board: 'render_board',
+  render_review_board: 'render_board',
 }
 
 const CHAT_PREFIX = 'mcp__emerge_tools__'
@@ -86,4 +90,37 @@ export function scoreKindOf(toolName: string, toolInput: unknown): ScoreKind | n
   if (bare !== 'score') return null
   const kind = (toolInput as { kind?: unknown } | null | undefined)?.kind
   return kind === 'audit' || kind === 'match' ? kind : 'extract'
+}
+
+export type BoardKind = 'audit' | 'review'
+
+/**
+ * Which board kind a tool_call represents, for hoist dispatch AND card
+ * selection (P4 Task 10 folded render_audit_board/render_review_board into
+ * `render_board(kind=)`). Same posture as `scoreKindOf` (Task 7) — one
+ * function that groupChatEvents.ts and MessageList.tsx both read from, so
+ * they cannot drift from each other.
+ *
+ * Unlike `score`, `kind` has NO server-side default here — the schema marks
+ * it `required` (auto-dispatching on project type would be a semantics
+ * change this milestone forbids; see t_render_board). So this does NOT fall
+ * back to either kind when `kind` is missing or unrecognized: a `render_board`
+ * record with no `kind` is either a pre-`kind`-argument impossibility (the
+ * tool never existed without it) or a validation-error record the server
+ * rejected before the handler ran — in both cases there is no legend/images/
+ * docs payload to render specially, so this resolves to `null` and the
+ * caller falls back to the generic tool card, exactly like any other
+ * unrecognized tool call.
+ *
+ * Legacy transcripts recorded the OLD standalone names before `kind` existed
+ * as an argument at all, so for those the NAME itself is the kind signal —
+ * old recorded tool_input never carries `kind`.
+ */
+export function boardKindOf(toolName: string, toolInput: unknown): BoardKind | null {
+  const bare = bareToolName(toolName)
+  if (bare === 'render_audit_board') return 'audit'
+  if (bare === 'render_review_board') return 'review'
+  if (bare !== 'render_board') return null
+  const kind = (toolInput as { kind?: unknown } | null | undefined)?.kind
+  return kind === 'audit' || kind === 'review' ? kind : null
 }

@@ -1,12 +1,15 @@
 // frontend/src/components/Chat/ReviewBoardCard.tsx
 //
-// Chat card for `render_review_board`. Unlike AuditCard/EvalCard, this tool's
-// text return is a plain-language narrative, NOT JSON — so there's no
-// tool_result JSON to adapt. Instead the card, once it recognises a successful
-// `render_review_board` call, pulls the board payload itself via the
-// `useReviewBoard` store (cache-first, same self-pull posture as EvalCardAdapter
-// receiving `slug` from MessageList). Strict: any other tool → null so the
-// generic ToolCall rendering is never hijacked.
+// Chat card for `render_board(kind='review')` (render_review_board pre-P4-
+// Task-10). Unlike AuditCard/EvalCard, this tool's text return is a
+// plain-language narrative, NOT JSON — so there's no tool_result JSON to
+// adapt. Instead the card, once MessageList's boardKindOf dispatch has
+// identified a successful review-board call, pulls the board payload itself
+// via the `useReviewBoard` store (cache-first, same self-pull posture as
+// EvalCardAdapter receiving `slug` from MessageList). This adapter itself
+// does no tool-name matching — it trusts the caller's dispatch — so it stays
+// correct across the rename without change; ok/tool_result shape is all it
+// looks at.
 import { useEffect, useMemo } from 'react'
 
 import type { ChatEvent } from '../../types/chat'
@@ -17,8 +20,6 @@ import { useReviewBoard } from '../../stores/reviewBoard'
 import { toolShortHint } from '../../lib/toolHint'
 import ToolCall from './ToolCall'
 import ToolRow from './ToolRow'
-
-const REVIEW_BOARD_TOOL = 'mcp__emerge_tools__render_review_board'
 
 // Verdict → colored dot class (semantic tokens only; mirrors the overlay).
 const VERDICT_DOT: Record<'pass' | 'fail' | 'unclear', string> = {
@@ -135,5 +136,3 @@ export function ReviewBoardCardAdapter({ call }: { call: ToolCallEvent }) {
     </ToolCall>
   )
 }
-
-export { REVIEW_BOARD_TOOL }

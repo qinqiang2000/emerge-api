@@ -2,7 +2,7 @@ import { KeyRound } from 'lucide-react'
 
 import type { ChatEvent } from '../../types/chat'
 import { groupChatEvents } from '../../lib/groupChatEvents'
-import { scoreKindOf } from '../../lib/legacyToolName'
+import { boardKindOf, scoreKindOf } from '../../lib/legacyToolName'
 import { toolInputHint, toolShortHint } from '../../lib/toolHint'
 import PublishStage, { adaptReadiness } from '../Publish/PublishStage'
 import { sampleCurl } from '../../lib/api'
@@ -238,8 +238,19 @@ export function HoistedToolCard({ call }: { call: ToolCallEvent }) {
     const slug = useProjects.getState().selectedSlug
     return <EvalCardAdapter call={call} slug={slug} />
   }
-  if (call.tool_name === 'mcp__emerge_tools__render_review_board') {
+  // `render_board` folds render_audit_board/render_review_board (P4 Task 10)
+  // — name alone can no longer pick the card, so dispatch on `kind`.
+  // boardKindOf mirrors the schema (kind is REQUIRED, no server-side
+  // default) and also resolves the legacy pre-merge transcript names.
+  const boardKind = boardKindOf(call.tool_name, call.tool_input)
+  if (boardKind === 'review') {
     return <ReviewBoardCardAdapter call={call} />
+  }
+  if (boardKind === 'audit') {
+    // render_audit_board was never hoisted pre-merge (its payload is legend
+    // text + page images, no JSON card shape) — keep that behaviour: fall
+    // through to the generic tool card.
+    return <PlumbingToolCard call={call} />
   }
   if (call.tool_name === 'mcp__emerge_tools__save_reviewed') {
     // Render the regular plumbing tool card AND the escalation chip row

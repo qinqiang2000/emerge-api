@@ -46,6 +46,9 @@ MERGED_TOOLS: dict[str, tuple[str, ...]] = {
         "ui_goto_page", "ui_set_active_field",
         "ui_set_active_tab", "ui_set_active_entity",
     ),
+    # render_review_board's own description: "the structured-data twin of
+    # render_audit_board's page-image circling". One noun, two media.
+    "render_board": ("render_audit_board", "render_review_board"),
 }
 
 # The policy profile the whole family shared, declared per merged tool.
@@ -60,6 +63,7 @@ MERGED_POLICY: dict[str, frozenset[str]] = {
     "score": frozenset({"touches_provider"}),
     "control_job": frozenset({"idempotent"}),
     "ui_focus": frozenset({"idempotent"}),
+    "render_board": frozenset({"read_only"}),
 }
 
 

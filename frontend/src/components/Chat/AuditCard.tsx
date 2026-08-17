@@ -10,6 +10,14 @@
 // (per_rule/reviewed/accuracy/unclear), not tool_name-based, so it keeps
 // working unchanged whether the caller is the standalone legacy score_audit
 // tool_name or the merged score(kind='audit').
+//
+// Not the card for render_board(kind='audit') (render_audit_board pre-P4-
+// Task-10) — that tool's payload is legend text + page images, not this
+// per_rule/overall JSON, and it was never hoisted to any card (see
+// MessageList.tsx's boardKindOf dispatch). Two unrelated things both happen
+// to be spelled "audit" here: score's kind='audit' (this file) and the
+// board's kind='audit' (PlumbingToolCard, no dedicated card) — don't conflate
+// them when reading call sites.
 import type { ChatEvent } from '../../types/chat'
 import ToolCall from './ToolCall'
 import ToolRow from './ToolRow'

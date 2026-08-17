@@ -141,10 +141,12 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     # Both halves history(op=) folds — log/diff — are pure reads; restore
     # mutates and deliberately stays off this list (see MERGED_TOOLS).
     "history",
-    # render_audit_board composes pixels in memory from the latest report +
-    # cached page rasters — no durable state change, no provider call (locate
-    # is LLM-free; deliberately NOT in _TOUCHES_PROVIDER, plan red line).
-    "render_audit_board",
+    # render_board(kind='audit') composes pixels in memory from the latest
+    # report + cached page rasters; kind='review' is pure computation over
+    # existing files. Either way: no durable state change, no provider call
+    # (locate is LLM-free; deliberately NOT in _TOUCHES_PROVIDER, plan red
+    # line — P4 Task 10 folded render_audit_board/render_review_board here).
+    "render_board",
 })
 _DESTRUCTIVE = frozenset({  # irreversible / outward-facing — client should gate
     "delete_project", "delete_doc",
@@ -2334,90 +2336,102 @@ def build_emerge_mcp(
                 ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
-    @tool(
-        "render_audit_board",
-        "Render the project's LATEST audit report as annotated document images "
-        "— one composite image per audited doc, every rule's evidence circled "
-        "in place with the rule's 1-based number badge, coloured by verdict "
-        "(green=pass, red=fail, amber=unclear). Zero LLM cost: it reuses the "
-        "existing report + cached page renders. Use when the user asks to SEE "
-        "where the evidence sits (圈出来 / 在图上标出来 / show me on the page). "
-        "Returns a text legend (number ↔ rule ↔ ✓/✗/?) followed by the images; "
-        "evidence that could not be located is listed in a corner badge on its "
-        "doc. Errors with audit_no_report when the project has never been "
-        "audited (run_audit first). Rendering: browser — one-line summary and "
-        "point at the board (→ board); headless — print the legend list and "
-        "describe each annotated image in a sentence.",
-        {"type": "object", "properties": {"slug": {"type": "string"}},
-         "required": ["slug"]},
-    )
-    async def t_render_audit_board(args: dict[str, Any]) -> dict[str, Any]:
-        from app.tools.audit_board_render import render_audit_board
-        from app.tools.audit_run import AuditError
-        try:
-            out = await render_audit_board(workspace, args["slug"])
-        except AuditError as e:
-            return {"content": [{"type": "text", "text": _json.dumps(
-                {"error_code": e.error_code, "error_message_en": e.error_message_en},
-                ensure_ascii=False)}]}
-        glyph = {"pass": "✓", "fail": "✗", "unclear": "?"}
-        lines = [
-            f"{e['n']}. {glyph.get(e['status'], '?')} {e['rule']}"
-            for e in out["legend"]
-        ]
-        if out["images"]:
-            lines.append(
-                "images (in order): " + ", ".join(i["doc"] for i in out["images"])
-            )
-        if out["truncated"]:
-            lines.append("note: some pages were omitted to fit the image budget")
-        # Interactive board deep-link. Some hosts (Cowork/Desktop) don't render
-        # tool-result images inline — the agent forwards this URL so the user
-        # opens the full pan/zoom board (rail + linked circles), strictly
-        # better than the static composite (dogfood 2026-06-11).
-        from app.config import get_settings as _gs_board
-        _board_base = _gs_board().public_base_url.rstrip("/")
-        if _board_base:
-            lines.append(
-                f"interactive board (open in a browser): "
-                f"{_board_base}/p/{args['slug']}?board=1"
-            )
-        # One legend text block, then one image block per doc — mirrors the
-        # t_read_doc_image content shape. Red line: pixels + rule text only;
-        # the locate rects never appear here.
-        content: list[dict[str, Any]] = [
-            {"type": "text", "text": "\n".join(lines)}
-        ]
-        for img in out["images"]:
-            content.append({
-                "type": "image",
-                "data": img["data_b64"],
-                "mimeType": img["media_type"],
-            })
-        return {"content": content}
+    _BOARD_KINDS = ("audit", "review")
 
     @tool(
-        "render_review_board",
-        "Render a human-review board for a structured/text-document审核 project "
-        "(审单核对白板) — reads the extraction results + each doc's precomputed "
-        "reconciliation and lays out, PER doc, the two ORIGINAL tables side by "
-        "side (采购发票明细 + 结算细单) with the mismatched product groups' rows "
-        "red-framed and cross-linked by a shared number badge. This is the "
-        "structured-data twin of render_audit_board's page-image circling: "
-        "text docs have no page raster, so evidence is rows in the source "
-        "tables, not quotes on a page. Zero LLM cost — pure computation over "
-        "existing files. Docs without a draft prediction are skipped. Use when "
-        "the user asks to SEE / 复核 / 核对 the审核 result. Rendering: browser — "
-        "one-line summary (N 单，驳回 m / 通过 k · model) and point at the board "
-        "(→ board); the result card auto-renders the per-doc list. headless — "
-        "print each doc's line (结算总单ID · 通过/驳回 · reason) and, for driven "
-        "docs, the mismatched product group's 发票 vs 结算 数量对比; then forward "
-        "the interactive board link. The HTML itself never enters this text "
-        "result (it travels only over the HTTP twin into the iframe).",
-        {"type": "object", "properties": {"slug": {"type": "string"}},
-         "required": ["slug"]},
+        "render_board",
+        "Render a board for this project — one noun, two media, both read-only "
+        "and zero LLM cost. `kind='audit'`: the project's LATEST audit report "
+        "as annotated document images — one composite image per audited doc, "
+        "every rule's evidence circled in place with the rule's 1-based number "
+        "badge, coloured by verdict (green=pass, red=fail, amber=unclear). "
+        "Reuses the existing report + cached page renders. Use when the user "
+        "asks to SEE where the evidence sits (圈出来 / 在图上标出来 / show me on "
+        "the page). Returns a text legend (number ↔ rule ↔ ✓/✗/?) followed by "
+        "the images; evidence that could not be located is listed in a corner "
+        "badge on its doc. Errors with audit_no_report when the project has "
+        "never been audited (run_audit first). Rendering: browser — one-line "
+        "summary and point at the board (→ board); headless — print the "
+        "legend list and describe each annotated image in a sentence. "
+        "`kind='review'`: a human-review board for a structured/text-document"
+        "审核 project (审单核对白板) — the structured-data twin of the "
+        "kind='audit' page-image circling above: text docs have no page "
+        "raster, so evidence is rows in the source tables, not quotes on a "
+        "page. Reads the extraction "
+        "results + each doc's precomputed reconciliation and lays out, PER "
+        "doc, the two ORIGINAL tables side by side (采购发票明细 + 结算细单) "
+        "with the mismatched product groups' rows red-framed and cross-linked "
+        "by a shared number badge. Docs without a draft prediction are "
+        "skipped. Use when the user asks to SEE / 复核 / 核对 the审核 result. "
+        "Rendering: browser — one-line summary (N 单，驳回 m / 通过 k · model) "
+        "and point at the board (→ board); the result card auto-renders the "
+        "per-doc list. headless — print each doc's line (结算总单ID · 通过/驳回 "
+        "· reason) and, for driven docs, the mismatched product group's 发票 "
+        "vs 结算 数量对比; then forward the interactive board link. The HTML "
+        "itself never enters this text result (it travels only over the HTTP "
+        "twin into the iframe).",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "kind": {"type": "string", "enum": list(_BOARD_KINDS)},
+            },
+            "required": ["slug", "kind"],
+        },
     )
-    async def t_render_review_board(args: dict[str, Any]) -> dict[str, Any]:
+    async def t_render_board(args: dict[str, Any]) -> dict[str, Any]:
+        # No `kind not in _BOARD_KINDS` guard: `kind` is in the schema's
+        # `required` (with an `enum`), so the jsonschema validation layer
+        # rejects a missing/unknown kind before this handler ever runs — same
+        # posture as `t_score` (see "jsonschema 在 handler 之前跑").
+        kind = args["kind"]
+        if kind == "audit":
+            # ↓ verbatim from the old t_render_audit_board body
+            from app.tools.audit_board_render import render_audit_board
+            from app.tools.audit_run import AuditError
+            try:
+                out = await render_audit_board(workspace, args["slug"])
+            except AuditError as e:
+                return {"content": [{"type": "text", "text": _json.dumps(
+                    {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                    ensure_ascii=False)}]}
+            glyph = {"pass": "✓", "fail": "✗", "unclear": "?"}
+            lines = [
+                f"{e['n']}. {glyph.get(e['status'], '?')} {e['rule']}"
+                for e in out["legend"]
+            ]
+            if out["images"]:
+                lines.append(
+                    "images (in order): " + ", ".join(i["doc"] for i in out["images"])
+                )
+            if out["truncated"]:
+                lines.append("note: some pages were omitted to fit the image budget")
+            # Interactive board deep-link. Some hosts (Cowork/Desktop) don't
+            # render tool-result images inline — the agent forwards this URL
+            # so the user opens the full pan/zoom board (rail + linked
+            # circles), strictly better than the static composite (dogfood
+            # 2026-06-11).
+            from app.config import get_settings as _gs_board
+            _board_base = _gs_board().public_base_url.rstrip("/")
+            if _board_base:
+                lines.append(
+                    f"interactive board (open in a browser): "
+                    f"{_board_base}/p/{args['slug']}?board=1"
+                )
+            # One legend text block, then one image block per doc — mirrors
+            # the t_read_doc_image content shape. Red line: pixels + rule
+            # text only; the locate rects never appear here.
+            content: list[dict[str, Any]] = [
+                {"type": "text", "text": "\n".join(lines)}
+            ]
+            for img in out["images"]:
+                content.append({
+                    "type": "image",
+                    "data": img["data_b64"],
+                    "mimeType": img["media_type"],
+                })
+            return {"content": content}
+        # kind == "review" — ↓ verbatim from the old t_render_review_board body
         from app.tools.review_board_render import render_review_board
         out = await render_review_board(workspace, args["slug"])
         docs = out["docs"]
@@ -2440,9 +2454,9 @@ def build_emerge_mcp(
             if d.get("reason"):
                 line += f"：{d['reason']}"
             lines.append(line)
-        # Interactive board deep-link — same posture as render_audit_board:
-        # remote hosts (Cowork/Desktop) don't render an iframe, so forward the
-        # URL that opens the full left-rail + iframe board in a browser.
+        # Interactive board deep-link — same posture as kind='audit': remote
+        # hosts (Cowork/Desktop) don't render an iframe, so forward the URL
+        # that opens the full left-rail + iframe board in a browser.
         from app.config import get_settings as _gs_rb
         _rb_base = _gs_rb().public_base_url.rstrip("/")
         if _rb_base:
@@ -2503,8 +2517,7 @@ def build_emerge_mcp(
             t_write_audit_rules,
             t_run_audit,
             t_read_audit_report,
-            t_render_audit_board,
-            t_render_review_board,
+            t_render_board,
             t_save_reviewed_audit,
             t_extract,
             t_save_reviewed,

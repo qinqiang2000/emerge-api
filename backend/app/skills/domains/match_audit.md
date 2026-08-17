@@ -93,7 +93,7 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
    ~60s）时，改用 `start_job(skill="audit", slug, params={filenames?})` 秒回 job_id →
    `get_job(job_id)` 轮询（RUNNING → DONE/ERROR）→ DONE 后 `read_audit_report(slug)`
    取完整报告。小组照旧直接 `run_audit`。
-3b. `render_audit_board(slug)` — 把最近一次报告**圈到文档图上**：每份文档一张合成图，
+3b. `render_board(slug, kind='audit')` — 把最近一次报告**圈到文档图上**：每份文档一张合成图，
    每条规则的 evidence 在原文位置画圈 + 规则编号徽标（绿=pass / 红=fail / 黄=unclear），
    附 编号↔规则 图例。零 LLM 成本（复用报告 + 页渲染缓存）。用户说"圈出来 / 在图上
    标出来 / 指给我看"时用它；没跑过审核会报 `audit_no_report`（先 `run_audit`）。
@@ -140,7 +140,7 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   `② 板上批注：「{user_text}」`（doc 为 null 写"板上空白处"；一条兼有圈注与手写时
   后接 `+ 手写 "{user_text}"`）；末尾给行动提议。
 
-**render_audit_board 的 rendering contract**：
+**render_board(kind='audit') 的 rendering contract**：
 - **browser**：一句摘要 + 指点 board（`→ board`，UI 卡片/白板兜底），不内联大图。
 - **headless**：先图例清单（`N. ✓/✗/? 规则`），随图输出；每张合成图一句话说明
   （哪份文档、圈了哪些编号、有无未定位条目）。**工具返回里带一条 interactive
@@ -148,13 +148,13 @@ Use when the user says "对账" / "核对" / "发票和付款/采购单对一下
   务必把这条链接转给用户，点开就是完整可交互白板（左栏规则 ↔ 画布圈注联动、
   pan/zoom、被引文档自动聚拢），比静态合成图体验更好。
 
-**render_review_board 的 rendering contract**（审单核对白板 —— 结构化/文本文档专用）：
-`render_audit_board` 的孪生，但面向**没有页面光栅的结构化/文本审单文档**。文本 doc 无从
+**render_board(kind='review') 的 rendering contract**（审单核对白板 —— 结构化/文本文档专用）：
+`render_board(kind='audit')` 的孪生，但面向**没有页面光栅的结构化/文本审单文档**。文本 doc 无从
 在图上圈注，证据是**两张原始表格里的行**（采购发票明细 + 结算细单），数量核对不过的商品组
 以红框行 + 同号徽章跨表呼应——这是 audit 白板「原件 + 圈注」哲学在结构化数据上的等价物。
 0 LLM，纯计算。什么时候用：用户说「看/复核/核对审单结果」「哪些单驳回了」「打开白板」；
 **以及每次对审单文档批量抽取（extract）完成后主动渲染，不等用户开口**——白板是审单抽取
-回合的固定收尾动作：抽取结果落盘后随手调一次 render_review_board，按本 contract 汇报
+回合的固定收尾动作：抽取结果落盘后随手调一次 render_board(kind='review')，按本 contract 汇报
 （browser 一句摘要 + 卡片，headless 清单 + 深链），用户不该需要再打一句「打开白板」。
 - **browser**：一句摘要（"审单核对：4 单，驳回 2 / 通过 2"）——结果卡片（ReviewBoardCard）
   自动渲染逐单列表 + `打开白板 ↗`，正文不重复罗列每单。用户要看某单细节 → 指点 `→ board`

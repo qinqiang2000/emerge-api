@@ -1,7 +1,8 @@
 """审单核对白板 render 路由（2026-07-04 review-board plan）。
 
 GET /lab/projects/{slug}/review/board-render
-``render_review_board`` @tool 的 HTTP 孪生（tool↔HTTP 对称，CLAUDE.md）：读
+``render_board(kind='review')`` @tool 的 HTTP 孪生（render_review_board pre-
+P4-Task-10；tool↔HTTP 对称，CLAUDE.md——HTTP 不合并，本路由不受改名影响）：读
 docs/*.json + predictions/_draft/*.json，逐单拼自包含核对白板 HTML，返回
 ``{docs, html_by_id, tally, model_label}``。0 LLM——纯计算。
 

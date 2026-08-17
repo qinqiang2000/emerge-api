@@ -3,10 +3,12 @@
 // actual component-level dispatch (HoistedToolCard) per kind, so a future
 // change that breaks card selection fails a test instead of only silently
 // rendering the wrong card (or none) in the browser.
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import type { ChatEvent } from '../../types/chat'
+import { useProjects } from '../../stores/projects'
+import { useReviewBoard } from '../../stores/reviewBoard'
 import { HoistedToolCard } from './MessageList'
 
 type ToolCallEvent = Extract<ChatEvent, { type: 'tool_call' }>
@@ -97,5 +99,79 @@ describe('HoistedToolCard — score(kind=) card selection', () => {
     })
     render(<HoistedToolCard call={call({ slug: 'p_x' }, report, 'mcp__emerge_tools__run_audit')} />)
     expect(screen.getByTestId('audit-card')).toBeTruthy()
+  })
+})
+
+// P4 Task 10 — render_board(kind=) folds render_audit_board/render_review_
+// board, so the tool name alone can no longer pick the card either. Mirrors
+// the score(kind=) test block above: pins the actual HoistedToolCard dispatch
+// per kind (and per legacy transcript name) so a future change that breaks
+// card selection fails a test instead of silently rendering the wrong card
+// (or none) in the browser.
+const REVIEW_BOARD_PAYLOAD = {
+  docs: [
+    { id: '2994530', verdict: 'fail' as const, supplier: '安徽晶瑞药业有限公司', amount: '14107.5',
+      invoice_no: '263420', memo: '', reason: '维生素B1片数量不符' },
+  ],
+  html_by_id: { '2994530': '<!doctype html><body>fail</body>' },
+  tally: { pass: 0, fail: 1, unclear: 0 },
+  model_label: 'deepseek-v4-flash',
+}
+
+describe('HoistedToolCard — render_board(kind=) card selection', () => {
+  afterEach(() => {
+    act(() => {
+      useReviewBoard.setState({ byProject: {}, loading: {}, errors: {} })
+      useProjects.setState({ selectedSlug: null })
+    })
+  })
+
+  it("kind='review' renders ReviewBoardCard, not the generic tool card", () => {
+    act(() => {
+      useProjects.setState({ selectedSlug: 'p1' })
+      useReviewBoard.setState({ byProject: { p1: REVIEW_BOARD_PAYLOAD } })
+    })
+    render(
+      <HoistedToolCard
+        call={call({ slug: 'p1', kind: 'review' }, '审单核对白板：1 单', 'mcp__emerge_tools__render_board')}
+      />,
+    )
+    expect(screen.getByTestId('review-board-card')).toBeTruthy()
+  })
+
+  it("kind='audit' falls through to the generic tool card (render_audit_board never had one)", () => {
+    render(
+      <HoistedToolCard
+        call={call({ slug: 'p1', kind: 'audit' }, '1. ✓ 报价单甲方为环胜', 'mcp__emerge_tools__render_board')}
+      />,
+    )
+    expect(screen.queryByTestId('review-board-card')).toBeNull()
+    expect(screen.queryByTestId('audit-card')).toBeNull()
+    expect(screen.queryByTestId('audit-score-card')).toBeNull()
+    // The generic ToolCall row still renders, with the bare tool name.
+    expect(screen.getByText('render_board')).toBeTruthy()
+  })
+
+  it('legacy transcript name render_review_board (pre-P4-Task-10) still renders ReviewBoardCard', () => {
+    act(() => {
+      useProjects.setState({ selectedSlug: 'p1' })
+      useReviewBoard.setState({ byProject: { p1: REVIEW_BOARD_PAYLOAD } })
+    })
+    render(
+      <HoistedToolCard
+        call={call({ slug: 'p1' }, '审单核对白板：1 单', 'mcp__emerge_tools__render_review_board')}
+      />,
+    )
+    expect(screen.getByTestId('review-board-card')).toBeTruthy()
+  })
+
+  it('legacy transcript name render_audit_board (pre-P4-Task-10) still falls through to the generic tool card', () => {
+    render(
+      <HoistedToolCard
+        call={call({ slug: 'p1' }, '1. ✓ 报价单甲方为环胜', 'mcp__emerge_tools__render_audit_board')}
+      />,
+    )
+    expect(screen.queryByTestId('review-board-card')).toBeNull()
+    expect(screen.getByText('render_audit_board')).toBeTruthy()
   })
 })

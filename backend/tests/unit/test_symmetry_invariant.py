@@ -157,9 +157,14 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     ("read_audit_report", None):    ("GET",  r"^/lab/projects/\{slug\}/audit/latest$"),
     # B4 board render — annotated evidence images (pixels + rule text only;
     # the board-notes GET/PUT siblings are render-layer persistence and stay
-    # route-without-tool, same as locate / locate-quotes).
-    ("render_audit_board", None):   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
-    ("render_review_board", None):  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
+    # route-without-tool, same as locate / locate-quotes). `render_board`
+    # folds render_audit_board + render_review_board (P4 Task 10) — same
+    # posture as `extract`/`score`/`control_job`/`history`: REST already
+    # expresses the op as the resource, so the HTTP side deliberately does
+    # NOT merge; both pre-existing routes stay exactly as they were, now
+    # keyed by op instead of by tool name.
+    ("render_board", "audit"):   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
+    ("render_board", "review"):  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
     ("save_reviewed_audit", None):  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
     # Publish + keys
     ("freeze_version", None): ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),
@@ -324,13 +329,18 @@ def test_merged_tools_map_every_op_to_its_own_route() -> None:
     from app.tools._merged import MERGED_TOOLS
 
     for new, olds in MERGED_TOOLS.items():
+        ops = {op for (tool, op) in _TOOL_HTTP_MAP if tool == new}
         if new in _HTTP_EXEMPT:
             # Fully HTTP-exempt merged tool (P4 Task 9: ui_focus) — the whole
             # family opted out of HTTP via one _HTTP_EXEMPT justification, so
             # there are zero routes to hit by design, not by omission. The
             # per-op floor below assumes the tool actually maps routes.
+            assert not ops, (
+                f"{new!r} is in _HTTP_EXEMPT but still has _TOOL_HTTP_MAP rows "
+                f"{sorted(ops)} — exempt and mapped are mutually exclusive; a "
+                f"partial leftover would hide a dropped route."
+            )
             continue
-        ops = {op for (tool, op) in _TOOL_HTTP_MAP if tool == new}
         assert len(ops) >= len(olds), (
             f"{new!r} swallowed {len(olds)} ops but only maps {len(ops)} "
             f"routes: {sorted(ops)}"

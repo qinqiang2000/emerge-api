@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalToolName, LEGACY_TOOL_NAMES, scoreKindOf } from './legacyToolName'
+import { boardKindOf, canonicalToolName, LEGACY_TOOL_NAMES, scoreKindOf } from './legacyToolName'
 
 describe('canonicalToolName', () => {
   it('strips the chat-surface prefix', () => {
@@ -62,5 +62,46 @@ describe('scoreKindOf', () => {
     // a result exists), but the renderer must not crash or silently render a
     // bogus kind as something recognizable if it ever did.
     expect(scoreKindOf(`${CALL}score`, { slug: 'p_x', kind: 'bogus' })).toBe('extract')
+  })
+})
+
+// P4 Task 10: render_board(kind=) folds render_audit_board/render_review_board.
+// Unlike score, `kind` has NO server-side default (the schema marks it
+// `required`) — so, unlike scoreKindOf, this must NOT invent a fallback kind
+// when one can't be read. Pinned here so groupChatEvents.ts (hoist vs.
+// collapse) and MessageList.tsx (which card) read the same answer.
+describe('boardKindOf', () => {
+  const CALL = 'mcp__emerge_tools__'
+
+  it("reads kind='audit' off tool_input for the live `render_board` name", () => {
+    expect(boardKindOf(`${CALL}render_board`, { slug: 'p_x', kind: 'audit' })).toBe('audit')
+  })
+
+  it("reads kind='review' off tool_input for the live `render_board` name", () => {
+    expect(boardKindOf(`${CALL}render_board`, { slug: 'p_x', kind: 'review' })).toBe('review')
+  })
+
+  it('resolves legacy pre-merge transcript names from the NAME, ignoring tool_input', () => {
+    // Old recorded calls never carried a `kind` argument at all.
+    expect(boardKindOf(`${CALL}render_audit_board`, { slug: 'p_x' })).toBe('audit')
+    expect(boardKindOf(`${CALL}render_review_board`, { slug: 'p_x' })).toBe('review')
+  })
+
+  it('returns null for non-board tool calls', () => {
+    expect(boardKindOf(`${CALL}run_audit`, { slug: 'p_x' })).toBeNull()
+    expect(boardKindOf(`${CALL}score`, { slug: 'p_x', kind: 'audit' })).toBeNull()
+  })
+
+  it('returns null (no default) for the live name with a missing kind — unlike scoreKindOf', () => {
+    // No sensible default exists (auto-dispatch on project type would be a
+    // semantics change this milestone forbids); the schema's `required`
+    // rejects this before a real call ever reaches the renderer, so a record
+    // shaped like this is a validation-error transcript with no payload to
+    // render specially — falls back to the generic tool card, not a guess.
+    expect(boardKindOf(`${CALL}render_board`, { slug: 'p_x' })).toBeNull()
+  })
+
+  it('returns null for a garbage kind value the same way the server schema enum would reject it', () => {
+    expect(boardKindOf(`${CALL}render_board`, { slug: 'p_x', kind: 'bogus' })).toBeNull()
   })
 })
