@@ -85,6 +85,14 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "create_project", "delete_project", "add_model", "write_schema",
     "switch_active_prompt", "set_model", "save_reviewed",
     "freeze_version", "issue_api_key",
+    # …and the three that read like `rm`/`mv` wrappers but aren't. A doc's
+    # filename is the primary key of four sibling artifacts and a memory's
+    # body must move with its MEMORY.md line, so Bash gets all three wrong —
+    # which is exactly why they must be VISIBLE to a remote teammate whose
+    # only other option is ws_move. Unreachable until 2026-08-16 (P4 Task 1:
+    # decorated but never registered), hence zero recorded calls; that is an
+    # absence of opportunity, not an absence of need.
+    "delete_doc", "rename_doc", "forget_memory",
     # (c) LLM / job verbs
     "extract", "derive_schema",
     "create_experiment", "run_experiment_eval",
@@ -108,6 +116,23 @@ _MINIMAL_SURFACE: frozenset[str] = frozenset({
     "save_reviewed_match",
     # env-fallback resolution for all four LLM roles — invisible in the files
     "get_project_config",
+    # NOT listed, deliberately, after the 2026-08-16 measurement pass:
+    # list_trash / restore_from_trash / rename_project / history /
+    # history_restore. They are recovery + audit paths, not part of a remote
+    # teammate's daily loop, and ws_* can at least SEE the damage even if it
+    # cannot undo it. They stay registered and callable on the full surface.
+    #
+    # Nothing else was cut this round. 588 recorded tool calls left 34 of 78
+    # tools uncalled, but "uncalled" splits three ways and only one of them
+    # justifies cutting: (A) unreachable, so nobody COULD call it — that was a
+    # bug, fixed in Task 1; (B) rare but correct verbs (promote_experiment,
+    # run_experiment_eval, switch_active_prompt) where low frequency is the
+    # expected shape and cutting is capability loss; (C) genuinely duplicate
+    # surface — the only category this milestone merged. The June pass cut by
+    # suite, treating B as C, and within hours an agent had no legal path to a
+    # real audit request (see the note above). Listing is the CHEAP lever —
+    # it renames nothing, needs no alias, breaks no history, rewrites no skill
+    # prose — which is exactly why it must not be swung casually.
 })
 
 

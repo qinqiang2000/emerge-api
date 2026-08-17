@@ -74,7 +74,7 @@ backend/app/
   api/       # /lab/* routes + /v1/{pid}/extract (prod fast-path)
   chat/      # claude_agent_sdk 集成层
   skills/    # emerge-extractor / autoresearch / publish skill prompts
-  tools/     # @tool 函数（78 个）+ mcp_server.py（standalone stdio MCP）
+  tools/     # @tool 函数（64 个，8 族已收敛）+ mcp_server.py（standalone stdio MCP）
              # 读状态先问投影：list_docs / get_surface_state(无 filename)
              # 都走 doc_status.py 这一份 join，别再手拼 docs/ ↔ predictions/
   provider/  # anthropic / openai / gemini adapter

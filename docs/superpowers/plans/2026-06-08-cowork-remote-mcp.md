@@ -101,9 +101,16 @@ emerge 后端能力以 **remote MCP connector** 形态被 Claude Desktop / Cowor
 
 `emerge_extractor.md` → `skills/emerge-extractor/SKILL.md`；`.mcp.json` 指向 remote connector；`.claude-plugin/plugin.json`。放私有 marketplace，队友一键装得 `/emerge-*` slash（chat + Cowork 共用）。
 
-### P4 — 工具收敛（planned）
+### P4 — 工具收敛（✅ shipped 2026-08-16 → `2026-08-16-tool-consolidation.md`）
 
-38 个给非技术队友偏多。靠 skill prompt 引导 + per-tool policy（`ask`/`blocked`）把高危/低频收起，暴露给 Cowork 的核心动词 ~10 个。
+**原计划（保留备查）**：38 个给非技术队友偏多。靠 skill prompt 引导 + per-tool policy（`ask`/`blocked`）把高危/低频收起，暴露给 Cowork 的核心动词 ~10 个。
+
+**实际做法与这段有三处出入，量完数才发现：**
+1. **38 和 ~10 都过期且方向错了。**真实是源码 78 / 实际注册 69；而 remote 面早已被`_MINIMAL_SURFACE` 的 listing 压到 41，`Bash` 又以 260 次真实调用在扛长尾——「暴露 ~10 个」会砍掉罕见但正确的动词，正是 2026-06-10 那次事故的形状。最终 69→64，remote minimal 净不变。
+2. **最大的缺口不是「太多」，是 9 个工具根本不可达**（装了 `@tool` 却没进注册列表）。
+3. **per-tool policy 不需要新做。**MCP annotation 按工具名，客户端 gate 只能按名字，所以规则是「破坏性动词永远独立单名 + 多 op 工具所有 op 同桶」，现有四个 frozenset 零改动。
+
+**仍待（本期未做）**：工具加 `emerge_` 服务前缀已在 34ac283 落地；`list_*` 分页、server 名 `emerge_tools`→`emerge_mcp` 仍未做，低优先。
 
 ### MCP best-practices pass（2026-06-09，dogfood 触发）
 

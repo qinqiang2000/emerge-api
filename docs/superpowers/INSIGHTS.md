@@ -1020,6 +1020,71 @@ whole family costs zero new tools.
 
 ---
 
+## 收敛工具表面：可并的四个条件，「少」什么时候等于能力消失，以及两个测试可以同时量错东西
+
+**Where:** `backend/app/tools/_merged.py`（声明表）、`tests/unit/test_tool_policy.py` +
+`test_mcp_server_surface.py`（不变量）、`app/mcp_server.py::_MINIMAL_SURFACE`（listing 杠杆）。
+
+**先说最贵的那个教训：9 个工具装了 `@tool`，却从没进 `create_sdk_mcp_server(tools=[...])`。**
+`delete_doc` / `rename_doc` / `rename_project` / `forget_memory` / `list_trash` /
+`restore_from_trash` / `history_{log,diff,restore}` —— 每一个都有活的 HTTP 路由、有单测、
+skill 里也写着，但对 chat / stdio / remote **三个面全部不存在**。为什么没人发现：
+
+- 单测直接 `from app.tools.docs import delete_doc` 测模块函数，**绕过了注册**；
+- `test_symmetry_invariant::_discover_tools()` 用正则扫 `__init__.py` **源码文本**，
+  78 个装饰器全过；
+- 更糟的是 Step B 时代留下的一条**反向断言**（`cut` 集合里写着 `delete_doc` 必须 NOT
+  registered）。工具 2026-08-07 回来时，装饰器加回来了，注册和这条断言都没动。
+
+**两个测试互相印证，两个都在量错的东西，于是 bug 被钉死在原地。** 判据：**契约测试必须量
+运行时可达性，不能量源码文本。** 一个 `@tool` 装饰器满足正则、满足 grep、满足代码审查，
+唯独不满足"agent 能调用它"。
+
+**可并的四个条件，缺一不可：** 同名词 · 同输入形状 · 同 policy · **成员里没有破坏性 op**。
+第四条不是保守，是硬约束：**MCP annotation 是 per-tool-name 的，客户端的 auto-approve /
+gate 只能按名字**。`project(op='delete')` 一旦存在，Cowork 只能整个放行或整个拦——服务端
+再精细的 `(noun, op)` policy 表**传不过去**。所以正确做法不是「让 policy 支持 (noun,op)」，
+而是**让多 op 工具的所有 op 天然同桶**，破坏性动词永远独立单名。（顺带实测：
+`chat/permissions.py` 对任何 `mcp__emerge_tools__` 前缀一律放行，从不按名字区分——所以
+浏览器端的 `always_allow` 根本不是风险点，风险全在客户端 annotation。）
+
+**合并会塌陷下游按名字的派发，而且是两个方向。** 这是本轮唯一一个 plan 完全没想到的东西：
+
+- **丢**：`extract_one` 和 `extract_with_experiment` 驱动不同的前端缓存失效；合并后名字
+  不再能区分，得靠 `experiment_id` 在不在。
+- **白得**：`score_match` 从来不在 `HOISTED_TOOL_NAMES`、从来不触发 eval/Bench 失效，
+  但 `score` 两样都有——并进去就**凭空获得**了这两个行为。不会有任何测试失败，只是某个
+  卡片开始出现在它从没出现过的地方。
+
+对策：抽一个 `xxxKindOf(toolName, toolInput)` 解析器（见 `frontend/src/lib/legacyToolName.ts`
+的 `scoreKindOf` / `boardKindOf`），让所有消费点共用一份，**并且让它同时认新的 kind 参数和
+历史旧名**——历史会话才能继续渲染对的卡片。前端的判定规则必须和**服务端的默认值规则逐字
+一致**（`args.get("kind") or "extract"`），否则两层会漂。
+
+**「零调用」只对一类构成证据。** 588 次真实调用里 34/78 从未出现，但要分三类读：(A) 不可达
+所以没人调 —— 是 bug；(B) 罕见但正确的 op（`promote_experiment` / `cancel_job`）—— 低频
+是它该有的样子，砍掉是能力消失；(C) 真·重复表面（四个签名逐字相同的 model setter）——
+只有这类该并。2026-06 那次「按 suite 砍」正是把 B 当 C，几小时内 agent 在真实 audit 请求下
+无合法路径，改用 `read_doc_image` 自己当裁判，踩 agent self-audit 红线。
+
+**便宜的杠杆先用完再考虑贵的。** `_MINIMAL_SURFACE` 只改 listing：不改名、不要别名层、不碎
+历史渲染、不重写 182 处 skill 文本。**先问「能不能只是不 list」，再问「要不要并」。**
+本轮实测：合并让 remote minimal 面净变化为 **0**（−3 合并 +3 复活），因为八个族里只有三族
+的成员真的同时躺在 minimal 里——remote 的 context 税早就被 listing 收走了。归并省的是 chat
+面和 full 面。
+
+**一个工具名平铺在 12–16 个地方。** 每族合并平均动 16 个文件（`extract` 动了 28 个，而工具
+体本身只改了一行）：policy 四集合、`_tools`、`_MINIMAL_SURFACE`、`_HEADLESS_EXCLUDE`、
+`_TOOL_HTTP_MAP`、`MERGED_TOOLS`/`MERGED_POLICY`、`LEGACY_TOOL_NAMES`、**两棵** skill 树
+（`app/skills/` 和 `plugin/emerge/skills/`——后者最容易漏，而它正好发给最没法自查的那批用户）、
+3–5 个前端消费点、若干硬编码工具名的测试。**这个耦合度本身就是「表面太宽」的证据**，但它也
+意味着「纯表面重构」从来不便宜。
+
+**还有一个数不该忘：`Bash` 260 次，全场第一**（`ws_*` 合计 44，最热的自家工具 `extract` 147）。
+通用面已经在扛长尾——这是「不做第三个通用面」的实测依据，不是审美。
+
+---
+
 ## When to add an entry here
 
 **Add an entry when:**

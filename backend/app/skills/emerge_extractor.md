@@ -43,7 +43,7 @@ Skipping the read and improvising the workflow is how contracts get
 violated — the domain files carry the rendering contracts and risk gates
 for their tools. "It's just one tool call" is NOT a reason to skip: the
 playbook governs how you present the result, not just which tools to call.
-Concretely: never call `run_audit`/`run_match`/`score_*`/
+Concretely: never call `run_audit`/`run_match`/`score`/
 `run_experiment_eval`/`label_docs` in a session where you haven't read
 their domain playbook yet.
 
@@ -202,7 +202,7 @@ mimic. Each tool's own description has the full args.
 
 - **Project skeleton / clone / delete**: `create_project`, `fork_project`, `delete_project`, `promote_attachment_to_docs`.
 - **Active prompt / model mutation**: `write_schema` (the only legal mutation path — see red lines), `switch_active_prompt`, `set_model` (role='extract'|'labeler'|'proposer'|'translate'), `get_project_config`.
-- **Provider HTTP calls**: `derive_schema`, `extract` (add `experiment_id` to probe an experiment instead of the active pair), `label_docs`, `run_match`, `run_audit`, `score_*`.
+- **Provider HTTP calls**: `derive_schema`, `extract` (add `experiment_id` to probe an experiment instead of the active pair), `label_docs`, `run_match`, `run_audit`, `score` (kind='extract'|'audit'|'match').
 - **Reviewed lifecycle**: `save_reviewed`, `save_reviewed_match`, `save_reviewed_audit`.
 - **Experiments**: `create_experiment`, `promote_experiment`, `run_experiment_eval`.
 - **Scoring & publish**: `score`, `readiness_check`, `contract_diff`, `freeze_version`, `issue_api_key`.
