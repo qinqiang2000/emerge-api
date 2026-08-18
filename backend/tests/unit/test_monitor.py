@@ -6,6 +6,8 @@ is driven by hand-fed ProbeResults, and a FakeAlerter captures outbound content.
 from __future__ import annotations
 
 import json
+import sys
+import types
 
 import httpx
 import pytest
@@ -132,6 +134,70 @@ def test_probe_agent_target_is_opt_in():
     targets = build_targets(cfg)
     assert [t.name for t in targets] == ["agent"]
     assert targets[0].min_interval == 1800
+
+
+def test_agent_target_carries_configured_brain():
+    """The agent target must name the CONFIGURED brain, not a literal SDK label —
+    it is what the 云之家 alert prints as `｜model=…`."""
+    cfg = MonitorConfig(probe_agent=True, agent_model="gpt-5.6-terra")
+    assert build_targets(cfg)[0].model_id == "gpt-5.6-terra"
+
+
+def test_agent_model_defaults_to_the_same_constant_settings_uses():
+    """One truth for the fallback: a second hardcoded copy here would let the
+    monitor probe a different brain than chat runs the moment either changed."""
+    from app.config import DEFAULT_AGENT_MODEL, Settings
+
+    assert MonitorConfig().agent_model == DEFAULT_AGENT_MODEL
+    assert Settings.model_fields["default_agent_model"].default == DEFAULT_AGENT_MODEL
+
+
+def test_agent_model_read_from_the_env_var_chat_uses(monkeypatch):
+    """`EMERGE_DEFAULT_AGENT_MODEL` — the same var `Settings` reads — not a
+    monitor-private knob, so the probe can never drift from the live brain."""
+    monkeypatch.setenv("EMERGE_DEFAULT_AGENT_MODEL", "gpt-5.6-terra")
+    assert MonitorConfig.from_env(load_env=False).agent_model == "gpt-5.6-terra"
+
+
+async def test_probe_agent_passes_configured_model_to_the_sdk(monkeypatch):
+    """Regression: the probe used to build `ClaudeAgentOptions(max_turns=1)` with
+    no model, so it exercised the SDK's own default while every real chat turn ran
+    `EMERGE_DEFAULT_AGENT_MODEL`. A gateway that stopped serving the configured
+    brain would 400 every turn with the watchdog still reporting green."""
+    import app.monitor.probes as probes
+
+    seen: dict[str, object] = {}
+
+    class _FakeOptions:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    class _FakeClient:
+        def __init__(self, options=None):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def query(self, _prompt):
+            return None
+
+        async def receive_response(self):
+            yield object()
+
+    fake_sdk = types.ModuleType("claude_agent_sdk")
+    fake_sdk.ClaudeAgentOptions = _FakeOptions
+    fake_sdk.ClaudeSDKClient = _FakeClient
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+
+    cfg = MonitorConfig(probe_agent=True, agent_model="gpt-5.6-terra")
+    res = await run_probe(build_targets(cfg)[0], cfg)
+
+    assert res.ok, res.error
+    assert seen["model"] == "gpt-5.6-terra"
 
 
 # --- state machine: anti-flap, down, recover --------------------------------

@@ -348,6 +348,22 @@ from app.api.routes import monitor as monitor_route  # noqa: E402
 app.include_router(monitor_route.router)
 
 
+async def _log_resolved_brain_on_startup() -> None:
+    """Announce which agent brain this process will actually run.
+
+    `EMERGE_DEFAULT_AGENT_MODEL` lives only in `backend/.env`, which is
+    gitignored AND excluded by `deploy.sh` — so prod's value is set by hand and
+    can silently disagree with what anyone believes is deployed (it ran the
+    `config.py` fallback for months while the .env line naming another model sat
+    commented out). One warning-level line at boot makes the live value greppable
+    in the service log instead of inferable only from a running chat turn."""
+    logging.getLogger(__name__).warning(
+        "agent brain: %s  (gateway: %s)",
+        get_settings().default_agent_model,
+        os.getenv("ANTHROPIC_BASE_URL") or "default",
+    )
+
+
 async def _start_monitor_on_startup() -> None:
     """Auto-start the LLM availability watchdog when `EMERGE_MONITOR_ENABLED=1`.
 
@@ -435,6 +451,7 @@ app.router.on_startup.append(_ensure_history_repos_on_startup)
 app.router.on_startup.append(_history_checkpoint_loop_on_startup)
 app.router.on_startup.append(_prewarm_claude_cli_on_startup)
 app.router.on_startup.append(_prewarm_raster_imports_on_startup)
+app.router.on_startup.append(_log_resolved_brain_on_startup)
 app.router.on_startup.append(_start_monitor_on_startup)
 app.router.on_startup.append(_start_remote_mcp_on_startup)
 app.router.on_shutdown.append(_stop_remote_mcp_on_shutdown)

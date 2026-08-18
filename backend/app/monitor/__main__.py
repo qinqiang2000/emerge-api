@@ -85,6 +85,7 @@ def _cmd_status(cfg: MonitorConfig) -> int:
     print(f"  google key present : {'yes' if cfg.google_api_key else 'no'}")
     print(f"  anthropic key pres.: {'yes' if cfg.anthropic_api_key else 'no'}")
     print(f"  probe agent brain  : {'yes' if cfg.probe_agent else 'no'}")
+    print(f"  agent brain model  : {cfg.agent_model}")
     if monitor.targets:
         print("  targets:")
         for t in monitor.targets:

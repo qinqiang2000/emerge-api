@@ -74,8 +74,11 @@ def build_targets(cfg: MonitorConfig) -> list[ProbeTarget]:
             ProbeTarget("anthropic", "provider:anthropic", cfg.anthropic_probe_model)
         )
     if cfg.probe_agent and want("agent"):
+        # model_id is the CONFIGURED brain, not the literal "claude_agent_sdk":
+        # it flows into the 云之家 alert line (`｜model=…`) and `status`, so a
+        # brain outage names the model that actually broke.
         targets.append(
-            ProbeTarget("agent", "agent", "claude_agent_sdk", min_interval=cfg.agent_min_interval)
+            ProbeTarget("agent", "agent", cfg.agent_model, min_interval=cfg.agent_min_interval)
         )
     return targets
 
@@ -90,7 +93,7 @@ async def run_probe(target: ProbeTarget, cfg: MonitorConfig) -> ProbeResult:
         elif target.kind == "provider:anthropic":
             await _probe_anthropic(target.model_id or cfg.anthropic_probe_model, cfg)
         elif target.kind == "agent":
-            await _probe_agent(cfg)
+            await _probe_agent(target.model_id or cfg.agent_model, cfg)
         else:  # pragma: no cover — guarded by build_targets
             raise ValueError(f"unknown probe kind: {target.kind!r}")
         return ProbeResult(ok=True, latency_ms=(time.monotonic() - t0) * 1000)
@@ -140,11 +143,17 @@ async def _probe_anthropic(model_id: str, cfg: MonitorConfig) -> None:
         raise RuntimeError("probe returned non-dict json")
 
 
-async def _probe_agent(cfg: MonitorConfig) -> None:
+async def _probe_agent(model_id: str, cfg: MonitorConfig) -> None:
     """Probe the Agent brain (`claude_agent_sdk`). Distinct failure domain from
     the Anthropic *provider* probe: the brain authenticates with the OAuth token
     / bundled CLI, not `ANTHROPIC_API_KEY`, so it can be down while the provider
     is up (expired token). Costs a CLI spawn — hence opt-in + coarser cadence.
+
+    `model_id` MUST be passed through to `ClaudeAgentOptions`. Omitting it lets
+    the SDK fall back to its own built-in default, which is a false green light:
+    the gateway can stop serving the brain chat actually runs
+    (`EMERGE_DEFAULT_AGENT_MODEL`) while this probe keeps passing on a different
+    model. Same class of trap as a live API key answering for a broken request.
 
     The agent's capability — including this test — is realised *only* through
     `.env`: the SDK/CLI reads `ANTHROPIC_BASE_URL`, `CLAUDE_PROXY` and the token
@@ -157,7 +166,8 @@ async def _probe_agent(cfg: MonitorConfig) -> None:
 
     # +15s slack over probe_timeout for the one-time CLI spawn / Node JIT.
     async with asyncio.timeout(cfg.probe_timeout + 15):
-        async with ClaudeSDKClient(options=ClaudeAgentOptions(max_turns=1)) as client:
+        opts = ClaudeAgentOptions(max_turns=1, model=model_id)
+        async with ClaudeSDKClient(options=opts) as client:
             await client.query("Reply with the single word: pong")
             got = False
             async for _msg in client.receive_response():

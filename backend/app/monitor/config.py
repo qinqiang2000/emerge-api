@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 
+from app.config import DEFAULT_AGENT_MODEL
+
 # monitor/config.py → monitor → app → backend
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ENV_PATH = _BACKEND_DIR / ".env"
@@ -111,6 +113,13 @@ class MonitorConfig:
 
     # --- agent brain (claude_agent_sdk) — opt-in, it spawns the CLI -----------
     probe_agent: bool = False
+    # The brain the probe must actually exercise. Read from `EMERGE_DEFAULT_AGENT_MODEL`
+    # — the SAME env var `Settings.default_agent_model` uses — because a probe that
+    # lets the SDK pick its own default is a false green light: it would keep
+    # reporting "agent OK" while every real chat turn 400s on a gateway that no
+    # longer serves the configured model. Not a `EMERGE_MONITOR_*` knob on purpose;
+    # decoupling it from what chat runs would reintroduce that very drift.
+    agent_model: str = DEFAULT_AGENT_MODEL
     agent_min_interval: float = 1800.0  # coarser cadence so the CLI isn't hammered
 
     # --- selection / lifecycle ------------------------------------------------
@@ -153,6 +162,9 @@ class MonitorConfig:
                 "EMERGE_MONITOR_ANTHROPIC_MODEL", _DEFAULT_ANTHROPIC_PROBE_MODEL
             ),
             probe_agent=_env_bool("EMERGE_MONITOR_PROBE_AGENT", False),
+            agent_model=(
+                os.getenv("EMERGE_DEFAULT_AGENT_MODEL", "").strip() or DEFAULT_AGENT_MODEL
+            ),
             agent_min_interval=_env_float("EMERGE_MONITOR_AGENT_INTERVAL", 1800.0),
             targets_override=targets,
             targets_exclude=exclude,

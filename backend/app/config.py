@@ -7,6 +7,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+# Agent-brain fallback when `EMERGE_DEFAULT_AGENT_MODEL` is unset. Deliberately a
+# module constant rather than an inline field default: the availability monitor
+# (`app/monitor/config.py`) resolves the same env var from its own dataclass, and
+# a second hardcoded copy would silently drift — which is exactly the failure this
+# constant exists to prevent (a monitor probing one brain while chat runs another).
+DEFAULT_AGENT_MODEL = "claude-sonnet-5"
+
+
 def _default_ingest_roots() -> tuple[Path, ...]:
     """Built-in allowlist for `ingest_local_path` / `POST /lab/.../ingest-local`.
 
@@ -59,7 +67,10 @@ class Settings(BaseSettings):
     # setting. To change the model an existing project uses, edit
     # `models/{mid}.json` or run `set_model(role='extract')` / `/compare`.
     default_extract_model: str = "gemini-2.5-flash"
-    default_agent_model: str = "claude-sonnet-5"
+    # Agent brain. Sourced from the module constant so the availability monitor
+    # can share the exact same default without re-declaring the string — see
+    # `DEFAULT_AGENT_MODEL` above.
+    default_agent_model: str = DEFAULT_AGENT_MODEL
     # Pro-labeler model. None = label_docs refuses with `labeler_model_not_configured`
     # unless the caller passes an explicit override or sets `project.json.labeler_model`.
     default_labeler_model: str | None = None
