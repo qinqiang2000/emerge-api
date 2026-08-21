@@ -290,12 +290,13 @@ def _build_html(
 
 <h2>总体</h2>
 <div class="wrap"><table>
-<thead><tr><th>口径</th><th class="num">在位</th><th class="num">挑战者</th><th class="num">Δ</th></tr></thead>
+<thead><tr><th>口径</th><th class="num">{_e(a_label)}</th><th class="num">{_e(b_label)}</th><th class="num">Δ</th></tr></thead>
 <tbody>{''.join(orows)}</tbody></table></div>
 
 <h2>逐字段</h2>
 {('<div class="wrap"><table>'
-  '<thead><tr><th>字段</th><th class="num">在位</th><th class="num">挑战者</th>'
+  f'<thead><tr><th>字段</th><th class="num">{_e(a_label)}</th>'
+  f'<th class="num">{_e(b_label)}</th>'
   '<th class="num">Δ</th><th class="num">对/有值格</th>'
   '<th class="num">错值·漏抽·多填</th></tr></thead>'
   f'<tbody>{"".join(graded)}</tbody></table></div>')

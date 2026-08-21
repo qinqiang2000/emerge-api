@@ -2550,7 +2550,9 @@ def build_emerge_mcp(
             ]
             if moved:
                 lines.append("")
-                lines.append("字段 | 在位 | 挑战者 | 对/有值格 | 错值·漏抽·多填")
+                lines.append(
+                    f"字段 | {out['a_label']} | {out['b_label']} | 对/有值格 | 错值·漏抽·多填"
+                )
                 for r in moved:
                     star = "★" if r["required"] else ""
                     lines.append(
