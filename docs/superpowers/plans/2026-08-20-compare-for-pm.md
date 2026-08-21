@@ -68,7 +68,7 @@ GT 空格   = status ∈ {absent_both, spurious}        ← 送分区，不进�
 
 报告与 chat 都必须把差距**同时用两种单位**说出来：`+5.3pp（≈ 19 格 / 349 格）`。PM 看得懂「赢了 19 格」，看不懂 5.3pp 意味着什么。
 
-- [ ] **T1** 重写 `backend/app/skills/domains/experiments.md` 的 `## Compare flow` 一节：
+- [x] **T1** 重写 `backend/app/skills/domains/experiments.md` 的 `## Compare flow` 一节：
   - 判据段落（上面那个双条件），措辞用「不许下结论」而非「建议谨慎」
   - 口径优先级：头条=有值格微平均；`doc_accuracy` **从 compare 输出里删掉**（HANDOFF 明确废弃，理由一句带过）；官方 macro 标注「含两边都空的送分格」
   - 单轮即可，**不要自作主张补轮**；确需补轮先问用户（HANDOFF「判断陷阱 6」的结论）
@@ -83,32 +83,32 @@ GT 空格   = status ∈ {absent_both, spurious}        ← 送分区，不进�
 
 ### 3.1 后端指标
 
-- [ ] **T2** `backend/app/eval/score.py::_aggregate`（当前 81–175 行）
+- [x] **T2** `backend/app/eval/score.py::_aggregate`（当前 81–175 行）
   - `counts` 每字段的 dict 从 `{correct,total,absent_both}` 扩到含 `wrong / missing / spurious`；循环里按 status 分别累加（现在 `wrong/missing/spurious` 三档都只进 `total`，没有单独计数 —— 这正是现在**算不出有值格分母**的原因）
   - 每字段派生 `nonempty_total = correct + wrong + missing`、`accuracy_nonempty = correct / nonempty_total`（分母 0 → `None`，**不是 0.0**，避免和「真的 0%」混淆）
   - 全局微平均：`cell_accuracy_nonempty = Σcorrect / Σnonempty_total`；按 `f.required` 过滤出 `required_cell_accuracy_nonempty` 与 `n_required_fields`
   - 暴露已算好的 `n_docs_perfect = doc_strict`、`n_docs_graded = n_reviewed_graded`
   - 返回签名从 5-tuple 扩成 dataclass 或 7+ 字段 tuple —— **只有一个调用点**（`score.py:300`），改动封闭
-- [ ] **T3** `backend/app/schemas/score.py`
+- [x] **T3** `backend/app/schemas/score.py`
   - `FieldScore` 加 `n_wrong / n_missing / n_spurious: int = 0`、`accuracy_nonempty: Optional[float] = None`、`required: bool = False`
   - `ScoreResultSummary` 加 `cell_accuracy_nonempty / required_cell_accuracy_nonempty: Optional[float]`、`n_docs_perfect / n_docs_graded / n_required_fields: Optional[int]`
   - 全部 Optional 或带默认 —— 磁盘上的历史 `metrics/eval_*/summary.json` 必须继续 parse（`extra="forbid"` 只挡多余键，缺键靠默认值）
   - 新增测试 `backend/tests/unit/test_eval_score_nonempty.py`：① 构造含五种 status 的 cells，断言有值格分母排除 `absent_both` 与 `spurious`；② 全字段 required=False 时 `n_required_fields==0` 且 required 指标为 `None`；③ 旧 summary.json blob 仍能 `ScoreResultSummary.model_validate`
-- [ ] **T4** 回归确认：`app/services/bench.py`、`app/api/routes/eval.py`、autoresearch best-turn picker、publish gate 阈值（`field_accuracy_macro ≥ 0.75/0.90`）**一律不动** —— 新字段是纯增量，旧 headline 语义不变。跑 `uv run pytest -q` 确认零回归。
+- [x] **T4** 回归确认：`app/services/bench.py`、`app/api/routes/eval.py`、autoresearch best-turn picker、publish gate 阈值（`field_accuracy_macro ≥ 0.75/0.90`）**一律不动** —— 新字段是纯增量，旧 headline 语义不变。跑 `uv run pytest -q` 确认零回归。
 
 ### 3.2 报告白板
 
 `render_board` 已经是「一个名词多种介质」（`app/tools/_merged.py:51`，现有 `audit` / `review` 两 kind），第三种同构。
 
-- [ ] **T5** 新建 `backend/app/tools/compare_board_render.py::render_compare_board(workspace, slug, a, b)`
+- [x] **T5** 新建 `backend/app/tools/compare_board_render.py::render_compare_board(workspace, slug, a, b)`
   - 入参 `a` / `b` 是 eval ts 或 experiment id（沿用 `/eval/compare?a=&b=` 的既有约定）；读两侧 `metrics/eval_<ts>/{summary.json,cells.jsonl}`
   - 产出 `{"headline": str, "overall": [...4 行...], "per_field": [...], "verdict": "win"|"noise", "html": str}` —— 自含 HTML（无外链、内联 CSS），与 `review_board_render.py:317::_build_doc_html` 同风格
   - 逐字段表：`字段 | 在位 | 挑战者 | Δ | 对/有值格 | 错值·漏抽·多填`，按 |Δ| 降序；`nonempty_total==0` 的字段落到折叠区标 n/a（**永远不报成 0%** —— 既有 `not_applicable` 红线）
   - `verdict` 由 T1 的双条件算出，直接进 headline 那一句
   - 内容一律 `html.escape`（同 review board 红线）
-- [ ] **T6** 接线：`app/tools/__init__.py:2339` `_BOARD_KINDS` 加 `"compare"`；`t_render_board` 加分支；tool description 补 compare 段落（browser/headless 双渲染契约）；HTTP twin `app/api/routes/compare_board.py::GET /lab/projects/{slug}/compare/board-render?a=&b=`（照抄 `review_board.py` 结构，含 `safe_slug`）；`test_symmetry_invariant.py` 必须自动通过（不新增豁免）
-- [ ] **T7** 前端：`frontend/src/components/CompareBoard/CompareBoardOverlay.tsx`，复用 `ReviewBoardOverlay.tsx` 的 iframe srcdoc 模式；入口用 query flag（`?compareboard=1&a=&b=`）与 review board 对齐；只用语义 token（`paper`/`ink`/`ochre`/`rose`/`moss`），禁止直接 Tailwind color class
-- [ ] **T8** skill 收尾：`experiments.md` compare flow 末尾改为「跑完两侧 eval → `render_board(kind='compare', a=…, b=…)` → browser 分支一句话 + 指向 board；headless 分支打完整表格」，并给出可转发链接 `{public_base_url}/p/{slug}?compareboard=1&a=…&b=…`
+- [x] **T6** 接线：`app/tools/__init__.py:2339` `_BOARD_KINDS` 加 `"compare"`；`t_render_board` 加分支；tool description 补 compare 段落（browser/headless 双渲染契约）；HTTP twin `app/api/routes/compare_board.py::GET /lab/projects/{slug}/compare/board-render?a=&b=`（照抄 `review_board.py` 结构，含 `safe_slug`）；`test_symmetry_invariant.py` 必须自动通过（不新增豁免）
+- [x] **T7** 前端：`frontend/src/components/CompareBoard/CompareBoardOverlay.tsx`，复用 `ReviewBoardOverlay.tsx` 的 iframe srcdoc 模式；入口用 query flag（`?compareboard=1&a=&b=`）与 review board 对齐；只用语义 token（`paper`/`ink`/`ochre`/`rose`/`moss`），禁止直接 Tailwind color class
+- [x] **T8** skill 收尾：`experiments.md` compare flow 末尾改为「跑完两侧 eval → `render_board(kind='compare', a=…, b=…)` → browser 分支一句话 + 指向 board；headless 分支打完整表格」，并给出可转发链接 `{public_base_url}/p/{slug}?compareboard=1&a=…&b=…`
 
 ---
 
@@ -116,25 +116,25 @@ GT 空格   = status ∈ {absent_both, spurious}        ← 送分区，不进�
 
 **红线：无 GT 的任何界面/输出都不允许出现百分比。** 两模型一致率不是准确率（HANDOFF 判断陷阱 1，用户第一版就栽在这）。无 GT 时只报「N 处分歧待裁决 / 已裁 M」。
 
-- [ ] **T9** 新 tool `backend/app/tools/diff_predictions.py::diff_predictions(workspace, slug, a, b)`
+- [x] **T9** 新 tool `backend/app/tools/diff_predictions.py::diff_predictions(workspace, slug, a, b)`
   - 逐 (filename, entity_idx, field) 对齐两侧预测；等价判定**复用** `app/eval/normalize.py:74::normalize_equivalent`（数字/日期/NFKC/array 结构化已经吃掉，`1,234.00` vs `1234` 不会误报）
   - 返回 `{n_cells, n_diff, n_diff_required, by_field: [{field, n_diff, required}], cells: [{filename, entity_idx, field, a, b, required}]}`
   - **不产任何分数**；实体数不一致时按重叠部分对齐并在返回里显式报 `entity_count_mismatch`（HANDOFF 里 terra 在两篇上实体切分失败，静默按重叠打分会偏袒它）
   - `@tool` + HTTP twin `GET /lab/projects/{slug}/compare/diff?a=&b=` + 单测（含等价归一不误报、实体数不齐、required 分组三例）
-- [ ] **T10** skill 无 GT 分支：`reviewed/` 为空 → 不 refuse，改为
+- [x] **T10** skill 无 GT 分支：`reviewed/` 为空 → 不 refuse，改为
   1. 说明「没有 GT，无法判准确率；先把两侧分歧裁决成 GT」
   2. `diff_predictions` → 按字段分组呈现，**required 字段优先**（PM 的时间该花在这）
   3. PM 在 chat 里逐格/批量裁决（「这些取 A」「这格正确值是 X」）→ agent 调 `save_reviewed`（`app/tools/reviewed.py:25`，带锁 + 原子写 + `_run` 戳）
   4. 裁完自动转 P2 出报告
   - 第一版**不做点选 UI** —— chat 能完成一切是红线，交互式点选留待后续（board 上只做只读清单，见 T11）
-- [ ] **T11** `render_compare_board` 加无 GT 态：只读分歧清单（分组、两侧值并排、零百分比），headline 是「N 处分歧待裁决」
+- [x] **T11** `render_compare_board` 加无 GT 态：只读分歧清单（分组、两侧值并排、零百分比），headline 是「N 处分歧待裁决」
 
 ---
 
 ## 5. 收尾
 
-- [ ] **T12** 全量测试：`cd backend && uv run pytest -q`（基线 1689 passed，见 HANDOFF）+ `cd frontend && npx tsc -b && npx vitest run`。前端已知既有失败（jsdom `scrollIntoView`、undici 相对 URL）不算回归，需逐条比对 `main` 确认
-- [ ] **T13** 部署：`./deploy.sh`（不覆盖 `backend/.env` 与 `backend/workspace`）
+- [x] **T12** 全量测试：`cd backend && uv run pytest -q`（基线 1689 passed，见 HANDOFF）+ `cd frontend && npx tsc -b && npx vitest run`。前端已知既有失败（jsdom `scrollIntoView`、undici 相对 URL）不算回归，需逐条比对 `main` 确认
+- [x] **T13** 部署：`./deploy.sh`（不覆盖 `backend/.env` 与 `backend/workspace`）
 - [ ] **T14** dogfood —— **交回用户，不由 subagent 执行**（milestone dogfood handoff 惯例）。剧本：
   1. 振兴_20260707 已有 638 格 GT + 4 个实验，直接跑 `/compare`，核对报告四行数字与 HANDOFF 里的已知值对得上（★必填 · 有值格应接近 88.9/85.8 那一档；若该项目 schema 没标 required，★行应整行隐藏而不是报 0%）
   2. 找一个无 GT 的项目验 P3：`/compare` 不 refuse、不出百分比、分歧清单按 required 优先
@@ -142,12 +142,48 @@ GT 空格   = status ∈ {absent_both, spurious}        ← 送分区，不进�
 
 ---
 
+## 5.5 实际交付（2026-08-20）
+
+commit `6aded08` + `f16227d`，已部署（`./deploy.sh` → healthz/index 200）。
+backend **1908 passed / 0 failed**（净增 54 例）；frontend tsc clean、721 passed
+（11 例既有 jsdom `scrollIntoView` 失败，数量未变）。
+
+**生产 smoke 抓到一个真缺陷并已修**：振兴项目有 638 格 GT，拿 2026-08 那两次
+eval 出报告时 headline 却说「先给一些文档做 review 造 ground truth」——因为那两个
+`summary.json` 是 M12 时代写的，没有新口径的键，落到 `None`，和「真的没有 GT」
+长得一样。按 `n_reviewed` 区分后：打过分就是 blob 旧了（提示重跑），真的是 0
+才提示去 review。`f16227d`。
+
+**T11 的形态比 plan 更省**：无 GT 态没有单开一个 board kind，而是靠 `a`/`b` 的
+**形状**分流（eval ts → 报告态；`_draft`/`ex_…` → 裁决态，见 `is_eval_ts`）。
+同一个问题的两种输入，不是两种语义；混着传会被 `compare_mixed_handles` 拒绝。
+
+### 交给人 dogfood 前要知道的两件事
+
+1. **振兴项目要看到硬指标必须重跑一次评测** —— 现存的 5 次 eval 全是 M12 blob，
+   只有官方 macro 可读。重跑会调 LLM（19 篇 × 2 侧），是花钱的动作，由用户决定。
+2. **振兴的 `required` 只标了 4 个**（`docType` / `page` / `invoiceType` /
+   `currency`），而 HANDOFF 的「13 个重要字段」是另一套人工清单。★那一行现在
+   反映的是 schema 的 required。要对齐 HANDOFF 口径，得把那 13 个字段标成
+   required —— 这正是设计意图：★是 PM 自己能调的旋钮，不是写死的清单。
+
 ## 6. 明确不做
 
 - **不产品化多轮重复跑** —— HANDOFF「判断陷阱 6」的结论是「默认单轮 + 查噪声表」，把补轮做进产品会诱导 PM 烧 token 买一个她读不懂的区间。`run_repeat.py` 留在用户的 Desktop 工具箱里。
 - **不给打分器加通用格级 not-applicable** —— 「`docType=other` 的非必填格不计分」是振兴的领域口径，不是产品规则；本 plan 用 `required` 分档已经覆盖 PM 的实际需求（重要字段单独一行）。真要做，另开 plan。
 - **不动 publish gate 阈值 / 不动 `field_accuracy_macro` 语义** —— 新指标纯增量，避免波及 autoresearch 与发布门槛。
 - **不做裁决的点选 UI** —— 第一版走 chat（红线：chat 能完成一切）。
+
+## 6.5 已知 follow-up（本次未做）
+
+- **`diff_predictions` 的 `cells` 没有上限。** 几百篇 × 几十字段的项目，一次调用
+  可能把上千行明细塞进 agent 上下文。白板侧已有 `_MAX_DETAIL_ROWS=300` 截断，
+  tool 侧没有。修法是加 `field` 过滤 + `limit`（skill 已经写了「先看 by_field
+  聚合、按字段分批要明细」，但工具层面没强制）。振兴规模（19 篇 × 29 字段）不会
+  撞上，所以没有阻塞 dogfood。
+- **`/eval` 单侧打分仍报 `doc_accuracy` 与官方 macro 头条。** 本次只改了 compare
+  的口径，`## Eval` 那节原样未动（避免波及既有测试与 EvalCard 渲染契约）。两处
+  口径不一致是已知的、有意的范围切分。
 
 ## 7. 排序说明
 
