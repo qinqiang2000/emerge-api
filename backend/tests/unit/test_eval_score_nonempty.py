@@ -187,3 +187,50 @@ async def test_summary_carries_nonempty_metrics_end_to_end(workspace: Path) -> N
     by_field = {p.field: p for p in summary.per_field}
     assert by_field["b"].accuracy_nonempty is None
     assert by_field["b"].accuracy == pytest.approx(1.0)  # 送分格照旧给分
+
+
+# ── 同秒碰撞（2026-08-21 dogfood）─────────────────────────────────────────
+# `ts` 只到秒。以前够用：一次 eval 要调几分钟 LLM。但复用已有预测重打分只要
+# ~200ms，连着给三个模型打分会全落在同一秒 —— 后面的把前面的 summary/cells
+# 直接覆盖掉，三个模型只剩一份结果。
+
+async def test_same_second_evals_do_not_clobber_each_other(
+    workspace: Path, monkeypatch,
+) -> None:
+    import json as _json
+
+    from app.eval import score as score_mod
+    from app.schemas.schema_field import FieldType, SchemaField
+    from app.tools.projects import create_project
+    from app.tools.schema import write_schema
+    from app.workspace.atomic import atomic_write_json
+    from app.workspace.paths import (
+        eval_summary_path, predictions_draft_dir, reviewed_dir,
+    )
+
+    # 时钟钉死在同一秒 —— 这正是复用预测重打分时的真实情形。
+    monkeypatch.setattr(score_mod, "_now_ts", lambda: "2026-08-21T05-46-53Z")
+
+    slug = (await create_project(workspace, name="clash"))["slug"]
+    await write_schema(workspace, slug, [
+        SchemaField(name="f", type=FieldType.STRING, description="d"),
+    ], reason="t", allow_structural=True)
+
+    rd = reviewed_dir(workspace, slug)
+    rd.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(rd / "doc1.json", {"entities": [{"f": "right"}]})
+    pd = predictions_draft_dir(workspace, slug)
+    pd.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(pd / "doc1.json", {"entities": [{"f": "right"}]})
+
+    first = await score_mod.run_eval(workspace, slug)
+
+    # 第二次同秒打分，但预测换了内容 —— 两份结果必须都留在盘上。
+    atomic_write_json(pd / "doc1.json", {"entities": [{"f": "wrong"}]})
+    second = await score_mod.run_eval(workspace, slug)
+
+    assert first.ts != second.ts, "the second eval reused the first one's ts"
+    a = _json.loads(eval_summary_path(workspace, slug, first.ts).read_text())
+    b = _json.loads(eval_summary_path(workspace, slug, second.ts).read_text())
+    assert a["cell_accuracy_nonempty"] == 1.0, "the first eval got clobbered"
+    assert b["cell_accuracy_nonempty"] == 0.0

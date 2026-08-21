@@ -564,3 +564,39 @@ async def test_no_gt_detail_values_can_wrap(workspace: Path) -> None:
 
     assert 'td.val { white-space: normal;' in out["html"]
     assert out["html"].count('<td class="val">') == 2, "both sides must use the wrapping column"
+
+
+async def test_clearly_worse_challenger_is_not_called_a_tie(workspace: Path) -> None:
+    """dogfood 抓到的：拿一个已知差很多的模型来比，得到「分不出高下，维持现状」。
+    动作没错，但那句话是错的 —— 而人只记得住那句话。"""
+    _write_eval(workspace, "p", TS_A, [_field("f", correct=86, wrong=14)],
+                model="gemini-2.5-flash")
+    _write_eval(workspace, "p", TS_B, [_field("f", correct=63, wrong=37)],
+                model="weak-model")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert out["verdict"] == "lose"
+    assert "明显更差" in out["headline"] and "不要换" in out["headline"]
+    assert "分不出高下" not in out["headline"]
+
+
+async def test_lose_needs_both_thresholds_too(workspace: Path) -> None:
+    """反方向也要两条线都跨过 —— 小幅落后同样是噪声，不能判「明显更差」。"""
+    _write_eval(workspace, "p", TS_A, [_field("f", correct=54, wrong=46)])
+    _write_eval(workspace, "p", TS_B, [_field("f", correct=50, wrong=50)])
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert out["verdict"] == "noise"
+    assert "分不出高下" in out["headline"]
+
+
+async def test_suffixed_ts_is_still_a_valid_eval_handle() -> None:
+    """同秒碰撞加的 `-2Z` 后缀必须仍被认成 eval ts，否则第二份报告打不开。"""
+    from app.tools.compare_board_render import is_eval_ts
+
+    assert is_eval_ts("2026-08-21T05-46-53Z")
+    assert is_eval_ts("2026-08-21T05-46-53-2Z")
+    assert not is_eval_ts("_draft")
+    assert not is_eval_ts("ex_6046df1xwwaa")

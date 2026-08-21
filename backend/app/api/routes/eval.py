@@ -26,7 +26,9 @@ from app.workspace.paths import (
 router = APIRouter(dependencies=[Depends(bind_workspace)])
 
 
-_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$|^latest$")
+# `-2Z` 之类的后缀是同秒碰撞时加的（复用预测重打分只要 ~200ms，三个模型
+# 会落在同一秒；见 `app/eval/score.py::run_eval`）。
+_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{1,2})?Z$|^latest$")
 
 
 def _validate_ts(ts: str) -> None:

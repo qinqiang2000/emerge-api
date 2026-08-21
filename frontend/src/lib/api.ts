@@ -1049,7 +1049,11 @@ export async function getReviewBoard(slug: string): Promise<ReviewBoardPayload> 
 //
 // `verdict` is the backend's noise gate, not a cosmetic hint:
 //   `win`   — cleared both thresholds (Δcells AND Δpp)
-//   `noise` — did NOT clear them; the UI must not present the challenger as
+//   `lose`  — cleared both thresholds in the OTHER direction: the challenger
+//             is clearly worse. Distinct from `noise` on purpose — calling a
+//             known-worse model "too close to call" is the sentence people
+//             remember, even when the resulting action is the same
+//   `noise` — cleared neither; the UI must not present the challenger as
 //             a winner, however tempting the headline number looks
 //   `stale` — both sides were scored by an older metric version, so there is
 //             no hard number to compare; re-run the eval (NOT the same thing
@@ -1058,7 +1062,7 @@ export async function getReviewBoard(slug: string): Promise<ReviewBoardPayload> 
 //             queue to adjudicate
 export interface CompareBoardPayload {
   headline: string
-  verdict: 'win' | 'noise' | 'stale' | 'no_gt'
+  verdict: 'win' | 'lose' | 'noise' | 'stale' | 'no_gt'
   a_label: string
   b_label: string
   html: string

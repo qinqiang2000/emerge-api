@@ -569,6 +569,24 @@ async def run_eval(
     summary = summary.model_copy(update=anchor)
 
     async with project_lock(workspace, project_id):
+        # `ts` has second resolution, which used to be plenty: an eval spent
+        # minutes calling the LLM. But re-scoring an experiment whose
+        # predictions already exist on disk takes ~200ms, so scoring three
+        # models back to back lands them all in the SAME second — and the
+        # later ones silently overwrote the earlier ones' summary/cells.
+        # (Found 2026-08-21 scoring 3 experiments in one loop: three different
+        # models, one metrics dir, two results gone.) Give the collider a
+        # suffix instead of letting it clobber; the display ts stays inside
+        # the summary so nothing downstream has to parse the directory name.
+        ts = summary.ts
+        if eval_dir(workspace, project_id, ts).exists():
+            base = ts[:-1] if ts.endswith("Z") else ts
+            for n in range(2, 100):
+                cand = f"{base}-{n}Z" if ts.endswith("Z") else f"{ts}-{n}"
+                if not eval_dir(workspace, project_id, cand).exists():
+                    ts = cand
+                    break
+            summary = summary.model_copy(update={"ts": ts})
         d = eval_dir(workspace, project_id, summary.ts)
         d.mkdir(parents=True, exist_ok=True)
         atomic_write_json(

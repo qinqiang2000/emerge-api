@@ -28,7 +28,7 @@ router = APIRouter(dependencies=[Depends(bind_workspace)])
 #     别名，skill 传的一律是 `score` / `run_experiment_eval` 返回的具体 ts）
 #   - prediction source：`_draft` 或实验 id `ex_…`（没有 GT 时的分歧裁决态）
 # query 参数是不可信输入，先按形状挡一道再进文件系统（INSIGHTS #8 同一条口径）。
-_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$")
+_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{1,2})?Z$")
 _SOURCE_RE = re.compile(r"^(_draft|ex_[a-z0-9]{12})$")
 
 

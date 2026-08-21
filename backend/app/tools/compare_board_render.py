@@ -39,7 +39,7 @@ from app.workspace.paths import eval_summary_path, metrics_path
 #:   - eval ts（`2026-08-20T11-00-00Z`）→ 有 GT,出准确率报告
 #:   - prediction source（`_draft` / `ex_…`）→ 没有 GT,出分歧裁决清单
 #: 同一个问题的两种输入,不是两种语义。
-_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$")
+_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{1,2})?Z$")
 
 #: 明细表最多渲染多少行。裁决是按字段批量做的，几百行明细一次铺开对人没有帮助，
 #: 而且会把页面撑爆 —— 超出的部分让用户按字段回 chat 里要。
@@ -115,10 +115,14 @@ def _totals(summary: ScoreResultSummary, required_only: bool = False) -> tuple[i
 
 
 def _verdict(a: ScoreResultSummary, b: ScoreResultSummary) -> tuple[str, int, Optional[float]]:
-    """返回 (verdict, Δ格数, Δpp)。verdict ∈ {'win', 'noise'}。
+    """返回 (verdict, Δ格数, Δpp)。verdict ∈ {'win', 'lose', 'noise'}。
 
     `win` 只在两条阈值都被跨过时给出。任何一条不满足都是 `noise` —— 调用方必须
-    把它渲染成「分不出高下」，不许写成「略优」。"""
+    把它渲染成「分不出高下」，不许写成「略优」。
+
+    `lose` 是同样两条线反过来：挑战者**明显更差**。这一态必须和 `noise` 分开 ——
+    2026-08-21 dogfood 拿一个已知差很多的模型来比，得到的却是「分不出高下，维持
+    现状」。维持现状这个动作没错，但那句话是错的，而人只会记住那句话。"""
     a_num, _ = _totals(a)
     b_num, _ = _totals(b)
     delta_cells = b_num - a_num
@@ -127,12 +131,11 @@ def _verdict(a: ScoreResultSummary, b: ScoreResultSummary) -> tuple[str, int, Op
     if a.cell_accuracy_nonempty is not None and b.cell_accuracy_nonempty is not None:
         delta_pp = (b.cell_accuracy_nonempty - a.cell_accuracy_nonempty) * 100
 
-    won = (
-        delta_cells > _MIN_DELTA_CELLS
-        and delta_pp is not None
-        and delta_pp > _MIN_DELTA_PP
-    )
-    return ("win" if won else "noise"), delta_cells, delta_pp
+    if delta_pp is not None and delta_cells > _MIN_DELTA_CELLS and delta_pp > _MIN_DELTA_PP:
+        return "win", delta_cells, delta_pp
+    if delta_pp is not None and delta_cells < -_MIN_DELTA_CELLS and delta_pp < -_MIN_DELTA_PP:
+        return "lose", delta_cells, delta_pp
+    return "noise", delta_cells, delta_pp
 
 
 def _pct(v: Optional[float]) -> str:
@@ -191,6 +194,8 @@ h1 { margin: 0 0 2px; font-size: 18px; font-weight: 700; }
 .verdict.win { border-left-color: var(--moss); background: var(--moss-bg); }
 .verdict.noise { border-left-color: var(--ink-2); background: var(--card); }
 .verdict.no_gt { border-left-color: var(--ochre); background: var(--ochre-bg); }
+.verdict.lose { border-left-color: var(--rose); background: var(--rose-bg); }
+.verdict.stale { border-left-color: var(--ochre); background: var(--ochre-bg); }
 ul { margin: 6px 0 0; padding-left: 20px; color: var(--ink-2); font-size: 12.5px; }
 h2 { margin: 26px 0 8px; font-size: 13.5px; font-weight: 700; letter-spacing: .04em; }
 .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; }
@@ -492,6 +497,11 @@ async def render_compare_board(
         headline = (
             f"{b_label} 在有值格上 {delta_pp:+.1f}pp（多对 {delta_cells} 格 / 共 {b_den} 格），"
             f"两条判据都跨过了 —— 建议换。"
+        )
+    elif verdict == "lose":
+        headline = (
+            f"{b_label} 在有值格上 {delta_pp:+.1f}pp（少对 {abs(delta_cells)} 格 / 共 {b_den} 格），"
+            f"明显更差 —— 不要换，维持 {a_label}。"
         )
     else:
         headline = (
