@@ -118,7 +118,10 @@ export default function CompareBoardOverlay({
             <iframe
               srcDoc={entry.html}
               title={t('compareboard.title')}
-              sandbox=""
+              // 明细里每篇文档都链到它的复核页。`sandbox=""` 会把
+              // `target="_blank"` 一起挡掉（点了毫无反应），所以放开
+              // popups —— 脚本、表单、同源仍然全禁。
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
               className="w-full h-full border-0"
             />
           </div>

@@ -600,3 +600,104 @@ async def test_suffixed_ts_is_still_a_valid_eval_handle() -> None:
     assert is_eval_ts("2026-08-21T05-46-53-2Z")
     assert not is_eval_ts("_draft")
     assert not is_eval_ts("ex_6046df1xwwaa")
+
+
+# ── 逐格明细（2026-08-21）─────────────────────────────────────────────────
+# 汇总只能回答「这个字段差多少」，回答不了「哪几篇、错成什么」—— 而那是看到
+# 一行 `-16.7pp` 之后必然要问的下一个问题。缺了它报告就断在这里。
+
+def _write_cells(ws: Path, slug: str, ts: str, rows: list[dict[str, Any]]) -> None:
+    from app.workspace.paths import eval_cells_path
+
+    p = eval_cells_path(ws, slug, ts)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+
+
+def _cell(fn: str, field: str, status: str, truth: Any, pred: Any, idx: int = 0) -> dict[str, Any]:
+    return {"filename": fn, "entity_idx": idx, "field": field, "status": status,
+            "truth": truth, "pred": pred, "verdict_source": "exact"}
+
+
+async def test_drilldown_lists_only_cells_at_least_one_side_got_wrong(
+    workspace: Path,
+) -> None:
+    fields = [_field("totalTaxAmount", correct=1, wrong=1, required=True)]
+    _write_eval(workspace, "p", TS_A, fields)
+    _write_eval(workspace, "p", TS_B, fields)
+    _write_cells(workspace, "p", TS_A, [
+        _cell("inv1.pdf", "totalTaxAmount", "correct", "10.00", "10.00"),
+        _cell("inv2.pdf", "totalTaxAmount", "wrong", "52.03", "62.03"),
+    ])
+    _write_cells(workspace, "p", TS_B, [
+        _cell("inv1.pdf", "totalTaxAmount", "correct", "10.00", "10.00"),
+        _cell("inv2.pdf", "totalTaxAmount", "missing", "52.03", None),
+    ])
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+    html = out["html"]
+
+    assert 'id="drill-totalTaxAmount"' in html
+    assert "inv2.pdf" in html          # 有分歧的那格在
+    assert "inv1.pdf" not in html      # 两侧都对的格不占版面
+    assert "62.03" in html and "∅ 留空" in html  # 两侧各给了什么
+    assert "52.03" in html             # GT
+    assert "错值" in html and "漏抽" in html      # 判定用中文，不是 wrong/missing
+
+
+async def test_drilldown_links_each_doc_to_its_review_page(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """看到某格错了，下一步一定是想看原件 —— 文档名必须是链接。
+
+    srcDoc iframe 的 base URL 是 `about:srcdoc`，相对链接在那里解析不了，
+    所以链接必须是绝对的 —— 也就是必须有 `public_base_url`。"""
+    # `get_settings()` 每次都新建 Settings，所以设了 env 就立刻生效。
+    monkeypatch.setenv("EMERGE_PUBLIC_BASE_URL", "https://example.test")
+    fields = [_field("invoiceDate", correct=0, wrong=1)]
+    _write_eval(workspace, "p", TS_A, fields)
+    _write_eval(workspace, "p", TS_B, fields)
+    for ts, pred in ((TS_A, "2026-07-01"), (TS_B, "2026-01-07")):
+        _write_cells(workspace, "p", ts, [
+            _cell("a b.pdf", "invoiceDate", "wrong", "2026-07-01", pred),
+        ])
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert "?review=a%20b.pdf" in out["html"], "doc name is not a link to its review page"
+    assert "https://example.test/p/" in out["html"], "the link must be absolute (about:srcdoc)"
+    assert 'target="_blank"' in out["html"]
+
+
+async def test_field_name_becomes_an_anchor_only_when_there_is_detail(
+    workspace: Path,
+) -> None:
+    """没有问题格的字段不做成链接 —— 点开是空的，反而误导。"""
+    fields = [_field("clean", correct=2), _field("dirty", correct=1, wrong=1)]
+    _write_eval(workspace, "p", TS_A, fields)
+    _write_eval(workspace, "p", TS_B, fields)
+    _write_cells(workspace, "p", TS_A, [
+        _cell("d.pdf", "clean", "correct", "x", "x"),
+        _cell("d.pdf", "dirty", "wrong", "a", "b"),
+    ])
+    _write_cells(workspace, "p", TS_B, [
+        _cell("d.pdf", "clean", "correct", "x", "x"),
+        _cell("d.pdf", "dirty", "correct", "a", "a"),
+    ])
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert 'href="#drill-dirty"' in out["html"]
+    assert 'href="#drill-clean"' not in out["html"]
+
+
+async def test_missing_cells_file_degrades_to_summary_only(workspace: Path) -> None:
+    """历史 blob 只有 summary.json —— 明细区消失，汇总照常，不能崩。"""
+    fields = [_field("f", correct=8, wrong=2)]
+    _write_eval(workspace, "p", TS_A, fields)
+    _write_eval(workspace, "p", TS_B, fields)
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert "<h2>逐格明细" not in out["html"]  # 脚注里的那句提示不算
+    assert "全字段 · 有值格" in out["html"]

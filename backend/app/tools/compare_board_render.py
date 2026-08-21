@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.schemas.score import FieldScore, ScoreResultSummary
-from app.workspace.paths import eval_summary_path, metrics_path
+from app.workspace.paths import eval_cells_path, eval_summary_path, metrics_path
 
 #: 两侧标识有两种合法形态，靠形状区分，不需要额外的 mode 参数：
 #:   - eval ts（`2026-08-20T11-00-00Z`）→ 有 GT,出准确率报告
@@ -224,12 +224,169 @@ tr.faint td { color: var(--ink-2); font-size: 12px; }
 .foot { margin-top: 8px; color: var(--ink-2); font-size: 12px; }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; }
+.fjump { color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--ink-2); }
+.fjump:hover { color: var(--ochre); border-bottom-color: var(--ochre); }
+details.drill { margin: 0; border-bottom: 1px solid var(--line-soft); }
+details.drill > summary { padding: 9px 4px; color: var(--ink); font-size: 13.5px;
+  display: flex; align-items: baseline; gap: 9px; list-style: none; }
+details.drill > summary::-webkit-details-marker { display: none; }
+details.drill > summary::before { content: "▸"; color: var(--ink-2); font-size: 11px; }
+details.drill[open] > summary::before { content: "▾"; }
+details.drill[open] > summary { background: var(--thead); }
+.dfield { font-weight: 600; }
+.crit { color: var(--ochre); }
+details.drill .wrap { border: none; border-radius: 0; margin: 0 0 10px 18px; }
+details.drill td { border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+details.drill th { white-space: normal; }
+details.drill table { table-layout: fixed; }
+td.gt { color: var(--ink); font-weight: 600; }
+td.doc { white-space: normal; word-break: break-word; max-width: 20ch; font-size: 12px; }
+.kb { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+  white-space: nowrap; }
+.kb.b-ok { background: var(--moss-bg); color: var(--moss); }
+.kb.b-bad { background: var(--rose-bg); color: var(--rose); }
+.doclink { color: var(--ochre); text-decoration: none; border-bottom: 1px solid transparent; }
+.doclink:hover { border-bottom-color: var(--ochre); }
 :focus-visible { outline: 2px solid var(--ochre); outline-offset: 2px; }
 """
 
 
 def _e(v: Any) -> str:
     return html.escape("" if v is None else str(v))
+
+
+#: 格级判定的中文说法。报告的读者不读 `spurious` 这种词。
+_STATUS_ZH = {
+    "correct": "对",
+    "wrong": "错值",
+    "missing": "漏抽",
+    "spurious": "多填",
+    "absent_both": "都空",
+}
+#: 单元格里显示的值最长多少字符 —— 明细表要一眼扫，不是让人读全文。
+_VALUE_CLIP = 90
+
+
+def _load_cells(workspace: Path, slug: str, ts: str) -> dict[tuple[str, int, str], dict[str, Any]]:
+    """`cells.jsonl` → `{(filename, entity_idx, field): cell}`。
+
+    逐字段汇总只能回答「这个字段差多少」，回答不了「哪几篇、错成什么」——
+    而那正是看到一行 `-16.7pp` 之后必然要问的下一个问题。缺了它，读的人只能
+    回去翻原始数据，报告就断在这里。
+
+    文件不在（历史 blob 只有 summary.json）时返回空 —— 明细区跟着消失，
+    汇总照常。"""
+    out: dict[tuple[str, int, str], dict[str, Any]] = {}
+    p = eval_cells_path(workspace, slug, ts)
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            c = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # 一行坏了不该让整个明细区消失
+        key = (c.get("filename") or "", int(c.get("entity_idx") or 0), c.get("field") or "")
+        out[key] = c
+    return out
+
+
+def _clip(v: Optional[str]) -> str:
+    if v is None or v == "":
+        return "∅ 留空"
+    s = str(v)
+    return s if len(s) <= _VALUE_CLIP else s[:_VALUE_CLIP] + "…"
+
+
+def _ok_status(s: Optional[str]) -> bool:
+    return s in ("correct", "absent_both")
+
+
+def _build_drilldowns(
+    a_cells: dict[tuple[str, int, str], dict[str, Any]],
+    b_cells: dict[tuple[str, int, str], dict[str, Any]],
+    per_field: list[dict[str, Any]],
+    *,
+    slug: str,
+    base_url: str,
+    a_label: str = "",
+    b_label: str = "",
+) -> tuple[dict[str, int], str]:
+    """每个字段一个可折叠明细：**至少一侧判错**的格，逐格给出 GT 与两侧的值。
+
+    返回 `({field: 有问题的格数}, html)`。前者让逐字段表决定哪些字段名做成
+    可点的锚点 —— 没有问题格的字段点开是空的，不如不让点。
+
+    文档名做成 `?review=<filename>` 的链接：看到某格错了，下一步一定是想看
+    原件长什么样。链接带 `target="_blank"`（iframe 侧因此需要 allow-popups）。"""
+    from urllib.parse import quote
+
+    # 表头用短名：`gemini-2.5-flash · Baseline v3` 放进 6 列表格会把值列挤没。
+    # 模型名是两侧唯一的区别（prompt 通常相同），截到它就够认人。
+    a_name = (a_label.split(" · ")[0] or "A")
+    b_name = (b_label.split(" · ")[0] or "B")
+
+    keys = set(a_cells) | set(b_cells)
+    by_field: dict[str, list[tuple[str, int, dict[str, Any], dict[str, Any]]]] = {}
+    for k in keys:
+        filename, entity_idx, field = k
+        ca, cb = a_cells.get(k), b_cells.get(k)
+        sa = (ca or {}).get("status")
+        sb = (cb or {}).get("status")
+        if _ok_status(sa) and _ok_status(sb):
+            continue  # 两侧都对的格没有信息量
+        by_field.setdefault(field, []).append((filename, entity_idx, ca or {}, cb or {}))
+
+    counts = {f: len(v) for f, v in by_field.items()}
+    order = [r["field"] for r in per_field if r["field"] in by_field]
+    blocks: list[str] = []
+    for field in order:
+        rows = sorted(by_field[field], key=lambda r: (r[0], r[1]))
+        star = '<span class="crit">★</span>' if next(
+            (r["required"] for r in per_field if r["field"] == field), False
+        ) else ""
+        trs = []
+        for filename, entity_idx, ca, cb in rows:
+            truth = ca.get("truth") if ca.get("truth") is not None else cb.get("truth")
+            ent = f' <span class="na">#{entity_idx + 1}</span>' if entity_idx else ""
+            link = (
+                f'<a class="doclink" href="{_e(base_url)}/p/{_e(quote(slug))}'
+                f'?review={_e(quote(filename))}" target="_blank" rel="noopener">'
+                f'{_e(filename)}</a>{ent}'
+                if base_url else f"{_e(filename)}{ent}"
+            )
+            trs.append(
+                f"<tr><td class=\"doc\">{link}</td>"
+                f'<td class="val gt">{_e(_clip(truth))}</td>'
+                f'<td class="num">{_badge(ca.get("status"))}</td>'
+                f'<td class="val">{_e(_clip(ca.get("pred")))}</td>'
+                f'<td class="num">{_badge(cb.get("status"))}</td>'
+                f'<td class="val">{_e(_clip(cb.get("pred")))}</td></tr>'
+            )
+        # 每块自带表头 —— 展开某一块时别处的列说明是看不到的，靠页面顶部
+        # 那一句解释「哪列是谁」等于让人记着往回翻。
+        head = (
+            f'<thead><tr><th style="width:20%">文档</th>'
+            f'<th style="width:20%">GT（正确值）</th>'
+            f'<th style="width:8%">{_e(a_name)}</th><th style="width:22%">它给了什么</th>'
+            f'<th style="width:8%">{_e(b_name)}</th><th style="width:22%">它给了什么</th>'
+            f"</tr></thead>"
+        )
+        blocks.append(
+            f'<details class="drill" id="drill-{_e(field)}"><summary>'
+            f'<span class="dfield">{_e(field)}</span>{star}'
+            f'<span class="na">{len(rows)} 格有问题</span></summary>'
+            f'<div class="wrap"><table>{head}<tbody>{"".join(trs)}</tbody></table></div>'
+            f"</details>"
+        )
+    return counts, "".join(blocks)
+
+
+def _badge(status: Optional[str]) -> str:
+    zh = _STATUS_ZH.get(status or "", "—")
+    cls = "b-ok" if _ok_status(status) else "b-bad"
+    return f'<span class="kb {cls}">{_e(zh)}</span>'
 
 
 def _build_html(
@@ -242,6 +399,8 @@ def _build_html(
     overall: list[dict[str, Any]],
     per_field: list[dict[str, Any]],
     n_docs_graded: Optional[int],
+    drill_counts: Optional[dict[str, int]] = None,
+    drill_html: str = "",
 ) -> str:
     def cls(row: dict[str, Any]) -> str:
         a, b = row["a_acc"], row["b_acc"]
@@ -257,10 +416,20 @@ def _build_html(
             f'<td class="num">{_e(r["delta"])}</td></tr>'
         )
 
+    drill_counts = drill_counts or {}
     graded, faint = [], []
     for r in per_field:
+        # 字段名有明细可看时做成锚点 —— 看到「-16.7pp」之后的下一个问题必然是
+        # 「哪几篇」，让那一跳就在同一页里完成。没有问题格的字段不做链接
+        # （点开是空的，反而误导）。
+        n_drill = drill_counts.get(r["field"], 0)
+        fname = (
+            f'<a class="fjump" href="#drill-{_e(r["field"])}">{_e(r["field"])}</a>'
+            f'<span class="na"> {n_drill}</span>'
+            if n_drill else _e(r["field"])
+        )
         cells = (
-            f'<td>{_e(r["field"])}</td>'
+            f'<td>{fname}</td>'
             f'<td class="num">{_e(_pct(r["a_acc"]))}</td>'
             f'<td class="num">{_e(_pct(r["b_acc"]))}</td>'
             f'<td class="num { cls(r) }">{_e(_delta_str(r["a_acc"], r["b_acc"]))}</td>'
@@ -304,7 +473,11 @@ def _build_html(
  '<p class="foot">没有可逐字段对比的数据 —— 这两次评测都没有「有值格」口径的结果。</p>'}
 {faint_block}
 <p class="foot">★ = schema 里标了 required 的重要字段。「有值格」= ground truth 该格有值的格子；
-两边都空的格子不计入，因为那是送分题。</p>
+两边都空的格子不计入，因为那是送分题。字段名后的数字 = 至少一侧判错的格数，点它看逐格明细。</p>
+{('<h2>逐格明细 —— 至少一侧判错的格</h2>'
+  '<p class="foot">每个字段一栏，点开看是哪几篇、错成什么。文档名可点，'
+  '打开该文档的复核页。</p>'
+  + drill_html) if drill_html else ''}
 </body></html>"""
 
 
@@ -553,6 +726,12 @@ async def render_compare_board(
             "delta": f"{b_den - a_den:+d}", "css": "faint",
         })
 
+    # 逐格明细：汇总回答不了「哪几篇、错成什么」，而那是看到一行 Δ 之后必然
+    # 要问的下一个问题。历史 blob 没有 cells.jsonl —— 那时明细区整个消失，
+    # 汇总照常（`_load_cells` 返回空）。
+    a_cells = _load_cells(workspace, slug, a)
+    b_cells = _load_cells(workspace, slug, b)
+
     a_by_field = {f.field: f for f in sa.per_field}
     per_field: list[dict[str, Any]] = []
     for fb in sb.per_field:
@@ -567,6 +746,13 @@ async def render_compare_board(
             "b_errs": f"{fb.n_wrong}·{fb.n_missing}·{fb.n_spurious}",
         })
     per_field.sort(key=_delta_sort_key, reverse=True)
+
+    from app.config import get_settings as _gs
+    base_url = _gs().public_base_url.rstrip("/")
+    drill_counts, drill_html = _build_drilldowns(
+        a_cells, b_cells, per_field, slug=slug, base_url=base_url,
+        a_label=a_label, b_label=b_label,
+    )
 
     return {
         "headline": headline,
@@ -584,5 +770,6 @@ async def render_compare_board(
             # legacy blob 没有 n_docs_graded —— 回退到 n_reviewed，否则副标题
             # 写「0 篇」而 headline 写「19 篇已打分」，同一张纸上自相矛盾。
             n_docs_graded=sb.n_docs_graded or sb.n_reviewed,
+            drill_counts=drill_counts, drill_html=drill_html,
         ),
     }
