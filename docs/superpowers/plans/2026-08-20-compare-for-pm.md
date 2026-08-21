@@ -135,7 +135,7 @@ GT 空格   = status ∈ {absent_both, spurious}        ← 送分区，不进�
 
 - [x] **T12** 全量测试：`cd backend && uv run pytest -q`（基线 1689 passed，见 HANDOFF）+ `cd frontend && npx tsc -b && npx vitest run`。前端已知既有失败（jsdom `scrollIntoView`、undici 相对 URL）不算回归，需逐条比对 `main` 确认
 - [x] **T13** 部署：`./deploy.sh`（不覆盖 `backend/.env` 与 `backend/workspace`）
-- [ ] **T14** dogfood —— **交回用户，不由 subagent 执行**（milestone dogfood handoff 惯例）。剧本：
+- [x] **T14** dogfood —— **交回用户，不由 subagent 执行**（milestone dogfood handoff 惯例）。剧本：
   1. 振兴_20260707 已有 638 格 GT + 4 个实验，直接跑 `/compare`，核对报告四行数字与 HANDOFF 里的已知值对得上（★必填 · 有值格应接近 88.9/85.8 那一档；若该项目 schema 没标 required，★行应整行隐藏而不是报 0%）
   2. 找一个无 GT 的项目验 P3：`/compare` 不 refuse、不出百分比、分歧清单按 required 优先
   3. 报告链接转发给 PM，确认她不用任何解释就能读懂头条那一句
@@ -173,6 +173,38 @@ eval 出报告时 headline 却说「先给一些文档做 review 造 ground trut
 - **不给打分器加通用格级 not-applicable** —— 「`docType=other` 的非必填格不计分」是振兴的领域口径，不是产品规则；本 plan 用 `required` 分档已经覆盖 PM 的实际需求（重要字段单独一行）。真要做，另开 plan。
 - **不动 publish gate 阈值 / 不动 `field_accuracy_macro` 语义** —— 新指标纯增量，避免波及 autoresearch 与发布门槛。
 - **不做裁决的点选 UI** —— 第一版走 chat（红线：chat 能完成一切）。
+
+## 5.6 浏览器 dogfood（2026-08-20，`278f673`）
+
+在 https://fpydoc.duckdns.org 上真开了白板、并从 chat 走了一遍全流程。**抓到八处，
+其中一半是单测原理上抓不到的**（布局、class 语义撞车、agent 会不会用某个能力）。
+
+渲染层：★ 打错行（`hard` 一个 class 背了「加粗」和「required」两个意思）；
+「0 篇」与 headline 的「19 篇已打分」自相矛盾；`stale` 被当成 `noise` 导致 chip
+显示「分不出高下」（真相是该重跑）；**明细表被一个长地址挤掉了对面那一列** ——
+而并排看两侧正是那张表的全部意义；逐字段空表头；两侧标签撞名；裁决态显示
+`ex_…` 而非模型名；副标题错误断言项目没有 GT。
+
+skill 层（**功能存在 ≠ agent 知道它存在**）：
+1. 白板裁决态做好了但 skill 没提，agent 把 86 处分歧全铺进对话
+2. 补了指路后 agent 仍不给链接 —— 它已从 `diff_predictions` 拿到全量数据，把
+   「再调一次 `render_board` 取链接」当重复劳动。**链接只是字符串拼接：给模板，
+   别要求 agent 多跑一趟工具去取。** 改完新 chat 里链接就出来了。
+3. 定位两个实验花了 3×Bash + 7×Read —— `list_experiments` 就在那里没人指路。
+
+**验证 skill 改动必须开新 chat**：同一会话里 agent 只在第一轮 `read_skill`，
+之后 skill 一直是旧版本躺在上下文里。第二轮我以为改动没生效，其实是没被读到。
+
+最终形态（新 chat，browser 模式）：一句摘要「86 处分歧待裁决，其中 11 处重要
+字段」+ 优先裁决的 3 个字段 + 「这些只是分歧，不能单凭此判定谁更准确」+
+「打开分歧白板」链接。
+
+**已知限制（未修）**：board 里按 ESC 关不掉 —— 焦点在 iframe，`sandbox=""` 是
+独立 origin，父窗口收不到 keydown。关闭按钮可达且明显，修它要放宽 iframe
+sandbox，不值得。review board 是同款行为。
+
+**仍未做（需要花钱）**：振兴的硬指标要重跑一次评测（19 篇 × 2 侧 LLM 调用），
+本次只验到 legacy blob 的降级路径。
 
 ## 6.5 已知 follow-up（本次未做）
 
