@@ -411,3 +411,37 @@ async def test_identical_predictions_say_agreement_is_not_accuracy(
 
     assert out["n_diff"] == 0
     assert "一致不等于都对" in out["headline"]
+
+
+async def test_legacy_blob_says_rerun_not_go_review(workspace: Path) -> None:
+    """两种 None 的建议完全相反。生产 smoke 上撞到过：一个有 638 格 GT 的项目
+    被告知「先做 review」，只因为它比的是 M12 时代打的分。"""
+    for ts in (TS_A, TS_B):
+        d = eval_dir(workspace, "p", ts)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps({
+            "n_docs": 19, "n_reviewed": 19,
+            "field_accuracy_macro": 0.839, "doc_accuracy": 0.86,
+            "per_field": [{"field": "f", "accuracy": 0.8, "correct": 8,
+                           "total": 10, "n_absent_both": 0, "not_applicable": False}],
+            "errors": [], "ts": ts, "schema_field_count": 1,
+        }), encoding="utf-8")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert "重新跑一次评测" in out["headline"]
+    assert "先给一些文档做 review" not in out["headline"]
+
+
+async def test_truly_ungraded_project_says_go_review(workspace: Path) -> None:
+    for ts in (TS_A, TS_B):
+        d = eval_dir(workspace, "p", ts)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps({
+            "n_docs": 0, "n_reviewed": 0, "field_accuracy_macro": 0.0,
+            "per_field": [], "errors": [], "ts": ts, "schema_field_count": 0,
+        }), encoding="utf-8")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert "先给一些文档做 review" in out["headline"]

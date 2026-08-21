@@ -437,7 +437,19 @@ async def render_compare_board(
     # headline：结论一句话。措辞受 skill 的判据一节约束 —— noise 时不许出现
     # 「略优 / 倾向」这类把噪声包装成结论的词。
     if delta_pp is None:
-        headline = "两侧都没有可判的有值格 —— 先给一些文档做 review 造 ground truth。"
+        # 两种 None 长得一样，给的建议却完全相反 —— 生产 smoke 上撞到过：一个
+        # 有 638 格 GT 的项目被告知「先做 review」，因为它比的是 M12 时代打的分。
+        #   · 打过分但 blob 是旧版（`n_reviewed > 0`）→ 重跑一次就有硬指标
+        #   · 真的没有 GT（`n_reviewed == 0`）→ 才是「先去 review」
+        graded = max(sa.n_reviewed or 0, sb.n_reviewed or 0)
+        if graded > 0:
+            headline = (
+                f"这两次 eval 是旧版本打的分，没有「有值格」口径的数据"
+                f"（{graded} 篇已打分）—— 重新跑一次评测就有硬指标了。"
+                f"下面只有官方 macro 可读，而它把两边都空的格子算作预测正确。"
+            )
+        else:
+            headline = "还没有 ground truth —— 先给一些文档做 review，才谈得上准确率。"
     elif verdict == "win":
         headline = (
             f"{b_label} 在有值格上 {delta_pp:+.1f}pp（多对 {delta_cells} 格 / 共 {b_den} 格），"
