@@ -147,6 +147,10 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     # Bench leaderboard (project-level horizontal view of prompt × model evals).
     # Both forms thin-delegate to `app.services.bench.compute_bench`.
     ("bench_view", None):      ("GET",  r"^/lab/projects/\{slug\}/bench$"),
+    # No-ground-truth branch of /compare: a disagreement queue between two
+    # prediction sets (never a score). Both forms thin-delegate to
+    # `app.tools.diff_predictions.diff_predictions`.
+    ("diff_predictions", None): ("GET", r"^/lab/projects/\{slug\}/compare/diff$"),
     # Document matching (reconciliation) — app/api/routes/match.py.
     ("create_match_project", None): ("POST", r"^/lab/match/projects$"),
     ("write_match_prompt", None):   ("PUT",  r"^/lab/match/projects/\{slug\}/prompt$"),
@@ -165,6 +169,7 @@ _TOOL_HTTP_MAP: dict[tuple[str, str | None], tuple[str, str]] = {
     # keyed by op instead of by tool name.
     ("render_board", "audit"):   ("GET",  r"^/lab/projects/\{slug\}/audit/board-render$"),
     ("render_board", "review"):  ("GET",  r"^/lab/projects/\{slug\}/review/board-render$"),
+    ("render_board", "compare"): ("GET",  r"^/lab/projects/\{slug\}/compare/board-render$"),
     ("save_reviewed_audit", None):  ("PUT",  r"^/lab/projects/\{slug\}/audit-review$"),
     # Publish + keys
     ("freeze_version", None): ("POST", r"^/lab/projects/\{slug\}/versions/freeze$"),

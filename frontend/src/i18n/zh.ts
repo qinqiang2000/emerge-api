@@ -596,6 +596,15 @@ const zh: Dict = {
   'reviewboard.tally.pass': '通过 {n}',
   'reviewboard.rail.collapse': '收起单列表',
   'reviewboard.rail.expand': '展开单列表',
+
+  // Compare board (`?compareboard=1&a=&b=`) — 第三种白板：对比报告。
+  'compareboard.title': '对比报告',
+  'compareboard.close': '关闭',
+  'compareboard.close.aria': '关闭对比报告',
+  'compareboard.loading': '报告生成中…',
+  'compareboard.verdict.win': '挑战者胜出',
+  'compareboard.verdict.noise': '分不出高下',
+  'compareboard.verdict.no_gt': '待裁决',
 }
 
 export default zh

@@ -188,3 +188,101 @@ def test_old_board_names_are_gone() -> None:
     assert "render_audit_board" not in live
     assert "render_review_board" not in live
     assert "render_board" in live
+
+
+# ── kind='compare' — 第三种介质（2026-08-20 compare-for-pm plan §3.2）─────────
+# 前两种的被观察对象是文档，这一种是「两次 eval 之间的差」。它多带两个参数
+# （a/b 两个 eval ts），所以除了「能渲染」还要锁住「参数缺了要给可诊断的错」。
+
+def _write_compare_eval(
+    workspace: Path, slug: str, ts: str, correct: int, wrong: int, model: str,
+) -> None:
+    from app.workspace.paths import eval_dir
+
+    den = correct + wrong
+    d = eval_dir(workspace, slug, ts)
+    d.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(d / "summary.json", {
+        "n_docs": 5, "n_reviewed": 5,
+        "field_accuracy_macro": 0.9, "doc_accuracy": 0.8,
+        "doc_accuracy_strict": 0.4,
+        "cell_accuracy_nonempty": correct / den,
+        "required_cell_accuracy_nonempty": None,
+        "n_docs_perfect": 2, "n_docs_graded": 5, "n_required_fields": 0,
+        "per_field": [{
+            "field": "invoice_no", "accuracy": correct / den,
+            "correct": correct, "total": den, "n_absent_both": 0,
+            "not_applicable": False, "n_wrong": wrong, "n_missing": 0,
+            "n_spurious": 0, "accuracy_nonempty": correct / den,
+            "required": False,
+        }],
+        "errors": [], "ts": ts, "schema_field_count": 1,
+        "extract_model": model,
+    })
+
+
+async def test_render_board_compare_headlines_the_verdict(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    _write_compare_eval(workspace, "p", "2026-08-20T10-00-00Z", 60, 40, "gemini-2.5-flash")
+    _write_compare_eval(workspace, "p", "2026-08-20T11-00-00Z", 80, 20, "gemini-3-flash")
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+
+    res = await _call(server, "render_board", {
+        "slug": "p", "kind": "compare",
+        "a": "2026-08-20T10-00-00Z", "b": "2026-08-20T11-00-00Z",
+    })
+    text = res.root.content[0].text
+
+    assert "建议换" in text                     # 双阈值都跨过
+    assert "全字段 · 有值格" in text
+    assert "gemini-3-flash" in text             # 语义名，不是 ex_ / ts
+    assert "<html" not in text.lower()          # HTML 只走 HTTP 孪生
+
+
+async def test_render_board_compare_refuses_to_call_noise_a_win(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """4 格 / 4pp —— 两条线都没跨过。产品经理照这句话拍板，不许出现「建议换」。"""
+    _write_compare_eval(workspace, "p", "2026-08-20T10-00-00Z", 50, 50, "gemini-2.5-flash")
+    _write_compare_eval(workspace, "p", "2026-08-20T11-00-00Z", 54, 46, "gemini-3-flash")
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+
+    res = await _call(server, "render_board", {
+        "slug": "p", "kind": "compare",
+        "a": "2026-08-20T10-00-00Z", "b": "2026-08-20T11-00-00Z",
+    })
+    text = res.root.content[0].text
+
+    assert "分不出高下" in text
+    assert "建议换" not in text
+
+
+async def test_render_board_compare_without_ts_gives_a_typed_error(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    """`a`/`b` 不在 schema 的 required 里（audit/review 用不上），所以缺参数要由
+    handler 给出可诊断的 error envelope,而不是 KeyError。"""
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "render_board", {"slug": "p", "kind": "compare"})
+    assert "compare_needs_two_evals" in res.root.content[0].text
+
+
+async def test_render_board_compare_missing_eval_is_an_error_envelope(
+    workspace: Path, stub_provider: AsyncMock,
+) -> None:
+    _write_compare_eval(workspace, "p", "2026-08-20T10-00-00Z", 60, 40, "gemini-2.5-flash")
+    server = build_emerge_mcp(
+        workspace=workspace, provider=stub_provider, job_runner=MagicMock(),
+    )
+    res = await _call(server, "render_board", {
+        "slug": "p", "kind": "compare",
+        "a": "2026-08-20T10-00-00Z", "b": "2026-08-20T11-00-00Z",
+    })
+    assert "eval_not_found" in res.root.content[0].text

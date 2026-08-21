@@ -597,6 +597,15 @@ const en: Dict = {
   'reviewboard.tally.pass': 'passed {n}',
   'reviewboard.rail.collapse': 'collapse doc list',
   'reviewboard.rail.expand': 'expand doc list',
+
+  // Compare board (`?compareboard=1&a=&b=`) — the third board kind.
+  'compareboard.title': 'compare report',
+  'compareboard.close': 'close',
+  'compareboard.close.aria': 'close compare report',
+  'compareboard.loading': 'building report…',
+  'compareboard.verdict.win': 'challenger wins',
+  'compareboard.verdict.noise': 'too close to call',
+  'compareboard.verdict.no_gt': 'needs adjudication',
 }
 
 export default en

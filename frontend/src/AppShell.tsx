@@ -23,6 +23,8 @@ const BoardOverlay = lazy(() => import('./components/Board/BoardOverlay'))
 // The review board is a light shell (no excalidraw) but URL-gated all the same;
 // defer its chunk until `?reviewboard=1` appears.
 const ReviewBoardOverlay = lazy(() => import('./components/ReviewBoard/ReviewBoardOverlay'))
+// Same deferral: the compare board's chunk waits for `?compareboard=1`.
+const CompareBoardOverlay = lazy(() => import('./components/CompareBoard/CompareBoardOverlay'))
 import { useProjects } from './stores/projects'
 import { useChat } from './stores/chat'
 import {
@@ -32,6 +34,7 @@ import {
   readBenchOpenFromSearch,
   readBoardOpenFromSearch,
   readChatIdFromPathname,
+  readCompareBoardFromSearch,
   readEvalRouteFromUrl,
   readEvalTsFromSearch,
   readLegacyEvalMatrixPath,
@@ -51,10 +54,19 @@ function stripProjectScopedParams(search: string): string {
   return searchWithoutParam(
     searchWithoutParam(
       searchWithoutParam(
-        searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
-        'bench',
+        searchWithoutParam(
+          searchWithoutParam(
+            searchWithoutParam(
+              searchWithoutParam(searchWithoutParam(search, 'review'), 'eval'),
+              'bench',
+            ),
+            'board',
+          ),
+          'compareboard',
+        ),
+        'a',
       ),
-      'board',
+      'b',
     ),
     'reviewboard',
   )
@@ -137,6 +149,12 @@ export default function AppShell() {
   const [reviewBoardOpen, setReviewBoardOpen] = useState<boolean>(() =>
     readReviewBoardOpenFromSearch(window.location.search),
   )
+  // `?compareboard=1&a=<ts>&b=<ts>` opens the compare report. Unlike the other
+  // boards this carries sub-state (which two evals), so the state is the pair
+  // itself — null means closed.
+  const [compareBoard, setCompareBoard] = useState<{ a: string; b: string } | null>(() =>
+    readCompareBoardFromSearch(window.location.search),
+  )
   useEffect(() => {
     const onPop = () => {
       setEvalRoute(
@@ -147,6 +165,7 @@ export default function AppShell() {
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
       setBoardOpen(readBoardOpenFromSearch(window.location.search))
       setReviewBoardOpen(readReviewBoardOpenFromSearch(window.location.search))
+      setCompareBoard(readCompareBoardFromSearch(window.location.search))
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -257,6 +276,7 @@ export default function AppShell() {
       setBenchOpen(readBenchOpenFromSearch(window.location.search))
       setBoardOpen(readBoardOpenFromSearch(window.location.search))
       setReviewBoardOpen(readReviewBoardOpenFromSearch(window.location.search))
+      setCompareBoard(readCompareBoardFromSearch(window.location.search))
     }
   }, [selectedSlug, loadedUnboundChatId])
 
@@ -513,6 +533,35 @@ export default function AppShell() {
                 window.history.pushState(null, '', target)
               }
               setReviewBoardOpen(false)
+            }}
+          />
+        </Suspense>
+      )}
+
+      {/* Compare board overlay — mounts on `?compareboard=1&a=&b=`. Same
+          owner/URL contract as the other boards, but closing must strip all
+          three params (the bare `a`/`b` would otherwise leak into the next
+          board's URL). */}
+      {compareBoard && selectedSlug && (
+        <Suspense fallback={null}>
+          <CompareBoardOverlay
+            slug={selectedSlug}
+            a={compareBoard.a}
+            b={compareBoard.b}
+            hidden={!!evalTs || !!reviewFilename}
+            onClose={() => {
+              const next = searchWithoutParam(
+                searchWithoutParam(
+                  searchWithoutParam(window.location.search, 'compareboard'),
+                  'a',
+                ),
+                'b',
+              )
+              const target = pathForSlug(selectedSlug, next, window.location.hash)
+              if (target !== window.location.pathname + window.location.search + window.location.hash) {
+                window.history.pushState(null, '', target)
+              }
+              setCompareBoard(null)
             }}
           />
         </Suspense>

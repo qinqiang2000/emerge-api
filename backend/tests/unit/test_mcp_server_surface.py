@@ -93,14 +93,16 @@ def test_surface_sizes_are_what_the_milestone_measured() -> None:
     """P4 end state. Chain of custody for these numbers: 78 `@tool` decorators
     in source, of which only 69 were ever registered (Task 1 fixed that: the
     other 9 had HTTP routes, unit tests and skill prose, but no agent could
-    call them), then eight families merged −14 → 64."""
+    call them), then eight families merged −14 → 64. Then +1 (`diff_predictions`,
+    2026-08-20 compare-for-pm T9 — the no-ground-truth branch of /compare; a new
+    noun, not a new phrasing of an existing one) → 65."""
     headless = registered_tool_names(headless=True)
     chat = registered_tool_names(headless=False)
     listed = headless - _HEADLESS_EXCLUDE
 
-    assert len(headless) == 64, sorted(headless)
-    assert len(chat) == 54, sorted(chat)
-    assert len(listed) == 61, sorted(listed)
+    assert len(headless) == 65, sorted(headless)
+    assert len(chat) == 55, sorted(chat)
+    assert len(listed) == 62, sorted(listed)
     # Net-unchanged from the 41 measured before this milestone, and that is the
     # milestone's own thesis in one number: merging cost the minimal listing 3
     # slots (only 3 of the 8 families had BOTH members listed here), and Task

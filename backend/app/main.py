@@ -40,6 +40,8 @@ from app.api.routes import trash as trash_route
 from app.api.routes import ws as ws_route
 from app.api.routes import audit_board as audit_board_route
 from app.api.routes import review_board as review_board_route
+from app.api.routes import compare_diff as compare_diff_route
+from app.api.routes import compare_board as compare_board_route
 from app.api.routes import match as match_route
 from app.api.routes import models as models_route
 from app.api.routes import prompts as prompts_route
@@ -147,6 +149,8 @@ app.include_router(ws_route.router)
 app.include_router(match_route.router)
 app.include_router(audit_board_route.router)
 app.include_router(review_board_route.router)
+app.include_router(compare_diff_route.router)
+app.include_router(compare_board_route.router)
 app.include_router(docs_route.router)
 app.include_router(textlayer_route.router)
 app.include_router(translate_route.router)

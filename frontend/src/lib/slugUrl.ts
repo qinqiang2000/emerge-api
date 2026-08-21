@@ -240,6 +240,22 @@ export function readReviewBoardOpenFromSearch(search: string): boolean {
   return v !== null && v.length > 0
 }
 
+/** The compare board carries sub-state that the other boards don't: WHICH two
+ *  evals are being compared. Presence of `compareboard` alone is not enough —
+ *  without both `a` and `b` there is nothing to render, so this returns null
+ *  and the overlay stays closed rather than mounting into an error. */
+export function readCompareBoardFromSearch(
+  search: string,
+): { a: string; b: string } | null {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const open = params.get('compareboard')
+  if (open === null || open.length === 0) return null
+  const a = params.get('a')
+  const b = params.get('b')
+  if (!a || !b) return null
+  return { a, b }
+}
+
 
 /** Build the canonical path that opens the review board for `slug`. */
 export function pathForReviewBoard(slug: string): string {

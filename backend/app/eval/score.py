@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from app.eval.judge import judge_batch
 from app.eval.normalize import normalize_equivalent
@@ -78,11 +78,31 @@ def _cell_spurious(filename: str, entity_idx: int, field: SchemaField, pred_v: A
     )
 
 
+class AggregateResult(NamedTuple):
+    """`_aggregate` 的返回面。
+
+    原来是 5-tuple，M-compare 加了格级口径后装不下了。全仓只有一个调用点
+    （下面的 `score`），换成 NamedTuple 零成本 —— 而且 `app/eval/` 的邻居
+    （`NormalizeResult` / `JudgeVerdict`）本来就是这个形状。
+    """
+
+    per_field: list[FieldScore]
+    field_accuracy_macro: float
+    doc_accuracy: float
+    doc_accuracy_strict: float
+    n_reviewed_graded: int
+    # ── M-compare：GT 有值格口径（格级微平均），下面 docstring 有为什么。
+    cell_accuracy_nonempty: Optional[float]
+    required_cell_accuracy_nonempty: Optional[float]
+    n_required_fields: int
+    n_docs_perfect: int
+
+
 def _aggregate(
     cells: list[CellVerdict],
     schema: list[SchemaField],
     reviewed: dict[str, list[dict[str, Any]]],
-) -> tuple[list[FieldScore], float, float, float, int]:
+) -> AggregateResult:
     """M12.x — accuracy-first aggregation.
 
     Per-field `accuracy = (correct + absent_both) / total`. The model nailing
@@ -100,9 +120,36 @@ def _aggregate(
         all-or-nothing strict number as the new headline.
       * `doc_accuracy_strict` (legacy): the old "all cells correct/absent_both"
         definition, kept for "is this doc 100% perfect?" signal.
+
+    M-compare — 另起一档「GT 有值格」口径，给对比报告当头条：
+
+        GT 有值格 = status ∈ {correct, wrong, missing}
+        GT 空格   = status ∈ {absent_both, spurious}
+        有值格准确率 = correct / (correct + wrong + missing)
+
+    为什么要另起一档：上面那条 accuracy-first 把 absent_both 算进分子，
+    对「模型知道这里没有」是公平的，但两边都空是送分题 —— 字段越稀疏分
+    数越好看，拿它比两个模型会比出噪声。有值格口径把送分区整段剔掉。
+
+    两个坑，都写死在这：
+      1. 分子只数 `status == "correct"`，**不含** absent_both —— 那些格
+         压根不在这个分母里，混进来送分题就又漏回来了。
+      2. 分母为 0 时是 `None` 而不是 0.0 —— 「这个字段没有可判的有值格」
+         和「有值格全错」必须能分开（同 `not_applicable` 那条红线）。
+
+    全局数是**格级微平均**（Σ分子 / Σ分母），不是字段级宏平均：宏平均让
+    「22 格全空的稀有字段」和「每篇都有的主键字段」等权，会被拉偏。既有
+    的 `field_accuracy_macro`（宏平均）语义原样不动，publish gate 还压在
+    它身上。
     """
     counts: dict[str, dict[str, int]] = {
-        f.name: {"correct": 0, "total": 0, "absent_both": 0}
+        f.name: {
+            "correct": 0, "total": 0, "absent_both": 0,
+            # 五档分状态计数。`correct_nonempty` 单开一格，是因为 `correct`
+            # 里混了 absent_both（见循环里的注释）——有值格口径的分子不能
+            # 从 `correct` 减出来，那正是最容易写错的地方。
+            "correct_nonempty": 0, "wrong": 0, "missing": 0, "spurious": 0,
+        }
         for f in schema
     }
     for c in cells:
@@ -112,17 +159,27 @@ def _aggregate(
         d["total"] += 1
         if c.status == "correct":
             d["correct"] += 1
+            d["correct_nonempty"] += 1
         elif c.status == "absent_both":
             # The hard rule: model agreed there's nothing here, ground truth
             # agreed there's nothing here — that's a correct prediction.
+            # 只进 `correct`，不进 `correct_nonempty`。
             d["correct"] += 1
             d["absent_both"] += 1
+        elif c.status in ("wrong", "missing", "spurious"):
+            d[c.status] += 1
+
+    def _nonempty_total(d: dict[str, int]) -> int:
+        # spurious 不进分母：GT 空、模型多填 —— 那衡量的是「乱填」，不是
+        # 「有值的地方抽得准不准」。
+        return d["correct_nonempty"] + d["wrong"] + d["missing"]
 
     per_field: list[FieldScore] = []
     for f in schema:
         d = counts[f.name]
         not_applicable = d["total"] == 0
         accuracy = (d["correct"] / d["total"]) if d["total"] > 0 else 0.0
+        nonempty_total = _nonempty_total(d)
         per_field.append(FieldScore(
             field=f.name,
             correct=d["correct"],
@@ -130,6 +187,15 @@ def _aggregate(
             n_absent_both=d["absent_both"],
             not_applicable=not_applicable,
             accuracy=accuracy,
+            # M-compare 分档计数 + 有值格准确率。
+            n_wrong=d["wrong"],
+            n_missing=d["missing"],
+            n_spurious=d["spurious"],
+            accuracy_nonempty=(
+                d["correct_nonempty"] / nonempty_total
+                if nonempty_total > 0 else None
+            ),
+            required=bool(f.required),
             # F1 family deliberately None on new writes.
             tp=None, fp=None, fn=None, support=None,
             precision=None, recall=None, f1=None,
@@ -140,6 +206,18 @@ def _aggregate(
         sum(p.accuracy or 0.0 for p in applicable) / len(applicable)
         if applicable else 0.0
     )
+
+    def _micro(fields: list[SchemaField]) -> Optional[float]:
+        """格级微平均：先把分子分母各自加总，再相除。"""
+        num = sum(counts[f.name]["correct_nonempty"] for f in fields)
+        den = sum(_nonempty_total(counts[f.name]) for f in fields)
+        return (num / den) if den > 0 else None
+
+    # `required` 在此之前是纯文档字段（`app/tools/extract.py` 明说不 enforce）；
+    # M-compare 起它有了第一个语义消费者：★重要字段那一行的过滤器。
+    required_fields = [f for f in schema if f.required]
+    cell_accuracy_nonempty = _micro(schema)
+    required_cell_accuracy_nonempty = _micro(required_fields)
 
     docs_seen: dict[str, list[CellVerdict]] = {}
     for c in cells:
@@ -168,12 +246,18 @@ def _aggregate(
     else:
         doc_accuracy = 0.0
 
-    return (
-        per_field,
-        field_accuracy_macro,
-        doc_accuracy,
-        doc_accuracy_strict,
-        n_reviewed_graded,
+    return AggregateResult(
+        per_field=per_field,
+        field_accuracy_macro=field_accuracy_macro,
+        doc_accuracy=doc_accuracy,
+        doc_accuracy_strict=doc_accuracy_strict,
+        n_reviewed_graded=n_reviewed_graded,
+        cell_accuracy_nonempty=cell_accuracy_nonempty,
+        required_cell_accuracy_nonempty=required_cell_accuracy_nonempty,
+        n_required_fields=len(required_fields),
+        # 「整篇零错」的分子/分母本来就算好了，之前只对外给了比值。报告要的
+        # 是 n/N 这种 PM 读得懂的数，不是又一个百分比。
+        n_docs_perfect=doc_strict,
     )
 
 
@@ -291,22 +375,22 @@ async def score(
                     "judge_model": v.model,
                 })
 
-    (
-        per_field,
-        field_accuracy_macro,
-        doc_accuracy,
-        doc_accuracy_strict,
-        n_reviewed,
-    ) = _aggregate(cells, schema, reviewed)
+    agg = _aggregate(cells, schema, reviewed)
 
     summary = ScoreResultSummary(
         n_docs=len(reviewed) + sum(1 for fn in predictions if fn not in reviewed),
-        n_reviewed=n_reviewed,
-        field_accuracy_macro=field_accuracy_macro,
+        n_reviewed=agg.n_reviewed_graded,
+        field_accuracy_macro=agg.field_accuracy_macro,
         macro_f1=None,  # M12.x: F1 demoted; new writes no longer carry it.
-        doc_accuracy=doc_accuracy,
-        doc_accuracy_strict=doc_accuracy_strict,
-        per_field=per_field,
+        doc_accuracy=agg.doc_accuracy,
+        doc_accuracy_strict=agg.doc_accuracy_strict,
+        per_field=agg.per_field,
+        # M-compare 增量口径 —— 纯新增，旧 headline 语义一个没动。
+        cell_accuracy_nonempty=agg.cell_accuracy_nonempty,
+        required_cell_accuracy_nonempty=agg.required_cell_accuracy_nonempty,
+        n_docs_perfect=agg.n_docs_perfect,
+        n_docs_graded=agg.n_reviewed_graded,
+        n_required_fields=agg.n_required_fields,
         errors=errors,
         ts=_now_ts(),
         schema_field_count=len(schema),

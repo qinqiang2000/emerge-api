@@ -17,6 +17,7 @@ from app.schemas.reviewed import ReviewedSource
 from app.schemas.schema_field import SchemaField
 from app.tools import ask_user as ask_user_mod
 from app.tools import bench as bench_mod
+from app.tools import diff_predictions as diff_predictions_mod
 from app.tools import docs as docs_mod
 from app.tools import extract as extract_mod
 from app.tools import jobs as jobs_mod
@@ -138,6 +139,9 @@ _READ_ONLY = frozenset({  # pure read / local compute — no durable state chang
     "get_project_config", "get_job", "get_surface_state",
     "read_doc_image", "pdf_render_page", "bench_view", "contract_diff",
     "readiness_check", "read_audit_report",
+    # diff_predictions aligns two prediction sets cell-by-cell — pure
+    # computation over files already on disk, no provider call, no write.
+    "diff_predictions",
     # Both halves history(op=) folds — log/diff — are pure reads; restore
     # mutates and deliberately stays off this list (see MERGED_TOOLS).
     "history",
@@ -1239,6 +1243,55 @@ def build_emerge_mcp(
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
     @tool(
+        "diff_predictions",
+        "Disagreement queue between two prediction sets — the NO-GROUND-TRUTH "
+        "branch of /compare. Aligns every (filename, entity_idx, field) cell "
+        "across sources `a` and `b` (each is `_draft` = predictions/_draft/, "
+        "or an experiment id `ex_…`) and returns only the cells where they "
+        "disagree. Equivalence reuses the scorer's normalizer, so `1,234.00` "
+        "vs `1234` is NOT a disagreement; nor is a cell both sides left blank. "
+        "Returns {n_cells, n_diff, n_diff_required, by_field: [{field, n_diff, "
+        "required}], cells: [{filename, entity_idx, field, a, b, required}], "
+        "entity_count_mismatch: [{filename, n_a, n_b}]}. Pure computation, no "
+        "LLM. Use when the user wants to compare two models / prompts on a "
+        "project whose `reviewed/` is EMPTY: there is no accuracy to report — "
+        "the agreement rate between two models is NOT accuracy — so what comes "
+        "back is a work queue to adjudicate INTO ground truth (each decision → "
+        "`save_reviewed`), never a score. NEVER turn this result into a "
+        "percentage. `entity_count_mismatch` means one side split a doc into a "
+        "different number of entities: the overlap is still aligned, but say so "
+        "out loud — silently comparing the overlap flatters the side that "
+        "under-split. Rendering: browser — one line (`N 处分歧待裁决，其中 ★重要"
+        "字段 m 处`) plus the worst few fields, then adjudicate in chat; "
+        "headless — print the by_field table (field · ★ · n_diff), then the "
+        "cells grouped by field as `filename#idx  A → <a> | B → <b>` with "
+        "required fields first, and list every entity_count_mismatch row.",
+        {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "a": {"type": "string"},
+                "b": {"type": "string"},
+            },
+            "required": ["slug", "a", "b"],
+        },
+    )
+    async def t_diff_predictions(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("slug") == _UNBOUND_SLUG:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                _chat_not_bound_error("diff_predictions")
+            )}]}
+        try:
+            out = await diff_predictions_mod.diff_predictions(
+                workspace, args["slug"], args["a"], args["b"],
+            )
+        except diff_predictions_mod.DiffSourceError as e:
+            return {"content": [{"type": "text", "text": _json.dumps(
+                {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                ensure_ascii=False)}]}
+        return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
+
+    @tool(
         "fork_project",
         "Clone-at-time fork of an existing project. Copies project.json + "
         "prompts/ + models/ into a fresh project (new slug + pid). Skips chats, "
@@ -2336,7 +2389,7 @@ def build_emerge_mcp(
                 ensure_ascii=False)}]}
         return {"content": [{"type": "text", "text": _json.dumps(out, ensure_ascii=False)}]}
 
-    _BOARD_KINDS = ("audit", "review")
+    _BOARD_KINDS = ("audit", "review", "compare")
 
     @tool(
         "render_board",
@@ -2369,12 +2422,41 @@ def build_emerge_mcp(
         "· reason) and, for driven docs, the mismatched product group's 发票 "
         "vs 结算 数量对比; then forward the interactive board link. The HTML "
         "itself never enters this text result (it travels only over the HTTP "
-        "twin into the iframe).",
+        "twin into the iframe). "
+        "`kind='compare'`: a model/prompt COMPARISON report — the third "
+        "medium, and the only one whose subject is not a document but the "
+        "difference between two evals. Requires `a` (the incumbent's eval ts) "
+        "and `b` (the challenger's eval ts); get them from `score` (its `ts`) "
+        "and `run_experiment_eval` (its `summary_ts`). If the project has NO "
+        "ground truth, pass two prediction sources instead (`_draft` / an "
+        "experiment id) and the board flips to a disagreement-adjudication "
+        "queue with ZERO percentages — how much two models agree is not "
+        "accuracy. Scores BOTH sides "
+        "against the same ground truth and headlines the hard metric — "
+        "accuracy over cells where the ground truth actually HAS a value — "
+        "not the official macro (which counts 'both sides agreed it is empty' "
+        "as a correct prediction and so flatters rare fields to ~100%). "
+        "Declares a winner ONLY when the gap clears two thresholds at once "
+        "(more than 3 extra correct cells AND more than 9 percentage points); "
+        "otherwise the verdict is `noise` and you must NOT recommend a "
+        "switch — a single run's small lead is usually batch noise. "
+        "Rendering: browser — one line (the headline sentence) and point at "
+        "the board (→ board); headless — print the four-row overall table, "
+        "then the per-field table sorted by |Δ|, then forward the board link. "
+        "The HTML never enters this text result.",
         {
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
                 "kind": {"type": "string", "enum": list(_BOARD_KINDS)},
+                "a": {"type": "string", "description":
+                      "kind='compare' only: incumbent eval ts (from `score`), or a "
+                      "prediction source (`_draft` / `ex_…`) when the "
+                      "project has no ground truth."},
+                "b": {"type": "string", "description":
+                      "kind='compare' only: challenger eval ts (from "
+                      "`run_experiment_eval`'s `summary_ts`), or a prediction "
+                      "source (`_draft` / `ex_…`)."},
             },
             "required": ["slug", "kind"],
         },
@@ -2431,6 +2513,60 @@ def build_emerge_mcp(
                     "mimeType": img["media_type"],
                 })
             return {"content": content}
+        if kind == "compare":
+            # The comparison report. `a`/`b` are eval timestamps, not doc
+            # names — this is the one board kind whose subject is a pair of
+            # evals rather than a document.
+            from app.tools.compare_board_render import (
+                CompareError, render_compare_board,
+            )
+            a_ts, b_ts = args.get("a"), args.get("b")
+            if not a_ts or not b_ts:
+                return {"content": [{"type": "text", "text": _json.dumps({
+                    "error_code": "compare_needs_two_evals",
+                    "error_message_en": (
+                        "kind='compare' needs `a` (incumbent eval ts) and `b` "
+                        "(challenger eval ts); run score + run_experiment_eval first"
+                    ),
+                }, ensure_ascii=False)}]}
+            try:
+                out = await render_compare_board(workspace, args["slug"], a_ts, b_ts)
+            except CompareError as e:
+                return {"content": [{"type": "text", "text": _json.dumps(
+                    {"error_code": e.error_code, "error_message_en": e.error_message_en},
+                    ensure_ascii=False)}]}
+            lines = [out["headline"], ""]
+            lines += [
+                f"{r['label']}: {r['a']} → {r['b']} ({r['delta']})"
+                for r in out["overall"]
+            ]
+            # Per-field detail: only the rows that actually moved. A field
+            # whose two sides are identical tells the reader nothing and
+            # costs context on every compare.
+            moved = [
+                r for r in out["per_field"]
+                if r["a_acc"] is not None and r["b_acc"] is not None
+                and r["a_acc"] != r["b_acc"]
+            ]
+            if moved:
+                lines.append("")
+                lines.append("字段 | 在位 | 挑战者 | 对/有值格 | 错值·漏抽·多填")
+                for r in moved:
+                    star = "★" if r["required"] else ""
+                    lines.append(
+                        f"{star}{r['field']} | {r['a_acc'] * 100:.1f}% | "
+                        f"{r['b_acc'] * 100:.1f}% | {r['b_hits']} | {r['b_errs']}"
+                    )
+            from app.config import get_settings as _gs_cb
+            _cb_base = _gs_cb().public_base_url.rstrip("/")
+            if _cb_base:
+                lines.append("")
+                lines.append(
+                    f"report (open in a browser / forward to a stakeholder): "
+                    f"{_cb_base}/p/{args['slug']}?compareboard=1&a={a_ts}&b={b_ts}"
+                )
+            # HTML stays out of the text result — same posture as kind='review'.
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
         # kind == "review" — ↓ verbatim from the old t_render_review_board body
         from app.tools.review_board_render import render_review_board
         out = await render_review_board(workspace, args["slug"])
@@ -2509,6 +2645,7 @@ def build_emerge_mcp(
             t_run_experiment_eval,
             t_promote_experiment,
             t_bench_view,
+            t_diff_predictions,
             t_fork_project,
             t_create_match_project,
             t_write_match_prompt,
@@ -2581,6 +2718,7 @@ _EMERGE_TOOL_NAMES = (
     "create_experiment", "run_experiment_eval",
     "promote_experiment",
     "bench_view",
+    "diff_predictions",
     "fork_project",
     "extract",
     "save_reviewed",

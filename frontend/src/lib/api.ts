@@ -1043,6 +1043,33 @@ export async function getReviewBoard(slug: string): Promise<ReviewBoardPayload> 
   return r.json()
 }
 
+// ── Compare board (`?compareboard=1&a=&b=`) ────────────────────────────────
+// The third `render_board` kind. One self-contained HTML per comparison (not
+// per doc, unlike the review board) — the frontend never parses it.
+//
+// `verdict` is the backend's noise gate, not a cosmetic hint: `noise` means
+// the gap did NOT clear both thresholds (Δcells and Δpp) and the UI must not
+// present the challenger as a winner. `no_gt` means the project has no ground
+// truth, so there are no percentages at all — only a diff queue to adjudicate.
+export interface CompareBoardPayload {
+  headline: string
+  verdict: 'win' | 'noise' | 'no_gt'
+  a_label: string
+  b_label: string
+  html: string
+}
+
+export async function getCompareBoard(
+  slug: string, a: string, b: string,
+): Promise<CompareBoardPayload> {
+  const qs = new URLSearchParams({ a, b })
+  const r = await fetch(
+    `/lab/projects/${encodeURIComponent(slug)}/compare/board-render?${qs}`,
+  )
+  if (!r.ok) throw new Error(`getCompareBoard ${r.status}`)
+  return r.json()
+}
+
 // ── Stage 2: project tree (for `@` mention) ────────────────────────────────
 export interface TreeEntry {
   name: string
