@@ -23,9 +23,10 @@ import { useT } from '../../i18n'
 import { compareKey, useCompareBoard } from '../../stores/compareBoard'
 
 // Semantic tokens only (repo red line: no bare Tailwind color classes).
-const VERDICT_CHIP: Record<'win' | 'noise' | 'no_gt', string> = {
+const VERDICT_CHIP: Record<'win' | 'noise' | 'stale' | 'no_gt', string> = {
   win: 'text-moss',
   noise: 'text-ink-4',
+  stale: 'text-ochre',
   no_gt: 'text-ochre',
 }
 

@@ -143,3 +143,20 @@ def test_no_gt_branch_bans_percentages() -> None:
     assert "diff_predictions" in sec
     assert "entity_count_mismatch" in sec, "the entity-split trap is unguarded"
     assert "required" in sec, "important fields must be adjudicated first"
+
+
+def test_no_gt_branch_points_at_the_board() -> None:
+    """dogfood 抓到的：白板的裁决态做好了，skill 却没告诉 agent 用 —— 于是它把
+    86 处分歧全铺进了对话。功能存在 ≠ agent 知道它存在。"""
+    text = load_domain_skill("experiments")
+    sec = text[text.index("### 没有 GT"):text.index("### 判断陷阱")]
+    assert "render_board(kind='compare'" in sec
+    assert "**browser**" in sec and "**headless**" in sec
+    assert "不要**把几十行明细铺进对话" in sec
+    # dogfood 二轮：agent 拿到 diff_predictions 的全量数据后，把「再调一次
+    # render_board 取链接」当成重复劳动而跳过。链接只是字符串拼接 —— 给模板，
+    # 别要求它多跑一趟工具。
+    assert "?compareboard=1&a=" in sec
+    assert "不必为了拿链接再调一次工具" in sec
+    # 同一轮：找两个实验花了 3×Bash + 7×Read。投影工具就在那里没人指路。
+    assert "list_experiments" in sec

@@ -604,6 +604,7 @@ const zh: Dict = {
   'compareboard.loading': '报告生成中…',
   'compareboard.verdict.win': '挑战者胜出',
   'compareboard.verdict.noise': '分不出高下',
+  'compareboard.verdict.stale': '需重跑评测',
   'compareboard.verdict.no_gt': '待裁决',
 }
 

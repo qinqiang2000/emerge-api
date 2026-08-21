@@ -282,7 +282,8 @@ async def test_legacy_summary_without_new_keys_degrades_to_na(
 
     row = next(r for r in out["overall"] if r["label"] == "全字段 · 有值格")
     assert row["a"] == "n/a" and row["b"] == "n/a"
-    assert out["verdict"] == "noise"
+    # `stale`,不是 `noise` —— 见 test_stale_is_not_a_tie。
+    assert out["verdict"] == "stale"
 
 
 def test_side_label_prefers_semantic_name_over_ts() -> None:
@@ -445,3 +446,121 @@ async def test_truly_ungraded_project_says_go_review(workspace: Path) -> None:
     out = await render_compare_board(workspace, "p", TS_A, TS_B)
 
     assert "先给一些文档做 review" in out["headline"]
+
+
+async def test_stale_is_not_a_tie(workspace: Path) -> None:
+    """dogfood 抓到的：旧 blob 被标成 `noise`，前端 chip 于是显示「分不出高下」——
+    可真相是「这两次评测该重跑」。说成打平是撒谎。"""
+    for ts in (TS_A, TS_B):
+        d = eval_dir(workspace, "p", ts)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps({
+            "n_docs": 19, "n_reviewed": 19, "field_accuracy_macro": 0.839,
+            "per_field": [], "errors": [], "ts": ts, "schema_field_count": 0,
+        }), encoding="utf-8")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert out["verdict"] == "stale"
+    # 副标题的篇数不能和 headline 打架（legacy blob 没有 n_docs_graded）。
+    assert "0 篇" not in out["html"]
+    assert "19 篇" in out["html"]
+
+
+async def test_star_marks_only_the_required_row(workspace: Path) -> None:
+    """dogfood 抓到的：★ 跑到了「全字段·有值格」那一行上，读的人会把它当成
+    重要字段那档。总体表的「加粗」和逐字段表的「required」是两个意思。"""
+    fields = [
+        _field("important", correct=9, wrong=1, required=True),
+        _field("minor", correct=5, wrong=5),
+    ]
+    _write_eval(workspace, "p", TS_A, fields)
+    _write_eval(workspace, "p", TS_B, fields)
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    star_rows = [r for r in out["overall"] if r["css"] == "hard"]
+    assert len(star_rows) == 1
+    assert "★重要字段" in star_rows[0]["label"]
+    whole = next(r for r in out["overall"] if r["label"] == "全字段 · 有值格")
+    assert whole["css"] == "key", "the whole-schema row must not inherit the ★ class"
+
+
+async def test_identical_labels_get_disambiguated(workspace: Path) -> None:
+    """同一模型的两次跑批，标签会撞成「X vs X」，读不出谁是谁。"""
+    _write_eval(workspace, "p", TS_A, [_field("f", correct=8, wrong=2)], model="same-model")
+    _write_eval(workspace, "p", TS_B, [_field("f", correct=9, wrong=1)], model="same-model")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert out["a_label"] != out["b_label"]
+    assert TS_A in out["a_label"] and TS_B in out["b_label"]
+
+
+async def test_distinct_labels_stay_clean(workspace: Path) -> None:
+    """没撞就不补 ts —— 产品经理读的是模型名，时间戳是噪音。"""
+    _write_eval(workspace, "p", TS_A, [_field("f", correct=8, wrong=2)], model="gemini-2.5-flash")
+    _write_eval(workspace, "p", TS_B, [_field("f", correct=9, wrong=1)], model="gemini-3-flash")
+
+    out = await render_compare_board(workspace, "p", TS_A, TS_B)
+
+    assert out["a_label"] == "gemini-2.5-flash"
+    assert TS_A not in out["a_label"]
+
+
+async def test_no_gt_mode_names_the_models_not_the_ids(workspace: Path) -> None:
+    """dogfood 抓到的：裁决态两侧显示成 `ex_6046df1xwwaa` vs `ex_7u4a2lh25dme`。
+    产品经理读不出那是什么模型 —— 报告态早就读语义名了，这一态漏了。"""
+    from app.workspace.atomic import atomic_write_json
+    from app.workspace.paths import experiment_meta_path
+
+    slug = await _no_gt_project(workspace)
+    mp = experiment_meta_path(workspace, slug, "ex_abc123def456")
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(mp, {"id": "ex_abc123def456", "label": "gemini-3-flash · Baseline"})
+
+    out = await render_compare_board(workspace, slug, "_draft", "ex_abc123def456")
+
+    assert out["b_label"] == "gemini-3-flash · Baseline"
+    assert out["a_label"] == "当前配置（草稿）"
+    assert "ex_abc123def456" not in out["html"]
+
+
+async def test_no_gt_subtitle_does_not_claim_the_project_lacks_gt(
+    workspace: Path,
+) -> None:
+    """dogfood 抓到的：对一个有 638 格 GT 的项目说「这个项目还没有 ground truth」。
+    这个视图能被打开有两种原因，副标题只该描述自己在做什么。"""
+    slug = await _no_gt_project(workspace)
+
+    out = await render_compare_board(workspace, slug, "_draft", "ex_abc123def456")
+
+    assert "这个项目还没有 ground truth" not in out["html"]
+    assert "未对 ground truth 打分" in out["html"]
+
+
+async def test_no_gt_detail_values_can_wrap(workspace: Path) -> None:
+    """dogfood 抓到的：一个长地址就把「挑战者」那一列挤出视口。表格全局的
+    `nowrap` 是给数字列定的，值列跟着遭殃 —— 而并排看两侧正是这张表的全部意义。"""
+    from app.schemas.schema_field import FieldType, SchemaField
+    from app.tools.projects import create_project
+    from app.tools.schema import write_schema
+    from app.workspace.atomic import atomic_write_json
+    from app.workspace.paths import experiment_predictions_dir, predictions_draft_dir
+
+    long_a = "BHPETROL Jln Klang Lama 4 Lot 35311 Batu 6 1/2, Jln Klang 58200, Wil. Persekutuan"
+    slug = (await create_project(workspace, name="wide"))["slug"]
+    await write_schema(workspace, slug, [
+        SchemaField(name="billFromComposite", type=FieldType.STRING, description="d"),
+    ], reason="t", allow_structural=True)
+    d = predictions_draft_dir(workspace, slug)
+    d.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(d / "doc1.json", {"entities": [{"billFromComposite": long_a}]})
+    e = experiment_predictions_dir(workspace, slug, "ex_abc123def456")
+    e.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(e / "doc1.json", {"entities": [{"billFromComposite": "PETRON SEA PARK"}]})
+
+    out = await render_compare_board(workspace, slug, "_draft", "ex_abc123def456")
+
+    assert 'td.val { white-space: normal;' in out["html"]
+    assert out["html"].count('<td class="val">') == 2, "both sides must use the wrapping column"

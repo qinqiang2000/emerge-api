@@ -1047,13 +1047,18 @@ export async function getReviewBoard(slug: string): Promise<ReviewBoardPayload> 
 // The third `render_board` kind. One self-contained HTML per comparison (not
 // per doc, unlike the review board) — the frontend never parses it.
 //
-// `verdict` is the backend's noise gate, not a cosmetic hint: `noise` means
-// the gap did NOT clear both thresholds (Δcells and Δpp) and the UI must not
-// present the challenger as a winner. `no_gt` means the project has no ground
-// truth, so there are no percentages at all — only a diff queue to adjudicate.
+// `verdict` is the backend's noise gate, not a cosmetic hint:
+//   `win`   — cleared both thresholds (Δcells AND Δpp)
+//   `noise` — did NOT clear them; the UI must not present the challenger as
+//             a winner, however tempting the headline number looks
+//   `stale` — both sides were scored by an older metric version, so there is
+//             no hard number to compare; re-run the eval (NOT the same thing
+//             as a tie — saying "too close to call" here would be a lie)
+//   `no_gt` — no ground truth at all: no percentages anywhere, only a diff
+//             queue to adjudicate
 export interface CompareBoardPayload {
   headline: string
-  verdict: 'win' | 'noise' | 'no_gt'
+  verdict: 'win' | 'noise' | 'stale' | 'no_gt'
   a_label: string
   b_label: string
   html: string

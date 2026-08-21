@@ -199,14 +199,22 @@ th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--ink-2);
   letter-spacing: .05em; padding: 7px 11px; background: var(--thead);
   border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 7px 11px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+/* 分歧明细的值列：一个长地址就能把对面那一列挤出视口，而并排对比正是这张表
+   存在的理由。限宽 + 换行，宁可高也不能把对侧顶出去。 */
+td.val { white-space: normal; word-break: break-word; max-width: 30ch;
+  vertical-align: top; line-height: 1.45; }
+td.doc { white-space: normal; word-break: break-word; max-width: 22ch;
+  vertical-align: top; color: var(--ink-2); font-size: 12px; }
+th.val, th.doc { white-space: nowrap; }
 tbody tr:last-child td { border-bottom: none; }
 .num { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums; text-align: right; }
 .up { color: var(--moss); font-weight: 600; }
 .down { color: var(--rose); font-weight: 600; }
 .na { color: var(--ink-2); }
-tr.hard td { font-weight: 600; }
+tr.key td { font-weight: 600; }
 tr.hard td:first-child::before { content: "★ "; color: var(--ochre); }
+tr.hard td { font-weight: 600; }
 tr.faint td { color: var(--ink-2); font-size: 12px; }
 .foot { margin-top: 8px; color: var(--ink-2); font-size: 12px; }
 details { margin-top: 10px; }
@@ -281,10 +289,13 @@ def _build_html(
 <tbody>{''.join(orows)}</tbody></table></div>
 
 <h2>逐字段</h2>
-<div class="wrap"><table>
-<thead><tr><th>字段</th><th class="num">在位</th><th class="num">挑战者</th><th class="num">Δ</th>
-<th class="num">对/有值格</th><th class="num">错值·漏抽·多填</th></tr></thead>
-<tbody>{''.join(graded)}</tbody></table></div>
+{('<div class="wrap"><table>'
+  '<thead><tr><th>字段</th><th class="num">在位</th><th class="num">挑战者</th>'
+  '<th class="num">Δ</th><th class="num">对/有值格</th>'
+  '<th class="num">错值·漏抽·多填</th></tr></thead>'
+  f'<tbody>{"".join(graded)}</tbody></table></div>')
+ if graded else
+ '<p class="foot">没有可逐字段对比的数据 —— 这两次评测都没有「有值格」口径的结果。</p>'}
 {faint_block}
 <p class="foot">★ = schema 里标了 required 的重要字段。「有值格」= ground truth 该格有值的格子；
 两边都空的格子不计入，因为那是送分题。</p>
@@ -308,11 +319,11 @@ def _build_no_gt_html(
     rows = diff["cells"][:_MAX_DETAIL_ROWS]
     detail = "".join(
         f'<tr class="{ "hard" if c["required"] else "" }">'
-        f'<td>{_e(c["filename"])}</td>'
+        f'<td class="doc">{_e(c["filename"])}</td>'
         f'<td class="num">{_e(c["entity_idx"])}</td>'
         f'<td>{_e(c["field"])}</td>'
-        f'<td>{_e(c["a"]) if c["a"] is not None else "<span class=na>（空）</span>"}</td>'
-        f'<td>{_e(c["b"]) if c["b"] is not None else "<span class=na>（空）</span>"}</td>'
+        f'<td class="val">{_e(c["a"]) if c["a"] is not None else "<span class=na>（空）</span>"}</td>'
+        f'<td class="val">{_e(c["b"]) if c["b"] is not None else "<span class=na>（空）</span>"}</td>'
         f"</tr>"
         for c in rows
     )
@@ -341,7 +352,7 @@ def _build_no_gt_html(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(slug)} · 分歧裁决</title><style>{_CSS}</style></head><body>
 <h1>{_e(a_label)} <span class="na">vs</span> {_e(b_label)}</h1>
-<p class="sub">项目 {_e(slug)} · 这个项目还没有 ground truth</p>
+<p class="sub">项目 {_e(slug)} · 逐格比对两组预测（未对 ground truth 打分）</p>
 <div class="verdict no_gt">{_e(headline)}</div>
 
 <h2>按字段</h2>
@@ -351,15 +362,34 @@ def _build_no_gt_html(
 
 <h2>明细</h2>
 <div class="wrap"><table>
-<thead><tr><th>文档</th><th class="num">实体</th><th>字段</th>
-<th>{_e(a_label)}</th><th>{_e(b_label)}</th></tr></thead>
+<thead><tr><th class="doc">文档</th><th class="num">实体</th><th>字段</th>
+<th class="val">{_e(a_label)}</th><th class="val">{_e(b_label)}</th></tr></thead>
 <tbody>{detail}</tbody></table></div>
 {more}
 {mismatch}
 <p class="foot">★ = schema 里标了 required 的重要字段，先裁这些。
 定夺一格就等于造了一格 ground truth —— 裁完回 chat 说一声，就能出真正的对比报告。
-这一页没有准确率：两个模型互相有多一致，不是准确率。</p>
+这一页没有准确率，也不会有：两个模型互相有多一致，不是准确率。</p>
 </body></html>"""
+
+
+def _source_label(workspace: Path, slug: str, source: str) -> str:
+    """prediction source 的人读名字：实验读它 meta 里的 label（那是「模型 ·
+    prompt」拼出来的），`_draft` 就是当前活动配置。
+
+    报告态的 `_side_label` 是同一条原则 —— `ex_6046df1xwwaa` 对产品经理毫无
+    意义，repo 惯例是 chat 里说模型名，id 只留给 plan 与运维脚本。"""
+    if source == "_draft":
+        return "当前配置（草稿）"
+    from app.workspace.paths import experiment_meta_path
+    try:
+        meta = json.loads(
+            experiment_meta_path(workspace, slug, source).read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return source
+    label = meta.get("label")
+    return str(label) if label else source
 
 
 async def _render_no_gt(
@@ -374,6 +404,8 @@ async def _render_no_gt(
     except DiffSourceError as e:
         raise CompareError(e.error_code, e.error_message_en) from e
 
+    a_label = _source_label(workspace, slug, a)
+    b_label = _source_label(workspace, slug, b)
     n_req = diff["n_diff_required"]
     headline = (
         f"{diff['n_diff']} 处分歧待裁决"
@@ -389,15 +421,16 @@ async def _render_no_gt(
     return {
         "headline": headline,
         "verdict": "no_gt",
-        "a_label": a,
-        "b_label": b,
+        "a_label": a_label,
+        "b_label": b_label,
         # 报告态的两张表在这里是空的 —— 没有 GT 就没有任何比率可填。
         "overall": [],
         "per_field": [],
         "n_diff": diff["n_diff"],
         "n_diff_required": n_req,
         "html": _build_no_gt_html(
-            slug=slug, a_label=a, b_label=b, headline=headline, diff=diff,
+            slug=slug, a_label=a_label, b_label=b_label,
+            headline=headline, diff=diff,
         ),
     }
 
@@ -429,6 +462,10 @@ async def render_compare_board(
     sb = _load_summary(workspace, slug, b)
 
     a_label, b_label = _side_label(sa, a), _side_label(sb, b)
+    # 同一模型 × 同一 prompt 的两次跑批标签会撞在一起（「X vs X」读不出谁是谁）。
+    # 撞了才补 ts —— 没撞时 ts 是噪音，产品经理读的是模型名。
+    if a_label == b_label:
+        a_label, b_label = f"{a_label}（{a}）", f"{b_label}（{b}）"
     verdict, delta_cells, delta_pp = _verdict(sa, sb)
 
     _, a_den = _totals(sa)
@@ -442,6 +479,7 @@ async def render_compare_board(
         #   · 打过分但 blob 是旧版（`n_reviewed > 0`）→ 重跑一次就有硬指标
         #   · 真的没有 GT（`n_reviewed == 0`）→ 才是「先去 review」
         graded = max(sa.n_reviewed or 0, sb.n_reviewed or 0)
+        verdict = "stale" if graded > 0 else "no_gt"
         if graded > 0:
             headline = (
                 f"这两次 eval 是旧版本打的分，没有「有值格」口径的数据"
@@ -471,14 +509,14 @@ async def render_compare_board(
             "b": _pct(sb.required_cell_accuracy_nonempty),
             "delta": _delta_str(sa.required_cell_accuracy_nonempty,
                                 sb.required_cell_accuracy_nonempty),
-            "css": "hard",
+            "css": "hard",  # ★ 只属于这一行
         })
     overall.append({
         "label": "全字段 · 有值格",
         "a": _pct(sa.cell_accuracy_nonempty),
         "b": _pct(sb.cell_accuracy_nonempty),
         "delta": _delta_str(sa.cell_accuracy_nonempty, sb.cell_accuracy_nonempty),
-        "css": "hard",
+        "css": "key",  # 头条加粗，但它不是「重要字段」那一档，不能带 ★
     })
     overall.append({
         "label": "整篇零错文档",
@@ -531,6 +569,9 @@ async def render_compare_board(
         "html": _build_html(
             slug=slug, a_label=a_label, b_label=b_label,
             headline=headline, verdict=verdict, overall=overall,
-            per_field=per_field, n_docs_graded=sb.n_docs_graded,
+            per_field=per_field,
+            # legacy blob 没有 n_docs_graded —— 回退到 n_reviewed，否则副标题
+            # 写「0 篇」而 headline 写「19 篇已打分」，同一张纸上自相矛盾。
+            n_docs_graded=sb.n_docs_graded or sb.n_reviewed,
         ),
     }

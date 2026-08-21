@@ -605,6 +605,7 @@ const en: Dict = {
   'compareboard.loading': 'building report…',
   'compareboard.verdict.win': 'challenger wins',
   'compareboard.verdict.noise': 'too close to call',
+  'compareboard.verdict.stale': 'needs a re-run',
   'compareboard.verdict.no_gt': 'needs adjudication',
 }
 
